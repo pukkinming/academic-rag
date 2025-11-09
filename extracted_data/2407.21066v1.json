@@ -1,0 +1,3885 @@
+{
+  "paper_id": "2407.21066v1",
+  "title": "Elp-Adapters: Parameter Efficient Adapter Tuning For Various Speech Processing Tasks",
+  "published": "2024-07-28T05:26:03Z",
+  "authors": [
+    "Nakamasa Inoue",
+    "Shinta Otake",
+    "Takumi Hirose",
+    "Masanari Ohi",
+    "Rei Kawakami"
+  ],
+  "keywords": [
+    "Adapter tuning",
+    "Automatic speech recognition",
+    "Automatic speaker verification",
+    "Speech emotion recognition",
+    "Speech intent recognition"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Self-supervised learning has emerged as a key approach for learning generic representations from speech data. Despite promising results in downstream tasks such as speech recognition, speaker verification, and emotion recognition, a significant number of parameters is required, which makes fine-tuning for each task memory-inefficient. To address this limitation, we introduce ELP-adapter tuning, a novel method for parameterefficient fine-tuning using three types of adapter, namely encoder adapters (E-adapters), layer adapters (L-adapters), and a prompt adapter (P-adapter). The E-adapters are integrated into transformer-based encoder layers and help to learn finegrained speech representations that are effective for speech recognition. The L-adapters create paths from each encoder layer to the downstream head and help to extract non-linguistic features from lower encoder layers that are effective for speaker verification and emotion recognition. The P-adapter appends pseudo features to CNN features to further improve effectiveness and efficiency. With these adapters, models can be quickly adapted to various speech processing tasks. Our evaluation across four downstream tasks using five backbone models demonstrated the effectiveness of the proposed method. With the WavLM backbone, its performance was comparable to or better than that of full fine-tuning on all tasks while requiring 90% fewer learnable parameters.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "In the field of audio and speech processing, self-supervised learning using large-scale unlabeled datasets has become a leading approach for extracting generic representations from speech data [1]-  [7] . The main idea of this approach is to leverage the inherent structures and patterns within the speech data to train models via representation learning loss such as contrastive loss  [8] -  [11] . This significantly reduces the need for manually labeled data, making model training more scalable and efficient. Examples of models trained by selfsupervised learning, which we refer to as self-supervised models, include wav2vec [1],  [2] , HuBERT  [4] , and WavLM  [6] . These models have demonstrated the ability to extract taskindependent features with transformer-based architectures.\n\nIn recent years, the range of speech processing tasks that can be covered by self-supervised models has been steadily expanding beyond automatic speech recognition. For example, a number of studies have proposed methods that utilize speech embeddings extracted from self-supervised models for discriminative tasks such as speaker verification  [12] -  [15]  and speech emotion recognition  [16] ,  [17] . Some pioneering studies have demonstrated the effectiveness of self-supervised models in addressing more complex and generative tasks. For example, spoken question answering is an important line of research focused on developing models capable of understanding and responding to questions posed in natural spoken language, where recent studies leverage self-supervised models  [18] -  [23] . It has also been demonstrated that selfsupervised models can perform voice conversion effectively and efficiently by integrating a decoder and a vocoder  [24] -  [28] . These studies highlight the potential of self-supervised models across various speech tasks.\n\nTo apply self-supervised models to downstream tasks, finetuning on task-specific labeled datasets is often required. This process enables the models to adapt and specialize in specific tasks, leading to excellent results not only in speech recognition but also in various speech tasks. However, one limitation is the substantial number of parameters involved. When fine-tuning is conducted for each downstream task, multiple models must be stored, one for each task. This can lead to storage inefficiencies in real-world application settings, such as when each user wants to fine-tune the model with their private data and task.\n\nA parameter-efficient method for adapting self-supervised models to various downstream tasks is thus desirable. Learning task-specific downstream head modules, such as a linear classification head, with frozen self-supervised models is an efficient solution; however, it often degrades the final performance compared to that obtained by fine-tuning all parameters because the optimal features can differ substantially depending on each task. For instance, linguistic features that include phoneme information are crucial for speech recognition, whereas nonlinguistic features are crucial for speaker verification.\n\nRecently, learning with adapter modules that can be inserted into the intermediate encoder layers of a frozen model has emerged as a promising approach for parameter-efficient finetuning. The first adapter tuning method  [29]  was proposed for BERT  [30]  in the field of natural language processing, where two adapter modules are inserted into each encoder layer of BERT. Each adapter module consists of two linear layers with an activation between them and a skip connection. This approach requires fewer parameters (the frozen parameters are shared among all downstream tasks) without degrading accuracy. A number of follow-up studies have used adapters for various natural language processing tasks  [31] -  [33] .\n\nFor speech recognition, Kannan et al.  [34]  integrated adapter modules into recurrent neural network transducers. Hou et al.  [35] ,  [36]  proposed the use of adapters for cross-lingual speech adaptation. Winata et al.  [37]  proposed the adapt-and-adjust framework, which uses adapter modules for multilingual speech recognition based on hybrid connectionist temporal classification (CTC)-attention networks. Qian et al.  [38]  proposed gated and multi-basis adapters for multi-accent speech recognition. The effectiveness of adapter tuning has also been demonstrated in other speech processing tasks such as speech translation  [39] .\n\nSome recent studies have explored the application of adapter tuning to self-supervised models. Thomas et al.  [40]  introduced adapter modules into wav2vec2.0 for speech recognition. Chen et al.  [41]  compared the adapter modules with other efficient fine-tuning methods such as low-rank adaptation (LoRA)  [42] . It is also reported that various acoustic and linguistic features tend to be encoded in different layers in wav2vec2.0  [43] ,  [44] . These studies inspired us to develop an adapter tuning method for not only speech recognition but also various other speech processing tasks.\n\nIn this work, we propose ELP-adapter tuning, a parameterefficient fine-tuning method that utilizes three types of adapter, namely encoder adapters (E-adapters), layer adapters (Ladapters), and a prompt adapter (P-adapter). Each adapter is a small learnable module that has a distinct role in enhancing performance in downstream tasks. Given a frozen self-supervised model that consists of multiple encoder layers, the E-adapters are integrated into the transformer-based encoder layers. They help to extract fine-grained linguistic representations and improve speech recognition performance. The L-adapters create paths from each encoder layer to the downstream head. This improves the performance of tasks such as emotion recognition and speaker verification, as features extracted from intermediate encoder layers often help to capture non-linguistic features. The P-adapter appends learnable embeddings that are used as auxiliary inputs to the transformer-based encoders. This further enhances learning effectiveness and efficiency.\n\nIn experiments, we applied ELP-adapter tuning to four downstream tasks, namely automatic speech recognition (ASR), automatic speaker verification (ASV), speech emotion recognition (SER), and speech intent classification (SIC). With the WavLM backbone, our method achieved performance comparable to or even better than that of full fine-tuning while using 90% fewer learnable parameters. Further, we visualized the weight coefficients for each layer to explain the improvement obtained with our method.\n\nThis paper is an extended version of our previously published paper  [45]  at ICASSP 2023. Compared to the previous version, we have made the following significant extensions:\n\n1) We introduced a P-adapter that can be utilized in conjunction with the previously proposed E-adapters and L-adapters. 2) We demonstrated the effectiveness of ELP-adapter tuning across multiple self-supervised models. Specifically, we expanded our evaluations to include wav2vec2.0  [2] , HuBERT  [4] , ContentVec  [7] , and WavLM+  [6] . 3) We thoroughly conducted experimental evaluation with multiple conventional fine-tuning methods including weight tuning  [6] , LoRA tuning  [42] , Prefix tuning  [46] , and Efficient adapter tuning  [40] .\n\nThe rest of this paper is organized as follows. Section II reviews conventional self-supervised models and finetuning methods. Section III introduces ELP-adapter tuning for parameter-efficient fine-tuning. Sections IV-VII respectively present experiments on ASR, ASV, SER, and SIC tasks. Section VIII provides detailed analysis on layer weights and adapter configurations. Finally, Section IX concludes this paper and discusses future research directions.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Conventional Methods",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Self-Supervised Models",
+      "text": "The goal of self-supervised learning is to learn features from unlabeled data by leveraging the intrinsic structure of the data itself. This approach involves creating tasks where the input data serve as their own supervision data. Below, we review five self-supervised models for speech signal processing that we use as the backbones in our experiments.\n\n1) wav2vec2.0  [2] : This model consists of a convolutional neural network (CNN) encoder followed by multiple transformer encoders. The CNN encoder extracts low-level features from raw waveform inputs via a sequence of several blocks, each with a temporal convolution layer, layer normalization  [47] , and a Gaussian error linear unit (GELU)  [48]  activation function. The transformer encoders apply attention modules to the extracted features. We employ the wav2vec2.0 base model trained on the Librispeech  [49]  corpus, which contains 960 hours of speech with contrastive loss and diversity loss. The number of parameters is 95.04M.\n\n2) HuBERT  [4] : This model aims to discover hidden acoustic units to provide frame-level targets in self-supervised learning using masked prediction. The architecture consists of a CNN encoder and transformer encoders, similar to wav2vec2.0. We employ the HuBERT base model, which is trained on the Librispeech corpus with masked prediction loss using the acoustic unit discovery module. The number of parameters is 94.68M.\n\n3) ContentVec  [7] : This model aims to disentangle speaker variations during self-supervised learning by incorporating three disentanglement mechanisms into HuBERT, namely disentanglement in teachers, students, and speaker conditioning. The architecture is the same as that of the HuBERT base model. We employ the ContentVec model trained on Librispeech.\n\n4) WavLM  [6] : This model is a self-supervised model for addressing various downstream speech tasks. The architecture consists of a CNN encoder and transformer-based encoders using gated relative position bias  [50] . We employ two models, namely WavLM Base and WavLM Base+. The former model is trained on Librispeech. The latter model, which we refer to as WavLM+, is trained on a union set of Librispeech, GigaSpeech  [51] , and VoxPopuli  [52] , which contains a total of 96k hours of audio data. The number of parameters for each model is 94.70M.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Fine-Tuning Methods",
+      "text": "Given a self-supervised model, the goal of fine-tuning is to adjust the model parameters for a specific downstream task, typically using a relatively small amount of labeled data and a task-specific loss function. Assuming that self-supervised models share a common architecture, which consists of a CNN encoder followed by multiple transformer-based encoders as shown in Fig.  1 (a), below we provide details on five fine-tuning methods that we use as baselines in our experiments.\n\n1) Full fine-tuning: This method updates all model parameters for each downstream task. Typically, a small downstream head such as a linear head or a multi-layer perceptron (MLP) with few layers is added to the self-supervised model to apply a task-specific loss function such as CTC loss for ASR  [53]  and cross entropy loss for SIC. In general, full fine-tuning is less parameter-efficient, but it often achieves high performance on downstream tasks.\n\n2) Weight tuning: This method utilizes the weighted sum of features extracted from the encoder layers, where the weight coefficients are learnable and the other parameters of the selfsupervised model are frozen as shown in Fig.  1(b) . More specifically, it is formulated as\n\nwhere X l ∈ R n×d is the output of the l-th encoder layer given as a sequence of d-dimensional vectors of length n ∈ N, w l ∈ R is a learnable weight, and L ∈ N is the number of encoder layers. When applying weight tuning to downstream tasks, a learnable downstream head that takes X ∈ R n×d as the input is added to the frozen self-supervised model. As discussed in  [6] , this method is significantly more parameterefficient than full fine-tuning because most parameters are frozen and shared among all downstream tasks. However, performance on downstream tasks is often degraded.\n\n3) LoRA tuning  [42] : This method injects rank decomposition matrices into a frozen self-supervised model. When applying LoRA tuning to self-attention modules, the key, value, and query matrices are computed with injected lowrank matrices as shown in Fig.  1(c ). More specifically, given an input sequence X ∈ R n×d , the self-attention module of LoRA tuning is given as\n\nwhere K, V , and Q are the key, value, and query matrices, respectively, given by\n\nHere, W k , W v , W q ∈ R d×d ′ are pre-trained frozen weights, A k , A v , A q ∈ R d×r and B k , B v , B q ∈ R r×d ′ are learnable low-rank matrices. The rank r is chosen such that r ≪ min(d, d ′ ). We apply LoRA tuning to all self-attention modules and the fully connected layers after each self-attention module with r = 128.\n\n4) Prefix tuning  [46] : This method prepends pseudo tokens to each encoder layer by concatenating new learnable embeddings to the key and value matrices of each self-attention module as shown in Fig.  1(d) . Specifically, the key, value, and query matrices to compute self-attention are given by\n\nHere, W k , W v , W q ∈ R d×d ′ are pre-trained frozen weights, P k , P v ∈ R m×d ′ are newly added learnable matrices, and [ ; ] indicates the concatenation operation. We apply prefix tuning to all self-attention modules with m = 5.\n\n5) Efficient adapter tuning  [40] : In the field of natural language processing, Houlsby et al.  [29]  proposed efficient adapter modules for transformers. This was applied to wav2vec2.0 by Thomas et al.  [40]  for speech recognition. We refer to this method as efficient adapter tuning. Let X 0 ∈ R n×d be the output of the CNN encoder, where n is the length, which depends on the time length of the audio input, and d is the dimension of feature vectors. Under the assumption that the output X l ∈ R n×d of the l-th encoder layer is given by\n\nwhere\n\nmhsa is a multi-head self-attention (MHSA) module, and f norm is a normalization function, efficient adapter tuning inserts two learnable adapters g\n\n2 as follows:\n\nwhere ˆindicates adapted output features. Here, each adapter g (l)\n\ni : R n×d → R n×d (i = 1, 2) is given by\n\nwhere\n\nfc2 are learnable fully connected layers and σ is an activation function. As shown in Fig.  1 (e), LayerNorm and GELU activation function are used for f norm and σ, respectively. A downstream head is also trained with the adapter modules.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Iii. Proposed Adapter Architecture",
+      "text": "This section presents ELP-adapter tuning, a novel finetuning method for various speech processing tasks. Given a frozen self-supervised model (e.g., WavLM), ELP-adapter tuning incorporates three types of adapter, namely E-adapters, L-adapters, and a P-adapter, into the model, as shown in Fig.  2 . The E-adapters g (l)\n\nE are integrated into the transformerbased encoder layers. This helps to obtain fine-grained linguistic representations that are effective for speech recognition. The L-adapters g (l)\n\nL create paths from each encoder layer to the downstream head. This helps to extract features from intermediate encoder layers; such features are effective for emotion recognition and speaker verification. The P-adapter g P appends learnable embeddings to input tokens to further enhance training effectiveness and efficiency.\n\nThe amount of storage required to store fine-tuned models is O(N + K(M + H)), where K is the number of downstream tasks and N , M , and H are the numbers of parameters of the frozen backbone model, learnable adapter modules, and downstream head, respectively. Compared to full fine-tuning, for which the amount of storage required is O(K(N + H)), ELP-adapter is more efficient when M ≪ N . In practice, we need M to be roughly 10 percent of N to achieve performance comparable to that of full fine-tuning. For example, with the WavLM backbone and our ELP-adapter modules, we have N = 94.7M and M = 9.52M. In the following, we provide detailed descriptions of each adapter module and downstream head.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "A. E-Adapters",
+      "text": "The E-adapters g (l) E : R n×d → R n×d are incorporated into each encoder layer to obtain fine-grained representations via fine-tuning as shown in Fig.  2(a) . Specifically, they are formulated as follows:\n\nwhere f\n\nmhsa is a frozen multi-head self-attention module, f norm is a normalization function, and Xl indicates the adapted output of the l-th encoder layer. Each E-adapter is given by\n\nwhere\n\nfc2 are learnable fully connected layers and σ is an activation function. Compared to the conventional efficient adapter tuning in Eqs. (  12 ) and (  11 ), the adapter module for MHSA is omitted. When the E-adapters are used with the L-adapters presented in the next subsection, this omission does not lead to a decrease in performance and improves parameter efficiency. For activation function σ, the rectified linear unit (ReLU) is used for ASV and SER and GELU is used for ASR and IC.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "B. L-Adapters",
+      "text": "The L-adapters make paths from each encoder layer to the downstream head to utilize the intermediate representations from the early phases of fine-tuning as shown in Fig.  2(b) . Let X l be the output of the l-th encoder layer. The L-adapters g (l)\n\nL are applied to each X l to obtain adapted features as\n\nfor l = 1, 2, • • • , L. Each L-adapter is given by\n\nwhere f (l) fc is a learnable fully connected layer, σ is an activation function, and f norm is a layer normalization function. The weighted sum of the adapted features\n\nis then fed into the downstream head, where w l ∈ R represents learnable weights. This L-adapter is simpler than the conventional adapter module in Eq. (  13 ), resulting in better parameter efficiency. The activation function σ is the same as that used for the E-adapters. The L-adapters are key components of our proposed method to cover various speech processing tasks, such as automatic speaker verification, where features extracted from lower layers are effective.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. P-Adapter",
+      "text": "Let X 0 ∈ R n×d be the output of the CNN encoder, where n is the length and d is the dimension of each feature vector. The P-adapter injects pseudo features into it as shown in Fig.  2(c ). We introduce four variants of P-adapters.\n\n1) Prefix P-adapter: The prefix P-adapter g pre prepends a new learnable matrix P ∈ R m×d as follows:\n\nwhere [ ; ] indicates the concatenation operation. Then, Q 0 = g pre (X 0 ) is fed into the transformer encoders to obtain the encoder outputs Q l as\n\nwhere\n\nenc indicates the l-th encoder. At the final layer, the first m vectors corresponding to P are omitted:\n\nwhere g -1 pre is the inverse operation of g pre for omitting the vectors. This restores the sequence length to n. The feature XL is fed into the downstream head.\n\nWhen the P-adapter is utilized with the E-adapters, the Eadapters are applied to Q l :\n\nWhen the P-adapter is utilized with the L-adapters, the inverse operation is inserted into each L-adapter as follows:\n\n2) Suffix P-adapter: The suffix P-adapter g pre appends a new learnable matrix P ∈ R m×d to X 0 as follows:\n\nThis can be utilized with the E-and L-adapters in the same way as done for the prefix P-adapter.\n\n3) Nonlinear P-adapter: To facilitate learning through pseudo features, the nonlinear P-adapter applies a small MLP f mlp to learnable embeddings P . Specifically, we introduce two variants of the nonlinear P-adapter, namely prefix nonlinear Padapter g nl-pre and suffix nonlinear P-adapter g nl-suf , as follows:\n\nThe best P-adapter configuration depends on the task, as we will discuss in Section VIII-B. We use the suffix P-adapter as the default P-adapter because it offers a good balance between performance and efficiency.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "D. Downstream Head",
+      "text": "The downstream head is a minimal learnable module that is used to apply task-specific loss function. This paper considers four tasks, ASR, ASV, SER and SIC, which belong to the four different aspects of speech  [54] : content, speaker, paralinguistics, and semantics, respectively. As shown in Fig.  2(d) , a single fully connected layer is used for ASR. A small network that consists of two fully connected layers with an average time pooling layer in between is used for ASV, SER, and SIC.\n\nDuring fine-tuning, we also make all LayerNorm parameters learnable in the backbone self-supervised model, resulting in an addition of 0.037M learnable parameters. This approach is applied to all fine-tuning methods (weight tuning, prefix tuning, LoRA tuning, efficient adapter tuning, and our ELPadapter tuning) in our experiments.\n\nIV. AUTOMATIC SPEECH RECOGNITION ASR aims to convert speech signals into text transcriptions. For this task, speaker-independent features that distinguish phonemes often help improve performance. In this section, we conduct experiments to demonstrate the effectiveness of ELP-adaptor tuning for the ASR task.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "A. Datasets And Evaluation Metrics",
+      "text": "The LibriLight dataset (train-10h)  [55]  is used for training. It is a supervision training set that consists of 10 hours of audio data derived from open-source English audiobooks in the LibriVox project. The number of speakers is 24 (12 male, 12 female). The LibriSpeech (dev-clean)  [49]  dataset is used for testing. It consists of 5.4 hours of audio data with 40 speakers (20 male, 20 female).\n\nThe evaluation metric is the word error rate (WER), defined as\n\nwhere S is the number of substitutions, D is the number of deletions, I is the number of insertions, and N is the number of words in the reference.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "B. Implementation Details",
+      "text": "The downstream head for ASR consists of a single fully connected layer. CTC loss  [53]  is used as the loss function. All models are fine-tuned with the Adam optimizer for N total = 34, 600 iterations with a batch size of 8. The learning rate is scheduled with a linear warmup scheduler:\n\nwhere t is the time step, N warm = 5, 000 is the number of warmup steps, η 0 = 10 -7 is the initial and final learning rate, and η max is the maximum learning rate after warmup. For each fine-tuning method, the best learning rate for η max is chosen from {1.0 × 10 -3 , 5.0 × 10 -4 , 1.0 × 10 -4 , 5.0 × 10 -5 , 1.0 × 10 -5 }.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "C. Comparison With Conventional Methods",
+      "text": "Table  I  compares ELP-adapter tuning with the conventional fine-tuning methods described in Section II-B. As shown, our method outperformed the conventional methods for the five self-supervised models while having fewer learnable parameters than that for the conventional efficient adapter tuning. This shows the effectiveness and parameter efficiency of ELPadapter tuning. It is also worth noting that ELP-adapter tuning achieved WERs lower than those obtained by full fine-tuning for two models (HuBERT and WavLM+). This is because ELP-adapter allows for quick adaptation while avoiding overfitting.\n\nRegarding the self-supervised models, WavLM showed the best performance among the four models pre-trained on Lib-riSpeech (wav2vec2.0, HuBERT, ContentVec, and WavLM), with the exception of the prefix tuning result. This is because Word error rate (%)",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Full Finetuning Efficient Adapter Elp-Adapter",
+      "text": "Fig.  3 . Trade-off between number of learnable parameters and ASR performance in terms of WER with number of frozen layers varying from 1 to 12.\n\nThe WavLM model was used as a backbone model.\n\nthe gated relative position bias used in WavLM is particularly effective for ASR. With prefix tuning, wav2vec2.0 provided the best fit. This is because when adding new elements to the key and value matrices of attention, a simpler architecture works better. In addition, WavLM+ outperformed WavLM in all cases. This shows that increasing the amount of pretraining data improves performance, regardless of the finetuning method.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "D. Ablation Study",
+      "text": "Table  II  shows the results of the ablation study for various adapter types. As shown, E-adapter tuning outperformed Ladapter tuning for the five self-supervised models. This indicates that the adaptation of encoders plays a more crucial role in ASR than the fusion of outputs from multiple layers via Ladapters. For ASR, features from layers closer to the last layer,  which are often speaker-independent phoneme-level features, contribute to the performance improvement. Therefore, the insertion of E-adapters into a series of encoder layers to adapt these features was effective.\n\nThe combination of E-adapters and L-adapters reduced the WER for all models. The addition of P-adapter further reduced the average performance with a small increase in the number of learnable parameters. This demonstrates the effectiveness of the proposed combination of three types of adapter.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "E. Trade-Off Analysis",
+      "text": "We performed experiments in which the numbers of layers used to fine-tune and insert adapters was varied to find cases where a smaller number of parameters would perform well. Figure  3  compares the results obtained with full fine-tuning, conventional efficient adapter tuning, and the proposed ELPadapter tuning. As shown, all error curves decrease quickly, showing that adjustments of only the top three layers are sufficient. This suggests that encoders in the lower layers are already effective at extracting features for ASR and that freezing them to avoid overfitting can enhance performance. We also confirmed that our method had the best performance in all cases.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "V. Automatic Speaker Verification",
+      "text": "ASV aims to verify the identity of speakers. Given an enrollment utterance and a test utterance, the goal is to determine whether these two utterances are from the same speaker. This paper focuses on text-independent speaker verification, which has no constraints on speech content. For this task, speakerdependent features that are robust to changes in speech content and background noise often help improve performance. This section applies ELP-adapter tuning to the ASV task.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "A. Datasets And Evaluation Metrics",
+      "text": "The VoxCeleb1 dataset  [56]  is used for training and testing. It consists of 351 hours of audio data extracted from videos uploaded to YouTube. The training set consists of 148,642 audio utterances from 1,211 speakers. The test set consists of 37,611 trials built from 4,874 audio utterances from 40 speakers.\n\nThe evaluation metric is the equal error rate (EER), which is the error rate at which the false alarm rate (FAR) and the false rejection rate (FRR) are equal. Here, FAR and FRR are given by\n\nwhere TP is the number of true positives, FP is the number of false positives, and FN is the number of false negatives.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "B. Implementation Details",
+      "text": "The downstream head for ASV consists of a small MLP, which has two fully connected layers and an average time pooling layer in between. The number of hidden units is set to 768. The cross-entropy loss with speaker ID labels is used as the loss function, by which models learn to classify speakers. All models are fine-tuned with the Adam optimizer for 20.8k iterations. The batch size is determined adaptively at each iteration to fit as much data as possible into 16 GB of GPU memory. The learning rate is scheduled with the linear warmup scheduler with N warm = 5, 000. In the verification phase, speaker embeddings are extracted from the average time pooling layer by omitting the final fully connected layer. For each trial, the cosine similarity between the speaker embeddings for the enrollment and test utterances is measured to determine whether the two utterances are from the same speaker, with the threshold set such that FAR and FRR are equal to compute EER. adaptive s-norm  [57] ,  [58]  is applied to normalize these trial scores.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "C. Comparison With Conventional Methods",
+      "text": "Table  III  compares ELP-adapter tuning with the four conventional fine-tuning methods. As shown, our method has the best performance for HuBERT, ContentVec, WavLM, and WavLM+. This advantage is derived from the use of Ladapters, which connect the outputs of each layer to the downstream head. As discussed in the ASR experiments, features in the upper layers tend to be speaker-independent. Therefore, connecting the lower layers to the downstream head helps to improve the extraction of speaker-dependent features, which is essential for ASV. With wav2vec 2.0, speaker information and prosodic information could be entangled even in the upper layers, making simple encoder adaptation with conventional efficient adapter tuning the best solution.\n\nWith full fine-tuning, HuBERT performed the best and WavLM+ performed the worst, in contrast to the results for ASR. This indicates that the features of WavLM+, especially those of the last layer, are highly speaker-independent. ELPadapter tuning effectively addresses this limitation, achieving the best performance with WavLM+.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "D. Ablation Study",
+      "text": "Table  IV  shows the results of the ablation study. As shown, L-adapter tuning outperformed E-adapter tuning for HuBERT, ContentVec, WavLM, and WavLM+. Notably, Ladapter tuning significantly improves the performance of WavLM+, with a 1.96 point decrease in EER. This supports the above discussion about the effectiveness of L-adapters for ASV. The combination of E-adapters and L-adapters improved performance for all models, and the addition of P-adapter further improved performance for four of the five models (Wav2vec2.0, ContentVec, WavLM and WavLM+). This result is consistent with that for the ASR task.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "E. Trade-Off Analysis",
+      "text": "Figure  4  shows the results obtained with various numbers of fine-tuned layers for full fine-tuning, conventional efficient adapter tuning, and proposed ELP-adapter tuning. As shown, EER decreases as the number of fine-tuned layers increases. In contrast to the ASR results in Figure  3 , fine-tuning lower layers improves performance because these layers facilitate the extraction of speaker-dependent non-linguistic features. We also confirmed that our method had the best performance in all cases.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Vi. Speech Emotion Recognition",
+      "text": "SER aims to identify the affect of the speaker based on audio utterances. It is often formulated as a classification problem, where the goal is to classify the input audio utterance into predefined emotion classes. For this task, audio features that effectively capture emotional cues in speech, such as tone, pitch, and rhythm, are crucial for enhancing accuracy. This section applies ELP-adapter tuning to the SER task.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A. Datasets And Evaluation Metrics",
+      "text": "The IEMOCAP dataset  [59]  is used for training and testing. It consists of 12 hours of audio data collected from 10 actors (5 male, 5 female) performing scripted and spontaneous dialogues. Following previous studies  [60] , four emotion categories, namely \"neutral\", \"happy\", \"sad\", and \"angry\", are used for evaluation, where \"excited\" is merged into \"happy\".\n\nThe evaluation metric is the error rate (ER), which is given by\n\nwhere C = 4 is the number of emotion classes and ACC i is the accuracy for the i-th class. Five-fold cross-validation is performed to measure ER.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "B. Implementation Details",
+      "text": "The downstream head for SER consists of a small MLP, which has two fully connected layers and an average time pooling layer in between. The number of hidden units is set to 256. The cross-entropy loss is used as a loss function. All models are fine-tuned with the Adam optimizer for 2,750 iterations. The batch size is set to 32. The learning rate is scheduled with a step scheduler, which is given by\n\nwhere γ = 0.1 and s = 10.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "C. Comparison With Conventional Methods",
+      "text": "Table  V  shows that ELP-adapter tuning outperforms the four conventional fine-tuning methods. For SER, it is necessary to comprehensively extract prosodic information such as tone, pitch, and rhythm. Similar to the case for ASV, L-adapters helped to extract non-linguistic features from lower encoder layers.\n\nBecause most self-supervised models are trained to find hidden audio units in an unsupervised manner on clean nonemotional speech data, which often leads to the formation of units capable of distinguishing phonemes but not emotions, features extracted from frozen self-supervised models are not always effective for SER. Nevertheless, ELP-adapter with WavLM+ achieved the best performance among all methods. This highlights the potential of adapter-based fine-tuning to handle complex tasks such as SER.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "D. Ablation Study",
+      "text": "Table  VI  shows the results of the ablation study. As shown, L-adapter tuning outperformed E-adapter tuning for all models. Similar to ASV, this result indicates that features extracted from lower layers are useful for SER because they often represent low-level features such as pitch and tone, which help to discriminate emotions. The combination of multiple types of adapter further improved the performance. This result is consistent with those for ASR and ASV.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "E. Trade-Off Analysis",
+      "text": "Figure  5  shows the results obtained with various numbers of fine-tuned layers. ER decreases as the number of fine-tuned layers increases. This tendency is similar to that observed for ASV, but unlike for ASV, the error curve does not exhibit a sharp bend. This indicates that the high-level linguistic features in upper layers effective for ASR are also beneficial for SER. It was also confirmed that the proposed method outperforms the conventional methods in all cases.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Vii. Speech Intent Classification",
+      "text": "SIC aims to identify the purpose behind an audio input. It requires understanding and categorizing the intent into predefined classes. For this task, features that capture semantic information often play a critical role in improving performance. In this section, we apply ELP-adaptor tuning to the IC task.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "A. Datasets And Evaluation Metrics",
+      "text": "The Fluent Speech Commands dataset  [61]  is used for training and testing. It consists of simple voice assistant commands with 30,043 English audio utterances from 97 speakers. Each utterance is labeled with three slots: \"action\", \"object\", and \"location\". A set of classes is predefined for each slot. Specifically, there are 6 action classes, 14 object classes, and 4 location classes:\n\nAction: 1) activate, 2) bring, 3) change language, 4) deactivate, 5) decrease, 6) increase Object: 1) Chinese, 2) English, 3) German, 4) Korean, 5) heat, 6) juice, 7) lamp, 8) lights, 9) music, 10) newspaper, 11) none, 12) shoes, 13) socks, 14) volume Location: 1) bedroom, 2) kitchen, 3) washroom, 4) none\n\nThe evaluation measure is ER, defined as 1.0-ACC, where  ACC is the accuracy computed with true positives defined as the correct classifications with respect to all three slots.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B. Comparison With Conventional Methods",
+      "text": "Table VII compares ELP-adapter tuning with the four conventional fine-tuning methods on the SIC task. Most methods achieved an ER of less than 1.0%. Conventional efficient adapter tuning, full fine-tuning, and ELP-adapter tuning had comparable performance. The absence of significant differences between these three methods indicates that the SIC task is relatively simple compared to tasks such as ASR and ASV, suggesting that tuning with only encoder adapters may be sufficient.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "C. Ablation Study",
+      "text": "Table  VIII  shows the results of the ablation study. In contrast to ASR, ASV, and SER, the combination of the three types of adapter was the most effective only for two models (HuBERT and ContentVec). This is because minimizing loss on SIC is relatively easier than the other tasks, and combining three types of adapters is redundant. This paper aimed to propose an adapter tuning method that is effective for various speech processing tasks. However, automatic pruning of unnecessary adapters is also an interesting topic for future research.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "D. Trade-Off Analysis",
+      "text": "Figure  6  shows the results obtained with various numbers of fine-tuned layers. Tendencies similar to those for ASR can be seen, where fine-tuning the upper layers well reduces ER and fine-tuning all layers results in overfitting. This is because linguistic information and high-level semantic information extracted from the upper layers are crucial for understanding intent behind audio inputs. The conventional efficient adapter tuning had the best performance with a small number of finetuned layers (the best performance is archived with five layers). This confirms that tuning only encoder adapters is the most efficient method for this task.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Viii. Discussion And Analysis",
+      "text": "",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "A. Layer Weight Analysis",
+      "text": "To analyze the contribution of each layer, Fig.  7  visualizes the learned weight coefficients w l in Eqs. (1) and  (19)  for each layer l = 1, 2, • • • , 12 obtained in weight tuning, L-adapter tuning and ELP-adapter tuning.\n\nIn ASR, the weights obtained from the upper layers (layers from 9 to 12) tend to be larger. With ELP-adapter tuning, the topmost layer has the largest weight for four models (b-e). This indicates that the updates through E-adapters connected in series contribute significantly to the ASR performance.   In ASV, the weight distribution of weight tuning is similar to that of ASR. In contrast, the distribution is shifted clearly with L-adapter tuning and ELP-adapter tuning, resulting in larger weights in the lower layers (layers 3 to 5). This suggests that extracting features to identify speakers is not straightforward with the low-level features obtained from the frozen lower layers, but L-adapters provide a means to better leverage the lower layers.\n\nIn SER, all layers are leveraged almost equally. This shows that the combination of features extracted from lower to higher layers contributes to identifying emotions.\n\nIn SIC, the weights of upper layers are relatively larger than those of lower layers with weight tuning. However, all layers are leveraged almost equally in L-adapter tuning and ELPadapter tuning. While high-level features are crucial for SIC, this result indicates that this SIC task could be solvable even with a smaller number of layers. Fig.  9 . Four P-adapter configurations. X 0 is the output of the CNN encoder. P is a learnable matrix. Configurations (A) to (D) are corresponding to those in Table . X.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "B. Adapter Configurations 1) L-Adapter Configurations:",
+      "text": "To investigate the most effective configuration for L-adapters, we conducted experiments with nine configurations in Table  IX . Fig.  8  illustrates these configurations. Configuration (A) uses only the weighted sum (\"Weight\" in the table) of the encoder outputs, which has 12 parameters as described in Eq. (1). Configuration (B) introduces a single LayerNorm into each adapter, resulting in 18k learnable parameters. The presence of LayerNorm potentially facilitates learning more effective representations by reducing internal covariate shift. The performance improvement in ASR, ASV, and SER suggests that this normalization step helps to extract more useful features from the speech signal for these tasks. Configuration (C) adds the activation function to (B), but the performance of ASR and ER was degraded. Applying the activation function was not effective because all encoder layers are frozen.\n\nConfiguration (D) makes all LayerNrom parameters learnable in the backbone self-supervised models. Note that this is what we called \"Weight tuning\" in previous sections. As shown in the table, the performance on all tasks was improved when comparing (A) and (D). Further, (E) incorporates a learnable fully connected layer into each L-adapter. This significantly the perfomance of ASR, ASV and ER. Although fully connected layers increase the number of learnable parameters to 4.75M, this is considered the minimum requirement.\n\nConfigurations (F), (G), and (H) add activation function,   LayerNorm and both of them to (E), respectively. As shown, (H) achieved the best or second best performance among all configurations on all tasks. Finally, configuration (I) investigates the effectiveness of the skip connection, but we did not observe any significant performance improvement. From these results, we conclude that (H), which is the default configuration of L-adapters, represents the optimal balance of efficiency and effectiveness.\n\n2) P-adapter configuration: Table . X compares P-adapter configurations described in Section III-C. Configurations (A) and (B) use the prefix P-adapter and its nonlinear extension, respectively. As shown, the nonlinear extension improved the performance on all tasks. However, with the suffix P-adapter in (C) and (D), the nonlinear extension improved the performance only on ASV. The default setting we used was (C), but these results suggest that the best configuration of P-adapter depends on the task.",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "C. Limitations",
+      "text": "When a large amount of data is available for fine-tuning, it is advantageous to update more parameters. Consequently, ELPadapter tuning does not always outperform full fine-tuning. To analyze this limitation, we compared full fine-tuning and ELP-adapter tuning using larger training data for ASR and ASV with the WavLM+ backbone.\n\nFor ASR, the train-clean-100 set of LibriSpeech consisting of 100 hours of clean speech data was used for training, and the test-clean set was used for testing. Results are reported in Table  XI  with and without the 4-gram language model of LibriSpeech, applied in the same way as in  [2] . As shown, ELP-adapter tuning approaches the performance of full finetuning but falls short by 0.06 and 0.07 points in WER, with and without the language model, respectively.\n\nFor ASV, the VoxCeleb2 training set consisting of 1.1 million audio utterances from 5,994 speakers was used for training, and the VoxCeleb1 test set was used for testing. Results are reported in Table XI in two settings: 1) the same setting as in Section V, where the linear head is used with the cross-entropy loss for 6 epochs, and 2) the x-vector setting  [62] , where the x-vector model  [63]  is used as a downstream head with the AMM softmax loss  [64]  without noise-based augmentation for 12 epochs. In contrast to ASR, ELP-adapter tuning outperformed full fine-tuning by 0.61 and 0.33 points, with the linear and x-vector heads, respectively.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Ix. Conclusion",
+      "text": "This paper proposed ELP-adapter tuning, a novel method for parameter-efficient fine-tuning for various speech processing tasks. We introduced three types of adapter, namely E-adapters for learning fine-grained speech representation, L-adapters for extracting non-linguistic features from lower layers, and Padapters for improving training efficiency with pseudo features. The results of experiments on ASR, ASV, SER and SIC tasks demonstrated the effectiveness and efficiency of the proposed method compared to conventional fine-tuning methods. Future work will focus on further improving efficiency through automatic pruning of adapter types and neural architecture search, as well as applying adapters to more complex and generative tasks such as spoken question answering  [18] -  [23]  and voice conversion  [24] -  [28] . Multi-modal adapters for speaker verification and emotion recognition over both audio and visual streams will also be investigated.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Self-supervised model and conventional fine-tuning methods. (a) Architecture of self-supervised model, which consists of a CNN encoder and L",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: (a), below we provide details on five fine-tuning",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: (c). More specifically, given",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: (d). Specifically, the key, value, and",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: (e), LayerNorm",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: The E-adapters g(l)",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: (a). Specifically, they are",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Trade-off between number of learnable parameters and ASR perfor-",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: compares the results obtained with full fine-tuning,",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Trade-off between number of learnable parameters and ASV perfor-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: shows the results obtained with various numbers",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: , fine-tuning lower",
+      "page": 8
+    },
+    {
+      "caption": "Figure 5: shows the results obtained with various numbers",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Trade-off between number of learnable parameters and SER perfor-",
+      "page": 9
+    },
+    {
+      "caption": "Figure 6: shows the results obtained with various numbers",
+      "page": 10
+    },
+    {
+      "caption": "Figure 6: Trade-off between number of learnable parameters and SIC perfor-",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: visualizes",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: Weight coefficients wl for layers l = 1, 2, · · · , 12. Results of five self-supervised models are visualized: (a) Wav2vec2.0, (b) HuBERT, (c) ContentVec,",
+      "page": 11
+    },
+    {
+      "caption": "Figure 8: Nine L-adapter configurations. Configurations (A) to (I) are corre-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 9: Four P-adapter configurations. X0 is the output of the CNN encoder.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 8: illustrates these",
+      "page": 11
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Tokyo Institute of Technology": "models\nin\naddressing more\ncomplex\nand\ngenerative\ntasks."
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "For\nexample,\nspoken\nquestion\nanswering\nis\nan\nimportant"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "line\nof\nresearch\nfocused\non\ndeveloping models\ncapable\nof"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "understanding and responding to questions posed in natural"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "spoken language, where recent studies leverage self-supervised"
+        },
+        {
+          "Tokyo Institute of Technology": "models\n[18]–[23].\nIt\nhas\nalso\nbeen\ndemonstrated\nthat\nself-"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "supervised models\ncan perform voice\nconversion effectively"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "and efficiently by integrating a decoder and a vocoder\n[24]–"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "[28]. These studies highlight\nthe potential of\nself-supervised"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "models across various speech tasks."
+        },
+        {
+          "Tokyo Institute of Technology": "To apply self-supervised models to downstream tasks, fine-"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "tuning\non\ntask-specific\nlabeled\ndatasets\nis\noften\nrequired."
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "This process\nenables\nthe models\nto adapt\nand specialize\nin"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "specific tasks,\nleading to excellent\nresults not only in speech"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "recognition but\nalso in various\nspeech tasks. However, one"
+        },
+        {
+          "Tokyo Institute of Technology": "limitation is\nthe\nsubstantial number of parameters\ninvolved."
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "When\nfine-tuning\nis\nconducted\nfor\neach\ndownstream task,"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "multiple models must be stored, one for each task. This can"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "lead to storage inefficiencies in real-world application settings,"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "such as when each user wants to fine-tune the model with their"
+        },
+        {
+          "Tokyo Institute of Technology": "private data and task."
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "A parameter-efficient method for\nadapting self-supervised"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "models to various downstream tasks is thus desirable. Learning"
+        },
+        {
+          "Tokyo Institute of Technology": "task-specific downstream head modules, such as a linear classi-"
+        },
+        {
+          "Tokyo Institute of Technology": "fication head, with frozen self-supervised models is an efficient"
+        },
+        {
+          "Tokyo Institute of Technology": ""
+        },
+        {
+          "Tokyo Institute of Technology": "solution; however, it often degrades the final performance com-"
+        },
+        {
+          "Tokyo Institute of Technology": "pared to that obtained by fine-tuning all parameters because"
+        },
+        {
+          "Tokyo Institute of Technology": "the optimal features can differ substantially depending on each"
+        },
+        {
+          "Tokyo Institute of Technology": "task. For\ninstance,\nlinguistic\nfeatures\nthat\ninclude phoneme"
+        },
+        {
+          "Tokyo Institute of Technology": "information are crucial\nfor\nspeech recognition, whereas non-"
+        },
+        {
+          "Tokyo Institute of Technology": "linguistic features are crucial\nfor speaker verification."
+        },
+        {
+          "Tokyo Institute of Technology": "Recently, learning with adapter modules that can be inserted"
+        },
+        {
+          "Tokyo Institute of Technology": "into the\nintermediate\nencoder\nlayers of\na\nfrozen model has"
+        },
+        {
+          "Tokyo Institute of Technology": "emerged as a promising approach for parameter-efficient fine-"
+        },
+        {
+          "Tokyo Institute of Technology": "tuning. The first adapter tuning method [29] was proposed for"
+        },
+        {
+          "Tokyo Institute of Technology": "BERT [30]\nin the field of natural\nlanguage processing, where"
+        },
+        {
+          "Tokyo Institute of Technology": "two adapter modules are inserted into each encoder\nlayer of"
+        },
+        {
+          "Tokyo Institute of Technology": "BERT. Each\nadapter module\nconsists\nof\ntwo\nlinear\nlayers"
+        },
+        {
+          "Tokyo Institute of Technology": "with an activation between them and a skip connection. This"
+        },
+        {
+          "Tokyo Institute of Technology": "approach\nrequires\nfewer\nparameters\n(the\nfrozen\nparameters"
+        },
+        {
+          "Tokyo Institute of Technology": "are\nshared among all downstream tasks) without degrading"
+        },
+        {
+          "Tokyo Institute of Technology": "accuracy. A number of\nfollow-up studies have used adapters"
+        },
+        {
+          "Tokyo Institute of Technology": "for various natural\nlanguage processing tasks [31]–[33]."
+        },
+        {
+          "Tokyo Institute of Technology": "For speech recognition, Kannan et al. [34] integrated adapter"
+        },
+        {
+          "Tokyo Institute of Technology": "modules\ninto\nrecurrent\nneural\nnetwork\ntransducers. Hou\net"
+        },
+        {
+          "Tokyo Institute of Technology": "al.\n[35],\n[36] proposed the use of adapters\nfor cross-lingual"
+        },
+        {
+          "Tokyo Institute of Technology": "speech adaptation. Winata et al.\n[37] proposed the adapt-and-"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2": "The\nrest\nof\nthis\npaper\nis\norganized\nas\nfollows.\nSec-"
+        },
+        {
+          "2": "tion II\nreviews conventional self-supervised models and fine-"
+        },
+        {
+          "2": "tuning methods. Section III introduces ELP-adapter tuning for"
+        },
+        {
+          "2": "parameter-efficient fine-tuning. Sections\nIV-VII\nrespectively"
+        },
+        {
+          "2": "present\nexperiments\non ASR, ASV,\nSER,\nand\nSIC tasks."
+        },
+        {
+          "2": "Section VIII provides detailed analysis on layer weights and"
+        },
+        {
+          "2": "adapter\nconfigurations.\nFinally,\nSection\nIX concludes\nthis"
+        },
+        {
+          "2": "paper and discusses future research directions."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "II. CONVENTIONAL METHODS"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "A.\nSelf-supervised models"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "The goal of self-supervised learning is to learn features from"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "unlabeled data by leveraging the intrinsic structure of the data"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "itself. This approach involves creating tasks where the input"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "data serve as\ntheir own supervision data. Below, we review"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "five self-supervised models\nfor\nspeech signal processing that"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "we use as the backbones in our experiments."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "1) wav2vec2.0\n[2]:\nThis model\nconsists\nof\na\nconvolu-"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "tional neural network (CNN)\nencoder\nfollowed by multiple"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "transformer\nencoders. The CNN encoder\nextracts\nlow-level"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "features from raw waveform inputs via a sequence of several"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "blocks, each with a temporal convolution layer,\nlayer normal-"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "ization [47],\nand a Gaussian error\nlinear unit\n(GELU)\n[48]"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "activation function. The transformer encoders apply attention"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "modules to the extracted features. We employ the wav2vec2.0"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "base model trained on the Librispeech [49] corpus, which con-"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "tains 960 hours of speech with contrastive loss and diversity"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "loss. The number of parameters is 95.04M."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "2) HuBERT\n[4]:\nThis model\naims\nto\ndiscover\nhidden"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "acoustic units to provide frame-level\ntargets in self-supervised"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "learning using masked prediction. The\narchitecture\nconsists"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "of\na CNN encoder\nand\ntransformer\nencoders,\nsimilar\nto"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "wav2vec2.0. We employ the HuBERT base model, which is"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "trained on the Librispeech corpus with masked prediction loss"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "using\nthe\nacoustic\nunit\ndiscovery module. The\nnumber\nof"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "parameters is 94.68M."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "3) ContentVec [7]: This model aims to disentangle speaker"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "variations\nduring\nself-supervised\nlearning\nby\nincorporating"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "three disentanglement mechanisms into HuBERT, namely dis-"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "entanglement\nin teachers, students, and speaker conditioning."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "The\narchitecture\nis\nthe\nsame\nas\nthat\nof\nthe HuBERT base"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "model. We\nemploy\nthe ContentVec model\ntrained\non Lib-"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "rispeech."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "4) WavLM [6]: This model\nis a self-supervised model\nfor"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "addressing various downstream speech tasks. The architecture"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "consists of\na CNN encoder\nand transformer-based encoders"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "using gated relative position bias [50]. We employ two models,"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "namely WavLM Base and WavLM Base+. The former model"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "is\ntrained on Librispeech. The latter model, which we refer"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "to\nas WavLM+,\nis\ntrained\non\na\nunion\nset\nof Librispeech,"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "GigaSpeech [51], and VoxPopuli\n[52], which contains a total"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "of 96k hours of audio data. The number of parameters for each"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "model\nis 94.70M."
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "B. Fine-tuning methods"
+        },
+        {
+          "2": ""
+        },
+        {
+          "2": "Given a self-supervised model,\nthe goal of fine-tuning is to"
+        },
+        {
+          "2": "adjust\nthe model parameters\nfor a specific downstream task,"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "transformer-based encoders. Vanilla transformer encoder, which consists of a multi-head self-attention (MHSA) module and a feedforward network (FFN) with",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "LayerNorm and skip connections,\nis illustrated. (b) Weight",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "for each layer.\ntuning applied to self-supervised model. It freezes all encoders and learns weights wl"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "(c) LoRA tuning applied to self-attention module. It freezes weight matrices Wq, Wk, Wv and injects learnable low-rank matrices Aq, Bq, Ak, Bk, Av, Bv.",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "(d) Prefix tuning, which prepends\nand Pv\nlearnable matrices Pk",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "to the key and value matrices.\n(e) Efficient adapter\ntuning applied to transformer-based"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "and g(l)\nencoder.\nIt\ninserts two learnable adapters g(l)",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "to each layer, each of which involves two fully connected (FC)\nlayers f (l)\nand f (l)"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "2\n1",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "fc1\nfc2 ."
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "typically using a relatively small amount of\nlabeled data and",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "an input\nsequence X ∈ Rn×d,\nthe\nself-attention module of"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "a\ntask-specific\nloss\nfunction. Assuming\nthat\nself-supervised",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "LoRA tuning is given as"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "models share a common architecture, which consists of a CNN",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "(cid:19)"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "(cid:18) Q(K)⊤"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "encoder\nfollowed by multiple transformer-based encoders as",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "√\nV,\n(2)\nfattn(X) = softmax"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "d"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "shown in Fig. 1(a), below we provide details on five fine-tuning",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "methods that we use as baselines in our experiments.",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "where K, V , and Q are the key, value, and query matrices,"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "respectively, given by"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "1) Full fine-tuning: This method updates all model param-",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "eters for each downstream task. Typically, a small downstream",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "(3)\nK = X(Wk + AkBk),"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "head such as a linear head or a multi-layer perceptron (MLP)",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "(4)\nV = X(Wv + AvBv),"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "with few layers is added to the self-supervised model\nto apply",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "a task-specific loss\nfunction such as CTC loss\nfor ASR [53]",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "(5)\nQ = X(Wq + AqBq)."
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "and cross entropy loss for SIC.\nIn general,\nfull fine-tuning is",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "are pre-trained frozen weights,\nHere, Wk, Wv, Wq ∈ Rd×d′"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "less parameter-efficient, but it often achieves high performance",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "∈ Rd×r\n∈ Rr×d′\nare\nlearn-\nAk, Av, Aq\nand Bk, Bv, Bq"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "on downstream tasks.",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "r\nable\nlow-rank matrices.\nThe\nrank\nis\nchosen\nsuch\nthat"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "2) Weight tuning: This method utilizes the weighted sum of",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "r ≪ min(d, d′). We apply LoRA tuning to all\nself-attention"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "features extracted from the encoder\nlayers, where the weight",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "modules and the fully connected layers after each self-attention"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "coefficients are learnable and the other parameters of the self-",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "module with r = 128."
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "supervised model\nare\nfrozen\nas\nshown\nin Fig.\n1(b). More",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "4) Prefix tuning [46]: This method prepends pseudo tokens"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "specifically,\nit\nis formulated as",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "to\neach\nencoder\nlayer\nby\nconcatenating\nnew learnable\nem-"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "beddings to the key and value matrices of each self-attention"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "¯",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "module as shown in Fig. 1(d). Specifically,\nthe key, value, and"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "L(cid:88) l\nX =\n(1)\nwlXl,",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "=1",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "query matrices to compute self-attention are given by"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ",\n(6)\nK = [Pk; XWk] ∈ R(n+m)×d′"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "is\nthe output of\nthe\nl-th encoder\nlayer\nwhere Xl ∈ Rn×d",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "given as a sequence of d-dimensional vectors of length n ∈ N,",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ",\n(7)\nV = [Pv; XWv] ∈ R(n+m)×d′"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "the number of\nwl ∈ R is a learnable weight, and L ∈ N is",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ".\n(8)\nQ = XWq ∈ Rn×d′"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "encoder\nlayers. When applying weight\ntuning to downstream",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ""
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "tasks, a learnable downstream head that\ntakes\nX ∈ Rn×d as",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "are pre-trained frozen weights,\nHere, Wk, Wv, Wq ∈ Rd×d′"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "the\ninput\nis\nadded to the\nfrozen self-supervised model. As",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": ";\n]\nare newly added learnable matrices, and [\nPk, Pv ∈ Rm×d′"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "discussed in [6],\nthis method is significantly more parameter-",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "indicates the concatenation operation. We apply prefix tuning"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "efficient\nthan\nfull fine-tuning\nbecause most\nparameters\nare",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "to all self-attention modules with m = 5."
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "frozen\nand\nshared\namong\nall\ndownstream tasks. However,",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "5) Efficient\nadapter\ntuning\n[40]:\nIn\nthe\nfield\nof\nnatu-"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "performance on downstream tasks is often degraded.",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "ral\nlanguage processing, Houlsby et al.\n[29] proposed effi-"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "3) LoRA tuning\n[42]:\nThis method\ninjects\nrank\ndecom-",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "cient adapter modules\nfor\ntransformers. This was applied to"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "position matrices\ninto a frozen self-supervised model. When",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "wav2vec2.0 by Thomas et al. [40] for speech recognition. We"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "applying LoRA tuning\nto\nself-attention modules,\nthe\nkey,",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "refer to this method as efficient adapter tuning. Let X0 ∈ Rn×d"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "value,\nand query matrices\nare\ncomputed with injected low-",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "be the output of the CNN encoder, where n is the length, which"
+        },
+        {
+          "Fig. 1.\nSelf-supervised model and conventional fine-tuning methods.": "rank matrices as shown in Fig. 1(c). More specifically, given",
+          "(a) Architecture of\nself-supervised model, which consists of a CNN encoder and L": "depends on the time length of\nthe audio input, and d is\nthe"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "layer\nto facilitate learning of fine-grained features for ASR.\n(b) L-adapters (green) create paths from each encoder\nlayer\nto the downstream head to extract"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "non-linguistic features\nthat are effective for ASV and SER.\n(c) P-adapter\n(yellow)\ninjects pseudo features\ninto the output of\nthe CNN encoder\nto further"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "improve training effectiveness and efficiency.\n(d) Minimal downstream heads (gray) are designed for each task to apply task-specific loss function."
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "dimension of\nfeature vectors. Under\nthe assumption that\nthe\nThe amount of storage required to store fine-tuned models is"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "the l-th encoder\nlayer\nis given by\nO(N + K(M + H)), where K is the number of downstream\noutput Xl ∈ Rn×d of"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "tasks\nand N , M ,\nand H are\nthe numbers of parameters of"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(9)\nZl = fnorm(f (l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "mhsa(Xl−1) + Xl−1),"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "the\nfrozen backbone model,\nlearnable\nadapter modules,\nand"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "downstream head,\nrespectively. Compared to full fine-tuning,\n(10)\nXl = fnorm(f (l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "ffn (Zl) + Zl),"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "for which the amount of storage required is O(K(N + H)),"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "where f (l)\nis\na\nfeedforward network, f (l)\nis\na multi-head"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "ffn\nmhsa\nELP-adapter\nis more efficient when M ≪ N .\nIn practice, we"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "self-attention (MHSA) module, and fnorm is a normalization\nneed M to be roughly 10 percent of N to achieve performance"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "function, efficient adapter tuning inserts two learnable adapters"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "comparable to that of\nfull fine-tuning. For example, with the"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "g(l)\nand g(l)\nas follows:"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "1\n2\nWavLM backbone\nand\nour ELP-adapter modules, we\nhave"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "N = 94.7M and M = 9.52M.\nIn the following, we provide"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(f (l)\nZl = fnorm(g(l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(11)\nmhsa( ˆXl−1)) + ˆXl−1),"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "detailed descriptions of each adapter module and downstream"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(f (l)\nXl = fnorm(g(l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(12)\nhead.\nffn ( ˆZl)) + ˆZl),"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "where ˆ indicates adapted output\nfeatures. Here, each adapter"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "A. E-adapters\ng(l)\n: Rn×d → Rn×d (i = 1, 2) is given by"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "i"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": ": Rn×d → Rn×d\ng(l)\nare\nincorporated\nThe E-adapters"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "g(l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "E\n(13)\n(X) = fnorm(f (l)\ni\nfc2 (σ(f (l)\nfc1 (X)))) + X"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "into each encoder\nlayer\nto obtain fine-grained representations"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "via fine-tuning as\nshown in Fig. 2(a). Specifically,\nthey are\nwhere f (l)\nand f (l)\nare learnable fully connected layers and σ"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "fc1\nfc2"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "formulated as follows:\nis an activation function. As\nshown in Fig. 1(e), LayerNorm"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "and GELU activation\nfunction\nare\nused\nfor\nand\nσ,\nfnorm"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "Zl = fnorm(f (l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(14)\nmhsa( ˆXl−1) + ˆXl−1),\nrespectively. A downstream head\nis\nalso\ntrained with\nthe"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "(f (l)\nXl = fnorm(g(l)"
+        },
+        {
+          "Fig. 2. Overview of ELP-Adapter tuning. Three types of adapters integrated into the self-supervised model. (a) E-adapters (red) are inserted into each encoder": "adapter modules.\n(15)\nffn ( ˆZl)) + ˆZl),"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "5": "2)\nSuffix P-adapter:\nThe\nappends\na\nsuffix P-adapter g pre"
+        },
+        {
+          "5": "new learnable matrix P ∈ Rm×d to X0 as follows:"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "(26)\ng suf(X0) = [X0; P ] ∈ R(n+m)×d."
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "This can be utilized with the E- and L-adapters\nin the same"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "way as done for\nthe prefix P-adapter."
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "3) Nonlinear\nP-adapter:\nTo\nfacilitate\nlearning\nthrough"
+        },
+        {
+          "5": "pseudo features,\nthe nonlinear P-adapter applies a small MLP"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "fmlp to learnable embeddings P . Specifically, we introduce two"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "variants of the nonlinear P-adapter, namely prefix nonlinear P-"
+        },
+        {
+          "5": "adapter g nl-pre and suffix nonlinear P-adapter g nl-suf, as follows:"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "(27)\ng nl-pre(X0) = [fmlp(P ); X0] ∈ R(m+n)×d,"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "(28)\ng nl-suf(X0) = [X0; fmlp(P )] ∈ R(n+m)×d."
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "The best P-adapter configuration depends on the task, as we"
+        },
+        {
+          "5": "will discuss in Section VIII-B. We use the suffix P-adapter as"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "the default P-adapter because it offers a good balance between"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "performance and efficiency."
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "D. Downstream head"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "The downstream head is a minimal\nlearnable module that\nis"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "used to apply task-specific loss function. This paper considers"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "four\ntasks, ASR, ASV, SER and SIC, which belong to the"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "four different aspects of speech [54]: content, speaker, paralin-"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "guistics, and semantics, respectively. As shown in Fig. 2(d), a"
+        },
+        {
+          "5": ""
+        },
+        {
+          "5": "single fully connected layer is used for ASR. A small network"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": "EXPERIMENT FIVE TIMES WITH DIFFERENT SEEDS."
+        },
+        {
+          "TABLE I": "HuBERT"
+        },
+        {
+          "TABLE I": "28.89±0.081"
+        },
+        {
+          "TABLE I": "22.64±0.494"
+        },
+        {
+          "TABLE I": "12.30±0.140"
+        },
+        {
+          "TABLE I": "9.94±0.084"
+        },
+        {
+          "TABLE I": "9.20±0.101"
+        },
+        {
+          "TABLE I": "9.30±0.085"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE II": ""
+        },
+        {
+          "TABLE II": ""
+        },
+        {
+          "TABLE II": "ContentVec"
+        },
+        {
+          "TABLE II": "35.49±0.711"
+        },
+        {
+          "TABLE II": "13.91±0.100"
+        },
+        {
+          "TABLE II": "14.78±0.074"
+        },
+        {
+          "TABLE II": "12.12±0.106"
+        },
+        {
+          "TABLE II": "12.07±0.059"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": "the loss\nfunction."
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "scheduled with a linear warmup scheduler:",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "t",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "η0 +",
+          "a\nsingle\nfully": "if t ≤ Nwarm"
+        },
+        {
+          "The downstream head for ASR consists of": "Nwarm",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "(cid:16)",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "ηmax −",
+          "a\nsingle\nfully": "if t > Nwarm"
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": ""
+        },
+        {
+          "The downstream head for ASR consists of": "",
+          "a\nsingle\nfully": "(30)"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE III": ""
+        },
+        {
+          "TABLE III": ""
+        },
+        {
+          "TABLE III": "TIMES WITH DIFFERENT SEEDS."
+        },
+        {
+          "TABLE III": "HuBERT"
+        },
+        {
+          "TABLE III": "5.71±0.077"
+        },
+        {
+          "TABLE III": "4.91±0.151"
+        },
+        {
+          "TABLE III": "4.06±0.137"
+        },
+        {
+          "TABLE III": "3.17±0.131"
+        },
+        {
+          "TABLE III": "3.16±0.022"
+        },
+        {
+          "TABLE III": "3.06±0.094"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE IV": ""
+        },
+        {
+          "TABLE IV": ""
+        },
+        {
+          "TABLE IV": "HuBERT"
+        },
+        {
+          "TABLE IV": "5.37±0.130"
+        },
+        {
+          "TABLE IV": "3.66±0.135"
+        },
+        {
+          "TABLE IV": "3.33±0.038"
+        },
+        {
+          "TABLE IV": "3.06±0.075"
+        },
+        {
+          "TABLE IV": "3.17±0.022"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "8": "tuning, and proposed ELP-adapter\ntuning. As shown,"
+        },
+        {
+          "8": "the number of fine-tuned layers\nincreases."
+        },
+        {
+          "8": "to the ASR results in Figure 3, fine-tuning lower"
+        },
+        {
+          "8": ""
+        },
+        {
+          "8": "improves performance because\nthese\nlayers\nfacilitate"
+        },
+        {
+          "8": "the extraction of speaker-dependent non-linguistic features. We"
+        },
+        {
+          "8": ""
+        },
+        {
+          "8": "also confirmed that our method had the best performance in"
+        },
+        {
+          "8": ""
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "107\n108": "Number of learnable parameters",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "problem, where the goal is to classify the input audio utterance"
+        },
+        {
+          "107\n108": "Full finetuning\nEfficient adapter\nELP-adapter",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "into predefined emotion classes. For\nthis task, audio features"
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "that effectively capture emotional cues in speech, such as tone,"
+        },
+        {
+          "107\n108": "Fig. 4.\nTrade-off between number of\nlearnable parameters and ASV perfor-",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "pitch,\nand rhythm,\nare\ncrucial\nfor\nenhancing accuracy. This"
+        },
+        {
+          "107\n108": "mance in terms of EER. The WavLM model\nis used as a backbone model.",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "section applies ELP-adapter\ntuning to the SER task."
+        },
+        {
+          "107\n108": "equal\nto\ncompute EER. The\nadaptive\ns-norm [57],\n[58]\nis",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "A. Datasets and evaluation metrics"
+        },
+        {
+          "107\n108": "applied to normalize these trial scores.",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "The IEMOCAP dataset [59] is used for training and testing."
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "It\nconsists\nof\n12\nhours\nof\naudio\ndata\ncollected\nfrom 10"
+        },
+        {
+          "107\n108": "C. Comparison with conventional methods",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "actors (5 male, 5 female) performing scripted and spontaneous"
+        },
+        {
+          "107\n108": "Table III compares ELP-adapter\ntuning with the four con-",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "dialogues. Following previous studies [60],\nfour emotion cat-"
+        },
+        {
+          "107\n108": "ventional fine-tuning methods. As\nshown,\nour method\nhas",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "egories, namely “neutral”, “happy”, “sad”, and “angry”, are"
+        },
+        {
+          "107\n108": "the best performance for HuBERT, ContentVec, WavLM, and",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "used for evaluation, where “excited” is merged into “happy”."
+        },
+        {
+          "107\n108": "WavLM+. This\nadvantage\nis\nderived\nfrom the\nuse\nof L-",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "The evaluation metric is the error rate (ER), which is given"
+        },
+        {
+          "107\n108": "adapters, which connect the outputs of each layer to the down-",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "by"
+        },
+        {
+          "107\n108": "stream head. As discussed in the ASR experiments,\nfeatures",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "in the upper layers tend to be speaker-independent. Therefore,",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "1 C\nC(cid:88) i\nER = 1 −\n(32)\nACCi,"
+        },
+        {
+          "107\n108": "connecting the lower\nlayers to the downstream head helps to",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "=1"
+        },
+        {
+          "107\n108": "improve the extraction of\nspeaker-dependent\nfeatures, which",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "is essential\nfor ASV. With wav2vec 2.0, speaker\ninformation",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "where C = 4 is\nthe number of\nemotion classes\nand ACCi"
+        },
+        {
+          "107\n108": "and prosodic information could be entangled even in the upper",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "is the accuracy for\nthe i-th class. Five-fold cross-validation is"
+        },
+        {
+          "107\n108": "layers, making simple\nencoder\nadaptation with conventional",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "performed to measure ER."
+        },
+        {
+          "107\n108": "efficient adapter\ntuning the best solution.",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "With\nfull\nfine-tuning, HuBERT performed\nthe\nbest\nand",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "B.\nImplementation details"
+        },
+        {
+          "107\n108": "WavLM+ performed the worst,\nin contrast\nto the results\nfor",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "The downstream head for SER consists of\na\nsmall MLP,"
+        },
+        {
+          "107\n108": "ASR. This indicates that\nthe features of WavLM+, especially",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "which has\ntwo fully connected layers\nand an average\ntime"
+        },
+        {
+          "107\n108": "those of\nthe last\nlayer, are highly speaker-independent. ELP-",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "pooling layer\nin between. The number of hidden units\nis\nset"
+        },
+        {
+          "107\n108": "adapter\ntuning effectively addresses this limitation, achieving",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "to\n256. The\ncross-entropy\nloss\nis\nused\nas\na\nloss\nfunction."
+        },
+        {
+          "107\n108": "the best performance with WavLM+.",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "All models are fine-tuned with the Adam optimizer\nfor 2,750"
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "iterations. The batch size\nis\nset\nto 32. The\nlearning rate\nis"
+        },
+        {
+          "107\n108": "D. Ablation study",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "scheduled with a step scheduler, which is given by"
+        },
+        {
+          "107\n108": "Table\nIV shows\nthe\nresults\nof\nthe\nablation\nstudy. As",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "shown, L-adapter\ntuning outperformed E-adapter\ntuning for",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "(33)\nηt = η0 · (γ⌊t/s⌋)"
+        },
+        {
+          "107\n108": "HuBERT, ContentVec, WavLM,\nand WavLM+. Notably, L-",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "where γ = 0.1 and s = 10."
+        },
+        {
+          "107\n108": "adapter\ntuning\nsignificantly\nimproves\nthe\nperformance\nof",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "WavLM+, with a 1.96 point decrease in EER. This\nsupports",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "the above discussion about\nthe effectiveness of L-adapters for",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "C. Comparison with conventional methods"
+        },
+        {
+          "107\n108": "ASV. The combination of E-adapters and L-adapters improved",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "Table V shows that ELP-adapter tuning outperforms the four"
+        },
+        {
+          "107\n108": "performance\nfor\nall models,\nand\nthe\naddition\nof P-adapter",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "conventional fine-tuning methods. For SER,\nit\nis necessary to"
+        },
+        {
+          "107\n108": "further\nimproved\nperformance\nfor\nfour\nof\nthe five models",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "comprehensively extract prosodic\ninformation such as\ntone,"
+        },
+        {
+          "107\n108": "(Wav2vec2.0, ContentVec, WavLM and WavLM+). This result",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "pitch,\nand rhythm. Similar\nto the\ncase\nfor ASV, L-adapters"
+        },
+        {
+          "107\n108": "is consistent with that\nfor\nthe ASR task.",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "helped to extract non-linguistic features\nfrom lower encoder"
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "layers."
+        },
+        {
+          "107\n108": "E. Trade-off analysis",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": ""
+        },
+        {
+          "107\n108": "",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "Because most\nself-supervised models\nare\ntrained\nto find"
+        },
+        {
+          "107\n108": "Figure 4 shows\nthe results obtained with various numbers",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "hidden audio units in an unsupervised manner on clean non-"
+        },
+        {
+          "107\n108": "of fine-tuned layers for\nfull fine-tuning, conventional efficient",
+          "audio\nutterances.\nIt\nis\noften\nformulated\nas\na\nclassification": "emotional speech data, which often leads to the formation of"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE V": ""
+        },
+        {
+          "TABLE V": ""
+        },
+        {
+          "TABLE V": "WITH DIFFERENT SEEDS."
+        },
+        {
+          "TABLE V": "HuBERT"
+        },
+        {
+          "TABLE V": "27.48±0.288"
+        },
+        {
+          "TABLE V": "28.85±0.431"
+        },
+        {
+          "TABLE V": "25.34±0.612"
+        },
+        {
+          "TABLE V": "22.59±0.486"
+        },
+        {
+          "TABLE V": "22.34±0.233"
+        },
+        {
+          "TABLE V": "20.73±0.379"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE VI": ""
+        },
+        {
+          "TABLE VI": ""
+        },
+        {
+          "TABLE VI": "ContentVec"
+        },
+        {
+          "TABLE VI": "32.29±0.496"
+        },
+        {
+          "TABLE VI": "31.11±0.807"
+        },
+        {
+          "TABLE VI": "24.99±0.680"
+        },
+        {
+          "TABLE VI": "22.87±0.312"
+        },
+        {
+          "TABLE VI": "22.93±0.765"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "22.11±0.758\n22.01±0.352": "9.52M\nELP-adapter\ntuning\n21.74±0.131\n22.34±0.233",
+          "22.87±0.312": "22.93±0.765"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "units\ncapable of distinguishing phonemes but not\nemotions,",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "27"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "features extracted from frozen self-supervised models are not",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "26"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "always\neffective\nfor\nSER. Nevertheless, ELP-adapter with",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "25"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "WavLM+ achieved the best performance among all methods.",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "This highlights\nthe potential of\nadapter-based fine-tuning to",
+          "22.87±0.312": "24"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "handle complex tasks such as SER.",
+          "22.87±0.312": "Error rate (%)\n23"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "22"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "D. Ablation study",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "21"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "Table VI shows the results of the ablation study. As shown,",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "20"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "L-adapter\ntuning outperformed E-adapter\ntuning for all mod-",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "",
+          "22.87±0.312": "19"
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "els. Similar to ASV, this result indicates that features extracted",
+          "22.87±0.312": ""
+        },
+        {
+          "22.11±0.758\n22.01±0.352": "from lower\nlayers\nare\nuseful\nfor\nSER because\nthey\noften",
+          "22.87±0.312": ""
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE VII": ""
+        },
+        {
+          "TABLE VII": ""
+        },
+        {
+          "TABLE VII": "FIVE TIMES WITH DIFFERENT SEEDS."
+        },
+        {
+          "TABLE VII": "HuBERT"
+        },
+        {
+          "TABLE VII": "0.70±0.094"
+        },
+        {
+          "TABLE VII": "0.51±0.057"
+        },
+        {
+          "TABLE VII": "0.53±0.067"
+        },
+        {
+          "TABLE VII": "0.43±0.088"
+        },
+        {
+          "TABLE VII": "0.34±0.067"
+        },
+        {
+          "TABLE VII": "0.37±0.019"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE VIII": ""
+        },
+        {
+          "TABLE VIII": ""
+        },
+        {
+          "TABLE VIII": "HuBERT"
+        },
+        {
+          "TABLE VIII": "0.65±0.135"
+        },
+        {
+          "TABLE VIII": "0.34±0.046"
+        },
+        {
+          "TABLE VIII": "0.48±0.029"
+        },
+        {
+          "TABLE VIII": "0.36±0.090"
+        },
+        {
+          "TABLE VIII": "0.34±0.067"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "9.13M\nEL-adapter\ntuning": "9.52M\nELP-adapter\ntuning",
+          "0.41±0.051\n0.36±0.090": "0.44±0.047\n0.34±0.067",
+          "0.38±0.069": "0.32±0.067"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "ACC is the accuracy computed with true positives defined as",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": "0.9"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "the correct classifications with respect",
+          "0.41±0.051\n0.36±0.090": "to all\nthree slots.",
+          "0.38±0.069": ""
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": "0.8"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": "0.7"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "B. Comparison with conventional methods",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": ""
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "Table VII compares ELP-adapter",
+          "0.41±0.051\n0.36±0.090": "tuning with the four con-",
+          "0.38±0.069": "Error rate (%)\n0.6"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "ventional fine-tuning methods on the SIC task. Most methods",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": ""
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": "0.5"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "achieved\nan ER of\nless\nthan",
+          "0.41±0.051\n0.36±0.090": "1.0%. Conventional\nefficient",
+          "0.38±0.069": ""
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "adapter\ntuning,",
+          "0.41±0.051\n0.36±0.090": "full fine-tuning, and ELP-adapter\ntuning had",
+          "0.38±0.069": "0.4"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "comparable\nperformance. The",
+          "0.41±0.051\n0.36±0.090": "absence\nof\nsignificant\ndiffer-",
+          "0.38±0.069": ""
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "",
+          "0.41±0.051\n0.36±0.090": "",
+          "0.38±0.069": "0.3"
+        },
+        {
+          "9.13M\nEL-adapter\ntuning": "ences between these three methods indicates that",
+          "0.41±0.051\n0.36±0.090": "the SIC task",
+          "0.38±0.069": ""
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "P is a learnable matrix. Configurations (A) to (D) are corresponding to those"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "in Table. X."
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "B. Adapter configurations"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "1) L-adapter configurations: To investigate the most effec-"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "tive configuration for L-adapters, we conducted experiments"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "with nine configurations\nin Table IX. Fig. 8 illustrates\nthese"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "configurations. Configuration (A) uses only the weighted sum"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "(“Weight”\nin\nthe\ntable)\nof\nthe\nencoder\noutputs, which\nhas"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "12\nparameters\nas\ndescribed\nin Eq.\n(1). Configuration\n(B)"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "introduces\na\nsingle LayerNorm into each\nadapter,\nresulting"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "in\n18k\nlearnable\nparameters. The\npresence\nof LayerNorm"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "potentially facilitates\nlearning more\neffective\nrepresentations"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "by reducing internal covariate shift. The performance improve-"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "ment\nin ASR, ASV, and SER suggests that\nthis normalization"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "step helps\nto extract more useful\nfeatures\nfrom the\nspeech"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "signal\nfor\nthese tasks. Configuration (C) adds\nthe activation"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "function to (B), but\nthe performance of ASR and ER was"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "degraded. Applying the activation function was not effective"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "because all encoder\nlayers are frozen."
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "Configuration (D) makes all LayerNrom parameters learn-"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "able\nin the backbone\nself-supervised models. Note\nthat\nthis"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "is what we called “Weight\ntuning” in previous\nsections. As"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": ""
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "shown in the table,\nthe performance on all\ntasks was improved"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "when\ncomparing\n(A)\nand\n(D).\nFurther,\n(E)\nincorporates\na"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "learnable\nfully\nconnected\nlayer\ninto\neach\nL-adapter.\nThis"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "significantly the perfomance of ASR, ASV and ER. Although"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "fully connected layers increase the number of learnable param-"
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "eters to 4.75M,\nthis is considered the minimum requirement."
+        },
+        {
+          "Fig. 9.\nFour P-adapter configurations. X0 is the output of the CNN encoder.": "Configurations\n(F),\n(G),\nand (H)\nadd activation function,"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": "Skip"
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": ""
+        },
+        {
+          "TABLE IX": "✓"
+        },
+        {
+          "TABLE IX": ""
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE X": ""
+        },
+        {
+          "TABLE X": ""
+        },
+        {
+          "TABLE X": "ASR"
+        },
+        {
+          "TABLE X": ""
+        },
+        {
+          "TABLE X": "23.78±0.147"
+        },
+        {
+          "TABLE X": ""
+        },
+        {
+          "TABLE X": "23.27±0.247"
+        },
+        {
+          "TABLE X": ""
+        },
+        {
+          "TABLE X": "23.68±0.297"
+        },
+        {
+          "TABLE X": ""
+        },
+        {
+          "TABLE X": "23.69±0.624"
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "setting\n[62], where\nthe\nx-vector model\n[63]\nis\nused\nas\na"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "downstream head with the AMM softmax loss\n[64] without"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "noise-based augmentation for 12 epochs.\nIn contrast\nto ASR,"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "ELP-adapter tuning outperformed full fine-tuning by 0.61 and"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "0.33 points, with the linear and x-vector heads,\nrespectively."
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "IX. CONCLUSION"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "This paper proposed ELP-adapter tuning, a novel method for"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "parameter-efficient fine-tuning for various\nspeech processing"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "tasks. We introduced three types of adapter, namely E-adapters"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "for learning fine-grained speech representation, L-adapters for"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "extracting non-linguistic\nfeatures\nfrom lower\nlayers,\nand P-"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": ""
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "adapters\nfor\nimproving training efficiency with pseudo fea-"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "tures. The results of experiments on ASR, ASV, SER and SIC"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "tasks demonstrated the effectiveness and efficiency of the pro-"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "posed method compared to conventional fine-tuning methods."
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "Future work will focus on further improving efficiency through"
+        },
+        {
+          "with the cross-entropy loss for 6 epochs, and 2)\nthe x-vector": "automatic\npruning\nof\nadapter\ntypes\nand\nneural\narchitecture"
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "13": "[19] ——, “Knowledge distillation for improved accuracy in spoken question"
+        },
+        {
+          "13": "Proc.\nIEEE\nInternational Conference\non\nAcoustics,\nanswering,”\nin"
+        },
+        {
+          "13": ""
+        },
+        {
+          "13": "Speech and Signal Processing (ICASSP), 2021."
+        },
+        {
+          "13": ""
+        },
+        {
+          "13": "[20] ——,\n“Contextualized attention-based knowledge\ntransfer\nfor\nspoken"
+        },
+        {
+          "13": "conversational\nquestion\nanswering,”\nin Proc.\nInterspeech,\n2021,\npp."
+        },
+        {
+          "13": "3211–3215."
+        },
+        {
+          "13": "[21] C. You, N. Chen, F. Liu, S. Ge, X. Wu, and Y. Zou, “End-to-end spoken"
+        },
+        {
+          "13": ""
+        },
+        {
+          "13": "conversational question answering: Task, dataset and model,” in Findings"
+        },
+        {
+          "13": "of Annual Conference of\nthe North American Chapter of\nthe Association"
+        },
+        {
+          "13": ""
+        },
+        {
+          "13": "for Computational Linguistics (NAACL), 2022, pp. 3211–3215."
+        },
+        {
+          "13": ""
+        },
+        {
+          "13": "[22] N. Chen, C. You, and Y. Zou, “Self-supervised dialogue learning for"
+        },
+        {
+          "13": "spoken conversational question answering,” in Proc.\nInterspeech, 2021,"
+        },
+        {
+          "13": "pp. 231–235."
+        },
+        {
+          "13": ""
+        },
+        {
+          "13": "[23] C. You, N. Chen, and Y. Zou, “Mrd-net: Multi-modal residual knowledge"
+        },
+        {
+          "13": "distillation for spoken question answering,” in Proc. International Joint"
+        },
+        {
+          "13": "Conference on Artificial\nIntelligence (IJCAI), 2021, pp. 3985–3991."
+        },
+        {
+          "13": "[24] H. Huang, L. Wang,\nJ. Yang, Y. Hu,\nand L. He,\n“W2VC: WavLM"
+        },
+        {
+          "13": "representation based one-shot voice\nconversion with gradient\nreversal"
+        },
+        {
+          "13": "distillation and CTC supervision,” EURASIP Journal on Audio, Speech,"
+        },
+        {
+          "13": "and Music Processing, vol. 2023, no. 1, p. 45, 2023."
+        },
+        {
+          "13": "[25]\nJ. hao Lin, Y. Y. Lin, C.-M. Chien, and H. yi Lee, “S2VC: A frame-"
+        },
+        {
+          "13": "work for\nany-to-any voice\nconversion with self-supervised pretrained"
+        },
+        {
+          "13": "representations,” in Proc.\nInterspeech, 2021, pp. 836–840."
+        },
+        {
+          "13": "[26] M. Baas, B. van Niekerk, and H. Kamper, “Voice conversion with just"
+        },
+        {
+          "13": "nearest neighbors,” in Proc.\nInterspeech, 2023."
+        },
+        {
+          "13": "[27]\nJ. Lim and K. Kim, “Wav2vec-vc: Voice conversion via hidden repre-"
+        },
+        {
+          "13": "IEEE International Conference on\nsentations of wav2vec 2.0,” in Proc."
+        },
+        {
+          "13": "Acoustics, Speech and Signal Processing (ICASSP), 2024, pp. 10 326–"
+        },
+        {
+          "13": "10 330."
+        },
+        {
+          "13": "[28] H.-S. Tsai, H.-J. Chang, W.-C. Huang, Z. Huang, K. Lakhotia, S. wen"
+        },
+        {
+          "13": "Yang, S. Dong, A. T. Liu, C.-I. Lai, J. Shi, X. Chang, P. Hall, H.-J. Chen,"
+        },
+        {
+          "13": "S.-W. Li, S. Watanabe, A. rahman Mohamed, and H. yi Lee, “SUPERB-"
+        },
+        {
+          "13": "SG: Enhanced speech processing universal performance benchmark for"
+        },
+        {
+          "13": "the\nsemantic and generative capabilities,” in Proc. Annual Meeting of"
+        },
+        {
+          "13": "Association for Computational Linguistics (ACL), vol. abs/2203.06849,"
+        },
+        {
+          "13": "2022, pp. 836–840."
+        },
+        {
+          "13": "[29] N. Houlsby, A. Giurgiu, S. Jastrzebski, B. Morrone, Q. De Laroussilhe,"
+        },
+        {
+          "13": "A. Gesmundo, M. Attariyan, and S. Gelly, “Parameter-Efficient Transfer"
+        },
+        {
+          "13": "International Conference\non Machine\nLearning\nfor NLP,”\nin Proc."
+        },
+        {
+          "13": "Learning (ICML), 2019, pp. 2790–2799."
+        },
+        {
+          "13": "[30]\nJ. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, “BERT: Pre-training"
+        },
+        {
+          "13": "of deep bidirectional\ntransformers for language understanding,” in Proc."
+        },
+        {
+          "13": "Annual Conference of\nthe North American Chapter of\nthe Association"
+        },
+        {
+          "13": "for Computational Linguistics (NAACL), 2019."
+        },
+        {
+          "13": "[31]\nZ.\nLin, A. Madotto,\nand\nP.\nFung,\n“Exploring\nversatile\ngenerative"
+        },
+        {
+          "13": "language model via parameter-efficient\ntransfer learning,” in Findings of"
+        },
+        {
+          "13": "Empirical Methods in Natural Language Processing (EMNLP Findings),"
+        },
+        {
+          "13": "2020."
+        },
+        {
+          "13": "[32]\nJ. Guo, Z. Zhang, L. Xu, X. Chen, and E. Chen, “Adaptive adapters:"
+        },
+        {
+          "13": "An efficient way to incorporate BERT into neural machine translation,”"
+        },
+        {
+          "13": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+        },
+        {
+          "13": "(TASLP), vol. 29, pp. 1740–1751, 2021."
+        },
+        {
+          "13": "[33] C. Zhang, L. F. D’Haro, Q. Zhang, and T. Friedrichs, “Poe: A panel"
+        },
+        {
+          "13": "of experts\nfor generalized automatic dialogue assessment,” IEEE/ACM"
+        },
+        {
+          "13": "Transactions\non Audio,\nSpeech,\nand Language Processing\n(TASLP),"
+        },
+        {
+          "13": "vol. 31, pp. 1234–1250, 2023."
+        },
+        {
+          "13": "[34] A. Kannan, A. Datta, T. N. Sainath, E. Weinstein, B. Ramabhadran,"
+        },
+        {
+          "13": "Y\n. Wu, A. Bapna, Z. Chen, and S. Lee, “Large-scale multilingual speech"
+        },
+        {
+          "13": "recognition with a streaming end-to-end model,” in Proc.\nInterspeech,"
+        },
+        {
+          "13": "2019."
+        },
+        {
+          "13": "[35] W. Hou, Y. Wang,\nS. Gao,\nand\nT.\nShinozaki,\n“Meta-adapter:\nEf-"
+        },
+        {
+          "13": "Proc.\nIEEE\nficient\ncross-lingual\nadaptation with meta-learning,”\nin"
+        },
+        {
+          "13": "International Conference on Acoustics, Speech and Signal Processing"
+        },
+        {
+          "13": "(ICASSP), 2021."
+        },
+        {
+          "13": "[36] W. Hou, H. Zhu, Y. Wang, J. Wang, T. Qin, R. Xu, and T. Shinozaki,"
+        },
+        {
+          "13": "“Exploiting adapters for cross-lingual\nlow-resource speech recognition,”"
+        },
+        {
+          "13": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+        },
+        {
+          "13": "(TASLP), vol. 30, pp. 317–329, 2022."
+        },
+        {
+          "13": "[37] G.\nI. Winata, G. Wang, C. Xiong,\nand S. Hoi,\n“Adapt-and-Adjust:"
+        },
+        {
+          "13": "Overcoming the long-tail problem of multilingual speech recognition,”"
+        },
+        {
+          "13": "in Proc.\nInterspeech, 2021."
+        },
+        {
+          "13": "[38] Y. Qian, X. Gong, and H. Huang, “Layer-wise fast adaptation for end-"
+        },
+        {
+          "13": "IEEE/ACM Transactions\non\nto-end multi-accent\nspeech\nrecognition,”"
+        },
+        {
+          "13": "Audio, Speech, and Language Processing (TASLP), vol. 30, pp. 2842–"
+        },
+        {
+          "13": "2853, 2022."
+        },
+        {
+          "13": "[39] H.\nLe,\nJ.\nPino,\nC. Wang,\nJ. Gu, D.\nSchwab,\nand\nL.\nBesacier,"
+        },
+        {
+          "13": "“Lightweight\nadapter\ntuning\nfor multilingual\nspeech\ntranslation,”\nin"
+        }
+      ],
+      "page": 13
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "14": "[59] C. Busso, M. Bulut, C. Lee, A. Kazemzadeh, E. Mower, J. C. S. Kim,"
+        },
+        {
+          "14": "S. Lee,\nand S. Narayanan,\n“IEMOCAP:\nInteractive\nemotional dyadic"
+        },
+        {
+          "14": "motion capture database,” Language resources and evaluation, vol. 42,"
+        },
+        {
+          "14": "no. 4, pp. 335–359, 2008."
+        },
+        {
+          "14": "and L. Cavedon,\n“Evaluating\ndeep\nlearning"
+        },
+        {
+          "14": "architectures for speech emotion recognition,” Neural Networks, vol. 92,"
+        },
+        {
+          "14": "pp. 60–68, 2017."
+        },
+        {
+          "14": "L. Lugosch, M. Ravanelli, P.\nIgnoto, V. S. Tomar,\nand Y. Bengio,"
+        },
+        {
+          "14": "“Speech model pre-training for end-to-end spoken language understand-"
+        },
+        {
+          "14": "ing,” in Proc.\nInterspeech, 2019."
+        },
+        {
+          "14": "S.-w. Yang, H.-J. Chang, Z. Huang, A. T. Liu, C.-I. Lai, H. Wu, J. Shi,"
+        },
+        {
+          "14": "X. Chang, H.-S. Tsai, W.-C. Huang et al., “A large-scale evaluation of"
+        },
+        {
+          "14": "speech foundation models,” IEEE/ACM Transactions on Audio, Speech,"
+        },
+        {
+          "14": "and Language Processing (TASLP), 2024."
+        },
+        {
+          "14": "[63] D. Snyder, D. Garcia-Romero, G. Sell, D. Povey, and S. Khudanpur, “X-"
+        },
+        {
+          "14": "vectors: Robust dnn embeddings for speaker recognition,” in Proc. IEEE"
+        },
+        {
+          "14": "International Conference on Acoustics, Speech and Signal Processing"
+        },
+        {
+          "14": "(ICASSP), 2018, pp. 5329–5333."
+        },
+        {
+          "14": "F. Wang, J. Cheng, W. Liu, and H. Liu, “Additive margin softmax for"
+        },
+        {
+          "14": "face verification,” IEEE Signal Processing Letters, vol. 25, no. 7, pp."
+        },
+        {
+          "14": "926–930, 2018."
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        },
+        {
+          "14": ""
+        }
+      ],
+      "page": 14
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "EQUAL RATES (%) ON IEMOCAP ARE REPORTED. BEST AND SECOND BEST RESULTS ARE HIGHLIGHTED IN BOLD AND UNDERLINED, RESPECTIVELY. CONFIDENCE INTERVALS WERE OBTAINED BY REPEATING EACH EXPERIMENT FIVE TIMES WITH DIFFERENT SEEDS",
+      "authors": [
+        "Table V Comparison Of Fine-Tuning Methods On Ser Task"
+      ],
+      "venue": "EQUAL RATES (%) ON IEMOCAP ARE REPORTED. BEST AND SECOND BEST RESULTS ARE HIGHLIGHTED IN BOLD AND UNDERLINED, RESPECTIVELY. CONFIDENCE INTERVALS WERE OBTAINED BY REPEATING EACH EXPERIMENT FIVE TIMES WITH DIFFERENT SEEDS"
+    },
+    {
+      "citation_id": "2",
+      "title": "EQUAL ERROR RATES (%) ON IEMOCAP ARE REPORTED. BEST RESULTS ARE HIGHLIGHTED IN BOLD. CONFIDENCE INTERVALS WERE OBTAINED BY REPEATING EACH EXPERIMENT FIVE TIMES WITH DIFFERENT SEEDS",
+      "authors": [
+        "Vi Ablation Study On Ser Table",
+        "Task"
+      ],
+      "venue": "EQUAL ERROR RATES (%) ON IEMOCAP ARE REPORTED. BEST RESULTS ARE HIGHLIGHTED IN BOLD. CONFIDENCE INTERVALS WERE OBTAINED BY REPEATING EACH EXPERIMENT FIVE TIMES WITH DIFFERENT SEEDS"
+    },
+    {
+      "citation_id": "3",
+      "title": "",
+      "authors": [
+        "L-Adapter Tuning"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "4",
+      "title": "wav2vec: Unsupervised pre-training for speech recognition",
+      "authors": [
+        "S Schneider",
+        "A Baevski",
+        "R Collobert",
+        "M Auli"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "5",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "H Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Proc. Annual Conference on Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "6",
+      "title": "Unispeech: Unified speech representation learning with labeled and unlabeled data",
+      "authors": [
+        "C Wang",
+        "Y Wu",
+        "Y Qian",
+        "K Kumatani",
+        "S Liu",
+        "F Wei",
+        "M Zeng",
+        "X Huang"
+      ],
+      "venue": "Proc. International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "7",
+      "title": "HuBERT: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing (TASLP)"
+    },
+    {
+      "citation_id": "8",
+      "title": "Unispeech-sat: Universal speech representation learning with speaker aware pre-training",
+      "authors": [
+        "S Chen",
+        "Y Wu",
+        "C Wang",
+        "Z Chen",
+        "Z Chen",
+        "S Liu",
+        "J Wu",
+        "Y Qian",
+        "F Wei",
+        "J Li",
+        "X Yu"
+      ],
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "9",
+      "title": "WavLM: Large-scale self-supervised pretraining for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao"
+      ],
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "ContentVec: An improved self-supervised speech representation by disentangling speakers",
+      "authors": [
+        "K Qian",
+        "Y Zhang",
+        "H Gao",
+        "J Ni",
+        "C.-I Lai",
+        "D Cox",
+        "M Hasegawa-Johnson",
+        "S Chang"
+      ],
+      "venue": "Proc. International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "11",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "Proc. International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "12",
+      "title": "Speech SimCLR: Combining contrastive and reconstruction objective for self-supervised speech representation learning",
+      "authors": [
+        "D Jiang",
+        "W Li",
+        "M Cao",
+        "W Zou",
+        "X Li"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "13",
+      "title": "Augmentation adversarial training for unsupervised speaker recognition",
+      "authors": [
+        "J Huh",
+        "H Heo",
+        "J Kang",
+        "S Watanabe",
+        "J Chung"
+      ],
+      "year": "2020",
+      "venue": "Proc. NeurIPS Workshop on Self-Supervised Learning for Speech and Audio Processing"
+    },
+    {
+      "citation_id": "14",
+      "title": "Semi-supervised contrastive learning with generalized contrastive loss and its application to speaker recognition",
+      "authors": [
+        "N Inoue",
+        "K Goto"
+      ],
+      "year": "2020",
+      "venue": "Proc. Asia-Pacific Signal and Information Processing Association Annual Conference and Summit (APSIPA ASC)"
+    },
+    {
+      "citation_id": "15",
+      "title": "Fine-tuning wav2vec2 for speaker recognition",
+      "authors": [
+        "N Vaessen",
+        "D Van Leeuwen"
+      ],
+      "year": "2022",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Exploring wav2vec 2.0 on speaker verification and language identification",
+      "authors": [
+        "Z Fan",
+        "M Li",
+        "S Zhou",
+        "B Xu"
+      ],
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "17",
+      "title": "Representation selective selfdistillation and wav2vec 2.0 feature exploration for spoof-aware speaker verification",
+      "authors": [
+        "J Lee",
+        "E Kim",
+        "J Koo",
+        "K Lee"
+      ],
+      "year": "2022",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "18",
+      "title": "Improving speaker verification with self-pretrained transformer models",
+      "authors": [
+        "J Peng",
+        "O Plchot",
+        "T Stafylakis",
+        "L Mošner",
+        "L Burget",
+        "J Černocký"
+      ],
+      "year": "2023",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "19",
+      "title": "Emotion recognition from speech using wav2vec 2.0 embeddings",
+      "authors": [
+        "L Pepino",
+        "P Riera",
+        "L Ferrer"
+      ],
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "20",
+      "title": "Emotion recognition from speech using wav2vec 2.0 embeddings",
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "21",
+      "title": "Self-supervised contrastive crossmodality representation learning for spoken question answering",
+      "authors": [
+        "C You",
+        "N Chen",
+        "Y Zou"
+      ],
+      "year": "2021",
+      "venue": "Findings of Empirical Methods in Natural Language Processing (EMNLP Findings)"
+    },
+    {
+      "citation_id": "22",
+      "title": "Knowledge distillation for improved accuracy in spoken question answering",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "23",
+      "title": "Contextualized attention-based knowledge transfer for spoken conversational question answering",
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "24",
+      "title": "End-to-end spoken conversational question answering: Task, dataset and model",
+      "authors": [
+        "C You",
+        "N Chen",
+        "F Liu",
+        "S Ge",
+        "X Wu",
+        "Y Zou"
+      ],
+      "year": "2022",
+      "venue": "Findings of Annual Conference of the North American Chapter of the Association for Computational Linguistics (NAACL)"
+    },
+    {
+      "citation_id": "25",
+      "title": "Self-supervised dialogue learning for spoken conversational question answering",
+      "authors": [
+        "N Chen",
+        "C You",
+        "Y Zou"
+      ],
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "26",
+      "title": "Mrd-net: Multi-modal residual knowledge distillation for spoken question answering",
+      "authors": [
+        "C You",
+        "N Chen",
+        "Y Zou"
+      ],
+      "year": "2021",
+      "venue": "Proc. International Joint Conference on Artificial Intelligence (IJCAI)"
+    },
+    {
+      "citation_id": "27",
+      "title": "W2VC: WavLM representation based one-shot voice conversion with gradient reversal distillation and CTC supervision",
+      "authors": [
+        "H Huang",
+        "L Wang",
+        "J Yang",
+        "Y Hu",
+        "L He"
+      ],
+      "year": "2023",
+      "venue": "EURASIP Journal on Audio, Speech, and Music Processing"
+    },
+    {
+      "citation_id": "28",
+      "title": "S2VC: A framework for any-to-any voice conversion with self-supervised pretrained representations",
+      "authors": [
+        "J Hao Lin",
+        "Y Lin",
+        "C.-M Chien",
+        "H Yi Lee"
+      ],
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "29",
+      "title": "Voice conversion with just nearest neighbors",
+      "authors": [
+        "M Baas",
+        "B Van Niekerk",
+        "H Kamper"
+      ],
+      "year": "2023",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "30",
+      "title": "Wav2vec-vc: Voice conversion via hidden representations of wav2vec 2.0",
+      "authors": [
+        "J Lim",
+        "K Kim"
+      ],
+      "year": "2024",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "31",
+      "title": "SUPERB-SG: Enhanced speech processing universal performance benchmark for semantic and generative capabilities",
+      "authors": [
+        "H.-S Tsai",
+        "H.-J Chang",
+        "W.-C Huang",
+        "Z Huang",
+        "K Lakhotia",
+        "S Yang",
+        "S Dong",
+        "A Liu",
+        "C.-I Lai",
+        "J Shi",
+        "X Chang",
+        "P Hall",
+        "H.-J Chen",
+        "S.-W Li",
+        "S Watanabe",
+        "A Rahman Mohamed",
+        "H Yi Lee"
+      ],
+      "year": "2022",
+      "venue": "Proc. Annual Meeting of the Association for Computational Linguistics (ACL)"
+    },
+    {
+      "citation_id": "32",
+      "title": "Parameter-Efficient Transfer Learning for NLP",
+      "authors": [
+        "N Houlsby",
+        "A Giurgiu",
+        "S Jastrzebski",
+        "B Morrone",
+        "Q De Laroussilhe",
+        "A Gesmundo",
+        "M Attariyan",
+        "S Gelly"
+      ],
+      "year": "2019",
+      "venue": "Proc. International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "33",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proc. Annual Conference of the North American Chapter of the Association for Computational Linguistics (NAACL)"
+    },
+    {
+      "citation_id": "34",
+      "title": "Exploring versatile generative language model via parameter-efficient transfer learning",
+      "authors": [
+        "Z Lin",
+        "A Madotto",
+        "P Fung"
+      ],
+      "year": "2020",
+      "venue": "Findings of Empirical Methods in Natural Language Processing (EMNLP Findings)"
+    },
+    {
+      "citation_id": "35",
+      "title": "Adaptive adapters: An efficient way to incorporate BERT into neural machine translation",
+      "authors": [
+        "J Guo",
+        "Z Zhang",
+        "L Xu",
+        "X Chen",
+        "E Chen"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing (TASLP)"
+    },
+    {
+      "citation_id": "36",
+      "title": "Poe: A panel of experts for generalized automatic dialogue assessment",
+      "authors": [
+        "C Zhang",
+        "L Haro",
+        "Q Zhang",
+        "T Friedrichs"
+      ],
+      "year": "2023",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing (TASLP)"
+    },
+    {
+      "citation_id": "37",
+      "title": "Large-scale multilingual speech recognition with a streaming end-to-end model",
+      "authors": [
+        "A Kannan",
+        "A Datta",
+        "T Sainath",
+        "E Weinstein",
+        "B Ramabhadran",
+        "Y Wu",
+        "A Bapna",
+        "Z Chen",
+        "S Lee"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "38",
+      "title": "Meta-adapter: Efficient cross-lingual adaptation with meta-learning",
+      "authors": [
+        "W Hou",
+        "Y Wang",
+        "S Gao",
+        "T Shinozaki"
+      ],
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "39",
+      "title": "Exploiting adapters for cross-lingual low-resource speech recognition",
+      "authors": [
+        "W Hou",
+        "H Zhu",
+        "Y Wang",
+        "J Wang",
+        "T Qin",
+        "R Xu",
+        "T Shinozaki"
+      ],
+      "year": "2022",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing (TASLP)"
+    },
+    {
+      "citation_id": "40",
+      "title": "Adapt-and-Adjust: Overcoming the long-tail problem of multilingual speech recognition",
+      "authors": [
+        "G Winata",
+        "G Wang",
+        "C Xiong",
+        "S Hoi"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "41",
+      "title": "Layer-wise fast adaptation for endto-end multi-accent speech recognition",
+      "authors": [
+        "Y Qian",
+        "X Gong",
+        "H Huang"
+      ],
+      "year": "2022",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing (TASLP)"
+    },
+    {
+      "citation_id": "42",
+      "title": "Lightweight adapter tuning for multilingual speech translation",
+      "authors": [
+        "H Le",
+        "J Pino",
+        "C Wang",
+        "J Gu",
+        "D Schwab",
+        "L Besacier"
+      ],
+      "venue": "Lightweight adapter tuning for multilingual speech translation"
+    },
+    {
+      "citation_id": "43",
+      "title": "Proc. Annual Meeting of the Association for Computational Linguistics (ACL)",
+      "venue": "Proc. Annual Meeting of the Association for Computational Linguistics (ACL)"
+    },
+    {
+      "citation_id": "44",
+      "title": "Efficient adapter transfer of self-supervised speech models for automatic speech recognition",
+      "authors": [
+        "B Thomas",
+        "S Kessler",
+        "S Karout"
+      ],
+      "year": "2022",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "45",
+      "title": "Exploring efficient-tuning methods in self-supervised speech models",
+      "authors": [
+        "Z.-C Chen",
+        "C.-L Fu",
+        "C.-Y Liu",
+        "S.-W Li",
+        "H.-Y Lee"
+      ],
+      "venue": "Proc. IEEE Workshop on Spoken Language Technology (SLT)"
+    },
+    {
+      "citation_id": "46",
+      "title": "LoRA: Low-rank adaptation of large language models",
+      "authors": [
+        "E Hu",
+        "Y Shen",
+        "P Wallis",
+        "Z Allen-Zhu",
+        "Y Li",
+        "S Wang",
+        "L Wang",
+        "W Chen"
+      ],
+      "venue": "Proc. International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "47",
+      "title": "Layer-wise analysis of a selfsupervised speech representation model",
+      "authors": [
+        "A Pasad",
+        "J.-C Chou",
+        "K Livescu"
+      ],
+      "year": "2021",
+      "venue": "Proc. IEEE Workshop on Automatic Speech Recognition and Understanding"
+    },
+    {
+      "citation_id": "48",
+      "title": "What all do audio transformer models hear? probing acoustic representations for language delivery and its structure",
+      "authors": [
+        "J Shah",
+        "Y Singla",
+        "C Chen",
+        "R Shah"
+      ],
+      "year": "2021",
+      "venue": "What all do audio transformer models hear? probing acoustic representations for language delivery and its structure",
+      "arxiv": "arXiv:2101.00387"
+    },
+    {
+      "citation_id": "49",
+      "title": "Parameter efficient transfer learning for various speech processing tasks",
+      "authors": [
+        "S Otake",
+        "R Kawakami",
+        "N Inoue"
+      ],
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "50",
+      "title": "Prefix-tuning: Optimizing continuous prompts for generation",
+      "authors": [
+        "X Li",
+        "P Liang"
+      ],
+      "year": "2021",
+      "venue": "Proc. Joint Conference of Annual Meeting of the Association for Computational Linguistics and International Joint Conference on Natural Language Processing (ACL-IJCNLP)"
+    },
+    {
+      "citation_id": "51",
+      "title": "Layer normalization",
+      "authors": [
+        "J Ba",
+        "J Kiros",
+        "G Hinton"
+      ],
+      "year": "2016",
+      "venue": "Layer normalization",
+      "arxiv": "arXiv:1607.06450"
+    },
+    {
+      "citation_id": "52",
+      "title": "Gaussian error linear units (gelus)",
+      "authors": [
+        "D Hendrycks",
+        "K Gimpel"
+      ],
+      "year": "2016",
+      "venue": "Gaussian error linear units (gelus)",
+      "arxiv": "arXiv:1606.08415"
+    },
+    {
+      "citation_id": "53",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "54",
+      "title": "XLM-E: Cross-lingual language model pre-training via ELECTRA",
+      "authors": [
+        "Z Chi",
+        "S Huang",
+        "L Dong",
+        "S Ma",
+        "B Zheng",
+        "S Singhal",
+        "P Bajaj",
+        "X Song",
+        "X.-L Mao",
+        "H Huang",
+        "F Wei"
+      ],
+      "year": "2022",
+      "venue": "Proc. Annual Meeting of the Association for Computational Linguistics (ACL)"
+    },
+    {
+      "citation_id": "55",
+      "title": "Gigaspeech: An evolving, multi-domain asr corpus with 10,000 hours of transcribed audio",
+      "authors": [
+        "G Chen",
+        "S Chai",
+        "G.-B Wang",
+        "J Du",
+        "W Zhang",
+        "C Weng",
+        "D Su",
+        "D Povey",
+        "J Trmal",
+        "J Zhang",
+        "M Jin",
+        "S Khudanpur",
+        "S Watanabe",
+        "S Zhao",
+        "W Zou",
+        "X Li",
+        "X Yao",
+        "Y Wang",
+        "Z You",
+        "Z Yan"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "56",
+      "title": "VoxPopuli: A large-scale multilingual speech corpus for representation learning, semi-supervised learning and interpretation",
+      "authors": [
+        "C Wang",
+        "M Riviere",
+        "A Lee",
+        "A Wu",
+        "C Talnikar",
+        "D Haziza",
+        "M Williamson",
+        "J Pino",
+        "E Dupoux"
+      ],
+      "year": "2021",
+      "venue": "Proc. Joint Conference of Annual Meeting of the Association for Computational Linguistics and International Joint Conference on Natural Language Processing (ACL-IJCNLP)"
+    },
+    {
+      "citation_id": "57",
+      "title": "Connectionist temporal classification: labelling unsegmented sequence data with recurrent neural networks",
+      "authors": [
+        "A Graves",
+        "S Fernandez",
+        "F Gomez",
+        "J Schmidhuber"
+      ],
+      "year": "2006",
+      "venue": "Proc. International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "58",
+      "title": "",
+      "authors": [
+        "S.-W Yang",
+        "P.-H Chi",
+        "Y.-S Chuang",
+        "C.-I Lai",
+        "K Lakhotia",
+        "Y Lin",
+        "A Liu",
+        "J Shi",
+        "X Chang",
+        "G.-T Lin",
+        "T.-H Huang",
+        "W.-C Tseng"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "59",
+      "title": "SUPERB: Speech processing universal performance benchmark",
+      "authors": [
+        "D.-R Lee",
+        "Z Liu",
+        "S Huang",
+        "S.-W Dong",
+        "S Li",
+        "A Watanabe",
+        "H.-Y Mohamed",
+        "Lee"
+      ],
+      "venue": "Proc. Interspeech, 2021"
+    },
+    {
+      "citation_id": "60",
+      "title": "Libri-Light: A benchmark for asr with limited or no supervision",
+      "authors": [
+        "J Kahn",
+        "M Rivière",
+        "W Zheng",
+        "E Kharitonov",
+        "Q Xu",
+        "P.-E Mazaré",
+        "J Karadayi",
+        "V Liptchinsky",
+        "R Collobert",
+        "C Fuegen"
+      ],
+      "year": "2020",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "61",
+      "title": "VoxCeleb: A large-scale speaker identification dataset",
+      "authors": [
+        "A Nagrani",
+        "J Chung",
+        "A Zisserman"
+      ],
+      "year": "2017",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "62",
+      "title": "Towards reduced false-alarms using cohorts",
+      "authors": [
+        "Z Karam",
+        "W Campbell",
+        "N Dehak"
+      ],
+      "year": "2011",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "63",
+      "title": "Comparison of speaker recognition approaches for real applications",
+      "authors": [
+        "S Cumani",
+        "P Batzu",
+        "D Colibro",
+        "C Vair",
+        "P Laface",
+        "V Vasilakakis"
+      ],
+      "year": "2011",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "64",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "J Kim",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "65",
+      "title": "Evaluating deep learning architectures for speech emotion recognition",
+      "authors": [
+        "H Fayek",
+        "M Lech",
+        "L Cavedon"
+      ],
+      "year": "2017",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "66",
+      "title": "Speech model pre-training for end-to-end spoken language understanding",
+      "authors": [
+        "L Lugosch",
+        "M Ravanelli",
+        "P Ignoto",
+        "V Tomar",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "67",
+      "title": "A large-scale evaluation of speech foundation models",
+      "authors": [
+        "S.-W Yang",
+        "H.-J Chang",
+        "Z Huang",
+        "A Liu",
+        "C.-I Lai",
+        "H Wu",
+        "J Shi",
+        "X Chang",
+        "H.-S Tsai",
+        "W.-C Huang"
+      ],
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "68",
+      "title": "Xvectors: Robust dnn embeddings for speaker recognition",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "G Sell",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2018",
+      "venue": "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "69",
+      "title": "Additive margin softmax for face verification",
+      "authors": [
+        "F Wang",
+        "J Cheng",
+        "W Liu",
+        "H Liu"
+      ],
+      "year": "2018",
+      "venue": "IEEE Signal Processing Letters"
+    }
+  ]
+}

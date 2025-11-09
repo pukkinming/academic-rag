@@ -1,0 +1,1350 @@
+{
+  "paper_id": "2212.06972v2",
+  "title": "Disentangling Prosody Representations With Unsupervised Speech Reconstruction",
+  "published": "2022-12-14T01:37:35Z",
+  "authors": [
+    "Leyuan Qu",
+    "Taihao Li",
+    "Cornelius Weber",
+    "Theresa Pekarek-Rosin",
+    "Fuji Ren",
+    "Stefan Wermter"
+  ],
+  "keywords": [
+    "Prosody disentanglement",
+    "speech emotion recognition",
+    "emotional voice conversion"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Human speech can be characterized by different components, including semantic content, speaker identity and prosodic information. Significant progress has been made in disentangling representations for semantic content and speaker identity in Automatic Speech Recognition (ASR) and speaker verification tasks respectively. However, it is still an open challenging research question to extract prosodic information because of the intrinsic association of different attributes, such as timbre and rhythm, and because of the need for supervised training schemes to achieve robust large-scale and speaker-independent ASR. The aim of this paper is to address the disentanglement of emotional prosody from speech based on unsupervised reconstruction. Specifically, we identify, design, implement and integrate three crucial components in our proposed speech reconstruction model Prosody2Vec: (1) a unit encoder that transforms speech signals into discrete units for semantic content, (2) a pretrained speaker verification model to generate speaker identity embeddings, and (3) a trainable prosody encoder to learn prosody representations. We first pretrain the Prosody2Vec representations on unlabelled emotional speech corpora, then fine-tune the model on specific datasets to perform Speech Emotion Recognition (SER) and Emotional Voice Conversion (EVC) tasks. Both objective (weighted and unweighted accuracies) and subjective (mean opinion score) evaluations on the EVC task suggest that Prosody2Vec effectively captures general prosodic features that can be smoothly transferred to other emotional speech. In addition, our SER experiments on the IEMOCAP dataset reveal that the prosody features learned by Prosody2Vec are complementary and beneficial for the performance of widely used speech pretraining models and surpass the state-of-the-art methods when combining Prosody2Vec with HuBERT representations. Some audio samples can be found on our demo website 1 .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "H UMAN speech contains rich information, which in- cludes semantic content (what is spoken), speaker identity (who is speaking), and prosodic information (how is it spoken). Among them, prosody plays an important role in characterizing speaking styles, emotional states, and social intentions. Most importantly, humans express and perceive emotions via various prosodic cues, for instance, sad speech often comes along with a low speaking rate, and angry emotion is usually accompanied by a raised pitch. According to Charles Darwin  [1] , emotions are instinctive and present not only in humans in similar forms but also in many other species. Human infants can understand adults' emotions even without language skills  [2] . Therefore, enabling machines to capably recognize, understand and convey emotions is one of the crucial steps to achieving true artificial intelligence.\n\nLearning meaningful prosodic representations has gained attention in recent years. Attention-enhanced Connectionist Temporal Classification (CTC)  [3]  and attention pooling  [4]  are utilized to dynamically capture useful temporal information for Speech Emotion Recognition (SER). Additionally, deep belief networks  [5]  and continuous wavelet transform  [6]  are utilized to learn prosodic features for Emotional Voice Conversion (EVC). However, model performance is greatly limited due to the lack of large-scale and high-quality emotional speech corpora.\n\nHence, disentangling prosodic information with unsupervised learning has been a promising direction, which includes Text-to-Speech (TTS) based style learning, such as automatically discovering expressive styles with global style tokens  [7] . Moreover, an information bottleneck is used to control the information flow by careful design, such as in SpeechFlow  [8] . In addition, mutual information loss is adopted to purify prosody representations, such as in a mutual information neural estimator  [9] . However, unsupervised methods usually require a well-trained Automatic Speech Recognition (ASR) system to decompose semantic content from speech. It is challenging to train a qualified ASR model with good performance, especially on emotional speech, since creating massive labeled corpora is time-and cost-consuming.\n\nAnother method is based on self-supervised learning by leveraging a large amount of unlabeled speech data. Chen et al.  [10]  propose WavLM and achieve state-of-the-art performance by fine-tuning the pretrained model on SER tasks. Nevertheless, the self-supervised learning models are mostly trained with mask prediction, similar to BERT  [11] , which leads the model to focus more on semantic content and local variations but neglect non-verbal and global information. Psychologists  [12]  found that the superior temporal gyrus-the site of the auditory association cortex-is more activated by longer audio, which reveals that humans tend to perceive emotions with long-term cues. Hence, it is critical to capture global or long-term prosodic changes.\n\nThe recent self-supervised model HuBERT  [13]  integrates quantization into pretraining, where, instead of directly predicting the masked low-level acoustic features, HuBERT treats clustered Mel-Frequency Cepstral Coefficient (MFCC) features or clustered intermediate layer outputs by k-means as training targets. It has been proven that the quantization procedure can successfully filter non-verbal information, such as prosodic information  [14]  and speaker identity  [15] . Inspired by the above findings, we propose Prosody2Vec which does not require any human annotations and reconstructs emotional speech in an unsupervised fashion by conditioning on three information flows: (1) a unit encoder which is based on the pretrained HuBERT model to filter paralinguistic information and preserve only semantic content, (2) a pretrained Speaker Recognition (SR) model to generate speaker identity embeddings, and (3) a trainable prosody encoder to learn prosody representations.\n\nPrevious works, for instance, NANSY  [16]  and Speech-Flow  [8] , perform controllable or fine-grained speech synthesis by factorizing detailed prosodic attributes, such as pitch and rhythm. Instead of disentangling individual attributes, we aim to learn prosodic representations that reflect the combined effect of different prosodic attributes. Additionally, current speech representation models, e.g. HuBERT, focus more on local semantics modeling on a millisecond time scale, which results in an incapacity to represent long-term information. However, the production and perception of emotion usually require a relatively long, second-level time scale  [17] .\n\nIn addition, previous supervised work using Variational Autoencoder (VAE)  [18]  and Vector-Quantize VAE (VQ-VAE)  [19]  requires human annotations (text transcriptions) to provide semantic content. The lack of large-scale labeled emotional or expressive datasets significantly restricts model performance. In comparison, the proposed Prosody2Vec model leverages self-supervised pretraining, quantization, and refinement schemes to represent semantics without text annotations, which enables Prosody2Vec to train with large-scale datasets containing variant speaker styles.\n\nComparing with unsupervised methods, like AutoVC  [20]  and SpeechFlow  [8] , which control information flows by several carefully designed bottleneck autoencoder modules. It is complicated and time-consuming to balance different information flows and determine a suitable dimension through trial and error. However, we explicitly provide semantic and speaker information by pretrained models in Prosody2Vec. Only the prosody encoder needs to be controlled and tuned.\n\nIn this paper, our goal is to capture global or utterancelevel variations, which are complementary to the semantic representations learned by speech representation models. The main contributions of this paper are:\n\n1) We propose a novel model, Prosody2Vec, to learn prosody information from speech, which requires neither emotion labels nor transcribed speech for robust ASR system building.\n\n2) The SER results on the IEMOCAP dataset reveal that, after pretraining with large-scale unlabelled data, Prosody2Vec can successfully capture prosody vari-ations, which is complementary to the widely used speech pretraining models, such as Wav2Vec2  [21]  and HuBERT. We surpass the state-of-the-art method when combining Prosody2Vec with HuBERT. 3) We conduct subjective and objective evaluations on EVC tasks. The experimental results demonstrate that Prosody2Vec can effectively convert a given emotional reference into any speech utterance. The rest of the paper is organized as follows. Section II reviews some related work on prosody disentanglement, SER and EVC. Section III details the proposed Prosody2Vec architecture. We introduce the used datasets, Prosody2Vec pretraining, and evaluate our proposed method on SER, and EVC tasks in Section IV. We conduct a series of ablation studies to deelp understand the Prosody2Vec model in Section V. Some potential applications, such as, zero-shot emotional, speaking, and singing style transfer, are presented in Section VI. We conclude and summarize the results of this paper in Section VII.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ii. Existing Research Methods",
+      "text": "In this section, we briefly review related work on prosody disentanglement, speech emotion recognition, and emotional voice conversion.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Prosody Disentanglement",
+      "text": "Prosody disentanglement aims to decompose different acoustic or phonetic speech attributes, such as pitch, timbre, rhythm, intonation, loudness, and tempo. Current approaches can be mainly divided into three parts: (1) TTS-based style learning, (2) information bottleneck  [22] , and (3) mutual information loss.\n\nTTS-based methods force additional attribute encoders to provide prosodic information when transforming text sequences into speech signals. Skerry-Ryan et al.  [23]  integrate an encoder module into the Tacotron  [23]  TTS system to capture meaningful variations of prosody and successfully perform speaking style transfer. Subsequently, Wang et al.  [7]  introduce \"global style tokens\" to automatically discover expressive styles. In addition, Variational Autoencoder (VAE)  [18]  and Vector-Quantize VAE (VQ-VAE)  [19]  are adopted to learn continual and discretized prosody representations from a reference audio respectively.\n\nThe basic idea of information bottleneck approaches is to control the information flow by carefully designing appropriate bottlenecks. AutoVC  [20]  adopts a properly tuned autoencoder as the information bottleneck to force the model to disentangle linguistic content and speaker identity with selfreconstruction. SpeechFlow  [8]  extends the AutoVC model by constraining the dimension of representations and adding randomly sampled noise to blindly split content, pitch, timbre, and rhythm from speech. However, bottlenecks need to be carefully designed and are sensitive to the dimension of latent space.\n\nThe use of mutual information loss is minimizing information redundancy between different attributes. To allow more precise control over different speech attributes, Kumar et al.  [24]  formulate a modified Variational Auto-Encoder (VAE) loss function to penalize the similarity between different attribute representations. Weston et al.  [25]  introduce a selfsupervised contrastive model that adopts product quantization to disentangle non-timbral prosodic information from raw audio.\n\nDifferent from the aforementioned approach, in this paper, we aim to disentangle a global prosody representation from speech instead of factorizing detailed attributes for controllable or fine-grained speech synthesis. Different from speech synthesis, emotion recognition, and conversion tasks rely more on prosody representations that reflect the combined effect of different prosodic attributes.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Speech Emotion Recognition",
+      "text": "In this paper, we only review the recent work on categorical emotion classification. Advanced models and methods are proposed to overcome the bottleneck caused by limited emotional speech corpora. Lakomkin et al.  [26]  utilize finetuning methods and progressive networks  [27]  to transfer ASR representations to emotion classification. In addition, attentionenhanced Connectionist Temporal Classification (CTC)  [3]  and attention pooling  [4]  are utilized to dynamically weigh the contribution of temporal changes in an utterance. Furthermore, different multi-task architectures are designed to learn more generalized features. For instance, building SER models with both discrete and continual labels  [28] , integrating naturalness prediction as an auxiliary task  [29] , and exploiting secondary emotion labels by the perceptual evaluation of annotators after aggregating them  [30] .\n\nInspired by the success of self-supervised pretraining in ASR tasks, researchers directly utilize pretrained speech representations for SER, such as attempting different fine-tuning strategies  [31] . However, modern speech representation models focus more on local variations or semantic information but rarely take emotional or prosodic cues into account. In this paper, we propose to adopt unsupervised pretraining to capture global prosodic information at an utterance level, which is complementary to the widely used speech representation models, such as Wav2Vec2 and HuBERT.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Emotional Voice Conversion",
+      "text": "The EVC task aims to convert a speaker's speech from one emotion to another while preserving semantic contents and speaker identities. Typically, parallel data is required to perform frame-to-frame mapping. S ¸is ¸man et al.  [32]  utilize continuous wavelet transforms to map source and target audios on the side of F0, energy contour, and duration. Subsequently, deep belief networks and deep neural networks are used to build mel-cepstral coefficients and F0 mappings respectively  [5] . Frame-to-frame methods assume the same utterance length between input and generated speech. However, different emotions are conveyed with various segments or syllable duration, and it is unreasonable to restrict different emotional speech utterances to have the same duration. In addition, collecting parallel emotional datasets is expensive and time demanding.\n\nTo tackle the above issues, different models using nonparallel data are thereby proposed. For instance, Cycle Generative Adversarial Networks (GANs)  [33]  and StarGANs  [34]  are used to predict spectrum and prosody mappings. Besides, Zhou et al.  [35]  propose a sequence-to-sequence framework, in which TTS and SER tasks are jointly trained with EVC. Zhou et al.  [36]  propose Emovox to control fine-grained emotional intensity by integrating intensity and emotion classification into EVC training. Inspired by the mechanism of speech production, Luo et al.  [37]  design a source-filter network to learn speaker-independent emotional features. Nonetheless, these systems usually rely on additional annotations, such as emotion labels, text transcriptions, and speech intensities. Different from the current EVC methods, we conduct EVC experiments with unsupervised emotional speech reconstruction, which requires neither paired speech nor additional labels.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iii. Prosody2Vec Architecture",
+      "text": "To leverage disentangled semantic content by the quantization procedure in HuBERT, we propose Prosody2Vec, as shown in Fig.  1 , which consists of four crucial modules: a unit encoder, a speaker encoder, a prosody encoder, and a decoder. We detail each module in the following subsections.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Unit Encoder",
+      "text": "As shown in Fig.  1 , the unit encoder firstly extracts latent representations from original speech signals with pretrained HuBERT. Then, the k-means algorithm and deduplication process are used for vector quantization and semantics refinement respectively. The process of quantization and refinement can effectively remove the speaker and prosody information from the original speech, which is discussed in Section V. Lastly, a Unit2Vec (U2V) module transforms the deduplicated discrete units into latent space for model training. We detail the quantization and refinement procedures as follows.\n\n1) Quantization: The backbone of the unit encoder is based on the recent self-supervised model HuBERT which learns speech representations by predicting masked parts, similar to BERT  [11] . HuBERT 2  is pretrained on the LibriSpeech  [38]  dataset with 960 hours data. We first extract dense representations at the frame level for each utterance from waveform signals.\n\nWe denote a sequence of waveform signals as x = (x 1 , ..., x T ), where T is the length of an audio waveform. The audio sample x is transformed into a sequence of continuous vectors by the pretrained HuBERT:\n\nwith y = (y 1 , ..., y L ), where L < T . The dense representation y is often used for downstream tasks, e.g. ASR and SER. Different from previous work, we quantize continuous vectors into discrete units to filter speaker information and refine semantic content. The quantization procedure can be performed by the k-means algorithm on the dense representations:\n\nwith u = (u 1 , ..., u L ) and u i ∈ {1, N }, where N is the number of clusters. The dense representations embedded by HuBERT are quantized into discrete units (cluster labels) u frame by frame, e.g. \"23, 23, 23, 2, 2, ..., 57\".\n\n2) Refinement: Subsequently, to refine the quantized sequences, we perform a refinement procedure since the adjacent repetitions may carry duration and rhythm information. Specifically, we deduplicate the unit sequence u to u by merging and removing repetitions, e.g. \"23, 23, 23, 2, 2, ..., 57\" → \"23, 2, ..., 57\", which purifies the speech units and avoids the leak of prosody information. As a consequence, Prosody2Vec can only capture rhythm and duration information from the prosody encoder. We hereafter use speech units to represent the deduplicated discrete units and refer to N as vocabulary size. The purified speech units are utilized to represent semantic content. Table  I  shows the discrete speech units of a random utterance with a vocabulary size of 50, 100, and 200 units.\n\n3) Unit2Vec: The Unit2Vec (U2V) module maps the discrete speech units to a continuous latent space with an embedding layer, followed by three 1D-CNN layers and one bi-directional Long Short-Term Memory (LSTM) layer. The detailed configurations are listed in Table  II .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Speaker Encoder And Prosody Encoder",
+      "text": "The speaker encoder is based on the ECAPA-TDNN  [39]  speaker verification model  [39] , which is pretrained on the VoxCeleb2  [40]  dataset and achieves state-of-the-art results with a 0.87% equal error rate. We show the ECAPA-TDNN  [39]  details in Fig.  2 , which begins with a Time Delay Neural Network (TDNN)  [41]  layer, followed by three SE-Res2Blocks. Each SE-Res2Block consists of 2 1D-CNN layers, a dilated Res2Net  [42]  and a Squeeze-Excitation (SE)  [43]  block. Then a 1D-CNN combines outputs from the three previous SE-Res2Blocks, followed by attentive statistics pooling and a Fully Connected (FC) layer. The dilation factors used in the first three SE-Res2Blocks are 2, 3, and 4 respectively. The channel size used in the above three blocks is 1024 with a kernel size of 3.\n\nThe output vectors with 192 dimensions from the last FC layer of a model pretrained on the Voxceleb2 dataset are used as the speaker embeddings. In case the decoder directly learns prosodic information from speaker embeddings, we input a different audio belonging to the same speaker to the speaker encoder during training. The HuBERT representations and k-means algorithm in the unit encoder are performed beforehand. During training, the weights in U2V, prosody encoder, attention module and the decoder are updated, while the speaker encoder are frozen. The dense representations of speech signals are extracted by pretrained HuBERT beforehand and speech units quantized with k-means are saved locally. We freeze the pretrained speaker encoder to maintain the knowledge learned on the big Voxceleb2 dataset and ensure only speaker-related information is delivered.\n\nThe architecture of the prosody encoder is also based on ECAPA-TDNN, which is the same as the speaker encoder, but with random initialization. The weights of prosody encoder are updated by minimizing the mean square error (MSE) between the generated and original mel-spectrograms. The prosody encoder is fed with the same mel-spectrograms as the one used in the unit encoder.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Decoder",
+      "text": "Our decoder is similar to the one used in Tacotron2  [44] . The decoder reconstructs mel-spectrograms utilizing the outputs from the aforementioned three encoders. A location-aware attention mechanism  [45]  is used to bridge the encoders and the decoder. The decoder consists of one unidirectional LSTM layer followed by one linear projection layer to map the intermediate representations to the dimension of the mel-scale filter bank. In addition, two FC layers (PreNet) are used to embed the ground-truth mel-spectrograms into a latent space.\n\nTable  II  shows the configuration of U2V, attention module, and decoder. More details about the location-aware attention mechanism can be found in the approach by Chorowski et al.  [45]  and LipSound2  [46] .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Experiments",
+      "text": "In this section, we describe the setup and datasets used for the pretraining Prosody2Vec. We conduct comprehensive assessments and report results for SER and EVC experiments.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "A. Datasets",
+      "text": "We use spontaneous and emotional speech datasets, i.e. LRS3-TED  [47] , MSP-PODCAST  [48] , MSP-IMPROV  [49]  and, OMG  [50]  datasets, to pretrain the proposed model, then fine-tune it on IEMOCAP  [51]  and ESD  [52]  datasets to perform SER and EVC experiments respectively. The statistics of all datasets used in this paper are shown in Table  III .\n\n• LRS3-TED  [47] : an audio-visual dataset collected from TED and TEDx talks with spontaneous speech and various speaking styles and emotions. It is comprised of over 400 hours of video by more than 5000 speakers and contains an extensive vocabulary.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Prosody2Vec Pretraining",
+      "text": "We merge the LRS3-TED, MSP-PODCAST, MSP-IMPROV, and OMG datasets for pretraining. 500 randomly selected samples from the above datasets are utilized for validation. We augment training data by perturbing speed with the factors of 0.9, 1.0, and 1.1. Furthermore, SpecAugment  [53]  with two frequency masks (maximum width of 50) is utilized on the fly during training. In addition, gradient clipping with a threshold of 1.0, early stopping, and scheduled sampling  [54]  are adopted to avoid overfitting. The Prosody2Vec model is pretrained with a batch size of 30 and 3000 warm-up steps. We use the Adam optimizer  [55]  and the cosine Learning Rate (LR) decay strategy with an initial value of 1e-3. The experiments are conducted on two 32G memory NVIDIA Tesla V100 GPUs in parallel. We pretrain three models with a vocabulary size of 50, 100, and 200 units to explore the effect of quantization. The entire pretraining procedure takes around three weeks for each model. We extract the magnitude using the Short Time Fourier Transform (STFT) with 1024 frequency bins and a 64ms window size with a 16ms stride. The mel-scale spectrograms are obtained by applying an 80-channel mel filter bank to the magnitude. The model is optimized with Mean Squared Error (MSE) loss to minimize the distance between the generated and original mel-spectrograms.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "C. Experiments Of Speech Emotion Recognition 1) Experimental Setups:",
+      "text": "The SER experiments are conducted on the widely used IEMOCAP dataset. We merge \"happy\" and \"excited\" into the category of \"happy\" to balance each class. Finally, 5531 utterances are used for training and testing, which include four emotions, i.e. angry, sad, happy, and neutral. The dataset is comprised of five sessions with two speakers in each session. We conduct SER experiments with the following two settings to provide a comprehensive comparison with previous work  [56] :\n\n• Leave-one-session-out is performed with 5-fold crossvalidation. In each round, one session is used for testing and another random session is used as a validation set.\n\nThe remaining three sessions are treated as the training set.\n\n• Leave-one-speaker-out means using one speaker for testing in one session and the other speaker in the same session is utilized for validation. Therefore, 10-fold crossvalidation is performed. We fine-tune the pretrained prosody encoder with one additional FC layer to perform emotion classification, in which LRs of 1e-4 and 5e-4 are used for the pretrained prosody encoder and for the last FC layer respectively. The fusion experiments are conducted by concatenating the representations generated by the prosody encoder with the outputs of Wav2Vec2 or HuBERT. Then the concatenated vectors are fed into one FC layer for classification.\n\n2) Evaluation Metrics: We utilize the following two metrics to assess the Prosody2Vec performance on SER tasks.\n\n• Weighted Accuracy (WA): the accuracy of all utterances in the test set.\n\n• Unweighted Accuracy (UA): the average accuracy of each emotion class.\n\nwhere M and N represent the number of emotion classes and the total number of utterances in the test set respectively. U i denotes the number of utterances with a correct prediction of the emotion class i and T i is the total number of utterances of emotion class i.\n\n3) Experimental Results of Speech Emotion Recognition: We compare the performance of using only acoustic FBANK features, only our pretrained Prosody2Vec, and only pretrained speech representation models, i.e. Wav2Vec2 and HuBERT, where the base and large models are trained on 960h Lib-riSpeech and 60kh Libri-light  [57]  respectively. In addition, we also report the results of combining Prosody2Vec with Wav2Vec2 or HuBERT. As shown in Table  IV , Prosody2Vec surpasses the baseline model using FBANK features but is not as good as Wav2Vec2 or HuBERT. One reason is that Wav2Vec2 and HuBERT are trained with larger datasets, 960h or 60kh, whereas our model is trained on only 460h of speech data. Another potential reason is that the representations captured by the prosody encoder are more related to prosodic variations. In comparison to prosody information, semantic content learned by Wav2Vec2 or HuBERT is important for emotion recognition as well, which is also found in psychology  [58] . Further improvement can be obtained when combining Prosody2Vec with Wav2Vec2 or HuBERT. Moreover, it seems that a bigger vocabulary size equals better performance. Hence, we only report the results of vocabulary size 200 in the rest of the paper.\n\nWe compare our model performance with supervised methods, i.e. CNN-ELM+STC attention, Auido 25  [59] , co-attention-based fusion  [60] , IS09-classification  [61] , TCN+self-attention w/AT  [62]  and self-supervised methods, i.e. Wav2Vec  [63] , modified-CPC  [64] , DeCoAR  [65] , Data2Vec  [66]  and WavLM  [10] . We present the leaveone-session-out results in Table  V . Prosody2Vec achieves competitive results with some supervised models and is superior to the state-of-the-art model Wav2LM when fused with HuBERT-Large, since Prosody2Vec captures more efficient long-term variances on prosody.\n\nFor a fair comparison, we retrain SpeechFlow  [8]  and SpeechSplit2.0  [67]  on the datasets used for Prosody2Vec pretraining. We then fine-tune the rhythm and pitch encoders for SER tasks. As shown in Table . V, the results using the disentangled prosody representations from SpeechFlow and SpeechSplit2.0 are not good as Prosody2Vec, since only rhythm and pitch information are decoupled.\n\nAs shown in   speaker-out settings. The self-supervised models (Wav2Vec 2.0 and HuBERT large) are first pretrained on a 60k hours speech dataset, then perform SER on IEMOCAP by partially fine-tuned. The results of WA and UA further verify that Prosody2Vec is complementary and beneficial for the performance in widely used speech pretraining models.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "D. Experiments Of Emotional Voice Conversion 1) Experimental Setups:",
+      "text": "We follow the setups used in Emovox  [36]  and conduct emotion conversion with the following three conditions, neutral to angry, neutral to happy, and neutral to sad. The official split of the dataset is utilized. It is worth noting that, in contrast to previous work that trains the model only on one male speaker (003), e.g. Emovox, we perform multi-speaker EVC in one model. After fine-tuning on the ESD dataset with a fixed LR of 1e-5, emotion conversion can be performed by directly replacing the input audio with expected emotions for the prosody encoder.\n\n2) Evaluation Metrics: The Mean Opinion Score (MOS) is utilized to subjectively evaluate the similarity between the generated and original audio. In addition, we use two objective metrics to measure the converted speech quality, i.e. Melcepstral distortion (MCD) and Root Mean Squared Error for F0 (F0-RMSE).\n\n• sMOS is similarity MOS that is a subjective metric evaluated by the human auditory sense. For a fair comparison, the audio selection is according to the samples provided by Emovox 3  . The sMOS results are evaluated by 14 subjects consisting of 6 females and 8 males with ages ranging from 23 to 34 years. During testing, all 14 subjects are assigned to listen to the original audio first, followed again by the original or a generated one.\n\nThen the subjects rate the emotional similarity of the two audios with an opinion score in the range of -2 to +2 (-2: absolutely different, -1: different, 0: cannot tell, +1: similar, +2: absolutely similar).   • nMOS is naturalness MOS which is judged on a scale of 1 (bad) to 5 (excellent). • MCD is adopted to quantify the distortion between two mel-scale cepstral features objectively, and smaller values equal better performance.\n\nM CD = (10/ ln 10) 2\n\nwhere M t i is the mel-cepstral of target emotion and M c i is the mel-cepstral of converted audio by Prosody2Vec. • F0-RMSE is utilized to evaluate the distortion of frequency contour objectively.\n\nwhere F t i and F t c represent the F 0 of target emotions and converted audio respectively. It is worth noting that we calculate the F 0 values of the entire utterance, which includes both voiced and unvoiced regions since unvoiced segments can convey emotions as well.\n\n3) Subjective Results of EVC: We compare our method with four baseline models, i.e. CycleGAN-EVC  [33] , StarGAN-EVC  [34] , Seq2Seq-EVC  [35] , and Emovox. Fig.  3  shows the results of sMOS regarding emotion similarity. The subjects can obviously discriminate the original emotional speech and neutral emotion with a minus score of around -1, as shown in the first bar in each subfigure. In addition, it is also easy to recognize the original emotional pairs with a score of around 2, as shown in the last bars. Moreover, Prosody2Vec obtains higher scores than baselines, which reveals that our method can smoothly transfer emotional prosody into source audio. In addition, the naturalness of generated audio by different methods is reported in Fig.  4 . Our method achieves competitive naturalness compared with previous work. However, it is still not so good as the target audio.\n\nTo further assess the model performance, we also ask the subjects to recognize the emotion type from a given set (neural, happy, sad, and angry) during subjective testing. Fig.  5  presents the confusion matrices for each method, the darker the color, the higher the accuracy. Prosody2Vec outperforms the four baseline models with a higher accuracy in all three conversion cases.\n\n4) Objective Results of EVC: As shown in Table  VII , Emovox achieves the best results in both metrics. Prosody2Vec performs slightly worse than Emovox. By comparing the converted audio with the target audio, we found that the audio generated by our model sounds more emotional and more expressive with different intonations or stresses. Most importantly, the rhythm and syllable duration are changed significantly. The phenomenon can be observed in the Fig.  5 , where the duration of generated audio is obviously shorter than the original one. However, both MCD and F0-RMSE metrics are calculated frame-by-frame, the changes on duration have an important influence on the results, which leads to a slightly worse objective result by our method.\n\nWe visualize one sample for each emotion class with melspectrograms and F0 contours, where we transfer the expected emotional prosody from the reference prosody, as shown in Fig.  6 . Our method generates rich variations in formants and F0 contours in comparison to the baselines.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "V. Ablation Study",
+      "text": "In this section, we conduct a series of ablation studies to deeply understand the model architecture.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A. Ablation Study On Speech Units",
+      "text": "We conduct ablation studies to verify the effectiveness of the deduplication process on prosody information filter with a vocabulary size of 200 units. Specifically, we train several models based on the ECAPA-TDNN architecture but with different input features. The models are evaluated on the speech emotion recognition task.\n\nAs shown in Table  VIII , the model trained with audio inputs achieves better performance than the one trained with the text modality, since audio modality contains not only semantic content but also prosody information that is crucial for emotion recognition. The \"Duplicated Units\" and \"Deduplicated Units\" represent the unit sequence with and without repetitions respectively. The model trained with duplicated units obtains  higher WA than using text. However, the deduplication units after removing repetitions achieve similar results to the one using text (45.8% VS 46.2%), which reveals that the deduplication process can effectively eliminate prosodic information from speech.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "B. Ablation Study On U2V",
+      "text": "We conduct ablation studies to examine the effect of BiL-STM in the U2V module. Model performance is evaluated on the SER task by adding one additional FC layer on top of the prosody encoder for classification. For a fair comparison, only the weights in the FC layer are updated while the prosody encoders are frozen. As shown in Table  IX , the WA grows with the dimension of the BiLSTM layer. We finally choose 256 dimensions for BiLSTM to trade off the model performance and computational costs.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "C. Ablation Study On Prosody Encoder",
+      "text": "To examine to what extent the semantics and speaker information leak from the prosody encoder, we conduct semantics and speaker probing experiments.\n\n1) Semantics Probing: the semantics probing experiments are conducted on the RAVDESS  [74]  dataset which is an emotional speech dataset recorded by 24 actors and contains 1440 utterances. RAVDESS consists of two kinds of semantic contents, i.e. A-\"Kids are talking by the door\" and B-\"Dogs are sitting by the door\".\n\nWe first generate speech samples by controlling the inputs of the unit and prosody encoders with different combinations, for example, AB means feeding utterances with semantics A into the unit encoder of a pretrained Prosody2Vec model while feeding inputs B into the prosody encoder. We then use the Whisper  [75]  ASR system to transcribe the generated speech signals into text transcriptions. Finally, The sentencelevel accuracy of being recognized as A, B, or X is calculated.\n\nX is neither A nor B, which is caused by word errors in the results of the Whisper system.\n\nAs shown in Table  X , the transcribed texts are consistent with the prosody encoder input with high accuracy (98.8% and 99.2%), which suggests that the semantics of the generated speech is controlled by the unit encoder and no linguistic content is leaked from the prosody encoder. 2) Speaker Probing: we found that the decoder may learn speaker information from the prosody encoder even if speaker embeddings are provided. Therefore, we force the prosody encoder to learn only prosody-related information by constraining the dimension of prosody representations. We train Prosody2Vec with different dimensions of the prosody and the unit encoder, as shown in Table  XI . We conduct speaker verification and SER experiments to examine the residual speaker information in prosody and unit representations.\n\n• Speaker Verification. Speaker verification is conducted on the LibriSpeech subset train-clean-100  [38]  which is randomly split into training and testing sets with the ratio of 9 : 1 from 251 speakers. The prosody encoder is frozen and one FC layer is added on top of it to perform classification and maintain the learned prosodic knowledge. As shown in Table  XI , when the dimension of prosody representation is set to 64, we obtain the lowest speaker verification accuracy (28.0%). However, the accuracy increases to 66.7% when the dimension grows to 320, which reveals that constraining the dimension of prosody representations can effectively mitigate speaker information leak from the prosody encoder. In comparison, the vector dimension has a minor impact on the unit encoder.",
+      "page_start": 9,
+      "page_end": 10
+    },
+    {
+      "section_name": "D. Embedding Visualization",
+      "text": "To further straightforwardly understand Prosody2Vec, we visualize the prosody, speaker, and unit embeddings learned by the three encoders with t-SNE  [76] . We choose the audio samples in the first session of IEMOCAP uttered by two speakers with 4 emotions, i.e. angry, happy, sad, and neural. The sentence-level unit embeddings are obtained by averaging on the time domain. It is noteworthy that all embeddings are extracted with the pretrained Prosody2Vec without fine-tuning on the IEMOCAP dataset. As we can observe in Fig.  7 , we color the embeddings in the emotion and speaker dimensions to explore their representation ability on emotion and speaker classifications.\n\nFor a fair comparison, the representations presented in Fig.  7  come from the pretrained Prosody2Vec which is not fine-tuned on emotional datasets, since the unit and speaker encoders will not be fine-tuned on downstream tasks. This is the reason why Fig.  7  does not show separated clusters on the emotion domains. We found the same phenomenon in the HuBERT model. As shown in Fig.  8 , the first row is the visualization of the representations from the pretrained models, and the second row shows the model outputs after fine-tuning on emotion classification tasks. We can conclude that although the representations extracted from the pretrained models cannot distinguish emotions, they demonstrate great potential when fine-tuning on domain-specific datasets. Moreover, the visualizations also reveal that Prosody2Vec synergistically integrates with the semantic representation model HuBERT. This harmonious integration results in a noticeably enhanced performance.\n\nFurthermore, to facilitate an intuitive comparison, we employ Principal Component Analysis (PCA) to reduce the frame-level HuBERT representations (1024 dimensions) and the outputs from the attentive pooling layer in Prosody2Vec (3072 dimensions) into a single dimension, as shown in Fig.  9 . The audio sample is spoken with breath and laughter, conveying a sense of happy emotion. Compared with HuBERT, Prosody2Vec can better represent the timing information, such as short pauses between words and the durations of segments. In addition, Prosody2Vec has a different activation on nonverbal areas, for instance breath and laughter (highlighted with red circles).",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Vi. Potential Applications And Discussion",
+      "text": "We have shown that our proposed Prosody2Vec can capture utterance-level prosody information, which significantly boosts the performance of SER and EVC tasks. As shown in  Fig.  10 , we discuss some potential applications of our model on cross-lingual EVC and speaking, emotional, and singing style transfer. Cross-lingual EVC transfers an emotional style from a different language to the source language. Singing style transfer refers to transforming speaking prosody into a given melody. Speaking style transfer intends to change prosodic attributes, for instance, stress position and intensity level in the generated audio, while keeping the emotion type unchanged. Emotional style transfer aims to convert one emotion to a different one, for example, angry to happy. We only present cross-lingual EVC and singing style transfer in this section. Speaking and emotional style transfer are discussed in Appendix A and B respectively. It is worth noting that all potential applications are conducted without any fine-tuning with task-related datasets. Lastly, we conclude by discussing the benefits and limitations of Prosody2Vec.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "A. Cross-Lingual Emotional Voice Conversion",
+      "text": "We found that Prosody2Vec can perform zero-shot crosslingual emotional style transfer. As shown in Fig.  11 , we convert an English neutral utterance into another emotion (angry) by transferring the prosodic information from a German reference. We only use English data for pretraining and the model never sees any German speech.\n\nCompared to the original English neutral audio, the given German reference is uttered with a relatively fast tempo. As",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Emotional Voice Coversion (Evc)",
+      "text": "Unit encoder input we can see in the second picture of Fig.  11 , Prosody2Vec successfully transfers the tight rhythm in an unseen German reference into the English utterance but keeps semantic content invariant. The middle short pause in the original audio is even removed to perform a rapid tempo.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "B. Singing Style Transfer",
+      "text": "We visualize the pitch with Parselmouth 4 in each melspectrogram since the spoken intonation and the musical melody are highly related to pitch variance. From Fig.  12  we can see when feeding a singing voice to the prosody encoder, Prosody2Vec can successfully transfer the melody in the given reference into the source utterance, which suggests that Prosody2Vec can be used for music synthesis or style conversion.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "C. Discussion",
+      "text": "The style transfer tasks shown above further reveal that our proposed model successfully disentangles prosodic information which is independent of semantic content and robust to unseen styles and languages. We highly recommend listening to the audio samples on our demo website 5 . 4 https://parselmouth.readthedocs.io/en/stable/ 5 https://leyuanqu.github.io/Prosody2Vec  However, we found that the speech quality for emotion conversion is damaged sometimes. For example, the distortions around 2000Hz in the second picture of Fig.  12 . The generated distortions will have a noticeable effect during listening. This is mainly because, during training, the model always receives inputs belonging to the same speaker. It is difficult for the model to only focus on prosodic information when directly replacing the prosody encoder input with a different speaker since the model has never seen such combinations during training.\n\nMoreover, a surprising finding is that when we randomly replace a few unit values with random numbers or remove a few k-means clustering units in the input sequences, the quality or semantics of the generated audio are only slightly influenced, which reveals that the discrete units are very robust compared to the text sequences transcribed by ASR systems. Hence, it is worth further exploring our system under more challenging conditions, such as speech with noise or reverberation.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Vii. Conclusion And Future Work",
+      "text": "In this paper, we propose Prosody2Vec to learn emotional prosody representations from speech, which consists of three encoders: a unit encoder to transform speech signals into discrete units, a speaker encoder to provide speaker identity information, a prosody encoder to extract utterance-level representations, and a TTS-based decoder to reconstruct melspectrograms by relying on the aforementioned three information flows. Only the weights of the prosody encoder and the decoder are trainable in order to force the prosody encoder to capture prosodic changes when minimizing the distance between generated and original speech signals. Prosody2Vec relies neither on paired audio nor on any emotion or prosody labels. The experimental results on SER and EVC reveal that the Prosody2Vec structure learns efficient prosodic features which achieve considerable improvements compared to the state-of-the-art models for emotion classification and emotion transfer.\n\nThe current model is trained only for English which is a non-tonal language. It is worth verifying our methods on some tonal languages, e.g. Mandarin and Thai. Furthermore, since emotional expressions are highly influenced by languages and cultures, it would be interesting to investigate the prosodic patterns and mechanisms across languages. One major reason limiting the performance of modern SER systems is the lack of large-scale and high-quality emotional corpora. Augmenting emotional speech data using Prosody2Vec with EVC would be a promising approach.",
+      "page_start": 13,
+      "page_end": 14
+    },
+    {
+      "section_name": "Appendix",
+      "text": "In addition to cross-lingual EVC and sing style transfer, we show more applications of Prosody2Vec in the Appendix.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "A. Speaking Style Transfer",
+      "text": "When feeding a reference with a given emotion type into the prosody encoder, we found that the model generates emotional audio with different stress positions or intonations. In addition, a different emotional intensity can arise through conversion. We compare the original and generated mel-spectrograms in Fig.  13 , in which some differences on stress to demonstrate the transferred styles are highlighted with red boxes. This application can be used to augment emotional speech to mitigate class imbalance and data scarcity problems in the SER task.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "B. Emotional Style Transfer",
+      "text": "Inspired by the fact that humans can easily manipulate emotion expressions while not altering the semantic content  [77] , here we show that emotion expressions are independent of semantics from a signal processing perspective. As shown in Fig.  14 , the original utterance \"Why is this egg not broken?\" is uttered with angry emotion. We can smoothly convert the source audio to happy or sad emotions while retaining semantic information.",
+      "page_start": 15,
+      "page_end": 15
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: The architecture of Prosody2Vec. During training, the weights in U2V, prosody encoder, attention module and the decoder are updated, while the",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: , which consists of four crucial modules: a unit",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: , the unit encoder firstly extracts latent",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: , which begins with a Time Delay",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Architecture of ECAPA-TDNN, where SE is short for squeeze",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: Subjective evaluation on emotion similarity, where X is the original audio or the audio generated by the EVC models listed in the x-axis.",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Subjective evaluation on target and generated audio naturalness.",
+      "page": 7
+    },
+    {
+      "caption": "Figure 5: The confusion matrices of human recognition on the converted audio by different methods. X-axis: classified labels. Y-axis: actual labels.",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: shows the results of sMOS regarding emotion similarity. The",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: Our method achieves",
+      "page": 8
+    },
+    {
+      "caption": "Figure 5: presents the confusion matrices for each method, the darker",
+      "page": 8
+    },
+    {
+      "caption": "Figure 6: Our method generates rich variations in formants and",
+      "page": 8
+    },
+    {
+      "caption": "Figure 6: Comparison of Mel-spectrograms and F0 contours generated by different methods for angry, happy and sad emotion conversion. Red dotted ellipses",
+      "page": 9
+    },
+    {
+      "caption": "Figure 7: come from the pretrained Prosody2Vec which is not fine-tuned",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: does not show separated clusters on the emotion",
+      "page": 10
+    },
+    {
+      "caption": "Figure 8: , the first row is the visualization",
+      "page": 10
+    },
+    {
+      "caption": "Figure 9: The audio sample is spoken with breath and laughter,",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: Visualization of prosody, speaker, and unit embeddings from pretrained models colored with 4 emotion labels and 2 speaker labels on the IEMOCAP",
+      "page": 11
+    },
+    {
+      "caption": "Figure 8: Comparison of pretrained and fine-tuned embeddings colored with 4 emotions on the IEMOCAP dataset.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 9: Visualization of HuBERT and Prosody2Vec representations after",
+      "page": 11
+    },
+    {
+      "caption": "Figure 10: , we discuss some potential applications of our model",
+      "page": 11
+    },
+    {
+      "caption": "Figure 10: Overview of five generation tasks presented in this paper when changing the inputs of the prosody encoder and the unit encoder.",
+      "page": 12
+    },
+    {
+      "caption": "Figure 11: Cross-lingual emotional voice conversion (German to English). For",
+      "page": 12
+    },
+    {
+      "caption": "Figure 11: , Prosody2Vec",
+      "page": 12
+    },
+    {
+      "caption": "Figure 12: we can see when feeding a singing voice to the prosody",
+      "page": 12
+    },
+    {
+      "caption": "Figure 12: Transferring the melody from a singing voice to a spoken utterance,",
+      "page": 12
+    },
+    {
+      "caption": "Figure 12: The generated",
+      "page": 12
+    },
+    {
+      "caption": "Figure 13: Speaking style transfer for the utterance of “You know, it’s a pity",
+      "page": 15
+    },
+    {
+      "caption": "Figure 14: , the original",
+      "page": 15
+    },
+    {
+      "caption": "Figure 14: Samples of converting angry emotion to happy and sad ones.",
+      "page": 15
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1.95\n1.01\n0.72\n0.69\n0.55\n0.32": "*p<0.05\n-1.12"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1.92\n0.69\n0.44\n0.39\n0.19": "-0.05\n*p<0.05\n-1.02"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1.90\n1.22\n0.84\n0.59\n0.32\n0.19": "*p<0.05\n-1.53"
+        }
+      ],
+      "page": 7
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "The expression of the emotions in man and animals",
+      "authors": [
+        "C Darwin"
+      ],
+      "year": "1872",
+      "venue": "The expression of the emotions in man and animals"
+    },
+    {
+      "citation_id": "2",
+      "title": "The development of emotion reasoning in infancy and early childhood",
+      "authors": [
+        "A Ruba",
+        "S Pollak"
+      ],
+      "year": "2020",
+      "venue": "Annual Review of Developmental Psychology"
+    },
+    {
+      "citation_id": "3",
+      "title": "Attention-enhanced connectionist temporal classification for discrete speech emotion recognition",
+      "authors": [
+        "Z Zhao",
+        "Z Bao",
+        "Z Zhang",
+        "N Cummins",
+        "H Wang",
+        "B Schüller"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "4",
+      "title": "An attention pooling based representation learning method for speech emotion recognition",
+      "authors": [
+        "P Li",
+        "Y Song",
+        "I Mcloughlin",
+        "W Guo",
+        "L.-R Dai"
+      ],
+      "year": "2018",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "5",
+      "title": "Emotional voice conversion using deep neural networks with MCC and F0 features",
+      "authors": [
+        "Z Luo",
+        "T Takiguchi",
+        "Y Ariki"
+      ],
+      "year": "2016",
+      "venue": "2016 IEEE/ACIS 15th International Conference on Computer and Information Science (ICIS)"
+    },
+    {
+      "citation_id": "6",
+      "title": "Emotional voice conversion with adaptive scales f0 based on wavelet transform using limited amount of emotional data",
+      "authors": [
+        "Z Luo",
+        "J Chen",
+        "T Takiguchi",
+        "Y Ariki"
+      ],
+      "year": "2017",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "7",
+      "title": "Style tokens: Unsupervised style modeling, control and transfer in end-to-end speech synthesis",
+      "authors": [
+        "Y Wang",
+        "D Stanton",
+        "Y Zhang",
+        "R.-S Ryan",
+        "E Battenberg",
+        "J Shor",
+        "Y Xiao",
+        "Y Jia",
+        "F Ren",
+        "R Saurous"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "8",
+      "title": "Unsupervised speech decomposition via triple information bottleneck",
+      "authors": [
+        "K Qian",
+        "Y Zhang",
+        "S Chang",
+        "M Hasegawa-Johnson",
+        "D Cox"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "9",
+      "title": "Estimating mutual information in prosody representation for emotional prosody transfer in speech synthesis",
+      "authors": [
+        "G Zhang",
+        "S Qiu",
+        "Y Qin",
+        "T Lee"
+      ],
+      "year": "2021",
+      "venue": "International Symposium on Chinese Spoken Language Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "WavLM: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "11",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2018",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "12",
+      "title": "Emotion perception from face, voice, and touch: comparisons and convergence",
+      "authors": [
+        "A Schirmer",
+        "R Adolphs"
+      ],
+      "year": "2017",
+      "venue": "Trends in Cognitive Sciences"
+    },
+    {
+      "citation_id": "13",
+      "title": "HuBERT: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "14",
+      "title": "Textless speech emotion conversion using decomposed and discrete representations",
+      "authors": [
+        "F Kreuk",
+        "A Polyak",
+        "J Copet",
+        "E Kharitonov",
+        "T.-A Nguyen",
+        "M Rivière",
+        "W.-N Hsu",
+        "A Mohamed",
+        "E Dupoux",
+        "Y Adi"
+      ],
+      "year": "2021",
+      "venue": "Textless speech emotion conversion using decomposed and discrete representations",
+      "arxiv": "arXiv:2111.07402"
+    },
+    {
+      "citation_id": "15",
+      "title": "textless-lib: a library for textless spoken language processing",
+      "authors": [
+        "E Kharitonov",
+        "J Copet",
+        "K Lakhotia",
+        "T Nguyen",
+        "P Tomasello",
+        "A Lee",
+        "A Elkahky",
+        "W.-N Hsu",
+        "A Mohamed",
+        "E Dupoux"
+      ],
+      "year": "2022",
+      "venue": "textless-lib: a library for textless spoken language processing",
+      "arxiv": "arXiv:2202.07359"
+    },
+    {
+      "citation_id": "16",
+      "title": "Neural analysis and synthesis: Reconstructing speech from selfsupervised representations",
+      "authors": [
+        "H.-S Choi",
+        "J Lee",
+        "W Kim",
+        "J Lee",
+        "H Heo",
+        "K Lee"
+      ],
+      "year": "2021",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "17",
+      "title": "Vocal expression and perception of emotion",
+      "authors": [
+        "J.-A Bachorowski"
+      ],
+      "year": "1999",
+      "venue": "Current Directions in Psychological Science"
+    },
+    {
+      "citation_id": "18",
+      "title": "Learning latent representations for style control and transfer in end-toend speech synthesis",
+      "authors": [
+        "Y.-J Zhang",
+        "S Pan",
+        "L He",
+        "Z.-H Ling"
+      ],
+      "year": "2019",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "19",
+      "title": "Unsupervised quantized prosody representation for controllable speech synthesis",
+      "authors": [
+        "Y Wang",
+        "Y Xie",
+        "K Zhao",
+        "H Wang",
+        "Q Zhang"
+      ],
+      "year": "2022",
+      "venue": "2022 IEEE International Conference on Multimedia and Expo (ICME)"
+    },
+    {
+      "citation_id": "20",
+      "title": "AutoVC: Zero-shot voice style transfer with only autoencoder loss",
+      "authors": [
+        "K Qian",
+        "Y Zhang",
+        "S Chang",
+        "X Yang",
+        "M Hasegawa-Johnson"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "21",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "22",
+      "title": "The information bottleneck method",
+      "authors": [
+        "N Tishby",
+        "F Pereira",
+        "W Bialek"
+      ],
+      "year": "2019",
+      "venue": "Proc. of Annual Allerton Conference on Communication, Control and Computing"
+    },
+    {
+      "citation_id": "23",
+      "title": "Towards endto-end prosody transfer for expressive speech synthesis with tacotron",
+      "authors": [
+        "R Skerry-Ryan",
+        "E Battenberg",
+        "Y Xiao",
+        "Y Wang",
+        "D Stanton",
+        "J Shor",
+        "R Weiss",
+        "R Clark",
+        "R Saurous"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "24",
+      "title": "Learning robust latent representations for controllable speech synthesis",
+      "authors": [
+        "S Kumar",
+        "J Pradeep",
+        "H Zaidi"
+      ],
+      "year": "2021",
+      "venue": "Learning robust latent representations for controllable speech synthesis",
+      "arxiv": "arXiv:2105.04458"
+    },
+    {
+      "citation_id": "25",
+      "title": "Learning de-identified representations of prosody from raw audio",
+      "authors": [
+        "J Weston",
+        "R Lenain",
+        "U Meepegama",
+        "E Fristed"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "26",
+      "title": "Reusing neural speech representations for auditory emotion recognition",
+      "authors": [
+        "E Lakomkin",
+        "C Weber",
+        "S Magg",
+        "S Wermter"
+      ],
+      "year": "2017",
+      "venue": "IJCNLP"
+    },
+    {
+      "citation_id": "27",
+      "title": "Progres-sive neural networks",
+      "authors": [
+        "A Rusu",
+        "N Rabinowitz",
+        "G Desjardins",
+        "H Soyer",
+        "J Kirkpatrick",
+        "K Kavukcuoglu",
+        "R Pascanu",
+        "R Hadsell"
+      ],
+      "year": "2016",
+      "venue": "Progres-sive neural networks",
+      "arxiv": "arXiv:1606.04671"
+    },
+    {
+      "citation_id": "28",
+      "title": "Discretized continuous speech emotion recognition with multi-task deep recurrent neural network",
+      "authors": [
+        "D Le",
+        "Z Aldeneh",
+        "E Provost"
+      ],
+      "year": "2017",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "29",
+      "title": "Speech emotion and naturalness recognitions with multitask and single-task learnings",
+      "authors": [
+        "B Atmaja",
+        "A Sasou",
+        "M Akagi"
+      ],
+      "year": "2022",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "30",
+      "title": "Exploiting annotators' typed description of emotion perception to maximize utilization of ratings for speech emotion recognition",
+      "authors": [
+        "H.-C Chou",
+        "W.-C Lin",
+        "C.-C Lee",
+        "C Busso"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "31",
+      "title": "A fine-tuned Wav2Vec 2.0/HuBERT benchmark for speech emotion recognition, speaker verification and spoken language understanding",
+      "authors": [
+        "Y Wang",
+        "A Boumadane",
+        "A Heba"
+      ],
+      "year": "2021",
+      "venue": "A fine-tuned Wav2Vec 2.0/HuBERT benchmark for speech emotion recognition, speaker verification and spoken language understanding",
+      "arxiv": "arXiv:2111.02735"
+    },
+    {
+      "citation_id": "32",
+      "title": "Transformation of prosody in voice conversion",
+      "authors": [
+        "B ¸is ¸man",
+        "H Li",
+        "K Tan"
+      ],
+      "year": "2017",
+      "venue": "2017 Asia-Pacific Signal and Information Processing Association Annual Summit and Conference"
+    },
+    {
+      "citation_id": "33",
+      "title": "Transforming spectrum and prosody for emotional voice conversion with non-parallel training data",
+      "authors": [
+        "K Zhou",
+        "B Sisman",
+        "H Li"
+      ],
+      "year": "2020",
+      "venue": "Proc. of The Speaker and Language Recognition Workshop"
+    },
+    {
+      "citation_id": "34",
+      "title": "StarGAN for emotional speech conversion: Validated by data augmentation of end-to-end emotion recognition",
+      "authors": [
+        "G Rizos",
+        "A Baird",
+        "M Elliott",
+        "B Schüller"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "35",
+      "title": "Limited data emotional voice conversion leveraging text-to-speech: Two-stage sequence-tosequence training",
+      "authors": [
+        "K Zhou",
+        "B Sisman",
+        "H Li"
+      ],
+      "year": "2021",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "36",
+      "title": "Emotion intensity and its control for emotional voice conversion",
+      "authors": [
+        "K Zhou",
+        "B Sisman",
+        "R Rana",
+        "B Schüller",
+        "H Li"
+      ],
+      "year": "2022",
+      "venue": "Emotion intensity and its control for emotional voice conversion",
+      "arxiv": "arXiv:2201.03967"
+    },
+    {
+      "citation_id": "37",
+      "title": "Decoupling speaker-independent emotions for voice conversion via source-filter networks",
+      "authors": [
+        "Z Luo",
+        "S Lin",
+        "R Liu",
+        "J Baba",
+        "Y Yoshikawa",
+        "H Ishiguro"
+      ],
+      "year": "2022",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "38",
+      "title": "Lib-riSpeech: an ASR corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "39",
+      "title": "ECAPA-TDNN: emphasized channel attention, propagation and aggregation in TDNN based speaker verification",
+      "authors": [
+        "B Desplanques",
+        "J Thienpondt",
+        "K Demuynck"
+      ],
+      "year": "2020",
+      "venue": "Proc. INTER-SPEECH. ISCA"
+    },
+    {
+      "citation_id": "40",
+      "title": "VoxCeleb2: Deep speaker recognition",
+      "authors": [
+        "J Chung",
+        "A Nagrani",
+        "A Zisserman"
+      ],
+      "year": "2018",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "41",
+      "title": "A time delay neural network architecture for efficient modeling of long temporal contexts",
+      "authors": [
+        "V Peddinti",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "42",
+      "title": "Res2Net: A new multi-scale backbone architecture",
+      "authors": [
+        "S.-H Gao",
+        "M.-M Cheng",
+        "K Zhao",
+        "X.-Y Zhang",
+        "M.-H Yang",
+        "P Torr"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "43",
+      "title": "Squeeze-and-excitation networks",
+      "authors": [
+        "J Hu",
+        "L Shen",
+        "G Sun"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "44",
+      "title": "Natural TTS synthesis by conditioning WaveNet on mel spectrogram predictions",
+      "authors": [
+        "J Shen",
+        "R Pang",
+        "R Weiss",
+        "M Schuster",
+        "N Jaitly",
+        "Z Yang",
+        "Z Chen",
+        "Y Zhang",
+        "Y Wang",
+        "R Skerrv-Ryan"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "45",
+      "title": "Attention-based models for speech recognition",
+      "authors": [
+        "J Chorowski",
+        "D Bahdanau",
+        "D Serdyuk",
+        "K Cho",
+        "Y Bengio"
+      ],
+      "year": "2015",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "46",
+      "title": "Lipsound2: Self-supervised pre-training for lip-to-speech reconstruction and lip reading",
+      "authors": [
+        "L Qu",
+        "C Weber",
+        "S Wermter"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Neural Networks and Learning Systems"
+    },
+    {
+      "citation_id": "47",
+      "title": "LRS3-TED: a large-scale dataset for visual speech recognition",
+      "authors": [
+        "T Afouras",
+        "J Chung",
+        "A Zisserman"
+      ],
+      "year": "2018",
+      "venue": "LRS3-TED: a large-scale dataset for visual speech recognition",
+      "arxiv": "arXiv:1809.00496"
+    },
+    {
+      "citation_id": "48",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "49",
+      "title": "Msp-improv: An acted corpus of dyadic interactions to study emotion perception",
+      "authors": [
+        "C Busso",
+        "S Parthasarathy",
+        "A Burmania",
+        "M Abdelwahab",
+        "N Sadoughi",
+        "E Provost"
+      ],
+      "year": "2016",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "50",
+      "title": "The omg-emotion behavior dataset",
+      "authors": [
+        "P Barros",
+        "N Churamani",
+        "E Lakomkin",
+        "H Siqueira",
+        "A Sutherland",
+        "S Wermter"
+      ],
+      "year": "2018",
+      "venue": "International Joint Conference on Neural Networks (IJCNN)"
+    },
+    {
+      "citation_id": "51",
+      "title": "IEMO-CAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "52",
+      "title": "Emotional voice conversion: Theory, databases and ESD",
+      "authors": [
+        "K Zhou",
+        "B Sisman",
+        "R Liu",
+        "H Li"
+      ],
+      "year": "2022",
+      "venue": "Speech Communication"
+    },
+    {
+      "citation_id": "53",
+      "title": "SpecAugment: A simple data augmentation method for automatic speech recognition",
+      "authors": [
+        "D Park",
+        "W Chan",
+        "Y Zhang",
+        "C.-C Chiu",
+        "B Zoph",
+        "E Cubuk",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "54",
+      "title": "Scheduled sampling for sequence prediction with recurrent neural networks",
+      "authors": [
+        "S Bengio",
+        "O Vinyals",
+        "N Jaitly",
+        "N Shazeer"
+      ],
+      "year": "2015",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "55",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "The International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "56",
+      "title": "SUPERB: speech processing universal performance benchmark",
+      "authors": [
+        "S Yang",
+        "P Chi",
+        "Y Chuang",
+        "C Lai",
+        "K Lakhotia",
+        "Y Lin",
+        "A Liu",
+        "J Shi",
+        "X Chang",
+        "G Lin",
+        "T Huang",
+        "W Tseng",
+        "K Lee",
+        "D Liu",
+        "Z Huang",
+        "S Dong",
+        "S Li",
+        "S Watanabe",
+        "A Mohamed",
+        "H Lee"
+      ],
+      "year": "2021",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "57",
+      "title": "Libri-light: A benchmark for asr with limited or no supervision",
+      "authors": [
+        "J Kahn",
+        "M Rivière",
+        "W Zheng",
+        "E Kharitonov",
+        "Q Xu",
+        "P.-E Mazaré",
+        "J Karadayi",
+        "V Liptchinsky",
+        "R Collobert",
+        "C Fuegen"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "58",
+      "title": "Emotional speech processing: Disentangling the effects of prosody and semantic cues",
+      "authors": [
+        "M Pell",
+        "A Jaywant",
+        "L Monetta",
+        "S Kotz"
+      ],
+      "year": "2011",
+      "venue": "Cognition & Emotion"
+    },
+    {
+      "citation_id": "59",
+      "title": "Emotion recognition by fusing time synchronous and time asynchronous representations",
+      "authors": [
+        "W Wu",
+        "C Zhang",
+        "P Woodland"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "60",
+      "title": "Speech emotion recognition with co-attention based multi-level acoustic information",
+      "authors": [
+        "H Zou",
+        "Y Si",
+        "C Chen",
+        "D Rajan",
+        "E Chng"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "61",
+      "title": "Self-attention for speech emotion recognition",
+      "authors": [
+        "L Tarantino",
+        "P Garner",
+        "A Lazaridis"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "62",
+      "title": "Self-attention transfer networks for speech emotion recognition",
+      "authors": [
+        "Z Zhao",
+        "Z Bao",
+        "Z Zhang",
+        "N Cummins",
+        "S Sun",
+        "H Wang",
+        "J Tao",
+        "B Schüller"
+      ],
+      "year": "2021",
+      "venue": "Virtual Reality & Intelligent Hardware"
+    },
+    {
+      "citation_id": "63",
+      "title": "wav2vec: Unsupervised pre-training for speech recognition",
+      "authors": [
+        "S Schneider",
+        "A Baevski",
+        "R Collobert",
+        "M Auli"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "64",
+      "title": "Unsupervised pretraining transfers well across languages",
+      "authors": [
+        "M Riviere",
+        "A Joulin",
+        "P.-E Mazaré",
+        "E Dupoux"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "65",
+      "title": "DeCoAR 2.0: Deep contextualized acoustic representations with vector quantization",
+      "authors": [
+        "S Ling",
+        "Y Liu"
+      ],
+      "year": "2020",
+      "venue": "DeCoAR 2.0: Deep contextualized acoustic representations with vector quantization",
+      "arxiv": "arXiv:2012.06659"
+    },
+    {
+      "citation_id": "66",
+      "title": "data2vec: A general framework for self-supervised learning in speech, vision and language",
+      "authors": [
+        "A Baevski",
+        "W Hsu",
+        "Q Xu",
+        "A Babu",
+        "J Gu",
+        "M Auli"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "67",
+      "title": "Speechsplit2. 0: Unsupervised speech disentanglement for voice conversion without tuning autoencoder bottlenecks",
+      "authors": [
+        "C Chan",
+        "K Qian",
+        "Y Zhang",
+        "M Hasegawa-Johnson"
+      ],
+      "year": "2022",
+      "venue": "22-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "68",
+      "title": "Multi-task learning for speech emotion and emotion intensity recognition",
+      "authors": [
+        "P Yue",
+        "L Qu",
+        "S Zheng",
+        "T Li"
+      ],
+      "venue": "Multi-task learning for speech emotion and emotion intensity recognition"
+    },
+    {
+      "citation_id": "69",
+      "title": "Asia-Pacific Signal and Information Processing Association Annual Summit and Conference",
+      "year": "2022",
+      "venue": "Asia-Pacific Signal and Information Processing Association Annual Summit and Conference"
+    },
+    {
+      "citation_id": "70",
+      "title": "Speech-Former++: A Hierarchical Efficient Framework for Paralinguistic Speech Processing",
+      "authors": [
+        "W Chen",
+        "X Xing",
+        "X Xu",
+        "J Pang",
+        "L Du"
+      ],
+      "year": "2023",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "71",
+      "title": "Hierarchical network based on the fusion of static and dynamic features for speech emotion recognition",
+      "authors": [
+        "Q Cao",
+        "M Hou",
+        "B Chen",
+        "Z Zhang",
+        "G Lu"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "72",
+      "title": "Speech emotion recognition with local-global aware deep representation learning",
+      "authors": [
+        "J Liu",
+        "Z Liu",
+        "L Wang",
+        "L Guo",
+        "J Dang"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "73",
+      "title": "Speech emotion recognition using sequential capsule networks",
+      "authors": [
+        "X Wu",
+        "Y Cao",
+        "H Lu",
+        "S Liu",
+        "D Wang",
+        "Z Wu",
+        "X Liu",
+        "H Meng"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "74",
+      "title": "LIGHT-SERNET: A lightweight fully convolutional neural network for speech emotion recognition",
+      "authors": [
+        "A Aftab",
+        "A Morsali",
+        "S Ghaemmaghami",
+        "B Champagne"
+      ],
+      "year": "2022",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "75",
+      "title": "The ryerson audio-visual database of emotional speech and song (ravdess): A dynamic, multimodal set of facial and vocal expressions in north american english",
+      "authors": [
+        "S Livingstone",
+        "F Russo"
+      ],
+      "year": "2018",
+      "venue": "PloS one"
+    },
+    {
+      "citation_id": "76",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "T Xu",
+        "G Brockman",
+        "C Mcleavey",
+        "I Sutskever"
+      ],
+      "year": "2022",
+      "venue": "Robust speech recognition via large-scale weak supervision",
+      "arxiv": "arXiv:2212.04356"
+    },
+    {
+      "citation_id": "77",
+      "title": "Visualizing data using tsne",
+      "authors": [
+        "L Van Der Maaten",
+        "G Hinton"
+      ],
+      "year": "2008",
+      "venue": "Journal of Machine Learning Research"
+    },
+    {
+      "citation_id": "78",
+      "title": "Using corpus methodology for semantic and pragmatic analyses: What can corpora tell us about the linguistic expression of emotions?",
+      "authors": [
+        "U Oster"
+      ],
+      "year": "2010",
+      "venue": "Cognitive Linguistics"
+    }
+  ]
+}

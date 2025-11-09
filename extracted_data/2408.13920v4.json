@@ -1,0 +1,754 @@
+{
+  "paper_id": "2408.13920v4",
+  "title": "Wav2Small: Distilling Wav2Vec2 To 72K Parameters For Low-Resource Speech Emotion Recognition",
+  "published": "2024-08-25T19:13:56Z",
+  "authors": [
+    "Dionyssos Kounadis-Bastian",
+    "Oliver Schrüfer",
+    "Anna Derington",
+    "Hagen Wierstorf",
+    "Florian Eyben",
+    "Felix Burkhardt",
+    "Björn Schuller"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Speech Emotion Recognition (SER) needs high computational resources to overcome the challenge of substantial annotator disagreement. Today, SER is shifting towards dimensional annotations of arousal, dominance, and valence (A/D/V). Instance-level measures as the L2 distance prove unsuitable for evaluating A/D/V accuracy due to non-converging consensus of annotator opinions. Concordance Correlation Coefficient (CCC) arose as an alternative measure where A/D/V predictions are evaluated to match a whole dataset's CCC rather than L2 distances of individual audios. Recent studies have shown that Wav2Vec2 / WavLM architectures achieve today's highest CCC. The Wav2Vec2 / WavLM family has a high computational footprint, but training small models using human annotations achieves very low CCC. In this paper, we define a large Transformer State-of-the-Art (SotA) A/D/V model as teacher/annotator to train 5 small student models: 4 MobileNets and our proposed Wav2Small, using teacher's A/D/V outputs instead of human annotations. The proposed teacher also sets a new SotA for valence on the MSP Podcast dataset with a CCC of 0.676. As students, we chose MobileNetV4 / MobileNetV3 , as MobileNet has been designed for fast execution times. We also propose Wav2Small -an architecture designed for minimal parameters and RAM consumption. Wav2Small with a size of only 120 KB when quantised for the ONNX runtime is a potential solution for A/D/V on hardware with low resources, as it has only 72 K parameters vs 3.12 M parameters for MobileNet-V4-Small.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "A need for SER on low resource hardware drives us to investigate small architectures for A/D/V. SotA A/D/V is dominated by Wav2Vec2  [2]  or WavLM  [1] , which consist of a VGG7 1 feature extractor and 12 transformers layers. VGG has a low RAM footprint from absence of skip connections, Funding from the Horizon Europe programme under the SHIFT project (Grant Agreement No. 101060660) is greatly acknowledged.\n\n1 VGG7 denotes 7 convolution layers, each followed by norm and activation. which would otherwise require storing earlier feature maps in memory  [3] ,  [4] . However, the VGG7 of Wav2Vec2  [2] ,  [5]  has the same execution time as 6 transformer layers, and is prohibitively large for our aim. In this paper, we propose an architecture for the prediction of A/D/V from speech that explores non contiguous memory reshaping to convert time frames (tokens) into the channel dimension, allowing the classifier to interpret them as 'neighbourhood attention'.\n\nFor comparison, we also train 3 MobileNetV4 2    [6]  (-Large, -Medium, -Small), a MobileNetV3-Small  [7]  pretrained on AudioSet  [8] , as well as our proposed architecture named Wav2Small. Listing 1: Wav2Small on PyTorch: x.reshape vectorises neighbour tokens as channel dimension before learnable pooling.\n\nWe train the four MobileNets and Wav2Small using a custom distillation scheme defined in Sec. II.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Wav2Small",
+      "text": "The paradigm of a VGG feature extractor followed by transformer layers has shown great performance for Speech Tasks  [5] . MobileNets  [9] ,  [10]  do not investigate re-purposing of tokens/time-frames as convolution channels. Transformer pretrained architectures using time-domain input are superior to LogMel (Spectrogram) input for SER, yet LogMel is still beneficial input for small architectures  [11] . We propose Wav2Small: a VGG7 of 13 channels followed by vectorisation of tokens into the convolution-channels dimension (Reshape operation in Listing 1). The reshaping of tokens, mels, as channels, aids the A/D/V head (self.adv(x) in Listing 1). Wav2Small provides 250 tokens / 1s, whereas MobileNet-V4-S provides only 16 tokens / 1s. Wav2Small can also serve as an inexpensive substitute of the feature extractor of Wav2Vec2 / WavLM / HuBERT  [12] .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ii. A / D / V Distillation",
+      "text": "Here, we are inspired by two publicly available SotA A/D/V models: The 12x transformer Layer Wav2Vec2  [2]  also referred to as Dawn and the 12x transformer layer WavLM that won the 2024 SER A/D/V Challenge  [1] ,  [13]  on MSP Podcast dataset  [14] . Here, we use those 2 models to define a teacher/annotator for A/D/V.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Teacher",
+      "text": "Running the WavLM and the Dawn baselines on the same audio and averaging the output A/D/V, creates a teacher model that outperforms both WavLM and Dawn. To the best of our knowledge, this teacher defines a new SotA on MSP Podcast for valence with a CCC of 0.676, as shown in Fig.  2 . We open source the weights of the teacher 3  .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Data / Augmentation",
+      "text": "Distillation has been applied for categorical emotions crosslingual transfer learning  [15] , as well as for A/D/V for large Wav2Vec2 / Hubert students  [16] . Distillation is especially useful for A/D/V as it enables re-labeling an audio whose emotion changed inadvertently by augmentation  [42] . In this paper, we opt for distillation on MSP Podcast audio and unlabelled / non-speech data. We apply always-on mixup  [17] ; this way, clean MSP Podcast audio is never shown to teacher / student. This enables long training runs without overfitting  [18] . Extensive work on the most useful labels for SER  [19]  has revealed that soft labels, produced by a teacher, result in better performing students than using human annotations  [20] ; hence, for distillation-training, we use only the teacher output A/D/V as ground truth, discarding the train-split annotations.\n\nThe distillation of a student runs for 50 M steps (∼ 17 days) with a batch size = 16 (= dimension of CCC loss function), SGD with fixed learning rate = 5E -5, constant schedule, weight decay = 0 and momentum = 0, on an Nvidia RTX A4000 GPU, using PyTorch v2.4.0. The training audio is generated by mixing (on the fly for each batch) 0.64×audio 1 + 0.41 × audio 2 , where audio 1 is a random 0.4 s up to 12 s excerpt of an audio track from one of 12 action movies (inhouse dataset containing full movies with music and effects) and audio 2 is drawn from one of three buckets: AudioSet  [8]  sound samples, or MSP Podcast v1.7 train speech, or ambient urban/rural/transportation environmental background sound. The training audio is passed through cyclic rotation (np.roll), drop of random frequencies and re-normalisation of the lost energy to the remaining non-zero frequencies (metallic speech effect) and, with probability < 0.04, also shout augmentation  [21] . This training audio is given to the teacher and student (both 16 kHz) and it is allowed to overflow the [-1, 1] limits due to shout.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Quadrant Correction Loss Function",
+      "text": "Annotators have higher agreement for deciding if A/D/V is positive / negative / neutral, (3D space quadrant), than deciding the exact levels of A/D/V. To reveal this information, we introduce an auxiliary loss function: If the teacher's A/D/V output falls in a different quadrant from the student's A/D/V output, we penalise the student via an extra L1 loss to output the A/D/V values of the teacher. This auxiliary loss vanishes if the teacher and student A/D/V quadrants agree. Then, only the CCC loss  [23]  function remains.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Iii. Experiments",
+      "text": "Authors in  [2]  trained the CNN14 [24] of 4.9 M parameters on MSP Podcast v1.7 human annotations. The CNN14 achieved valence CCC of 0.248 vs 0.64 achieved by Dawn. Now, Fig.  2  shows that MobileNetV4-S / V3-S and Wav2Small achieve valence CCC >=0.37, with less parameters than CNN14.\n\nFrom the 5 students, MobileNets are initialised with pretrained weights and is not surprising that after distillation, they score higher than Wav2Small, for valence CCC. However, Wav2Small reaches high CCC, e. g., 0.66 for arousal in MSP Podcast test-1, and 0.56 for arousal in IEMOCAP  [25]  used as an out of distribution dataset only for evaluation. MobileNetV4-S attains valence CCC = 0.42 and hass less execution time than MobileNetV3-S: of 5 ms vs 11 ms as show in Table  I .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Ablations",
+      "text": "A Frequency window of 64 FFT bands (hop = 50 %) leads to the best CCC for MobileNetV4-M/S, MobileNetV3-S, and Wav2Small. However, for MobileNetV4-L we use 144 FFT bands, because 64 FFT bands yield only 26 Mel bins, which causes a highly asymmetric aspect ratio (if we look at LogMel as an image) yielding empty-input in 2D convolution. The large num FFT = 144 reduces the time resolution early and therefore MobileNetV4-L achieves only a CCC of 0.59 for arousal in Fig.  2  All 5 students include a LogMel layer implemented in ONNX via convolutions, as ONNX is needed to run the model on low resource hardware the Fourier/LogMel Basis is stored within ONNX as a parameter. An extra convolution is added to MobileNet students to upscale the 1-channel output of LogMel to 3-channel RGB, needed to feed the pretrained weights.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Vectorisation Of Time As Channels",
+      "text": "Wav2Small opts for a shallow architecture of 13 channels producing a large amount of tokens 250/1s at 16 KHz, at the same MACs of MobileNetV4-S. Vectorisation of neighbouring tokens enlarges the channel dimension for the pooling (self.sof(x) in Listing 1)), creating 169 'virtual channels' for the regression head (self.adv(x) in Listing 1).\n\nVectorisation/learnable pooling helps Wav2Small achieve a high CCC for arousal of 0.66 in MSP Podcast, and 0.56 in IEMOCAP (Fig.  2/4 ). Valence is overall, more difficult to recognise  [26] , by all models. MobileNetV4-S achieves CCC of 0.42 and Wav2Small of 0.37. Nonetheless, Fig.  3  shows that Wav2Small follows the teacher arousal and valence faithfully.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. A/D/V Clusters Of Categorical Emotions",
+      "text": "Fig.  1  shows that arousal / valence defines clusters that separate categorical emotions, to some extent. Surprisingly, the five students output more extreme valence values (attain higher vertical dispersion) in Fig.  1 ) vs Wav2Vec2 (Dawn), WavLM and the teacher. This is the last challenge of A/D/V:  The fact that A/D/V models are unwilling to predict extreme valence values. Fig.  1  shows that only MobileNetV4-S/V4-M and Wav2Small do output negative extreme valence values, although only for positive arousal. This fact exemplifies the discrepancy of perceived and felt emotions and the phenomenon that human annotators avoid very negative annotations.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Outlook",
+      "text": "Wav2Vec2 models with ≥ 12 transformer layers convey linguistic cues for solving SER  [27] , and achieve superior valence CCC (≥ 0.64 in Fig.  2 ) because valence is more accessible through language than acoustics  [26] ; Fig.  2  shows that MobileNetV4-S achieves valence CCC = 0.42 having only 3.12 M parameters, surpassing the valence CCC = 0.416 of a Wav2Vec2 of 6 transformer Layers (87.9 M parameters) finetuned on human annotations  [2] .\n\nIn parallel to our research, interest for architectures in the 120 KB scale emerges in the acoustic scene classification domain  [28] ; Neural Architecture Search has birthed promising architectures for categorical emotions  [29] ,  [30] . Audio Spectrogram Transformer (AST) models  [31] ,  [32]  [33],  [34]  aim to bypass the use of a VGG7 feature extractor by feeding overlapping patches of LogMel, directly as input to transformer layers. However, AST has an inherent limitation of ad-hoc selection of appropriate patches, akin to the intricacy of image patch selection in Vision Transformer  [35] . All those avenues open inspiration for A/D/V. This paper focused on audio-only emotion recognition, for MSP Podcast, being one of the few A/D/V datasets collected 'in the wild' paving away of acted emotions  [25] ,  [36] . Fusion of text and acoustic features  [37]  is a potential avenue for A/D/V, although has the risk of introducing accent unfairness from focusing at words instead of sound's tonality. Internal benchmarks of language fairness and noise tolerance  [38]  show that Wav2Small passes 74% of all tests, whereas Teacher passes 79%.\n\nDataset Distillation  [39]  may create teachers that provide soft-labels and synthetic-audio; overcoming the difficulty to verify that a teacher can annotate out-of-distribution speech/audio informatively.\n\nObserver variability for various annotation schemes  [40] ,  [41]  reveals higher consensus for A/D/V annotations compared to annotations of 1 out of 6 emotion categories. Thus we espy A/D/V research to overshadow emotion categories.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "V. Conclusion",
+      "text": "We proposed a 72 K parameter architecture named Wav2Small that reaches comparable A/D/V CCC scores on both MSP Podcast and IEMOCAP datasets, while using only 9 MB RAM compared to 36 MB RAM used by MobileNetV4-S, while having equal MACs. Mobilenet-V4 and MobileNet-V3 reduce the time resolution to 16 : 960-dimensional tokens / 1 s audio, whereas Wav2Small provides 250: 169dimensional tokens / 1 s audio, (before learnable pooling). Hence Wav2Small is a potential replacement of the expensive input audio extractor of transformer architectures, such as Wav2Vec2 and WavLM. We also proposed a teacher model for distillation that obtains a new SotA on MSP Podcast achieving a CCC of 0.676 for valence.",
+      "page_start": 6,
+      "page_end": 6
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Arousal-Valence predictions for the Crema-d [22] test set, colouring according to Crema-d ground truth categories.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: CCC achieved by all tested models on MSP Podcast v1.7 Test1 -",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: shows that MobileNetV4-S / V3-S and Wav2Small",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: All 5 students include a LogMel layer implemented in",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: /4). Valence is overall, more difficult to",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: shows that",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: shows that arousal / valence defines clusters that",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: ) vs Wav2Vec2 (Dawn),",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Wav2Small discrepancy from teacher for the Japanese audio track of Harry Potter vol1. Not included for train.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 4: CCC achieved by all tested models on IEMOCAP - original human",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: shows that only MobileNetV4-S/V4-M",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: ) because valence is more",
+      "page": 4
+    },
+    {
+      "caption": "Figure 5: 4) ‘We propose an architecture for A/D/V that explores non",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: 6) Typos: ‘For fairness‘ changed to ’for comparisson’.",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: Execution time of the 2 parts of Wav2Vec2 [2], [5]: The Feature",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: Was the model tested in an unseen langauge?:",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: Shows that Wav2Small (72K parameters) can",
+      "page": 6
+    },
+    {
+      "caption": "Figure 1: ?: A/D/V models",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "valence\nMobileNetV4-L\narousal": "MobileNetV3-S",
+          "MobileNetV4-S": "WavLM",
+          "MobileNetV4-M": "Wav2Vec2",
+          "wav2small": "Teacher"
+        }
+      ],
+      "page": 3
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Odyssey 2024speech emotion recognition challenge: Dataset, baseline framework, and results",
+      "authors": [
+        "L Goncalves",
+        "A Salman",
+        "A Naini",
+        "L Velazquez",
+        "T Thebaud",
+        "L Garcia",
+        "N Dehak",
+        "B Sisman",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "Odyssey"
+    },
+    {
+      "citation_id": "2",
+      "title": "Dawn of the transformer era in speech emotion recognition: Closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Trans. Pattern Anal. Mach. Intell"
+    },
+    {
+      "citation_id": "3",
+      "title": "Estimates of memory consumption and flop counts for various convolutional neural networks",
+      "authors": [
+        "S Albanie"
+      ],
+      "year": "2017",
+      "venue": "Estimates of memory consumption and flop counts for various convolutional neural networks"
+    },
+    {
+      "citation_id": "4",
+      "title": "End-to-end object detection with transformers",
+      "authors": [
+        "N Carion",
+        "F Massa",
+        "G Synnaeve",
+        "N Usunier",
+        "A Kirillov",
+        "S Zagoruyko"
+      ],
+      "year": "2020",
+      "venue": "End-to-end object detection with transformers"
+    },
+    {
+      "citation_id": "5",
+      "title": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training",
+      "authors": [
+        "W Hsu",
+        "A Sriram",
+        "A Baevski",
+        "T Likhomanenko",
+        "Q Xu",
+        "V Pratap",
+        "J Kahn",
+        "A Lee",
+        "R Collobert",
+        "G Synnaeve"
+      ],
+      "venue": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training"
+    },
+    {
+      "citation_id": "6",
+      "title": "Mobilenetv4 -universal models for the mobile ecosystem",
+      "authors": [
+        "D Qin",
+        "C Leichner",
+        "M Delakis",
+        "M Fornoni",
+        "S Luo",
+        "F Yang",
+        "W Wang",
+        "C Banbury",
+        "C Ye",
+        "B Akin",
+        "V Aggarwal",
+        "T Zhu",
+        "D Moro",
+        "A Howard"
+      ],
+      "year": "2024",
+      "venue": "Mobilenetv4 -universal models for the mobile ecosystem",
+      "arxiv": "arXiv:2404.10518"
+    },
+    {
+      "citation_id": "7",
+      "title": "Efficient large-scale audio tagging via transformer-to-cnn knowledge distillation",
+      "authors": [
+        "F Schmid",
+        "K Koutini",
+        "G Widmer"
+      ],
+      "year": "2023",
+      "venue": "Proc. of IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "8",
+      "title": "Audio set: An ontology and human-labeled dataset for audio events",
+      "authors": [
+        "J Gemmeke"
+      ],
+      "year": "2017",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "9",
+      "title": "Searching for mobilenetv3",
+      "authors": [
+        "A Howard",
+        "M Sandler",
+        "G Chu",
+        "L Chen",
+        "B Chen",
+        "M Tan",
+        "W Wang",
+        "Y Zhu",
+        "R Pang",
+        "V Vasudevan",
+        "Q Le",
+        "H Adam"
+      ],
+      "year": "2019",
+      "venue": "Searching for mobilenetv3"
+    },
+    {
+      "citation_id": "10",
+      "title": "Cpjku submission to dcase23: Efficient acoustic scene classification with cp-mobile",
+      "authors": [
+        "F Schmid",
+        "T Morocutti",
+        "S Masoudian",
+        "K Koutini",
+        "G Widmer"
+      ],
+      "year": "2023",
+      "venue": "DCASE2023 Challenge"
+    },
+    {
+      "citation_id": "11",
+      "title": "Evaluating self-supervised speech representations for speech emotion recognition",
+      "authors": [
+        "B Atmaja",
+        "A Sasou"
+      ],
+      "year": "2022",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "12",
+      "title": "The role of phonetic units in speech emotion recognition",
+      "authors": [
+        "J Yuan",
+        "X Cai",
+        "R Zheng",
+        "L Huang",
+        "K Church"
+      ],
+      "year": "2021",
+      "venue": "The role of phonetic units in speech emotion recognition",
+      "arxiv": "arXiv:2108.01132"
+    },
+    {
+      "citation_id": "13",
+      "title": "Odyssey Emotion Recognition Challenge",
+      "year": "2024",
+      "venue": "Odyssey 2024: The Speaker and Language Recognition Workshop"
+    },
+    {
+      "citation_id": "14",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Trans. Affective Comput"
+    },
+    {
+      "citation_id": "15",
+      "title": "Speech emotion recognition based on twostream deep learning model using korean audio information",
+      "authors": [
+        "A Jo",
+        "K Kwak"
+      ],
+      "year": "2023",
+      "venue": "Applied Sciences"
+    },
+    {
+      "citation_id": "16",
+      "title": "Representation learning through cross-modal conditional teacher-student training for speech emotion recognition",
+      "authors": [
+        "S Srinivasan",
+        "Z Huang",
+        "K Kirchhoff"
+      ],
+      "year": "2021",
+      "venue": "Representation learning through cross-modal conditional teacher-student training for speech emotion recognition",
+      "arxiv": "arXiv:2112.00158"
+    },
+    {
+      "citation_id": "17",
+      "title": "mixup: Beyond empirical risk minimization",
+      "authors": [
+        "H Zhang",
+        "M Cisse",
+        "Y Dauphin",
+        "D Lopez-Paz"
+      ],
+      "year": "2018",
+      "venue": "mixup: Beyond empirical risk minimization"
+    },
+    {
+      "citation_id": "18",
+      "title": "Are you sure? analysing uncertainty quantification approaches for real-world speech emotion recognition",
+      "authors": [
+        "O Schrüfer",
+        "M Milling",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2024",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "19",
+      "title": "Minority views matter: Evaluating speech emotion classifiers with human subjective annotations by an all-inclusive aggregation rule",
+      "authors": [
+        "H Chou",
+        "L Goncalves",
+        "S Leem",
+        "A Salman",
+        "C Lee",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "20",
+      "title": "Knowledge distillation: A good teacher is patient and consistent",
+      "authors": [
+        "L Beyer",
+        "X Zhai",
+        "A Royer",
+        "L Markeeva",
+        "R Anil",
+        "A Kolesnikov"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "21",
+      "title": "Analysis and synthesis of shouted speech",
+      "authors": [
+        "T Raitio",
+        "A Suni",
+        "J Pohjalainen",
+        "M Airaksinen",
+        "M Vainio",
+        "P Alku"
+      ],
+      "year": "2013",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "22",
+      "title": "Crema-d: Crowd-sourced emotional multimodal actors dataset",
+      "authors": [
+        "H Cao",
+        "D Cooper",
+        "M Keutmann",
+        "R Gur",
+        "A Nenkova",
+        "R Verma"
+      ],
+      "year": "2014",
+      "venue": "IEEE Trans. Affective Comput"
+    },
+    {
+      "citation_id": "23",
+      "title": "Adieu features? end-to-end speech emotion recognition using a deep convolutional recurrent network",
+      "authors": [
+        "G Trigeorgis",
+        "F Ringeval",
+        "R Brueckner",
+        "E Marchi",
+        "M Nicolaou",
+        "B Schuller",
+        "S Zafeiriou"
+      ],
+      "year": "2016",
+      "venue": "ICASSP, IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Panns: Large-scale pretrained audio neural networks for audio pattern recognition",
+      "authors": [
+        "Q Kong",
+        "Y Cao",
+        "T Iqbal",
+        "Y Wang",
+        "W Wang",
+        "M Plumbley"
+      ],
+      "year": "2020",
+      "venue": "IEEE/ACM Trans. on Audio, Speech, and Lang. Process"
+    },
+    {
+      "citation_id": "25",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "26",
+      "title": "Speech emotion recognition: Two decades in a nutshell, benchmarks, and ongoing trends",
+      "authors": [
+        "B Schuller"
+      ],
+      "year": "2018",
+      "venue": "Commun. ACM"
+    },
+    {
+      "citation_id": "27",
+      "title": "Towards paralinguistic-only speech representations for end-to-end speech emotion recognition",
+      "authors": [
+        "G Ioannides",
+        "M Owen",
+        "A Fletcher",
+        "V Rozgic",
+        "C Wang"
+      ],
+      "year": "2023",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "28",
+      "title": "Data-efficient low-complexity acoustic scene classification in the dcase 2024 challenge",
+      "authors": [
+        "F Schmid",
+        "P Primus",
+        "T Heittola",
+        "A Mesaros",
+        "I Martin-Morato",
+        "K Koutini",
+        "G Widmer"
+      ],
+      "year": "2024",
+      "venue": "Data-efficient low-complexity acoustic scene classification in the dcase 2024 challenge",
+      "arxiv": "arXiv:2405.10018"
+    },
+    {
+      "citation_id": "29",
+      "title": "Emotionnas: Two-stream neural architecture search for speech emotion recognition",
+      "authors": [
+        "H Sun",
+        "Z Lian",
+        "B Liu",
+        "Y Li",
+        "L Sun",
+        "C Cai",
+        "J Tao",
+        "M Wang",
+        "Y Cheng"
+      ],
+      "year": "2023",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "30",
+      "title": "emodarts: Joint optimisation of cnn and sequential neural network architectures for superior speech emotion recognition",
+      "authors": [
+        "T Rajapakshe",
+        "R Rana",
+        "S Khalifa",
+        "B Sisman",
+        "B Schuller",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "31",
+      "title": "Ast: Audio spectrogram transformer",
+      "authors": [
+        "Y Gong",
+        "Y Chung",
+        "J Glass"
+      ],
+      "year": "2021",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "32",
+      "title": "Efficient training of audio transformers with patchout",
+      "authors": [
+        "K Koutini",
+        "J Schlüter",
+        "H Eghbalzadeh",
+        "G Widmer"
+      ],
+      "year": "2022",
+      "venue": "Interspeech, 23rd Annual Conference of the International Speech Communication Association"
+    },
+    {
+      "citation_id": "33",
+      "title": "Elasticast: An audio spectrogram transformer for all length and resolutions",
+      "authors": [
+        "J Feng",
+        "M Erol",
+        "J Chung",
+        "A Senocak"
+      ],
+      "year": "2024",
+      "venue": "Elasticast: An audio spectrogram transformer for all length and resolutions"
+    },
+    {
+      "citation_id": "34",
+      "title": "Patch-mix contrastive learning with audio spectrogram transformer on respiratory sound classification",
+      "authors": [
+        "S Bae",
+        "J Kim",
+        "W Cho",
+        "H Baek",
+        "S Son",
+        "B Lee",
+        "C Ha",
+        "K Tae",
+        "S Kim",
+        "S Yun"
+      ],
+      "venue": "Patch-mix contrastive learning with audio spectrogram transformer on respiratory sound classification"
+    },
+    {
+      "citation_id": "35",
+      "title": "Patch n pack: Navit, a vision transformer for any aspect ratio and resolution",
+      "authors": [
+        "M Dehghani",
+        "B Mustafa",
+        "J Djolonga",
+        "J Heek",
+        "M Minderer",
+        "M Caron",
+        "A Steiner",
+        "J Puigcerver",
+        "R Geirhos",
+        "I Alabdulmohsin",
+        "A Oliver",
+        "P Padlewski",
+        "A Gritsenko",
+        "M Lucic",
+        "N Houlsby"
+      ],
+      "year": "2023",
+      "venue": "Proc. of Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "36",
+      "title": "Multimodal sentiment intensity analysis in videos: Facial gestures and verbal messages",
+      "authors": [
+        "A Zadeh",
+        "R Zellers",
+        "E Pincus",
+        "Morency"
+      ],
+      "year": "2016",
+      "venue": "IEEE Intelligent Systems"
+    },
+    {
+      "citation_id": "37",
+      "title": "Taltech systems for the odyssey 2024 emotion recognition challenge",
+      "authors": [
+        "H Härm",
+        "T Alumäe"
+      ],
+      "year": "2024",
+      "venue": "Taltech systems for the odyssey 2024 emotion recognition challenge"
+    },
+    {
+      "citation_id": "38",
+      "title": "Testing speech emotion recognition machine learning models",
+      "authors": [
+        "A Derington",
+        "H Wierstorf",
+        "A Özkil",
+        "F Eyben",
+        "F Burkhardt",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "Testing speech emotion recognition machine learning models"
+    },
+    {
+      "citation_id": "39",
+      "title": "Dataset-distillation generative model for speech emotion recognition",
+      "authors": [
+        "F Ritter-Gutierrez",
+        "K Huang",
+        "J Wong",
+        "D Ng",
+        "H Lee",
+        "N Chen",
+        "E Chng"
+      ],
+      "venue": "Dataset-distillation generative model for speech emotion recognition"
+    },
+    {
+      "citation_id": "40",
+      "title": "A comparison of emotion annotation approaches for text",
+      "authors": [
+        "I Wood",
+        "J Mccrae",
+        "V Andryushechkin",
+        "P Buitelaar"
+      ],
+      "venue": "Information",
+      "doi": "10.3390/info9050117"
+    },
+    {
+      "citation_id": "41",
+      "title": "Categorical and dimensional ratings of emotional speech: Behavioral findings from the morgan emotional speech set",
+      "authors": [
+        "S Morgan"
+      ],
+      "year": "2019",
+      "venue": "J. Speech Lang. Hear. Research",
+      "doi": "10.1044/2019JSLHR-S-19-0144"
+    },
+    {
+      "citation_id": "42",
+      "title": "Probing speech emotion recognition transformers for linguistic knowledge",
+      "authors": [
+        "A Triantafyllopoulos",
+        "J Wagner",
+        "H Wierstorf",
+        "M Schmitt",
+        "U Reichel",
+        "F Eyben",
+        "F Burkhardt",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Proc. INTER-SPEECH"
+    }
+  ]
+}

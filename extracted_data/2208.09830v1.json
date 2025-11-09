@@ -1,0 +1,1559 @@
+{
+  "paper_id": "2208.09830v1",
+  "title": "Representation Learning With Graph Neural Networks For Speech Emotion Recognition",
+  "published": "2022-08-21T07:37:18Z",
+  "authors": [
+    "Junghun Kim",
+    "Jihie Kim"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Learning expressive representation is crucial in deep learning. In speech emotion recognition (SER), vacuum regions or noises in the speech interfere with expressive representation learning. However, traditional RNN-based models are susceptible to such noise. Recently, Graph Neural Network (GNN) has demonstrated its effectiveness for representation learning, and we adopt this framework for SER. In particular, we propose a cosine similarity-based graph as an ideal graph structure for representation learning in SER. We present a Cosine similarity-based Graph Convolutional Network (CoGCN) that is robust to perturbation and noise. Experimental results show that our method outperforms stateof-the-art methods or provides competitive results with a significant model size reduction with only 1/30 parameters.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "The main challenge in Speech Emotion Recognition (SER) is to learn utterance-level representations from frame-level features, which starts with learning expressive frame-level representations. Previous works  (Zadeh et al. 2017 (Zadeh et al. , 2018;; Zhao et al. 2019 ) mainly used LSTM  (Hochreiter and Schmidhuber 1997)  or GRU  (Chung et al. 2014) , a variant of RNN, to handle this challenge. However, RNN-based models can only consider left-to-right or right-to-left information. Even with bidirectional RNN that is learned for each direction and concatenated, both directions' information cannot be considered simultaneously. RNN architecture also propagates irrelevant information continuously, even if there is noise. Therefore, surrounding frame information cannot be learned properly, and frame-level representations are perturbated easily. To overcome these issues, we propose using a GNN architecture, as it can relate information in various parts simultaneously. Furthermore, GNN can also optimize the model size due to parameter sharing, which extends SER's applications that require limited memory space, such as on-device speech recognition. There are many multimodal  (Aguilar et al. 2019; Priyasad et al. 2020)  or multitask  (Li, Zhao, and Kawahara 2019; Latif et al. 2020)  approaches in SER, but we focus on unimodal and single task for in this study to demonstrate the effectiveness of GNN for SER.\n\nThe utterance can be represented as a noisy graph structure in which voice frame and vacuum (with no voice) frame coexist. Therefore, it is important to ensure that useful (withvoice) frames are not perturbed by irrelevant (no-voice) frames. An ideal graph structure can help with it. If the input graphs are ideal, irrelevant information can be filtered out through the message passing process. To construct an ideal graph structure, we propose to use a cosine similarity metric. The superiority of the cosine similarity metric in graph construction has already been demonstrated in other applications  (Chen, Wu, and Zaki 2020) . We adopt it in SER as we believe that graph structures constructed through the cosine similarity metric are more robust to perturbation by pruning out neighbors that have irrelevant information.\n\nFurthermore, we design our GNN architecture using a message passing framework of the Graph Convolutional Network (GCN)  (Kipf and Welling 2016)  with the cosine similarity-based graph structure. We also construct additional modules in our architecture, such as an acoustic preprocessing layer and a skip connection. The proposed GNN architecture better captures neighbors' information and enables expressive frame-level representation learning.\n\nFigure  1  gives an overview of SER representations with graphs. Figures  1 (b ) and 1 (c) show a temporal graph structure and a cosine similarity-based graph structure for the utterance sample in Figure  1  (a). The red node is a vacuum (no-voice) node, the green node is a partial-voice (a part of the frame is voice) node, and the blue node is a full-voice (the entire frame contains voice) node, using 50ms frame window size and 25ms frame intervals. We compare the representations learned with Bidirectional GRU (BiGRU) and the GCN's representations learned from each graph structure. In Figure  1 (d) , nodes 3 and 4, which should be used in prediction, are far from each other. This means that the representations for the prediction are not properly learned. In Figure  1  (e), nodes 3 and 4 are mapped to a nearby latent space, but nodes 1, 2, and 3 are also mapped closely due to the perturbation. In Figure  1  (f), the nodes with similar characteristics are mapped closely in the latent space, which means that our proposed method can be robust to perturbation.\n\nOur contributions are summarized as follows:\n\n• We propose a cosine similarity-based graph structure as an ideal graph structure for SER.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "GNN learns node representations from neighbors through message passing and aggregation.  (Kipf and Welling 2016)  proposed Graph Convolutional Network (GCN), inspired by the first-order graph Laplacian methods.  (Hamilton, Ying, and Leskovec 2017)  proposed GraphSAGE (SAmple and aggreGatE) sampling a fixed number of neighbors to keep the computational complexity consistent.  (Veličković et al. 2017)  proposed Graph Attention Network (GAT) to allocate different weights to neighbors.  (Xu et al. 2019 ) developed Graph Isomorphism Network (GIN) that is probably the most expressive among GNN varients. Generally, GIN's message passing method learns expressive representation, but it does not work well for SER because the sum aggregation over the multiset including noises can disturb the representation learning. We design our GNN architecture using GCN's message passing method since we believe that it aggregates abundant distribution information in SER that values statistical information. Furthermore, we construct additional modules along the design space guidelines for wellperforming GNN of  (You, Ying, and Leskovec 2020) .\n\nTo learn the utterance-level representations from the frame-level features,  (Latif et al. 2019; Peng et al. 2020)  used the RNN based-model. CLDNN  (Latif et al. 2019 ) used a combination of CNN and LSTM to complement each architecture's shortcomings. ASRNN  (Peng et al. 2020 ) used the BiLSTM and attention mechanism to strengthen the time step importance. Recently, CA-GRU  (Su et al. 2020 ) intro-duced the GNN architecture in SER, where frame-level representations encoded in BiGRU are used as node features of GNN architecture. However, frame-level representations trained in this architecture can be easily perturbed and require many parameters. To make SER more robust to perturbation, we use a Fully Connected (FC) layer as a preprocessing layer instead of GRU. We also use a cosine similarity metric that does not require many additional parameters.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Approach",
+      "text": "We first describe notations used for describing our method. Then we present the graph structure constructed through the cosine similarity metric. Finally, we present Cosine similarity-based Graph Convolutional Network (CoGCN), a GCN variant.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Notations",
+      "text": "We begin by summarizing the notations used in the GNN architecture. Let G = (V, E, X) denote a graph, where V is a vertex set, E is an edge set, X ∈ R n×d is a feature matrix, and n and d are the number of vertices and the dimension of the feature vector, respectively. A ∈ R n×n is an adjacency matrix and N (i) is a set of neighbors of node i. Therefore, given a set of graphs {G 1 , ..., G N } and their labels {y 1 , ..., y N }, we aim to learn a graph representation vector h G to predict the label of the entire graph.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Graph Structure",
+      "text": "Since the utterance is sequential data, it has a basic temporal graph structure where the center node has edges on both sides. The temporal graph structure is not ideal because it is difficult to capture long-term dependencies and is easily perturbed by irrelevant neighbors. In this paper, we propose a graph structure constructed with the cosine similarity metric as an ideal graph structure for SER. Cosine similarity-based graph structure can capture long-term dependencies and prevent perturbation from irrelevant neighbors. The process of generating the cosine similarity-based graph is as follows:\n\nwhere x i ∈ R d is the i-th row of the feature matrix X, γ is threshold hyperparameter, s ij is the cosine similarity between node i and node j, and a ij is the corresponding element of the adjacency matrix A.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Model Architecture",
+      "text": "There are numerous GNN variants based on the message passing method used. GIN's message passing method learns expressive representation in many tasks but does not work well for SER because the sum aggregation over the multiset including noises can disturb the representation learning. Instead, we select the GCN's message passing method that best matches our task since we believe that it aggregates abundant distribution information in SER that values statistical information.  (You, Ying, and Leskovec 2020)  provided comprehensive guidelines about design spaces {Batch Normalization, Dropout, Activation, Aggregation, Layer connectivity, Pre-processing Layers, Message passing Layers, Post-processing Layers} for designing a wellperforming GNN. We performed experiments with possible design spaces along the guidelines and found that one FC pre-processing layer and skip connection helped the most in improving the performance. Therefore, the node representation is calculated as follows:\n\nR z×z are the learnable weight matrices, and b p ∈ R z is the learnable bias vector. h\n\nis the node representation of the k-th layer of node i for k = 1, ..., K, and z is the number of hidden units.\n\nNode representation cannot be used directly for the graph classification task. Therefore, given the final iteration node representations, we use the readout function to produce a graph representation. Finally, the graph label is predicted through the FC layer followed by softmax activation that takes the graph representation as the input.\n\nwhere\n\nis the learnable bias vector, and C is the number of classes.\n\nREADOUT can be a simple permutation-invariant function, such as summation or mean, or max-pooling. We believe that the graph's statistical and distributional information is important in this study, so we use the mean-pooling as the readout function, following  (Xu et al. 2019 )'s suggestion. The overall architecture is illustrated in Figure  2 .",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experiments Acoustic Features",
+      "text": "Frame-level features are extracted from raw waveforms using the openSMILE  (Eyben, Wöllmer, and Schuller 2010)  speech toolkit with 25ms frame window size and 10ms frame intervals. We use the extended Geneva Minimalistic Acoustic Parameter Set (eGeMAPS) introduced by  (Eyben et al. 2015)  to extract frame-level features with a total 88dimension.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Dataset",
+      "text": "An IEMOCAP  (Busso et al. 2008 ) consists of 5 sessions, and each session includes 2 actors (1 male and 1 female). It consists of 9 emotions, but in this paper, following the previous studies, data with only 4 emotions {neutrality, happiness (including excited), sadness, and anger} is used, which is 5531 utterances.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experiments Setup",
+      "text": "Each method has K ∈ {2, 3, 4} layers with 128 hidden units, and dropout is applied with p = 0.1 after the readout function. K is selected through the validation set results. We train all the models for a maximum of 50 epochs with a batch size of 32 using the Adam optimizer  (Kingma and Ba 2015)",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Result Analysis",
+      "text": "To demonstrate the effect of our proposed approach, we compare CoGCN with BiGRU and Temporal graph based GCN (TGCN) learned under the same conditions. Table  1  shows the study results with BiGRU, TGCN, and CoGCN. We can see the performance improvement with GNN over RNN (BiGRU). We can also see the benefit of cosine similarity-based graph structure when compared with temporal graph structure. When skip connection is removed from the GNN architectures, the performance drops in general. Besides, when the pre-processing layer is removed from GNN architectures without skip connection, we see an additional performance drop.\n\nIn Figure  3 , each method's learning curve with the training set and the validation set supports the findings above. Intuitively, BiGRU is relatively underfitting, and CoGCN learns more expressive node representations than TGCN.\n\nTable  2  shows a comparison with the state-of-the-art methods. The dash symbol denotes that reported results do not exist. Our method outperforms CLDNN, ASRNN and achieves a competitive performance when compared to CA-GRU. It is noteworthy that our approach significantly reduces the model size and the number of parameters is only 1/30 of CA-GRU. Such results can help applications that require limited memory space, such as on-device speech recognition.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "In this paper, we propose a cosine similarity-based graph structure as an ideal graph structure for SER, and present the CoGCN, as a GCN variant for SER. Finally, we show that our method outperforms state-of-the-art methods or provides competitive results with a significant model size reduction with only 1/30 parameters.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: gives an overview of SER representations with",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: (a). The red node is a vacuum",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: (d), nodes 3 and 4, which should be used",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: (e), nodes 3 and 4 are mapped to a nearby la-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: (f), the nodes with similar",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: Top: Temporal graph structure and cosine similarity-based graph structure for the utterance sample. Bottom: t-SNE",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Model architecture.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Experiments",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Training set and validation set learning curve of",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: , each method’s learning curve with the train-",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "ture in which voice frame and vacuum (with no voice) frame"
+        },
+        {
+          "Abstract": "Learning expressive representation is crucial\nin deep learn-",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "coexist. Therefore, it is important to ensure that useful (with-"
+        },
+        {
+          "Abstract": "ing.\nIn speech emotion recognition (SER), vacuum regions",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "voice)\nframes\nare not perturbed by irrelevant\n(no-voice)"
+        },
+        {
+          "Abstract": "or noises\nin the speech interfere with expressive represen-",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "frames. An ideal graph structure can help with it. If the in-"
+        },
+        {
+          "Abstract": "tation learning. However,\ntraditional RNN-based models are",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "susceptible to such noise. Recently, Graph Neural Network",
+          "The utterance can be represented as a noisy graph struc-": "put graphs are ideal,\nirrelevant\ninformation can be ﬁltered"
+        },
+        {
+          "Abstract": "(GNN) has demonstrated its effectiveness for representation",
+          "The utterance can be represented as a noisy graph struc-": "out\nthrough the message passing process. To construct an"
+        },
+        {
+          "Abstract": "learning,\nand we\nadopt\nthis\nframework\nfor SER.\nIn\npar-",
+          "The utterance can be represented as a noisy graph struc-": "ideal graph structure, we propose to use a cosine similar-"
+        },
+        {
+          "Abstract": "ticular, we propose\na\ncosine\nsimilarity-based graph as\nan",
+          "The utterance can be represented as a noisy graph struc-": "ity metric. The superiority of the cosine similarity metric in"
+        },
+        {
+          "Abstract": "ideal graph structure for representation learning in SER. We",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "graph construction has already been demonstrated in other"
+        },
+        {
+          "Abstract": "present a Cosine similarity-based Graph Convolutional Net-",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "applications (Chen, Wu, and Zaki 2020). We adopt it in SER"
+        },
+        {
+          "Abstract": "work (CoGCN) that\nis robust\nto perturbation and noise. Ex-",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "as we believe that graph structures constructed through the"
+        },
+        {
+          "Abstract": "perimental\nresults show that our method outperforms state-",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "cosine similarity metric are more robust\nto perturbation by"
+        },
+        {
+          "Abstract": "of-the-art methods or provides competitive results with a sig-",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "pruning out neighbors that have irrelevant information."
+        },
+        {
+          "Abstract": "niﬁcant model size reduction with only 1/30 parameters.",
+          "The utterance can be represented as a noisy graph struc-": ""
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "Furthermore, we design our GNN architecture using a"
+        },
+        {
+          "Abstract": "",
+          "The utterance can be represented as a noisy graph struc-": "message passing framework of\nthe Graph Convolutional"
+        },
+        {
+          "Abstract": "Introduction",
+          "The utterance can be represented as a noisy graph struc-": "Network (GCN)\n(Kipf and Welling 2016) with the cosine"
+        },
+        {
+          "Abstract": "The main challenge in Speech Emotion Recognition (SER)",
+          "The utterance can be represented as a noisy graph struc-": "similarity-based graph structure. We\nalso construct\naddi-"
+        },
+        {
+          "Abstract": "is to learn utterance-level\nrepresentations from frame-level",
+          "The utterance can be represented as a noisy graph struc-": "tional modules in our architecture, such as an acoustic pre-"
+        },
+        {
+          "Abstract": "features, which starts with learning expressive frame-level",
+          "The utterance can be represented as a noisy graph struc-": "processing layer and a skip connection. The proposed GNN"
+        },
+        {
+          "Abstract": "representations. Previous works (Zadeh et al. 2017, 2018;",
+          "The utterance can be represented as a noisy graph struc-": "architecture better captures neighbors’ information and en-"
+        },
+        {
+          "Abstract": "Zhao\net\nal.\n2019) mainly\nused LSTM (Hochreiter\nand",
+          "The utterance can be represented as a noisy graph struc-": "ables expressive frame-level representation learning."
+        },
+        {
+          "Abstract": "Schmidhuber 1997) or GRU (Chung et al. 2014), a variant of",
+          "The utterance can be represented as a noisy graph struc-": "Figure 1 gives an overview of SER representations with"
+        },
+        {
+          "Abstract": "RNN,\nto handle this challenge. However, RNN-based mod-",
+          "The utterance can be represented as a noisy graph struc-": "graphs. Figures 1 (b) and 1 (c) show a temporal graph struc-"
+        },
+        {
+          "Abstract": "els can only consider\nleft-to-right or\nright-to-left\ninforma-",
+          "The utterance can be represented as a noisy graph struc-": "ture and a cosine similarity-based graph structure for the ut-"
+        },
+        {
+          "Abstract": "tion. Even with bidirectional RNN that is learned for each di-",
+          "The utterance can be represented as a noisy graph struc-": "terance sample in Figure 1 (a). The red node is a vacuum"
+        },
+        {
+          "Abstract": "rection and concatenated, both directions’ information can-",
+          "The utterance can be represented as a noisy graph struc-": "(no-voice) node,\nthe green node is a partial-voice (a part of"
+        },
+        {
+          "Abstract": "not be\nconsidered simultaneously. RNN architecture\nalso",
+          "The utterance can be represented as a noisy graph struc-": "the frame is voice) node, and the blue node is a full-voice"
+        },
+        {
+          "Abstract": "propagates irrelevant information continuously, even if there",
+          "The utterance can be represented as a noisy graph struc-": "(the entire frame contains voice) node, using 50ms frame"
+        },
+        {
+          "Abstract": "is noise. Therefore, surrounding frame information cannot",
+          "The utterance can be represented as a noisy graph struc-": "window size and 25ms frame intervals. We compare the rep-"
+        },
+        {
+          "Abstract": "be learned properly, and frame-level representations are per-",
+          "The utterance can be represented as a noisy graph struc-": "resentations learned with Bidirectional GRU (BiGRU) and"
+        },
+        {
+          "Abstract": "turbated easily. To overcome these issues, we propose us-",
+          "The utterance can be represented as a noisy graph struc-": "the GCN’s representations learned from each graph struc-"
+        },
+        {
+          "Abstract": "ing a GNN architecture, as it can relate information in var-",
+          "The utterance can be represented as a noisy graph struc-": "ture. In Figure 1 (d), nodes 3 and 4, which should be used"
+        },
+        {
+          "Abstract": "ious parts simultaneously. Furthermore, GNN can also op-",
+          "The utterance can be represented as a noisy graph struc-": "in prediction, are far\nfrom each other. This means that\nthe"
+        },
+        {
+          "Abstract": "timize the model size due to parameter sharing, which ex-",
+          "The utterance can be represented as a noisy graph struc-": "representations for\nthe prediction are not properly learned."
+        },
+        {
+          "Abstract": "tends SER’s applications that require limited memory space,",
+          "The utterance can be represented as a noisy graph struc-": "In Figure 1 (e), nodes 3 and 4 are mapped to a nearby la-"
+        },
+        {
+          "Abstract": "such as on-device speech recognition. There are many mul-",
+          "The utterance can be represented as a noisy graph struc-": "tent space, but nodes 1, 2, and 3 are also mapped closely due"
+        },
+        {
+          "Abstract": "timodal (Aguilar et al. 2019; Priyasad et al. 2020) or multi-",
+          "The utterance can be represented as a noisy graph struc-": "to the perturbation.\nIn Figure 1 (f),\nthe nodes with similar"
+        },
+        {
+          "Abstract": "task (Li, Zhao, and Kawahara 2019; Latif et al. 2020) ap-",
+          "The utterance can be represented as a noisy graph struc-": "characteristics are mapped closely in the latent space, which"
+        },
+        {
+          "Abstract": "proaches in SER, but we focus on unimodal and single task",
+          "The utterance can be represented as a noisy graph struc-": "means that our proposed method can be robust\nto perturba-"
+        },
+        {
+          "Abstract": "for in this study to demonstrate the effectiveness of GNN for",
+          "The utterance can be represented as a noisy graph struc-": "tion."
+        },
+        {
+          "Abstract": "SER.",
+          "The utterance can be represented as a noisy graph struc-": "Our contributions are summarized as follows:"
+        },
+        {
+          "Abstract": "Copyright © 2022, Association for the Advancement of Artiﬁcial",
+          "The utterance can be represented as a noisy graph struc-": "• We propose a cosine similarity-based graph structure as"
+        },
+        {
+          "Abstract": "Intelligence (www.aaai.org). All rights reserved.",
+          "The utterance can be represented as a noisy graph struc-": "an ideal graph structure for SER."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "full\n4\n1, 5, 6\n3": "3\n2"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "t-SNE-1\nt-SNE-1\nt-SNE-1"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "(d) Representations for BiGRU\n(e) Representations for TGCN \n(f) Representations for CoGCN"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "Figure 1: Top: Temporal graph structure and cosine similarity-based graph structure for the utterance sample. Bottom:\nt-SNE"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "(Van der Maaten and Hinton 2008) visualization of the representations for each method."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "• We present a Cosine similarity-based Graph Convolu-\nduced the GNN architecture in SER, where frame-level rep-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "tional Network (CoGCN), as a GCN variant for SER.\nresentations encoded in BiGRU are used as node features"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "of GNN architecture. However, frame-level representations"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "• Experimental results show that our method outperforms"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "trained in this architecture can be easily perturbed and re-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "state-of-the-art methods or provides competitive results"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "quire many parameters. To make SER more robust\nto per-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "with a signiﬁcant model size reduction with only 1/30"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "turbation, we use a Fully Connected (FC)\nlayer as a pre-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "parameters."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "processing layer instead of GRU. We also use a cosine sim-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "ilarity metric that does not require many additional parame-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "Related Work"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "ters."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "GNN learns node representations\nfrom neighbors\nthrough"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "message passing and aggregation. (Kipf and Welling 2016)"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "Approach"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "proposed Graph Convolutional Network (GCN), inspired by"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "We ﬁrst describe notations used for describing our method."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "the ﬁrst-order graph Laplacian methods.\n(Hamilton, Ying,"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "Then we present\nthe graph structure\nconstructed through"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "and Leskovec 2017) proposed GraphSAGE (SAmple and"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "the\ncosine\nsimilarity metric. Finally, we\npresent Cosine"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "aggreGatE) sampling a ﬁxed number of neighbors to keep"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "similarity-based Graph Convolutional Network (CoGCN), a"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "the computational complexity consistent. (Veliˇckovi´c et al."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "GCN variant."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "2017) proposed Graph Attention Network (GAT)\nto allo-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "cate different weights to neighbors. (Xu et al. 2019) devel-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "Notations"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "oped Graph Isomorphism Network (GIN)\nthat\nis probably"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "We begin by summarizing the notations used in the GNN"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "the most expressive among GNN varients. Generally, GIN’s"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "architecture. Let G = (V, E, X) denote a graph, where V"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "message passing method learns expressive representation,"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "is a vertex set, E is an edge set, X ∈ Rn×d\nis a feature"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "but it does not work well for SER because the sum aggrega-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "matrix, and n and d are the number of vertices and the di-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "tion over the multiset\nincluding noises can disturb the rep-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "mension of\nthe feature vector,\nrespectively. A ∈ Rn×n is"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "resentation learning. We design our GNN architecture us-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "an adjacency matrix and N (i) is a set of neighbors of node"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "ing GCN’s message passing method since we believe that"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "i. Therefore, given a set of graphs {G1, ..., GN } and their\nit aggregates abundant distribution information in SER that"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "labels {y1, ..., yN }, we aim to learn a graph representation\nvalues statistical information. Furthermore, we construct ad-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "vector hG to predict the label of the entire graph.\nditional modules along the design space guidelines for well-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "performing GNN of (You, Ying, and Leskovec 2020)."
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "Graph Structure"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "To\nlearn\nthe\nutterance-level\nrepresentations\nfrom the"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "frame-level\nfeatures,\n(Latif et al. 2019; Peng et al. 2020)\nSince the utterance is sequential data,\nit has a basic tempo-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "used the RNN based-model. CLDNN (Latif et al. 2019) used\nral graph structure where the center node has edges on both"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "a combination of CNN and LSTM to complement each ar-\nsides. The temporal graph structure is not ideal because it is"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "chitecture’s shortcomings. ASRNN (Peng et al. 2020) used\ndifﬁcult to capture long-term dependencies and is easily per-"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "the BiLSTM and attention mechanism to strengthen the time\nturbed by irrelevant neighbors. In this paper, we propose a"
+        },
+        {
+          "full\n4\n1, 5, 6\n3": "step importance. Recently, CA-GRU (Su et al. 2020) intro-\ngraph structure constructed with the cosine similarity metric"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "FC layer"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Dropout"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Readout"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Skip"
+        },
+        {
+          "Outputs": "GCN layer\nK"
+        },
+        {
+          "Outputs": "connection"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Pre-processing\n×"
+        },
+        {
+          "Outputs": "FC layer"
+        },
+        {
+          "Outputs": "layer"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Node"
+        },
+        {
+          "Outputs": "Graph"
+        },
+        {
+          "Outputs": "features"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Figure 2: Model architecture."
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "as an ideal graph structure for SER. Cosine similarity-based"
+        },
+        {
+          "Outputs": "graph structure can capture long-term dependencies and pre-"
+        },
+        {
+          "Outputs": "vent perturbation from irrelevant neighbors. The process of"
+        },
+        {
+          "Outputs": "generating the cosine similarity-based graph is as follows:"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "xT"
+        },
+        {
+          "Outputs": "i xj"
+        },
+        {
+          "Outputs": ",\n(1)\nsij ="
+        },
+        {
+          "Outputs": "||xi|| × ||xj||"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "(cid:26)1,\nif sij ≥ γ"
+        },
+        {
+          "Outputs": "(2)\naij ="
+        },
+        {
+          "Outputs": "0,\notherwise,"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "the feature matrix X, γ\nwhere xi ∈ Rd is the i-th row of"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "is the cosine similarity be-\nis threshold hyperparameter, sij"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "is the corresponding ele-\ntween node i and node j, and aij"
+        },
+        {
+          "Outputs": "ment of the adjacency matrix A."
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "Model Architecture"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "There are numerous GNN variants based on the message"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "passing method used. GIN’s message passing method learns"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "expressive representation in many tasks but does not work"
+        },
+        {
+          "Outputs": "well\nfor SER because the sum aggregation over\nthe mul-"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "tiset\nincluding noises can disturb the representation learn-"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "ing. Instead, we select\nthe GCN’s message passing method"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "that best matches our\ntask since we believe that\nit aggre-"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "gates\nabundant distribution information in SER that val-"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "ues statistical information. (You, Ying, and Leskovec 2020)"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "provided\ncomprehensive\nguidelines\nabout\ndesign\nspaces"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "{Batch Normalization, Dropout, Activation, Aggregation,"
+        },
+        {
+          "Outputs": "Layer connectivity, Pre-processing Layers, Message pass-"
+        },
+        {
+          "Outputs": ""
+        },
+        {
+          "Outputs": "ing Layers, Post-processing Layers} for designing a well-"
+        },
+        {
+          "Outputs": "performing GNN. We performed experiments with possible"
+        },
+        {
+          "Outputs": "design spaces along the guidelines and found that one FC"
+        },
+        {
+          "Outputs": "pre-processing layer and skip connection helped the most in"
+        },
+        {
+          "Outputs": "improving the performance. Therefore, the node representa-"
+        },
+        {
+          "Outputs": "tion is calculated as follows:"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: learning for graph neural networks: Better and robust node",
+      "data": [
+        {
+          "Method": "CLDNN (Latif et al. 2019)",
+          "# parameter": "250K",
+          "WA": "-",
+          "UA": "60.23"
+        },
+        {
+          "Method": "ASRNN (Peng et al. 2020)",
+          "# parameter": "6M",
+          "WA": "-",
+          "UA": "62.60"
+        },
+        {
+          "Method": "",
+          "# parameter": "",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "CA-GRU (Su et al. 2020)",
+          "# parameter": "1.6M",
+          "WA": "62.27",
+          "UA": "63.80"
+        },
+        {
+          "Method": "",
+          "# parameter": "",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "CoGCN (Ours)",
+          "# parameter": "56K",
+          "WA": "62.64",
+          "UA": "63.67"
+        },
+        {
+          "Method": "",
+          "# parameter": "",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "",
+          "# parameter": "",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "",
+          "# parameter": "Table 2: Summary of results in terms of WA and UA.",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "",
+          "# parameter": "",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "",
+          "# parameter": "",
+          "WA": "",
+          "UA": ""
+        },
+        {
+          "Method": "",
+          "# parameter": "Conclusions",
+          "WA": "",
+          "UA": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 1: learning for graph neural networks: Better and robust node",
+      "data": [
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "w/o skip\n56K\n61.35\n62.56"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "w/o skip, pre\n45K\n61.14\n62.34"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "Table 1: Comparison of different combinations."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "BiGRU_train"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "TGCN_train"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "CoGCN_train"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "UA\nBiGRU_valid"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "TGCN_valid"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "CoGCN_valid"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "Epoch"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "Figure 3: Training set and validation set\nlearning curve of"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "BiGRU, TGCN, and CoGCN."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "a learning rate of 1e-3. We search the threshold parameter"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "γ in {0.5, 0.55, 0.6}. Finally, following the state-of-the-art"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "methods’ experimental settings being compared, we perform"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "leave-one-person-out cross-validation and report\nthe aver-"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "age of Weighted Accuracy (WA) and Unweighted Accuracy"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "(UA)."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "Result Analysis"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "To demonstrate\nthe\neffect of our proposed approach, we"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "compare CoGCN with BiGRU and Temporal graph based"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "GCN (TGCN)\nlearned under\nthe same conditions. Table 1"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "shows the study results with BiGRU, TGCN, and CoGCN."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "We can see the performance improvement with GNN over"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "RNN (BiGRU). We\ncan\nalso\nsee\nthe\nbeneﬁt\nof\ncosine"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "similarity-based graph structure when compared with tem-"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "poral graph structure. When skip connection is\nremoved"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "from the GNN architectures, the performance drops in gen-"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "eral. Besides, when the pre-processing layer\nis\nremoved"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "from GNN architectures without skip connection, we see an"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "additional performance drop."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "In Figure 3, each method’s learning curve with the train-"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "ing set and the validation set supports the ﬁndings above."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "Intuitively, BiGRU is\nrelatively underﬁtting, and CoGCN"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "learns more expressive node representations than TGCN."
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "Table\n2\nshows\na\ncomparison with\nthe\nstate-of-the-art"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "methods. The dash symbol denotes that reported results do"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "not exist. Our method outperforms CLDNN, ASRNN and"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "achieves a competitive performance when compared to CA-"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "GRU.\nIt\nis noteworthy that our approach signiﬁcantly re-"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "duces the model size and the number of parameters is only"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": ""
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "1/30 of CA-GRU. Such results can help applications\nthat"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "require\nlimited memory space,\nsuch as on-device\nspeech"
+        },
+        {
+          "62.64\n63.67\nCoGCN\n56K": "recognition."
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "stochastic optimization. International Conference on Learn-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "ing Representations (ICLR)."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Kipf, T. N.; and Welling, M. 2016.\nSemi-supervised clas-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "International\nsiﬁcation with graph convolutional networks."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Conference on Learning Representations (ICLR)."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Latif, S.; Rana, R.; Khalifa, S.; Jurdak, R.; and Epps, J. 2019."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Direct modelling of speech emotion from raw speech. Inter-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "speech."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Latif, S.; Rana, R.; Khalifa, S.;\nJurdak, R.; Epps,\nJ.; and"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Schuller, B. W. 2020. Multi-task semi-supervised adver-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "IEEE\nsarial autoencoding for speech emotion recognition."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Transactions on Affective Computing."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Li, Y.; Zhao, T.; and Kawahara, T. 2019.\nImproved End-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "to-End Speech Emotion Recognition Using Self Attention"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Mechanism and Multitask Learning.\nIn Interspeech, 2803–"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "2807. ISCA."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Peng, Z.; Li, X.; Zhu, Z.; Unoki, M.; Dang, J.; and Akagi,"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "M. 2020. Speech emotion recognition using 3d convolutions"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "and attention-based sliding recurrent networks with auditory"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "front-ends.\nIEEE Access, 8: 16560–16572."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Priyasad, D.; Fernando, T.; Denman, S.; Sridharan, S.; and"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Fookes, C. 2020. Attention driven fusion for multi-modal"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "emotion recognition.\nIn IEEE International Conference on"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Acoustics, Speech and Signal Processing (ICASSP), 3227–"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "3231. IEEE."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Su, B.-H.; Chang, C.-M.; Lin, Y.-S.; and Lee, C.-C. 2020."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Improving Speech Emotion Recognition Using Graph At-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "tentive Bi-Directional Gated Recurrent Unit Network.\nIn"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Interspeech, 506–510. ISCA."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Van der Maaten, L.; and Hinton, G. 2008. Visualizing data"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "using t-SNE. Journal of machine learning research, 9(11)."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Veliˇckovi´c, P.; Cucurull, G.; Casanova, A.; Romero, A.; Lio,"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Interna-\nP.; and Bengio, Y. 2017. Graph attention networks."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "tional Conference on Learning Representations (ICLR)."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Xu, K.; Hu, W.; Leskovec, J.; and Jegelka, S. 2019. How"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "International Confer-\npowerful are graph neural networks?"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "ence on Learning Representations (ICLR)."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "You,\nJ.; Ying, R.; and Leskovec,\nJ. 2020.\nDesign space"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "for graph neural networks. Advances in Neural Information"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Processing Systems."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Zadeh, A.; Chen, M.; Poria, S.; Cambria, E.; and Morency,"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "L.-P. 2017. Tensor fusion network for multimodal sentiment"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "analysis. Proceedings of the 2017 Conference on Empirical"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Methods in Natural Language Processing."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Zadeh, A.; Liang, P. P.; Mazumder, N.; Poria, S.; Cambria,"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "E.; and Morency, L.-P. 2018. Memory fusion network for"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "multi-view sequential learning.\nIn Proceedings of the AAAI"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Conference on Artiﬁcial Intelligence, volume 32."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Zhao, Z.; Bao, Z.; Zhang, Z.; Cummins, N.; Wang, H.; and"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Schuller, B. 2019.\nAttention-enhanced connectionist\ntem-"
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "poral classiﬁcation for discrete speech emotion recognition."
+        },
+        {
+          "Kingma, D. P.;\nand Ba,\nJ. 2015.\nAdam: A method for": "Interspeech."
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Multimodal and multi-view models for emotion recognition",
+      "authors": [
+        "G Aguilar",
+        "V Rozgić",
+        "W Wang",
+        "C Wang"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "2",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "3",
+      "title": "Iterative deep graph learning for graph neural networks: Better and robust node embeddings",
+      "authors": [
+        "Y Chen",
+        "L Wu",
+        "M Zaki"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "4",
+      "title": "Empirical evaluation of gated recurrent neural networks on sequence modeling",
+      "authors": [
+        "J Chung",
+        "C Gulcehre",
+        "K Cho",
+        "Y Bengio"
+      ],
+      "year": "2014",
+      "venue": "Advances in Neural Information Processing Systems 2014 Workshop on Deep Learning"
+    },
+    {
+      "citation_id": "5",
+      "title": "The Geneva minimalistic acoustic parameter set (GeMAPS) for voice research and affective computing",
+      "authors": [
+        "F Eyben",
+        "K Scherer",
+        "B Schuller",
+        "J Sundberg",
+        "E André",
+        "C Busso",
+        "L Devillers",
+        "J Epps",
+        "P Laukka",
+        "S Narayanan"
+      ],
+      "year": "2015",
+      "venue": "IEEE transactions on affective computing"
+    },
+    {
+      "citation_id": "6",
+      "title": "Opensmile: the munich versatile and fast open-source audio feature extractor",
+      "authors": [
+        "F Eyben",
+        "M Wöllmer",
+        "B Schuller"
+      ],
+      "year": "2010",
+      "venue": "Proceedings of the 18th ACM international conference on Multimedia"
+    },
+    {
+      "citation_id": "7",
+      "title": "Inductive representation learning on large graphs",
+      "authors": [
+        "W Hamilton",
+        "R Ying",
+        "J Leskovec"
+      ],
+      "year": "2017",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "8",
+      "title": "Long short-term memory",
+      "authors": [
+        "S Hochreiter",
+        "J Schmidhuber"
+      ],
+      "year": "1997",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "9",
+      "title": "Adam: A method for stochastic optimization. International Conference on Learning Representations (ICLR)",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "Adam: A method for stochastic optimization. International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "10",
+      "title": "Semi-supervised classification with graph convolutional networks",
+      "authors": [
+        "T Kipf",
+        "M Welling"
+      ],
+      "year": "2016",
+      "venue": "International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "11",
+      "title": "Direct modelling of speech emotion from raw speech",
+      "authors": [
+        "S Latif",
+        "R Rana",
+        "S Khalifa",
+        "R Jurdak",
+        "J Epps"
+      ],
+      "year": "2019",
+      "venue": "Direct modelling of speech emotion from raw speech"
+    },
+    {
+      "citation_id": "12",
+      "title": "Multi-task semi-supervised adversarial autoencoding for speech emotion recognition",
+      "authors": [
+        "S Latif",
+        "R Rana",
+        "S Khalifa",
+        "R Jurdak",
+        "J Epps",
+        "B Schuller"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "13",
+      "title": "Improved Endto-End Speech Emotion Recognition Using Self Attention Mechanism and Multitask Learning",
+      "authors": [
+        "Y Li",
+        "T Zhao",
+        "T Kawahara"
+      ],
+      "year": "2019",
+      "venue": "Interspeech"
+    },
+    {
+      "citation_id": "14",
+      "title": "Speech emotion recognition using 3d convolutions and attention-based sliding recurrent networks with auditory front-ends",
+      "authors": [
+        "Z Peng",
+        "X Li",
+        "Z Zhu",
+        "M Unoki",
+        "J Dang",
+        "M Akagi"
+      ],
+      "year": "2020",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "15",
+      "title": "Attention driven fusion for multi-modal emotion recognition",
+      "authors": [
+        "D Priyasad",
+        "T Fernando",
+        "S Denman",
+        "S Sridharan",
+        "C Fookes"
+      ],
+      "year": "2020",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Improving Speech Emotion Recognition Using Graph Attentive Bi-Directional Gated Recurrent Unit Network",
+      "authors": [
+        "B.-H Su",
+        "C.-M Chang",
+        "Y.-S Lin",
+        "C.-C Lee"
+      ],
+      "year": "2020",
+      "venue": "Improving Speech Emotion Recognition Using Graph Attentive Bi-Directional Gated Recurrent Unit Network"
+    },
+    {
+      "citation_id": "17",
+      "title": "Visualizing data using t-SNE",
+      "authors": [
+        "L Van Der Maaten",
+        "G Hinton"
+      ],
+      "year": "2008",
+      "venue": "Journal of machine learning research"
+    },
+    {
+      "citation_id": "18",
+      "title": "Graph attention networks",
+      "authors": [
+        "P Veličković",
+        "G Cucurull",
+        "A Casanova",
+        "A Romero",
+        "P Lio",
+        "Y Bengio"
+      ],
+      "year": "2017",
+      "venue": "International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "19",
+      "title": "How powerful are graph neural networks? International Conference on Learning Representations (ICLR)",
+      "authors": [
+        "K Xu",
+        "W Hu",
+        "J Leskovec",
+        "S Jegelka"
+      ],
+      "year": "2019",
+      "venue": "How powerful are graph neural networks? International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "20",
+      "title": "Design space for graph neural networks",
+      "authors": [
+        "J You",
+        "R Ying",
+        "J Leskovec"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "21",
+      "title": "Tensor fusion network for multimodal sentiment analysis",
+      "authors": [
+        "A Zadeh",
+        "M Chen",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Memory fusion network for multi-view sequential learning",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "N Mazumder",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "23",
+      "title": "Attention-enhanced connectionist temporal classification for discrete speech emotion recognition",
+      "authors": [
+        "Z Zhao",
+        "Z Bao",
+        "Z Zhang",
+        "N Cummins",
+        "H Wang",
+        "B Schuller"
+      ],
+      "year": "2019",
+      "venue": "Attention-enhanced connectionist temporal classification for discrete speech emotion recognition"
+    }
+  ]
+}

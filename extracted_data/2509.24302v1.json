@@ -1,0 +1,1093 @@
+{
+  "paper_id": "2509.24302v1",
+  "title": "Elastiq: Eeg-Language Alignment With Se-Mantic Task Instruction And Querying",
+  "published": "2025-09-29T05:29:12Z",
+  "authors": [
+    "Muyun Jiang",
+    "Shuailei Zhang",
+    "Zhenjie Yang",
+    "Mengjun Wu",
+    "Weibang Jiang",
+    "Zhiwei Guo",
+    "Wei Zhang",
+    "Rui Liu",
+    "Shangen Zhang",
+    "Yong Li",
+    "Yi Ding",
+    "Cuntai Guan"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Recent advances in electroencephalography (EEG) foundation models, which capture transferable EEG representations, have greatly accelerated the development of brain-computer interfaces (BCI). However, existing approaches still struggle to incorporate language instructions as prior constraints for EEG representation learning, limiting their ability to leverage the semantic knowledge inherent in language to unify different labels and tasks. To address this challenge, we present ELASTIQ, a foundation model for EEG-Language Alignment with Semantic Task Instruction and Querying. ELASTIQ integrates task-aware semantic guidance to produce structured and linguistically aligned EEG embeddings, thereby enhancing decoding robustness and transferability. In the pretraining stage, we introduce a joint Spectral-Temporal Reconstruction (STR) module, which combines frequency masking as a global spectral perturbation with two complementary temporal objectives: random masking to capture contextual dependencies and causal masking to model sequential dynamics. In the instruction tuning stage, we propose the Instruction-conditioned Q-Former (IQF), a query-based crossattention transformer that injects instruction embeddings into EEG tokens and aligns them with textual label embeddings through learnable queries. We evaluate ELASTIQ on 20 datasets spanning motor imagery, emotion recognition, steadystate visual evoked potentials, covert speech, and healthcare tasks. ELASTIQ achieves state-of-the-art performance on 14 of the 20 datasets and obtains the best average results across all five task categories. Importantly, our analyses reveal for the first time that explicit task instructions serve as semantic priors guiding EEG embeddings into coherent and linguistically grounded spaces. The code and pre-trained weights will be released.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Method",
+      "text": "In this section, we introduce the design of ELASTIQ, our proposed EEG-Language foundation model. ELASTIQ is trained in two stages: a pretraining stage, where a joint spectral-temporal objective encourages frequency-aware and temporally predictive EEG representations, and an instruction tuning stage, where EEG embeddings are conditioned on task instructions and aligned with textual targets to improve decoding performance across diverse tasks. The architecture design of ELASTIQ can be found at Figure  2 .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Pretraining Stage",
+      "text": "The pretraining of ELASTIQ learns EEG features that are frequency-aware, structurally consistent, and temporally predictive through a joint Spectral-Temporal Reconstruction framework, which serves as a conditional bottleneck enforcing spectral invariance and contextual recovery. Let X C×T ∈ R denote EEG trial with C means EEG channels and T time points. To manage long recordings and improve training stability, X is segmented into a sequence of non-overlapping windows of fixed length t, yielding segments x C×t i ∈ R for i = 1, . . . , ⌊T /t⌋. Each segment captures synchronized activity across all channels within the temporal window.\n\nSpectral Masking To realize a random frequency band cutoff, we first suppress a randomly chosen frequency band in each segment before tokenization. For x i , compute its spectrum X f,i = FFT(x i ) and randomly select a band [f min , f max ] of width f band to remove, producing a masked spectrum X f,i = M [fmin,fmax] (X f,i ). Then we conduct an inverse transform to get the perturbed signal via x i = iFFT( X f,i ). This encourages invariance to the loss of localized spectral components and complements the dual spectral-temporal objectives.\n\nConvolutional Tokenizer We adopt a lightweight tokenizer consisting of a temporal convolution, a spatial convolution, batch normalization, and pooling:\n\n(1)\n\nThe resulting token embeddings z i lie in R N ×d , where N is the number of tokens and d the embedding dimension.\n\nMask token modeling branch A bidirectional transformer is trained with a random masking strategy, where a subset of token positions M is replaced by mask tokens and the model reconstructs the corresponding input token z i from the unmasked context. Each reconstructed token is then mapped back to the input space through a two-layer MLP decoder:\n\nwhere σ(•) denotes a non-linear activation, W 1 and W 2 are learnable weight matrices, and b 1 and b 2 are the corresponding bias terms. The reconstruction loss is computed against the original input segment:\n\n(3)\n\nCausal token modeling branch A causal transformer is optimized with a future mask, restricting each token at position i to attend only to {1, . . . , i}, thus preventing information leakage from the future. This imposes an autoregressive task in which the model predicts the next-token representation z i+1 . The prediction is decoded through the same two-layer MLP, yielding g( z i+1 ), and the next-token loss is defined as\n\nJoint objective The overall pretraining objective combines structural and temporal components:\n\nwhere λ ctx and λ cau are balancing coefficients (set to 1 by default). This design enforces that latent tokens must be decodable through g(•) back into the input domain, ensuring that the learned representations remain both contextually and temporally consistent with the original signals.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Instruction Tuning Stage",
+      "text": "The goal of instruction tuning in ELASTIQ is to close the modality gap between EEG signals and natural language semantics by learning conditional representations that align neural dynamics with textual meaning. To incorporate semantic guidance, each trial x i is paired with a natural language instruction s ins that specifies the task context(e.g., \"Decode motor imagery\", \"Decode emotional states\"), together with a textual target s tgt corresponding to the class label (e.g., \"Left Hand\", \"Happy\"). The objective of instruction tuning is then defined as\n\nwhere f θ denotes the model parameterized by θ, which conditions EEG embeddings on the instruction and aligns them with the textual target.\n\nInstruction as a Conditioning Prior Let m ∈ R 2N ×d denote the sequence of tokenized EEG embeddings obtained from the pretraining encoder, where 2N is the number of concatenated tokens output by both the transformer and d is the embedding dimension. Given the instruction text s ins , we obtain its embedding e ins ∈ R k using a frozen pretrained language encoder such as BERT  (Devlin et al., 2019)  or SBERT  (Reimers & Gurevych, 2019) .\n\nwhere f text (•) maps the instruction sentence into a normalized semantic vector. For BERT, we use the hidden state of the [CLS] token as the sentence embedding. For SBERT, the model directly outputs a sentence embedding via mean pooling over token representations. In both cases, the resulting vector is ℓ 2 -normalized:\n\nThis normalized vector serves as the high-level semantic prior for guiding EEG representations toward the language semantic space.\n\nTo fuse this conditioning prior with the EEG embedding space, we employ a Feature-wise Linear Modulation (FiLM) operator  (Perez et al., 2017) , which parametrizes a family of affine transformations. Specifically, the modulation parameters (γ, β) ∈ R d are derived from the instruction embedding via a nonlinear projection:\n\nwhere W γβ ∈ R 2N ×d and b γβ ∈ R 2N jointly generate scaling and shifting coefficients. The conditioned EEG representation is then given by:\n\nwhere ⊙ denotes element-wise multiplication. This formulation ensures that m is shaped by instruction semantics rather than generic alignment. The instruction embedding e ins biases the EEG latent space toward task-relevant features, producing representations that are both aligned with textual targets e tgt and regularized on an instruction-informed manifold for improved semantic fidelity and generalization.\n\nQuery-based Cross-Attention To align between neural representations and instruction semantics, we introduce a set of N q learnable query vectors Q 0 ∈ R Nq×d , which function as compact latent probes. Rather than directly inheriting the full complexity of the EEG embedding space, these queries serve as bottlenecks through which information must be filtered. The proposed Instructionconditioned Q-Former (IQF) employs cross-attention to couple Q 0 with the instruction-modulated EEG embeddings z, yielding\n\nwhere W Q , W K , W V denote the query, key, and value projections, and d is the key dimension.\n\nConceptually, this operation projects EEG embeddings onto a lower-rank query subspace regularized by the instruction prior. The learnable queries act as semantic filters, retaining task-relevant features while suppressing irrelevant variance. This constrained information flow can be viewed as conditional information maximization, yielding embeddings that are semantically consistent and generalizable.The refined EEG representation h ∈ R k is obtained by aggregating the query outputs Q through a multilayer perceptron, serving as a task-adapted summary of the EEG signal.\n\nSemantic Alignment with Textual Targets Given the ground-truth label y ∈ C, we obtain its textual prototype embedding e tgt ∈ R k by encoding the corresponding class name with the same frozen language model used for instructions:\n\nUsing the same encoder for both instructions and labels ensures that they are represented in a shared semantic space. To align h with its semantic prototype, we minimize a cosine similarity loss between them:\n\nwhere I[y = c] is the indicator function for the ground-truth class. This objective enforces h to be maximally aligned with its corresponding prototype e tgt while remaining orthogonal to irrelevant ones. As a result, EEG embeddings and language prototypes cohabit a shared latent space Z, where distances reflect cross-modal semantic consistency and class-level discriminability.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Dataset",
+      "text": "Pretraining dataset We use 9 datasets, namely  Stieger2021 (Stieger et al., 2021) , SEED-FRA  (Liu et al., 2022b) , SEED-GER  (Liu et al., 2022b) , SEED-SD  (Li et al., 2025) , SEED-Neg, Chine-seEEG  (Mou et al., 2024) , Chisco  (Zhang et al., 2024) , LargeSpanish, ThinkOutLoud  (Nieto et al., 2022)  as the pretraining datasets. The total duration of these datasets is around 1153 hours. More details about the pretraining datasets can be found in Appendix F.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Downstream Dataset",
+      "text": "We systematically evaluate our ELASTIQ on the five different BCI tasks with 20 datasets in total. Motor Imagery: OpenBMI-MI  (Lee et al., 2019) , BCIC-IV-2a  (Tangermann et al., 2012) , BCIC-Upperlimb  (Jeong et al., 2022) , SHU-MI-MI  (Yang et al., 2025 ), High-Gamma (Schirrmeister et al., 2017) , Cho2017  (Cho et al., 2017) , Shin2017A  (Shin et al., 2016) , PhysioNet-MI  (Schalk et al., 2004) . Emotion: SEED  (Duan et al., 2013) , SEED-IV  (Zheng et al., 2018) , SEED-V  (Liu et al., 2021) , SEED-VII  (Jiang et al., 2024a) , FACED  (Chen et al., 2023) . SSVEP: OpenBMI-SSVEP  (Lee et al., 2019) , BETA  (Liu et al., 2020) , eldBETA  (Liu et al., 2022a) , Benchmark  (Wang et al., 2016) . Covert speech: BCIC2020-3  (Jeong et al., 2022) . Healthcare: ADHD-AliMotie  (Nasrabadi et al., 2020) , Mental Workload  (Zyma et al., 2019) . More details about the downstream datasets can be found in Appendix G.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "Baselines & Metrics In this paper, we selected both the state-of-the-art traditional models and the EEG-FMs as baselines. For the traditional models, we selected EEGNet  (Lawhern et al., 2018) , TSception  (Ding et al., 2022) ,  ST-Transformer (Song et al., 2021)  and Conformer  (Song et al., 2022) .\n\nFor the EEG foundation model, we selected BIOT  (Yang et al., 2023) , EEGPT  (Wang et al., 2024a) , LaBraM  (Jiang et al., 2024c) , CBraMod  (Wang et al., 2024b) . To provide a reliable evaluation across imbalanced datasets, we adopted balanced accuracy and Cohen's Kappa as performance metrics. Balanced accuracy accounts for class imbalance by averaging recall across classes, while Cohen's Kappa measures the agreement between predicted and true labels beyond chance level, providing a more robust assessment of model performance. Evaluation settings To ensure fair and meaningful comparisons, we designed our evaluation protocol around the availability of subjects in each dataset. In line with conventional statistical practice (Snedecor & Cochran, 1989), we adopt 30 subjects as a practical threshold to distinguish between small-and large-scale datasets. For datasets with more than 30 participants, we adopted a crosssubject transfer setting: the training and validation set includes EEG data from a subset of subjects, while the test set is drawn from entirely unseen individuals. This split directly assesses the model's ability to generalize across subjects. For datasets with fewer than 30 participants, we employed a multi-subject adaptation setting: for each subject, a portion of their trials is allocated to training and validation, while the remaining trials are held out for testing. This strategy balances two considerations: (i) it guarantees enough training samples per individual to stabilize learning, and (ii) it still evaluates robustness to intra-subject variability across sessions or trials. Our evaluation settings were chosen to reflect realistic deployment scenarios: large datasets test generalization across people, while small datasets emphasize consistency within individuals under varying conditions.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Eeg Preprocessing And Unification",
+      "text": "Implementation Details Pre-training and instruction tuning are both conducted in an end-to-end manner. Detailed model hyperparameters and training parameters are provided in Appendix D. Total trainable parameters are around 26.42 M. Our model is trained using a 4xH100 cluster with PyTorch.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Experimental Results",
+      "text": "We compare ELASTIQ with baselines on 20 downstream datasets in Table  1 . Motor Imagery: Results show that our proposed method achieves the state-of-the-art performance on five MI datasets. Specifically, our method achieves the best performance improvement in BCIC-IV-2a (72.34%), OpenBMI-MI (81.44%), BCIC-Upperlimb (62.39%), Cho2017 (80.11%), and Shin2017A (73.84%). Emotion Recognition: Results show that our proposed method achieves the state-of-the-art performance on four emotion datasets. Specifically, our method provides the best performance improvement in FACED (58.19%), SEED-IV (46.3%), SEED-V (40.26%), and SEED-VII (33.56%). SSVEP: Results show that our proposed method achieves the state-of-the-art performance on two SSVEP datasets. Specifically, our method provides great performance improvement in OpenBMI-SSVEP (94.62%), eldBETA (62.62%). Covert Speech: Results show that our proposed method achieves the state-of-the-art performance (54.53%) on this covert speech dataset.\n\nHealthcare: Results show that our proposed method achieves the state-of-the-art performance on two datasets. Specifically, our method provides great performance improvement in ADHD-AliMotie (76.99%) and Mental Workload (64.93%). In terms of overall performance, ELASTIQ attains an average macro-accuracy of 66.78% and an average Kappa of 53.91%, substantially surpassing the other baselines, thus demonstrating superior generalization across diverse EEG decoding scenarios. Interestingly, when averaged across all tasks, our proposed ELASTIQ, LaBraM, and CBraMod consistently rank as the top three performers.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Effect Of Instruction Detail During Inference",
+      "text": "To assess whether the model truly exploits instructions to modulate EEG representations, we measure its instruction sensitivity in a direct inference setting without fine-tuning. We report results under three instruction levels",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Visualization Of Learned Feature Spaces Under Different Instruction Conditions",
+      "text": "To better understand how instruction conditioning reshapes the latent representation space, we provide a qualitative visualization of the learned features in Figure  3 . We first project the highdimensional EEG embeddings into two dimensions using UMAP  (McInnes et al., 2018) , and then estimate their probability densities with kernel density estimation (KDE), where darker regions indicate higher sample concentration. Class labels are represented by fixed prototype points, obtained by encoding the corresponding label text and projecting them through the same model and UMAP mapping. Our analysis proves that without instructions, the feature embeddings exhibit weak separation, with substantial overlap between categories. By contrast, when instructions are provided, the feature distributions become more structured: clusters corresponding to different classes are pushed farther apart.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Effect Of Target Text Embeddings And Inference Regime On Elastiq",
+      "text": "To assess the role of target text embeddings, we replace them with label IDs and train the model using cross-entropy classification. Comparisons are conducted under both direct inference and fully fine-tuned settings. Results in Table  3  show that across datasets and settings, ELASTIQ consistently outperforms the baseline that relies solely on label IDs. We further evaluate variants using BERT-and SBERT-based encoders, with the SBERT variant yielding superior performance, suggesting stronger EEG-text alignment from richer semantic representations.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "We introduced ELASTIQ, a foundation model for EEG-Language Alignment with Semantic Task Instruction and Querying. By combining a joint Spectral-Temporal Reconstruction module and an Instruction-conditioned Q-Former, ELASTIQ learns language-guided EEG representations that transfer effectively across tasks. Extensive evaluations on 20 datasets covering MI, emotion recognition, SSVEP, covert speech, and healthcare applications show that ELASTIQ achieves, on average, state-of-the-art (SOTA) performance, highlighting the value of instruction-informed alignment for generalizable EEG decoding. More importantly, our work establishes natural language as both an interpretable anchor and a transferable supervision signal, highlighting its central role in shaping future EEG foundation models and BCI systems.\n\nEEG Foundation model. The concept of foundation models has recently expanded into the EEG domain, aiming to build large-scale pre-trained backbones that generalize across datasets, tasks, and clinical conditions. Several pioneering efforts have been proposed. BIOT  (Yang et al., 2023)  explored scalable transformer-based architectures for biomedical signals, positioning EEG as a central modality. EEGPT  (Wang et al., 2024a) , inspired by advances in language modeling, leveraged transformer pretraining strategies such as masked prediction and contrastive learning to enhance generalization across heterogeneous EEG datasets. LaBraM  (Jiang et al., 2024c)  introduced a largebrain-model framework, emphasizing cross-dataset pretraining to capture universal EEG representations. CBraMod  (Wang et al., 2024b)  extended this idea by focusing on cross-brain modularity, enabling adaptation across diverse cognitive and motor tasks. Beyond EEG-specific approaches, NeuroLM  (Jiang et al., 2024b)  proposed a broader neural language model for neuroscience data, while PhysioOmni  (Jiang et al., 2025)  further expanded the scope to multi-physiological modalities, integrating EEG with signals such as ECG and EMG to learn cross-modal representations. Collectively, these efforts highlight the emerging trajectory of EEG-FMs: moving from task-specific networks toward unified, pre-trained architectures capable of powering downstream applications with minimal fine-tuning, and paving the way for general-purpose brain decoding systems.",
+      "page_start": 10,
+      "page_end": 13
+    },
+    {
+      "section_name": "B Effect Of Incorrect Instructions",
+      "text": "To further examine the role of language guidance, we analyze cases where the model is deliberately given misleading instructions that do not match the underlying EEG dataset. Figure  4  shows examples on OpenBMI-MI and SEED-V datasets.\n\nWhen provided with correct instructions, the learned feature spaces become more structured, with compact intra-class clusters and clearer inter-class separation. However, when misleading instructions are introduced, the feature space is distorted toward the semantics of the given instruction rather than the ground-truth task. For example, MI data conditioned on emotion-related instructions form clusters resembling affective categories, and SEED-V data prompted with MI or SSVEP instructions are reorganized into motor or frequency-based groupings.\n\nThese results emphasize the strong controllability of our model through natural language. While correct instructions enhance discriminability, misleading instructions actively reshape the representation space according to the semantic prior they provide. This highlights both the power and sensitivity of instruction-conditioned alignment in EEG-FMs.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "D Parameter Settings",
+      "text": "We list the hyperparameters selected in our model in Table  6 , and training parameters in Table  7 .\n\nParameter size of ELASTIQ can be found at",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "E Instruction And Target Texts For Downstream Datasets",
+      "text": "We list the instruction and target texts for each downstream dataset in Table  9 .",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "F Pre-Training Dataset Description",
+      "text": "• SEED-FRA  (Liu et al., 2022b) : Eight French subjects participated in the experiments.\n\nTwenty-one film clips (positive, neutral and negative emotions) were chosen as stimuli used in the experiments.\n\n• SEED-GER  (Liu et al., 2022b) : Eight German subjects participated in the experiments. Twenty film clips (positive, neutral and negative emotions) were chosen as stimuli used in the experiments.\n\n• SEED-SD  (Li et al., 2025) : SEED-SD is a multimodal EEG and eye-tracking dataset collected from 40 healthy participants under three sleep-related conditions-sleep deprivation, sleep recovery, and normal sleep. In each condition, participants watched 24 video clips (six per emotion) designed to evoke four basic emotions: happiness, sadness, fear, and neutral; each clip lasts about 2.5 minutes.\n\n• Chisco dataset  (Zhang et al., 2024) : The Chisco dataset is a large-scale EEG corpus collected from three subjects for imagined speech decoding, featuring over 20,000 sentences and more than 900 minutes of high-density EEG per subject. It covers 6,000+ everyday phrases across 39 semantic categories, with trials designed to include both reading and imagined speech phases.\n\n• ThinkOutLoud  (Nieto et al., 2022) : This open-access EEG dataset comprises recordings from 10 participants, collected using a 136-channel system across three paradigms-inner speech, pronounced speech, and visualized condition.\n\n• Stieger2021  (Stieger et al., 2021) : This database contains EEG recordings from 62 healthy participants, each completing 7-11 sessions of BCI training to control a computer cursor in one-and two-dimensional spaces using motor imagery. Data were collected with 62 electrodes, and accompanying behavioral measures.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "G More Details For Experimental Setting On Downstream",
+      "text": "",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Datasets",
+      "text": "• BCIC-IV-2a dataset  (Tangermann et al., 2012)  comprises recordings from nine subjects, each participating in two sessions of a four-class MI paradigm (left hand, right hand, foot, and tongue). EEG was collected using 22 scalp electrodes and three EOG channels at 250 Hz.   cies (8.0hz, 9.5hz, 11.0hz, 8.5hz, 10.0hz, 11.5hz, 9.0hz, 10.5hz, 12.0hz)  08.0,  09.5, 11.0, 08.5, 10.0, 11.5, 09.0, 10.5, 12  Resting, Workload\n\n• OpenBMI-MI dataset  (Lee et al., 2019)  provides a large-scale benchmark for brain-computer interface research. Its MI subset contains data from 54 subjects, each participating in two sessions. Subjects performed left-and right-hand motor imagery tasks, with approximately 100 trials per session, recorded using a 64-channel EEG system at 1000 Hz. • BCIC-Upperlimb dataset  (Jeong et al., 2022)  is from BCI Competition 2021 -Track 4. It provides EEG recordings of subjects performing three unilateral grasp movements (cylindrical, spherical, lumbrical) across three consecutive days (train/validation/test), designed to evaluate upper-limb movement decoding and session-to-session transfer. • SHU-MI dataset  (Yang et al., 2025)  includes high-quality multi-day recordings from 62 participants. Fifty-one subjects performed a two-class MI paradigm (left vs. right hand grasping), while eleven subjects performed a three-class paradigm (left hand, right hand, and foot). Each participant contributed three sessions, with both raw and preprocessed EEG data publicly available. • High-Gamma dataset  (Schirrmeister et al., 2017)  was collected at TU Berlin and contains 128-channel EEG recordings from 14 subjects. Participants performed four tasks (left hand, right hand, both feet, and rest). Each subject completed 13 runs, yielding approximately 1000 four-second trials. • Cho2017 dataset  (Cho et al., 2017)  contains EEG recordings from 52 subjects performing four-class motor imagery tasks (left hand, right hand, foot, tongue) using a 62-channel montage at 1,000 Hz sampling rate. • PhysioNet-MI  (Schalk et al., 2004)  is a publicly available dataset on PhysioNet. It comprises EEG recordings from 109 healthy subjects performing both motor execution and motor imagery tasks involving the left and right hands. • Shin2017A  (Shin et al., 2016)  dataset contains EEG recordings from 30 healthy subjects (29 right-handed, 1 left-handed; average age 28.5 ± 3.7 years). Subjects performed twoclass hand motor imagery tasks (left vs. right hand) using a 30-channel EEG montage at 1000 Hz. Each participant completed three sessions with 20 trials per session (10 per class). • SEED dataset  (Duan et al., 2013)  contains EEG and eye movement data of 12 subjects and EEG data of another 3 subjects. Data was collected when they were watching film clips. • SEED-IV  (Zheng et al., 2018)  contains data from 15 subjects, each undergoing three sessions. During each session, 24 movie clips were used to elicit four discrete emotions: happy, sad, fear, and neutral. EEG was recorded using a 62-channel NeuroScan system at 1000 Hz, along with synchronized eye-tracking signals.\n\n• SEED-V  (Liu et al., 2021)  expands the categories to five (happy, sad, fear, disgust, and neutral) and includes recordings from 20 subjects, each with three sessions and 15 clips per session. • SEED-VII  (Jiang et al., 2024a)  further extends to seven categories (happy, sad, fear, disgust, neutral, anger, and surprise), employing 80 video stimuli, and was recorded with EEG and Tobii Pro Fusion eye-tracking from 20 subjects. • FACED dataset  (Chen et al., 2023)  includes EEG recordings from 123 healthy participants exposed to 28 film clips designed to induce nine fine-grained emotions: amusement, inspiration, joy, tenderness, anger, fear, disgust, sadness, and neutral. EEG was collected using a 32-channel cap (10-20 system) at 250 Hz. In addition to categorical labels, dimensional ratings such as valence, arousal, familiarity, and liking were provided. • Benchmark  (Wang et al., 2016)  is one of the most widely adopted SSVEP corpora, consisting of 35 subjects with 64-channel EEG recordings. Participants performed a cued spelling task involving 40 visual targets driven by joint frequency and phase modulation within the 8-15.8 Hz range. This dataset has become a de facto standard for assessing algorithmic performance in high target-count speller systems. • BETA  (Liu et al., 2020)  extends the Benchmark dataset by including 70 subjects under a similar 40-target spelling paradigm with 64-channel recordings. The larger subject pool provides a solid basis for evaluating cross-subject transferability and generalization of SSVEP decoding algorithms. • eldBETA  (Liu et al., 2022a)  focuses on the aging population, containing EEG data from 100 elderly participants (aged 52-81). Each subject completed a 9-target SSVEP task with 64 channels. This dataset enables the investigation of age-related changes in neural responses and the development of BCI systems tailored for elderly users.  J VISUALIZATION OF PRETRAINING LOSS Figure  7  plots the loss trajectories for the bidirectional (random masking) and causal (future masking) transformers during pretraining. Both objectives decrease monotonically, confirming effective optimization. However, the causal transformer converges more rapidly, reaching a stable minimum around epoch 25 with a lower final loss. In contrast, the bidirectional transformer converges more slowly and plateaus at a higher loss. This divergence may be explained by the fact that causal prediction imposes stronger sequential constraints that accelerate convergence, whereas bidirectional reconstruction likely requires integrating information across the entire context, making optimization more challenging. L TOPOGRAPHY VISUALIZATION Figure  9  presents saliency maps derived from our model across three representative tasks, highlighting the EEG components most influential for prediction. For motor imagery (OpenBMI-MI), the model highlights contralateral motor cortex regions around C3 and C4 when distinguishing leftversus right-hand movements, consistent with established neurophysiological findings. For emotion recognition (SEED), salient activations emerge in frontal and temporal regions, reflecting neural substrates involved in affective processing. For SSVEP (Benchmark), the maps exhibit strong responses over occipital areas, in line with the visual cortex origin of steady-state responses. These results confirm that our model captures task-relevant neural patterns, thereby improving interpretability and supporting the neuroscientific plausibility of the learned representations.",
+      "page_start": 16,
+      "page_end": 20
+    },
+    {
+      "section_name": "M Reproducibility Statement",
+      "text": "We have made every effort to ensure the reproducibility of our work. The training and evaluation pipelines are described in detail in Appendix H, including dataset preprocessing, model configurations, and evaluation protocols. All datasets used are publicly available, and the code, pretrained checkpoints, and scripts for data preprocessing and evaluation will be fully released upon publication.",
+      "page_start": 21,
+      "page_end": 21
+    },
+    {
+      "section_name": "N The Use Of Large Language Models (Llms)",
+      "text": "Large language models (LLMs) were exclusively used to refine the writing of this manuscript, such as improving grammar, clarity, and readability. They were not involved in generating scientific content, designing experiments, or interpreting results. All research ideas, technical contributions, and analyses presented in this paper were conceived, implemented, and validated entirely by the authors.",
+      "page_start": 21,
+      "page_end": 21
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Comparison of ELASTIQ and baseline",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: The architecture design of ELASTIQ. (a) joint Spectral-Temporal Reconstruction module",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: We first project the high-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: KDE visualization of EEG embeddings under different instruction settings (a) OpenBMI-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: Comparison of KDE visualization of features between incorrect and correct instructions.",
+      "page": 13
+    },
+    {
+      "caption": "Figure 5: yield clearly separable clusters, indicating that they extract distinct and comple-",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: Token clustering after UMAP visualization. Yellow points: tokens from bidirectional",
+      "page": 14
+    },
+    {
+      "caption": "Figure 6: shows that the SBERT-based model converges faster and reaches a lower validation loss than",
+      "page": 18
+    },
+    {
+      "caption": "Figure 6: Instruct tuning loss and validation accuracy of ELASTIQ using different sentence embed-",
+      "page": 19
+    },
+    {
+      "caption": "Figure 7: plots the loss trajectories for the bidirectional (random masking) and causal (future mask-",
+      "page": 19
+    },
+    {
+      "caption": "Figure 7: Pretraining loss of the bidirectional transformer with random masking and the causal",
+      "page": 20
+    },
+    {
+      "caption": "Figure 8: Each electrode in the",
+      "page": 20
+    },
+    {
+      "caption": "Figure 8: ELASTIQ employs the 10–10 system with 65 EEG electrodes; any input montage is",
+      "page": 20
+    },
+    {
+      "caption": "Figure 9: presents saliency maps derived from our model across three representative tasks, high-",
+      "page": 20
+    },
+    {
+      "caption": "Figure 9: Topography visualization on downstream datasets",
+      "page": 21
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "BCIC-IV-2a": "OpenBMI-MI",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.8128\n0.7904\n0.6729\n0.7527\n0.6234\n0.5709\n0.3458\n0.5054",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.5613\n0.7306\n0.7812\n0.7925\n0.1225\n0.4613\n0.5850\n0.5720",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "BCIC-Upperlimb",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.5871\n0.6123\n0.5830\n0.5448\n0.3851\n0.4351\n0.3775\n0.3192",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.3854\n0.4577\n0.6039\n0.6143\n0.0788\n0.1919\n0.4145\n0.4230",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "SHU-MI",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.6183\n0.6163\n0.6365\n0.6456\n0.2364\n0.2326\n0.2720\n0.2913",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.5664\n0.6061\n0.6612\n0.6735\n0.1329\n0.2121\n0.3385\n0.3468",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "HighGamma",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.8770\n0.8917\n0.8263\n0.8588\n0.8155\n0.8475\n0.7395\n0.7882",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.7076\n0.6337\n0.8425\n0.8378\n0.5615\n0.4506\n0.7640\n0.7567\n0.5361\n0.7133\n0.7598\n0.7511\n0.0722\n0.4267\n0.5210\n0.5022",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "Cho2017",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.7661\n0.7872\n0.7311\n0.7639\n0.5322\n0.5744\n0.4622\n0.5278",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "Shin2017A",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.7067\n0.6444\n0.5939\n0.6189\n0.4529\n0.2892\n0.1874\n0.2379",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.5460\n0.5342\n0.6725\n0.6844\n0.0915\n0.0682\n0.3597\n0.3680",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "PhysioNet-MI",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.7005\n0.6986\n0.6594\n0.6678\n0.4010\n0.3972\n0.3189\n0.3356",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.4918\n0.6881\n0.7299\n0.7182\n0.0163\n0.3763\n0.4520\n0.4363",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "FACED",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.4267\n0.4968\n0.2053\n0.3773\n0.3509\n0.4284\n0.1086\n0.2985",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.1696\n0.3360\n0.0642\n0.2496",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": "0.5819\n0.5243\n0.7011\n0.5543\n0.4630\n0.2754\n0.4026\n0.2575\n0.3356\n0.2275"
+        },
+        {
+          "BCIC-IV-2a": "SEED",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.5351\n0.6203\n0.6367\n0.5911\n0.3151\n0.4306\n0.4602\n0.3892",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.6673\n0.5082\n0.5033\n0.2674",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "SEED-IV",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.3648\n0.4129\n0.4089\n0.3591\n0.1577\n0.2139\n0.1888\n0.1405",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.4181\n0.3233\n0.1956\n0.0869",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "SEED-V",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.2921\n0.3041\n0.3616\n0.2238\n0.1132\n0.1327\n0.1972\n0.0343",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.3058\n0.2237\n0.1312\n0.0333",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "SEED-VII",
+          "B-Acc\nKappa": "B-Acc\nKappa",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "0.2580\n0.3177\n0.3317\n0.1850\n0.1409\n0.2061\n0.2209\n0.0511",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.3084\n0.1823\n0.1932\n0.0480",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "OpenBMI-SSVEP",
+          "B-Acc\nKappa": "B-Acc\n0.9419\nKappa\n0.9242",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.7963\n0.9383\n0.8713\n0.9165\n0.7283\n0.9178\n0.8283\n0.8886",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": "0.9462\n0.9283"
+        },
+        {
+          "BCIC-IV-2a": "BETA",
+          "B-Acc\nKappa": "B-Acc\n0.6244\nKappa\n0.6147",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.3350\n0.5420\n0.6236\n0.5209\n0.3179\n0.5233\n0.6060\n0.5087",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": "0.6163\n0.5902"
+        },
+        {
+          "BCIC-IV-2a": "eldBETA",
+          "B-Acc\nKappa": "B-Acc\n0.5913\nKappa\n0.5402",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.5437\n0.5794\n0.3619\n0.5841\n0.4866\n0.5268\n0.2821\n0.5321",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": "0.6262\n0.5801"
+        },
+        {
+          "BCIC-IV-2a": "Benchmark",
+          "B-Acc\nKappa": "B-Acc\n0.8077\nKappa\n0.8028",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.4762\n0.6262\n0.7879\n0.7804\n0.4628\n0.6166\n0.7749\n0.7747",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": "0.7902\n0.7900"
+        },
+        {
+          "BCIC-IV-2a": "BCIC-Speech",
+          "B-Acc\nKappa": "B-Acc\n0.2707\n0.4187\n0.5360\n0.4267\nKappa\n0.0883\n0.2733\n0.4200\n0.2833",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.2907\n0.2387\n0.4822\n0.4288\n0.5453\n0.1133\n0.0483\n0.3865\n0.2865\n0.4317",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "ADHD-AliMotie",
+          "B-Acc\nKappa": "B-Acc\n0.6392\n0.7352\n0.7341\n0.7493\nKappa\n0.2808\n0.4704\n0.4757\n0.5032",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.6581\n0.7084\n0.6158\n0.6489\n0.7699\n0.3187\n0.4193\n0.2272\n0.3148\n0.5282",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        },
+        {
+          "BCIC-IV-2a": "Mental Workload",
+          "B-Acc\nKappa": "B-Acc\n0.5444\n0.5944\n0.6458\n0.6319\nKappa\n0.0976\n0.1789\n0.3024\n0.2676",
+          "0.6866\n0.7151\n0.6526\n0.6243\n0.5818\n0.6266\n0.5367\n0.4990": "",
+          "0.4244\n0.3743\n0.6548\n0.6637\n0.2326\n0.1657\n0.5420\n0.5514": "0.5799\n0.4896\n0.5694\n0.5722\n0.6493\n0.1465\n0.0222\n0.1656\n0.1688\n0.3134",
+          "0.7234\n0.6311\n0.8144\n0.6287\n0.6239\n0.4391\n0.6374\n0.2747\n0.8861\n0.8291\n0.8011\n0.6022\n0.7384\n0.7364\n0.6992\n0.3983": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "OpenBMI-MI": "BCIC-IV2a",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode (Left vs\nRight vs Foot vs Tongue) motor imagery",
+          "Right, Left": "Left, Right, Foot, Tongue"
+        },
+        {
+          "OpenBMI-MI": "BCIC-Upperlimb",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode\n(Cylin-\ndrical, Spherical, Lumbrical) hand move-\nments",
+          "Right, Left": "Cylin, Sphe, Lumbrical"
+        },
+        {
+          "OpenBMI-MI": "SHU-MI",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery",
+          "Right, Left": "Right, Left"
+        },
+        {
+          "OpenBMI-MI": "HighGamma",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode (Left vs\nRight vs Foot) motor imagery",
+          "Right, Left": "Left, Right, Foot"
+        },
+        {
+          "OpenBMI-MI": "Cho2017",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery",
+          "Right, Left": "Left, Right"
+        },
+        {
+          "OpenBMI-MI": "Shin2017A",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery",
+          "Right, Left": "Left, Right"
+        },
+        {
+          "OpenBMI-MI": "PhysioNet-MI",
+          "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery": "Decode motor\nimagery; Decode (Left vs\nRight) hand motor imagery",
+          "Right, Left": "Left, Right"
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "FACED": "SEED",
+          "Decode\nemotional\nstates; Decode\nemo-\ntional\nstates\n(Anger, Fear, Disgust, Sad-\nness, Amusement,\nInspiration,\nJoy, Ten-\nderness, Neutral)": "Decode\nemotional\nstates; Decode\nemo-\ntional states (Positive, Neutral, Negative)",
+          "Anger, Fear, Disgust, Sad, Amusement,\nInspiration, Joy, Tenderness, Neutral": "Positive, Neutral, Negative"
+        },
+        {
+          "FACED": "SEED-IV",
+          "Decode\nemotional\nstates; Decode\nemo-\ntional\nstates\n(Anger, Fear, Disgust, Sad-\nness, Amusement,\nInspiration,\nJoy, Ten-\nderness, Neutral)": "Decode\nemotional\nstates; Decode\nemo-\ntional states (Neutral, Sad, Fear, Happy)",
+          "Anger, Fear, Disgust, Sad, Amusement,\nInspiration, Joy, Tenderness, Neutral": "Neutral, Sad, Fear, Happy"
+        },
+        {
+          "FACED": "SEED-V",
+          "Decode\nemotional\nstates; Decode\nemo-\ntional\nstates\n(Anger, Fear, Disgust, Sad-\nness, Amusement,\nInspiration,\nJoy, Ten-\nderness, Neutral)": "Decode\nemotional\nstates; Decode\nemo-\ntional states (Disgust, Fear, Sad, Neutral,\nHappy)",
+          "Anger, Fear, Disgust, Sad, Amusement,\nInspiration, Joy, Tenderness, Neutral": "Disgust, Fear, Sad, Neutral, Happy"
+        },
+        {
+          "FACED": "SEED-VII",
+          "Decode\nemotional\nstates; Decode\nemo-\ntional\nstates\n(Anger, Fear, Disgust, Sad-\nness, Amusement,\nInspiration,\nJoy, Ten-\nderness, Neutral)": "Decode\nemotional\nstates; Decode\nemo-\ntional\nstates\n(Happy,\nSurprise, Neutral,\nSad, Disgust, Fear, Anger)",
+          "Anger, Fear, Disgust, Sad, Amusement,\nInspiration, Joy, Tenderness, Neutral": "Happy,\nSurprise, Neutral,\nSad, Disgust,\nFear, Anger"
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "OpenBMI-SSVEP": "eldBETA",
+          "Decode SSVEP; Decode SSVEP frequen-\ncies (5.4hz, 6.6hz, 8.6hz, 12.0hz)": "Decode SSVEP; Decode SSVEP frequen-\ncies (8.0hz, 9.5hz, 11.0hz, 8.5hz, 10.0hz,\n11.5hz, 9.0hz, 10.5hz, 12.0hz)",
+          "12.0, 08.6, 06.6, 05.4": "08.0,\n09.5,\n11.0,\n08.5,\n10.0,\n11.5,\n09.0,\n10.5, 12.0"
+        },
+        {
+          "OpenBMI-SSVEP": "Benchmark",
+          "Decode SSVEP; Decode SSVEP frequen-\ncies (5.4hz, 6.6hz, 8.6hz, 12.0hz)": "Decode SSVEP; Decode SSVEP frequen-\ncies from 8.0hz to 15.8hz with 0.2hz inter-\nval, total 40 classes",
+          "12.0, 08.6, 06.6, 05.4": "40 freq. classes (8.0–15.8Hz, step 0.2Hz)"
+        },
+        {
+          "OpenBMI-SSVEP": "BETA",
+          "Decode SSVEP; Decode SSVEP frequen-\ncies (5.4hz, 6.6hz, 8.6hz, 12.0hz)": "Decode SSVEP; Decode SSVEP frequen-\ncies from 8.0hz to 15.8hz with 0.2hz inter-\nval, total 40 classes",
+          "12.0, 08.6, 06.6, 05.4": "40 freq. classes (8.0–15.8Hz, step 0.2Hz)"
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Bidirectional Transformer": "Casual Transformer"
+        }
+      ],
+      "page": 20
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "A large finergrained affective computing eeg dataset. Scientific Data",
+      "authors": [
+        "Jingjing Chen",
+        "Xiaobin Wang",
+        "Chen Huang",
+        "Xin Hu",
+        "Xinke Shen",
+        "Dan Zhang"
+      ],
+      "year": "2023",
+      "venue": "A large finergrained affective computing eeg dataset. Scientific Data"
+    },
+    {
+      "citation_id": "2",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "Ting Chen",
+        "Simon Kornblith",
+        "Mohammad Norouzi",
+        "Geoffrey Hinton"
+      ],
+      "year": "2020",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "3",
+      "title": "Eeg datasets for motor imagery brain-computer interface",
+      "authors": [
+        "Hohyun Cho",
+        "Minkyu Ahn",
+        "Sangtae Ahn",
+        "Moonyoung Kwon",
+        "Sung Chan"
+      ],
+      "year": "2017",
+      "venue": "GigaScience"
+    },
+    {
+      "citation_id": "4",
+      "title": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "Jacob Devlin",
+        "Ming-Wei Chang",
+        "Kenton Lee",
+        "Kristina Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies"
+    },
+    {
+      "citation_id": "5",
+      "title": "Tsception: Capturing temporal dynamics and spatial asymmetry from eeg for emotion recognition",
+      "authors": [
+        "Yi Ding",
+        "Neethu Robinson",
+        "Su Zhang",
+        "Qiuhao Zeng",
+        "Cuntai Guan"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "6",
+      "title": "Differential entropy feature for eeg-based emotion classification",
+      "authors": [
+        "Jia-Yi Ruo-Nan Duan",
+        "Bao-Liang Zhu",
+        "Lu"
+      ],
+      "year": "2013",
+      "venue": "2013 6th international IEEE/EMBS conference on neural engineering (NER)"
+    },
+    {
+      "citation_id": "7",
+      "title": "Gernot Müller-Putz, Cuntai Guan, and Bin He. Non-invasive brain-computer interfaces: state of the art and trends",
+      "authors": [
+        "Shuailei Bradley J Edelman",
+        "Gerwin Zhang",
+        "Peter Schalk",
+        "Brunner"
+      ],
+      "year": "2024",
+      "venue": "IEEE reviews in biomedical engineering"
+    },
+    {
+      "citation_id": "8",
+      "title": "Momentum contrast for unsupervised visual representation learning",
+      "authors": [
+        "Kaiming He",
+        "Haoqi Fan",
+        "Yuxin Wu",
+        "Saining Xie",
+        "Ross Girshick"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "9",
+      "title": "Masked autoencoders are scalable vision learners",
+      "authors": [
+        "Kaiming He",
+        "Xinlei Chen",
+        "Saining Xie",
+        "Yanghao Li",
+        "Piotr Dollár",
+        "Ross Girshick"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "10",
+      "title": "2020 international braincomputer interface competition: A review",
+      "authors": [
+        "Ji-Hoon Jeong",
+        "Jeong-Hyun Cho",
+        "Young-Eun Lee",
+        "Seo-Hyun Lee",
+        "Gi-Hwan Shin",
+        "Young-Seok Kweon",
+        "José Del R Millán",
+        "Klaus-Robert Müller",
+        "Seong-Whan Lee"
+      ],
+      "year": "2022",
+      "venue": "Frontiers in human neuroscience"
+    },
+    {
+      "citation_id": "11",
+      "title": "Seed-vii: A multimodal dataset of six basic emotions with continuous labels for emotion recognition",
+      "authors": [
+        "Wei-Bang Jiang",
+        "Xuan-Hao Liu",
+        "Wei-Long Zheng",
+        "Bao-Liang Lu"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Neurolm: A universal multitask foundation model for bridging the gap between language and eeg signals",
+      "authors": [
+        "Wei-Bang Jiang",
+        "Yansen Wang",
+        "Bao-Liang Lu",
+        "Dongsheng Li"
+      ],
+      "year": "2024",
+      "venue": "Neurolm: A universal multitask foundation model for bridging the gap between language and eeg signals",
+      "arxiv": "arXiv:2409.00101"
+    },
+    {
+      "citation_id": "13",
+      "title": "Large brain model for learning generic representations with tremendous eeg data in bci",
+      "authors": [
+        "Wei-Bang Jiang",
+        "Li-Ming Zhao",
+        "Bao-Liang Lu"
+      ],
+      "year": "2024",
+      "venue": "Large brain model for learning generic representations with tremendous eeg data in bci",
+      "arxiv": "arXiv:2405.18765"
+    },
+    {
+      "citation_id": "14",
+      "title": "Towards robust multimodal physiological foundation models: Handling arbitrary missing modalities",
+      "authors": [
+        "Wei-Bang Jiang",
+        "Xi Fu",
+        "Yi Ding",
+        "Cuntai Guan"
+      ],
+      "year": "2025",
+      "venue": "Towards robust multimodal physiological foundation models: Handling arbitrary missing modalities",
+      "arxiv": "arXiv:2504.19596"
+    },
+    {
+      "citation_id": "15",
+      "title": "Eegnet: a compact convolutional neural network for eeg-based brain-computer interfaces",
+      "authors": [
+        "Amelia Vernon J Lawhern",
+        "Nicholas Solon",
+        "Waytowich",
+        "Stephen M Gordon",
+        "P Chou",
+        "Brent Hung",
+        "Lance"
+      ],
+      "year": "2018",
+      "venue": "Journal of neural engineering"
+    },
+    {
+      "citation_id": "16",
+      "title": "Eeg dataset and openbmi toolbox for three bci paradigms: An investigation into bci illiteracy",
+      "authors": [
+        "Min-Ho Lee",
+        "O-Yeon Kwon",
+        "Yong-Jeong Kim",
+        "Hong-Kyung Kim",
+        "Young-Eun Lee",
+        "John Williamson",
+        "Siamac Fazli",
+        "Seong-Whan Lee"
+      ],
+      "year": "2019",
+      "venue": "Eeg dataset and openbmi toolbox for three bci paradigms: An investigation into bci illiteracy"
+    },
+    {
+      "citation_id": "17",
+      "title": "Investigating the effects of sleep conditions on emotion responses with eeg signals and eye movements",
+      "authors": [
+        "Ziyi Li",
+        "Le-Yan Tao",
+        "Rui-Xiao Ma",
+        "Wei-Long Zheng",
+        "Bao-Liang Lu"
+      ],
+      "year": "2025",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "18",
+      "title": "Beta: A large benchmark database toward ssvep-bci application",
+      "authors": [
+        "Bingchuan Liu",
+        "Xiaoshan Huang",
+        "Yijun Wang",
+        "Xiaogang Chen",
+        "Xiaorong Gao"
+      ],
+      "year": "2020",
+      "venue": "Frontiers in neuroscience"
+    },
+    {
+      "citation_id": "19",
+      "title": "Xiaorong Gao, and Xiaogang Chen. eldbeta: a large eldercare-oriented benchmark database of ssvep-bci for the aging population",
+      "authors": [
+        "Bingchuan Liu",
+        "Yijun Wang"
+      ],
+      "year": "2022",
+      "venue": "Scientific data"
+    },
+    {
+      "citation_id": "20",
+      "title": "Comparing recognition performance and robustness of multimodal deep learning models for multimodal emotion recognition",
+      "authors": [
+        "Wei Liu",
+        "Jie-Lin Qiu",
+        "Wei-Long Zheng",
+        "Bao-Liang Lu"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Cognitive and Developmental Systems"
+    },
+    {
+      "citation_id": "21",
+      "title": "Identifying similarities and differences in emotion recognition with eeg and eye movements among chinese, german, and french people",
+      "authors": [
+        "Wei Liu",
+        "Wei-Long Zheng",
+        "Ziyi Li",
+        "Si-Yuan Wu",
+        "Lu Gan",
+        "Bao-Liang Lu"
+      ],
+      "year": "2022",
+      "venue": "Journal of Neural Engineering"
+    },
+    {
+      "citation_id": "22",
+      "title": "Umap: Uniform manifold approximation and projection for dimension reduction",
+      "authors": [
+        "Leland Mcinnes",
+        "John Healy",
+        "James Melville"
+      ],
+      "year": "2018",
+      "venue": "Umap: Uniform manifold approximation and projection for dimension reduction",
+      "arxiv": "arXiv:1802.03426"
+    },
+    {
+      "citation_id": "23",
+      "title": "Chineseeeg: A chinese linguistic corpora eeg dataset for semantic alignment and neural decoding",
+      "authors": [
+        "Xinyu Mou",
+        "Cuilin He",
+        "Liwei Tan",
+        "Junjie Yu",
+        "Huadong Liang",
+        "Jianyu Zhang",
+        "Yan Tian",
+        "Yu-Fang Yang",
+        "Ting Xu",
+        "Qing Wang"
+      ],
+      "year": "2024",
+      "venue": "Scientific Data"
+    },
+    {
+      "citation_id": "24",
+      "title": "EEG data for ADHD / Control children",
+      "authors": [
+        "Armin Ali Motie Nasrabadi",
+        "Mehdi Allahverdy",
+        "Mohammad Samavati",
+        "Mohammadi"
+      ],
+      "year": "2020",
+      "venue": "IEEE Dataport",
+      "doi": "10.21227/rzfh-zn36"
+    },
+    {
+      "citation_id": "25",
+      "title": "Thinking out loud, an open-access eeg-based bci dataset for inner speech recognition",
+      "authors": [
+        "Nicolás Nieto",
+        "Victoria Peterson",
+        "Leonardo Hugo",
+        "Juan Rufiner",
+        "Ruben Kamienkowski",
+        "Spies"
+      ],
+      "year": "2022",
+      "venue": "Scientific data"
+    },
+    {
+      "citation_id": "26",
+      "title": "Learning visual reasoning without strong priors",
+      "authors": [
+        "Ethan Perez",
+        "Harm Vries",
+        "Florian Strub",
+        "Aaron Vincent Dumoulin",
+        "Courville"
+      ],
+      "year": "2017",
+      "venue": "Learning visual reasoning without strong priors",
+      "arxiv": "arXiv:1707.03017"
+    },
+    {
+      "citation_id": "27",
+      "title": "Language models are unsupervised multitask learners",
+      "authors": [
+        "Alec Radford",
+        "Jeffrey Wu",
+        "Rewon Child",
+        "David Luan",
+        "Dario Amodei",
+        "Ilya Sutskever"
+      ],
+      "year": "2019",
+      "venue": "OpenAI blog"
+    },
+    {
+      "citation_id": "28",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Chris Hallacy",
+        "Aditya Ramesh",
+        "Gabriel Goh",
+        "Sandhini Agarwal",
+        "Girish Sastry",
+        "Amanda Askell",
+        "Pamela Mishkin",
+        "Jack Clark"
+      ],
+      "year": "2021",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "29",
+      "title": "Sentence-bert: Sentence embeddings using siamese bertnetworks",
+      "authors": [
+        "Nils Reimers",
+        "Iryna Gurevych"
+      ],
+      "year": "2019",
+      "venue": "Sentence-bert: Sentence embeddings using siamese bertnetworks",
+      "arxiv": "arXiv:1908.10084"
+    },
+    {
+      "citation_id": "30",
+      "title": "Bci2000: a general-purpose brain-computer interface (bci) system",
+      "authors": [
+        "Gerwin Schalk",
+        "Dennis Mcfarland",
+        "Thilo Hinterberger",
+        "Niels Birbaumer",
+        "Jonathan Wolpaw"
+      ],
+      "year": "2004",
+      "venue": "IEEE Transactions on biomedical engineering"
+    },
+    {
+      "citation_id": "31",
+      "title": "Deep learning with convolutional neural networks for eeg decoding and visualization",
+      "authors": [
+        "Robin Tibor Schirrmeister",
+        "Jost Tobias Springenberg",
+        "Lukas Dominique",
+        "Josef Fiederer",
+        "Martin Glasstetter",
+        "Katharina Eggensperger",
+        "Michael Tangermann",
+        "Frank Hutter",
+        "Wolfram Burgard",
+        "Tonio Ball"
+      ],
+      "year": "2017",
+      "venue": "Human brain mapping"
+    },
+    {
+      "citation_id": "32",
+      "title": "Open access dataset for eeg+ nirs single-trial classification",
+      "authors": [
+        "Jaeyoung Shin",
+        "Benjamin Alexander Von Lühmann",
+        "Do-Won Blankertz",
+        "Jichai Kim",
+        "Han-Jeong Jeong",
+        "Klaus-Robert Hwang",
+        "Müller"
+      ],
+      "year": "2016",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "33",
+      "title": "Statistical methods, 8thedn. Ames: Iowa State Univ. Press Iowa",
+      "authors": [
+        "W George",
+        "Witiiam G Snedecor",
+        "Cochran"
+      ],
+      "year": "1989",
+      "venue": "Statistical methods, 8thedn. Ames: Iowa State Univ. Press Iowa"
+    },
+    {
+      "citation_id": "34",
+      "title": "Transformer-based spatial-temporal feature learning for eeg decoding",
+      "authors": [
+        "Yonghao Song",
+        "Xueyu Jia",
+        "Lie Yang",
+        "Longhan Xie"
+      ],
+      "year": "2021",
+      "venue": "Transformer-based spatial-temporal feature learning for eeg decoding",
+      "arxiv": "arXiv:2106.11170"
+    },
+    {
+      "citation_id": "35",
+      "title": "Eeg conformer: Convolutional transformer for eeg decoding and visualization",
+      "authors": [
+        "Yonghao Song",
+        "Qingqing Zheng",
+        "Bingchuan Liu",
+        "Xiaorong Gao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "36",
+      "title": "Mindfulness improves brain-computer interface performance by increasing control over neural activity in the alpha band",
+      "authors": [
+        "Stephen James R Stieger",
+        "Haiteng Engel",
+        "Christopher Jiang",
+        "Mary Cline",
+        "Bin Kreitzer",
+        "He"
+      ],
+      "year": "2021",
+      "venue": "Cerebral Cortex"
+    },
+    {
+      "citation_id": "37",
+      "title": "Review of the bci competition iv",
+      "authors": [
+        "Klaus-Robert Michael Tangermann",
+        "Ad Müller",
+        "Niels Aertsen",
+        "Christoph Birbaumer",
+        "Clemens Braun",
+        "Robert Brunner",
+        "Carsten Leeb",
+        "Kai Mehring",
+        "Miller",
+        "R Gernot",
+        "Müller-Putz"
+      ],
+      "year": "2012",
+      "venue": "Frontiers in neuroscience"
+    },
+    {
+      "citation_id": "38",
+      "title": "Open and efficient foundation language models",
+      "authors": [
+        "Hugo Touvron",
+        "Thibaut Lavril",
+        "Gautier Izacard",
+        "Xavier Martinet",
+        "Marie-Anne Lachaux",
+        "Timothée Lacroix",
+        "Baptiste Rozière",
+        "Naman Goyal",
+        "Eric Hambro",
+        "Faisal Azhar"
+      ],
+      "year": "2023",
+      "venue": "Open and efficient foundation language models",
+      "arxiv": "arXiv:2302.13971"
+    },
+    {
+      "citation_id": "39",
+      "title": "Eegpt: Pretrained transformer for universal and reliable representation of eeg signals",
+      "authors": [
+        "Guangyu Wang",
+        "Wenchao Liu",
+        "Yuhong He",
+        "Cong Xu",
+        "Lin Ma",
+        "Haifeng Li"
+      ],
+      "year": "2024",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "40",
+      "title": "A criss-cross brain foundation model for eeg decoding",
+      "authors": [
+        "Jiquan Wang",
+        "Sha Zhao",
+        "Zhiling Luo",
+        "Yangxuan Zhou",
+        "Haiteng Jiang",
+        "Shijian Li",
+        "Tao Li",
+        "Gang Pan",
+        "Cbramod"
+      ],
+      "year": "2024",
+      "venue": "A criss-cross brain foundation model for eeg decoding",
+      "arxiv": "arXiv:2412.07236"
+    },
+    {
+      "citation_id": "41",
+      "title": "A benchmark dataset for ssvepbased brain-computer interfaces",
+      "authors": [
+        "Yijun Wang",
+        "Xiaogang Chen",
+        "Xiaorong Gao",
+        "Shangkai Gao"
+      ],
+      "year": "2016",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "42",
+      "title": "A multi-day and high-quality eeg dataset for motor imagery brain-computer interface",
+      "authors": [
+        "Banghua Yang",
+        "Fenqi Rong",
+        "Yunlong Xie",
+        "Du Li",
+        "Jiayang Zhang",
+        "Fu Li",
+        "Guangming Shi",
+        "Xiaorong Gao"
+      ],
+      "year": "2025",
+      "venue": "Scientific Data"
+    },
+    {
+      "citation_id": "43",
+      "title": "Biot: Biosignal transformer for cross-data learning in the wild",
+      "authors": [
+        "Chaoqi Yang",
+        "M Westover",
+        "Jimeng Sun"
+      ],
+      "year": "2023",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "44",
+      "title": "Chisco: An eegbased bci dataset for decoding of imagined speech",
+      "authors": [
+        "Zihan Zhang",
+        "Xiao Ding",
+        "Yu Bao",
+        "Yi Zhao",
+        "Xia Liang",
+        "Bing Qin",
+        "Ting Liu"
+      ],
+      "year": "2024",
+      "venue": "Scientific Data"
+    },
+    {
+      "citation_id": "45",
+      "title": "Emotionmeter: A multimodal framework for recognizing human emotions",
+      "authors": [
+        "Wei-Long Zheng",
+        "Wei Liu",
+        "Yifei Lu",
+        "Bao-Liang Lu",
+        "Andrzej Cichocki"
+      ],
+      "year": "2018",
+      "venue": "IEEE transactions on cybernetics"
+    },
+    {
+      "citation_id": "46",
+      "title": "A RELATED WORK Self-supervised Pretaining. Self-supervised pretraining has emerged as a powerful paradigm in representation learning, reducing the reliance on large amounts of annotated data while leveraging abundant unlabeled signals. Self-supervised methods design pretext tasks that encourage models to learn meaningful feature representations from the inherent structure of data. Early successes in natural language processing",
+      "authors": [
+        "Igor Zyma",
+        "Sergii Tukaev",
+        "Ivan Seleznov",
+        "Ken Kiyono",
+        "Anton Popov",
+        "Mariia Chernykh",
+        "Oleksii Shpenkov",
+        "; Devlin"
+      ],
+      "year": "2019",
+      "venue": "MoCo(He et al., 2020) and masked image modeling like MAE"
+    }
+  ]
+}

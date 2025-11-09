@@ -1,0 +1,2374 @@
+{
+  "paper_id": "2010.13991v2",
+  "title": "Speech Simclr: Combining Contrastive And Reconstruction Objective For Self-Supervised Speech Representation Learning",
+  "published": "2020-10-27T02:09:06Z",
+  "authors": [
+    "Dongwei Jiang",
+    "Wubo Li",
+    "Miao Cao",
+    "Wei Zou",
+    "Xiangang Li"
+  ],
+  "keywords": [
+    "unsupervised pretraining",
+    "speech recognition",
+    "speech emotion recognition",
+    "simclr",
+    "reconstruction objective"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Self-supervised visual pretraining has shown significant progress recently. Among those methods, SimCLR greatly advanced the state of the art in self-supervised and semisupervised learning on ImageNet. The input feature representations for speech and visual tasks are both continuous, so it is natural to consider applying similar objective on speech representation learning. In this paper, we propose Speech SimCLR, a new self-supervised objective for speech representation learning. During training, Speech SimCLR applies augmentation on raw speech and its spectrogram. Its objective is the combination of contrastive loss that maximizes agreement between differently augmented samples in the latent space and reconstruction loss of input representation. The proposed method achieved competitive results on speech emotion recognition and speech recognition.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Self-supervised learning is gaining popularity recently. On one hand, deep learning relies heavily on large amounts of high quality labeled data, but obtaining labeled data is usually very costly and time-consuming. On the other hand, self-supervised learning attempts to extract knowledge from unlabeled data. It can potentially discover representations that capture the underlying structure of such data, which helps with the performance and convergence speed of downstream tasks.\n\nIn the area of speech, researchers proposed many selfsupervised pretraining algorithms. Wav2vec  [1]  extracts representation from data using a contrastive loss that requires a true future audio sample to be distinguished from negative samples. Reference  [2, 3, 4]  extend this approach and learn vector quantized (VQ) representations of audio data using a future time-step prediction task with the help of BERT. Autoregressive Predictive Coding (APC) is a reconstruction loss proposed by  [5, 6] . It got inspiration from language model in NLP and tries to predict unseen future frames based on past frames. The idea is further extended in  [7] , which also added the objective of past frame prediction. Some other reconstruction methods  [8, 9, 10, 11, 12, 13, 14]  were motivated by NLP. Most of them applied BERT-style masks on input feature representations and adopted reconstruction objective for representation learning. It is worth pointing out that some of the above methods  [9, 14]  used augmentation during the training of unsupervised models. These augmentations helped to make learned representation more robust and improved the performance of downstream tasks.\n\nAlso employed augmentation methods, SimCLR  [15]  is a framework for contrastive learning of visual representations. It learns representations by maximizing the agreement between differently augmented views of the same image via a contrastive loss in the latent space. SimCLR improved considerably over previous self-supervised, semi-supervised, and transfer learning methods that require specifically designed architectures in terms of top-1 accuracy for ImageNet. The best result obtained by it can also match its supervised counterparts. Inspired by the recent success of SimCLR, we propose Speech Sim-CLR, a new self-supervised objective for speech representation learning. Speech SimCLR first conducts augmentation on raw speech and its spectrogram, it then learns speech representation by maximizing agreement between differently augmented sample via a contrastive loss in the latent space. Contrastive and reconstruction objectives help speech representation learning in different ways. Recent work  [16]  claimed that selfsupervised representations can be further improved by combining contrastive and reconstruction objectives. We also tested this theory in our work.\n\nWe made our code and pretrained model publicly available for reproducibility at https://github.com/ athena-team/athena/tree/simclr.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Data Augmentation For Speech Representation Learning",
+      "text": "There are several previous work that applied data augmentation for speech representation learning. PASE  [17]  tackled multiple self-supervised tasks jointly using an ensemble of neural networks that cooperate to discover good speech representations. It used four regression workers and three binary discrimination tasks to learn a higher level of abstraction than surface features. In WavAugment  [18] , the author applied a combination of pitch modification, additive noise and reverberation to speech and substantially increased the performance of CPC by 18-22% on ABX errors on Libri-light  [19] . DeCoAR  [20]  and TERA  [14]  are two reconstruction-based methods that used augmentation similar to SpecAugument  [21] . Apart from temporal and channel augmentation, TERA also added magnitude alteration and got better results on downstream tasks with it. Our work differs from these work in the augmentation we applied and the objective function we used.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Tera",
+      "text": "TERA used a multi-target auxiliary task to pre-train transformer encoder on a large amount of unlabeled speech. The model learns through the reconstruction of acoustic frames from its altered counterpart, where a stochastic policy altering along three dimensions: temporal, channel, and magnitude is used.\n\nFor temporal alteration, Tnum amount of starting locations IT without replacement are selected. The amount Tnum is given as the maximum time alteration percentage PT normalized by the time alteration width WT . For each starting index location in IT , WT consecutive frames from it are altered according to the following stochastic alteration policy: 1) 80% of the time, all the selected frames are masked to zero. 2) 10% of the time, selected frames are replaced with random segments of frames. 3) For the rest 10% of the time, the frames in original input are left unchanged.\n\nFor channel alteration, values of a block of consecutive channels are randomly masked to zero for all time steps across the input sequence. The block of masked channels is selected by first sampling the width of block Wc from 0, 1, ..., WC uniformly. Then, a channel index IC from {0, 1, ..., Hx -Wc -1} is sampled, where Hx is the number of channels in input sequence x. The channels from IC to IC + Wc -1 are those to be masked.\n\nMagnitude alteration is done by applying sampled Gaussian noise to augment the magnitude of input sequences with a probability PN . For PN of the time, a random magnitude matrix z of dimensions Lx and Hx is sampled, which has the same shape as x. Each element in z is sampled from the normal distribution N with zero mean and 0.2 variance. z is then added on top of the real frames of x.\n\nThe final objective of TERA is the L1 reconstruction loss computed between input x and network output from TERA.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Speech Simclr",
+      "text": "An illustration of Speech SimCLR is provided in Fig 1 . We will discuss each part of Speech SimCLR in detail in the following subsections.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Data Augmentation For Speech",
+      "text": "For augmentation to a specific speech task, we try to use these methods that would bring variation to input speech but would not affect the final result of downstream tasks. For speech recognition and speech emotion recognition, we applied random pitch shift, speed perturbation, room reverberation and additive noise to the original waveform. Time masking and frequency masking are also applied to spectrogram. All of our augmentations are conducted using the open source WavAugment tool provided in  [18] .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Model Structure",
+      "text": "The stochastic data augmentation module transforms any given data example x randomly to two correlated views of the same example xi and xj. After that, a neural network base encoder f extracts representation vectors from augmented data examples hi = f (xi) and hj = f (xj). These encoder outputs are the representations that will be used in downstream tasks. Transformer based models have been proven to be very effective for various speech tasks  [22] , so we used transformer layers as the building blocks for the encoder part of Speech SimCLR.\n\nAfter encoder, we applied average pooling on encoder output and use a projection head to map it to the space where contrastive loss is applied. Following SimCLR, we also used a non-linear MLP with one hidden layer as the projection head. Specifically, the output of projection head is zi = g(avgpool(hi)) = W (2) σ(W (1) avgpool(hi)) where σ is a ReLU non-linearity.\n\nFor contrastive learning to work, distributed training is usually required to get a large batch size  [15, 23] . During the training of Speech SimCLR, positive pairs are computed in the same device. If BatchNorm is used, the model can exploit local information leakage to improve prediction accuracy because the BatchNorm mean and variance are aggregated locally per device. So we replaced all BatchNorm in our model to LayerNorm as suggested in  [24] .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Objective Function",
+      "text": "The contrastive objective function we used in this work is NT-Xent, which achieved the best results compared to other contrastive objectives in SimCLR. For a minibatch of N examples, given a positive pair, the other 2(N -1) augmented examples within a minibatch is treated as negative examples. Let sim(u, v) = u T v/||u||||v|| denote the cosine similarity between two vectors u and v. Then the loss function for a positive pair of examples (i, j) is defined as li,j = -log exp(sim(zi, zj)/τ )\n\nwhere 1[k = i] ∈ {0, 1} is an indicator function evaluating to 1 iff k = i and τ denotes a temperature parameter. The final loss is computed across all positive pairs, both (i, j) and (j, i), in a mini-batch. The temperature of NT-Xent is set to 0.1 throughout our experiments.\n\nFor reconstruction loss, we first adopted time alteration and channel alteration strategy similar to TERA. For temporal alternation, we reduced the time alteration width Wt to 4 frames because in contrastive training, time masking has already been applied. Channel alteration width Wc is reduced to 4 channels for the same reason. The objective for reconstruction is the L1 loss computed between input and encoder output.\n\nThe final objective for Speech SimCLR then becomes the weighted sum of NT-Xent and reconstruction loss. We gave them equal weights for the experiments of this paper.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Data",
+      "text": "During training, WavAugument was used to add random pitch shift in the range of -300 to 300 and random speed perturbation in the range of 0.8 to 1.2 to the original audio. Random noise taken from  [25]  was added to the original audio with SNR between 5-10 db. We also added reverberation with 50% reverber-ance, 50% dumping factor and random room scale in the range of 0-100% (these are sox-style parameters). Random time mask between 0 to 40 frames and random frequency mask between 0 to 10 mel frequency channels were applied to spectrogram.\n\nFor pretraining, all 960 hours of LibriSpeech are used. 80 dimension FBANK is extracted and per-speaker CMVN (cepstral mean and variance normalization) are applied to the features.\n\nIEMOCAP database  [26]  is used as downstream task for speech emotion recognition. We used the recordings where majority of annotators agreed on the emotion labels and it contains 4 kinds of emotions: angry, happy, sad and neutral. Happy and excited emotions were combined as happy in order to balance the number of samples in each emotion class. The dataset contains 5,531 utterances (1,103 angry, 1,636 happy, 1,708 neutral, 1,084 sad) grouped into 5 sessions. We conducted 5-fold cross validation on IEMOCAP, taking samples from 8 speakers as train and development sets and the ones from the remaining 2 speakers as respective testset.\n\nFor downstream ASR task, the model is fine-tuned on Lib-riSpeech train-clean-100 set and tested on LibriSpeech testclean, TIMIT  [27]  and DIRHA  [28] .",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Speech Emotion Recognition",
+      "text": "The encoder structure of emotion recognition model is similar to TERA, where the encoder is composed of three transformer layers with num layer = 3, d model = 768, d f f = 3072 and d head = 12. In this task, Speech SimCLR is used as feature extractor. The batch size for Speech SimCLR pretraining is 600 and it was trained for 150 epochs. For fine-tuning, we followed similar model structure as  [29]  and used a transformer encoder with num layer = 12, d model = 256, d f f = 2048 and d head = 4. The output of transformer encoder is then average pooled and fed into a feed-forward layer. Training was done on 4 GPUs with a total batch size of 64 for 25 epochs. We used the Adam optimizer  [30]  with warmup schedule  [31]  according to the formula:\n\nwhere n is the step number, k = 0.5 and warmup n = 8000.\n\nDuring evaluating, we averaged from the best 5 checkpoints on the development set during training. The unweighted average of the class-specific recalls (UAR) achieved by the system is used as our metrics.\n\nAs shown in Table  1 , Speech SimCLR achieved competitive accuracy on IEMOCAP compared to previous work using other feature. OpenAudio contains MuST-C En-De (408 hours)  [32] , Librispeech (960 hours) and ESC-US (347 hours)  [33] . Reference  [29]  used self-supervised pretraining with it to boost the performance of IEMOCAP. Despite smaller pretraining dataset size, Speech SimCLR is able to match its performance when used alone and exceed its performance when combined with reconstruction loss.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Speech Recognition",
+      "text": "Speech SimCLR is used for both feature extraction and finetuning in ASR experiments. For feature extraction, we conducted experiments with the Hybrid DNN/HMM ASR modeling setup implemented inside the PyTorch-Kaldi  [37]  toolkit. We followed the best model structure and setup as TERA, namely TERA base + liGRU + LM Rescore, the baseline WER trained with 100 hours LibriSpeech is 6.2. We did not use any 9.41 vq-wav2vec  [2]  6.20 wav2vec-large  [20]  6.92 DeCoAR  [20]  6.10 TERA + FMLLR  [14]  6.05 Speech SimCLR 6.08 Speech SimCLR + Recon 5.89 TIMIT wav2vec  [1]  15.6 TERA + FMLLR  [14]  14.5 Speech XLNET  [11]  13.3 Speech SimCLR 15.1 Speech SimCLR + Recon 14.2 data augmentation for a fair comparsion with TERA  [14] . The batch size for Speech SimCLR pretraining is 600 and it was trained for 150 epochs. We compared our results with other work that used a similar setup and listed results in Table  2 . On LibriSpeech test-clean, Speech SimCLR achieved lower error rates than other pretraining methods, even when more finetuning data is used like in  [2] . PER with Speech SimCLR on TIMIT is only worse than  [11] , which used a pool of Librispeech, TED-LIUM release2  [36]  and WSJ-si284 corpora  [38]  as pretraining data. It is also worth mentioning that FBANK is considered to be a worse feature than FMLLR in TERA. With the help of reconstruction objective, Speech SimCLR is able to achieve better results than TERA despite that.\n\nBecause our model is written in Tensorflow, it is not possible to conduct fine-tuning experiments using the same setup as feature extraction. Instead, we used end-to-end attention-ctc joint training framework for ASR fine-tuning like the setup in  [13] . For encoder, the parameters we used are num layer = 6, d model = 512, d f f = 1280 and d head = 4, while for decoder, the parameters we used are num layer = 3, d model = 512, d f f = 1280 and d head = 4. These parameters are carefully chosen so the total number of parameters will be close to TERA base plus ligru. For fine-tuning experiments with Speech Sim-CLR, a source sequence X is first fed into a prenet that consists of two-layer CNN with 256 channels, stride size 2 and kernel size 3 and transformed to subsampled sequence X0 ∈ R n sub ×d attn prior to being fed into the encoder. During pretraining, because downsampling is applied in encoder, we used a bigger batch size of 1200 and also trained for 150 epochs. The setup for fine-tuning and decoding is similar to the one used in  [13] . Except that we also applied speed perturbation, additive noise and SpecAugument during fine-tuning stage with the same parameters in pretraining.\n\nWe compared fine-tuned Speech SimCLR with randomly More importantly, Speech SimCLR still provides benefits to downstream tasks even when similar augmentation is used during fine-tuning. Our result is worse than wav2vec 2.0  [4] , but we would like to point out the input feature for wav2vec 2.0 is raw waveform points while the input feature of our work is FBANK. The extra parameters (from CNN feature extractor) and calculation gave wav2vec 2.0 an advantage. Also, the model size of wav2vec 2.0 base contains 95M parameters, which is much larger than the model we used (about 30M parameters). Other factors like quantization also contribute to the superior performance of wav2vec 2.0. We believe the findings in this work and wav2vec 2.0 are complementary and can be applied together to get better speech representation learning.\n\nThe results of Speech SimCLR on TIMIT is worse than other work because the size of TIMIT is too small for endto-end framework to get competitive results. Nevertheless, fine-tuning works better than the baseline (randomly initialized Speech SimCLR without any untranscribed data), showing the importance of pre-training with more data.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Ablation Study",
+      "text": "In this section, we conduct an ablation study to analyze the impact of augmentation, batch size, and training epochs for Speech SimCLR. In all experiments below, Speech SimCLR is used as feature extractor.\n\nTo study the impact of augmentations on different target problems, we retrained a number of Speech SimCLR models with LibriSpeech train-clean-100 set discarding one augmentation at a time. For fine-tuning datasets, apart from TIMIT and IEMOCAP, we also added DIRHA  [28] , a challenging speech recognition dataset containing reverberation and dynamic background noise to see how augmentation in Speech SimCLR will affect downstream tasks in different recording conditions. The training for both TIMIT and DIRHA is done using the MLP configuration in PyTorch-Kaldi  [37]  to make training faster. The accuracies of Table  4  show that no augmentation is dispensable and the best results are achieved when all augmentations are present. For individual augmentations, additive noise and speed perturbation are generally the most crucial ones for speech recognition. Room reverberation is not so useful for TIMIT and IEMOCAP, but it is really important for DIRHA. We believe its because DIRHA dataset is also artificially contaminated with room reverberation. As for emotion recognition, pitch shift and frequency mask are the most important augmen-  tations. We believe its because these two augmentations have the biggest influence on pitch estimation, which is closely related to emotion. We also evaluated the effect of batch size and training epochs for Speech SimCLR. These experiments are conducted with the whole 960 hours LibriSpeech as pretraining data and LibriSpeech train-clean-100 as fine-tuning data. As shown in Fig  2 , using larger batch size and training for more epochs does bring benefits to downstream tasks. We find that, when the number of training epochs is small (e.g. 50 epochs), larger batch sizes have a significant advantage over the smaller ones. With more training steps/ epochs, the gaps between different batch sizes decrease or disappear. The finding here echoes with the conclusion from  [15]  and shows that larger batch sizes are beneficial for contrastive learning because it provides more negative examples. Training longer has the same effect.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "In this paper, we proposed Speech SimCLR, a new selfsupervised speech representation learning objective. Our experiments suggest that Speech SimCLR is able to learn robust representations for both speech recognition and speech emotion recognition. We also conducted ablation experiments on how augmentation methods, batch size and training epochs will affect the performance of Speech SimCLR. Moreover, we pointed out that Speech SimCLR can get a consistent boost with the addition of reconstruction loss, which highlights the importance of combining these two objectives. In the future, we would like to explore other speech augmentations for Speech SimCLR and try to apply Speech SimCLR to other speech related tasks.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: The overall architecture of Speech SimCLR",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: PER on TIMIT using LibriSpeech train-clean-100 as",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: , using larger batch size and training for more epochs does",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "dylancaomiao,\nzouwei,\nlixiangang}@didiglobal.com"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "learns\nrepresentations by maximizing the agreement between"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "differently augmented views of the same image via a contrastive"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "loss in the latent space. SimCLR improved considerably over"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "previous self-supervised,\nsemi-supervised, and transfer\nlearn-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "ing methods that require speciﬁcally designed architectures in"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "terms of\ntop-1 accuracy for\nImageNet.\nThe best\nresult ob-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "tained by it can also match its supervised counterparts. Inspired"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "by the recent\nsuccess of SimCLR, we propose Speech Sim-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "CLR, a new self-supervised objective for speech representation"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "learning. Speech SimCLR ﬁrst conducts augmentation on raw"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "speech and its\nspectrogram,\nit\nthen learns\nspeech representa-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "tion by maximizing agreement between differently augmented"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "sample via a contrastive loss in the latent space.\nContrastive"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "and reconstruction objectives help speech representation learn-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "ing in different ways.\nRecent work [16]\nclaimed that\nself-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "supervised representations can be further improved by combin-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "ing contrastive and reconstruction objectives. We also tested"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "this theory in our work."
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "We\nmade\nour\ncode\nand\npretrained\nmodel\npublicly"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "https://github.com/\navailable\nfor\nreproducibility\nat"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "athena-team/athena/tree/simclr."
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "2. Related Work"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "2.1. Data augmentation for Speech Representation Learn-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "ing"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "There are several previous work that applied data augmentation"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "for speech representation learning. PASE [17] tackled multiple"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "self-supervised tasks jointly using an ensemble of neural net-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "works that cooperate to discover good speech representations."
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "It used four\nregression workers and three binary discrimina-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "tion tasks to learn a higher level of abstraction than surface fea-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "tures.\nIn WavAugment [18],\nthe author applied a combination"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "of pitch modiﬁcation, additive noise and reverberation to speech"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "and substantially increased the performance of CPC by 18-22%"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "on ABX errors on Libri-light\n[19]. DeCoAR [20] and TERA"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "[14] are two reconstruction-based methods that used augmenta-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "tion similar to SpecAugument [21]. Apart from temporal and"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "channel augmentation, TERA also added magnitude alteration"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "and got better\nresults on downstream tasks with it. Our work"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "differs from these work in the augmentation we applied and the"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "objective function we used."
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "2.2. TERA"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": ""
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "TERA used a multi-target auxiliary task to pre-train transformer"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "encoder on a large amount of unlabeled speech.\nThe model"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "learns through the reconstruction of acoustic frames from its al-"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "tered counterpart, where a stochastic policy altering along three"
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "dimensions:\ntemporal, channel, and magnitude is used."
+        },
+        {
+          "2AI Labs, Didi Chuxing, Beijing, China": "For temporal alteration, Tnum amount of starting locations"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Contrastive": "zj\nzi",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "Loss",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "FC g(·)\nFC g(·)",
+          "3.2. Model Structure": "The stochastic data augmentation module transforms any given"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "data example x randomly to two correlated views of the same"
+        },
+        {
+          "Contrastive": "ki\nkj",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "example xi and xj. After that, a neural network base encoder f"
+        },
+        {
+          "Contrastive": "Average Pooling + FC \nAverage Pooling + FC",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "extracts representation vectors from augmented data examples"
+        },
+        {
+          "Contrastive": "Encoder \nEncoder \nRepresentation",
+          "3.2. Model Structure": "hi = f (xi) and hj = f (xj). These encoder outputs are the"
+        },
+        {
+          "Contrastive": "Output hj\nOutput hi",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "representations that will be used in downstream tasks. Trans-"
+        },
+        {
+          "Contrastive": "Transformer f(·) \nTransformer f(·)",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "former based models have been proven to be very effective for"
+        },
+        {
+          "Contrastive": "Altered  \nAltered",
+          "3.2. Model Structure": "various speech tasks [22], so we used transformer layers as the"
+        },
+        {
+          "Contrastive": "Frames xi\nFrames xj",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "building blocks for the encoder part of Speech SimCLR."
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "After encoder, we applied average pooling on encoder out-"
+        },
+        {
+          "Contrastive": "Augment 1\nAugment 2",
+          "3.2. Model Structure": "put and use a projection head to map it\nto the space where"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "contrastive loss is applied.\nFollowing SimCLR, we also used"
+        },
+        {
+          "Contrastive": "Reconstruction \nReconstruction",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "Loss\nLoss\nReal",
+          "3.2. Model Structure": "a\nnon-linear MLP with\none\nhidden\nlayer\nas\nthe\nprojection"
+        },
+        {
+          "Contrastive": "Frames x",
+          "3.2. Model Structure": "head.\nSpeciﬁcally,\nthe\noutput\nof\nprojection\nhead\nis\n=\nzi"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "a\ng(avgpool(hi)) = W (2)σ(W (1)avgpool(hi)) where σ is"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "ReLU non-linearity."
+        },
+        {
+          "Contrastive": "Figure 1: The overall architecture of Speech SimCLR",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "For contrastive learning to work, distributed training is usu-"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "ally required to get a large batch size [15, 23]. During the train-"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "ing of Speech SimCLR, positive pairs are computed in the same"
+        },
+        {
+          "Contrastive": "replacement are selected.\nIT without\nThe amount Tnum is",
+          "3.2. Model Structure": "device.\nIf BatchNorm is used,\nthe model can exploit\nlocal\nin-"
+        },
+        {
+          "Contrastive": "given as the maximum time alteration percentage PT normal-",
+          "3.2. Model Structure": "formation leakage to improve prediction accuracy because the"
+        },
+        {
+          "Contrastive": "ized by the time alteration width WT . For each starting index",
+          "3.2. Model Structure": "BatchNorm mean and variance are aggregated locally per de-"
+        },
+        {
+          "Contrastive": "location in IT , WT consecutive frames from it are altered ac-",
+          "3.2. Model Structure": "vice. So we replaced all BatchNorm in our model to LayerNorm"
+        },
+        {
+          "Contrastive": "cording to the following stochastic alteration policy: 1) 80% of",
+          "3.2. Model Structure": "as suggested in [24]."
+        },
+        {
+          "Contrastive": "the time, all the selected frames are masked to zero. 2) 10% of",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "the time, selected frames are replaced with random segments of",
+          "3.2. Model Structure": "3.3. Objective Function"
+        },
+        {
+          "Contrastive": "frames. 3) For the rest 10% of the time,\nthe frames in original",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "The contrastive objective function we used in this work is NT-"
+        },
+        {
+          "Contrastive": "input are left unchanged.",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "Xent, which achieved the best\nresults compared to other con-"
+        },
+        {
+          "Contrastive": "For channel alteration, values of a block of consecutive",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "trastive objectives in SimCLR. For a minibatch of N examples,"
+        },
+        {
+          "Contrastive": "channels are randomly masked to zero for all time steps across",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "given a positive pair,\nthe other 2(N − 1) augmented exam-"
+        },
+        {
+          "Contrastive": "the input sequence. The block of masked channels is selected",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "ples within a minibatch is treated as negative examples.\nLet"
+        },
+        {
+          "Contrastive": "by ﬁrst sampling the width of block Wc from 0, 1,\n..., WC uni-",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "sim(u, v) = uT v/||u||||v|| denote the cosine similarity between"
+        },
+        {
+          "Contrastive": "formly. Then, a channel index IC from {0, 1, ..., Hx - Wc − 1}",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "two vectors u and v. Then the loss function for a positive pair"
+        },
+        {
+          "Contrastive": "is sampled, where Hx is the number of channels in input se-",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "of examples (i, j) is deﬁned as"
+        },
+        {
+          "Contrastive": "quence x. The channels from IC to IC + Wc − 1 are those to",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "be masked.",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "exp(sim(zi, zj)/τ )"
+        },
+        {
+          "Contrastive": "Magnitude alteration is done by applying sampled Gaussian",
+          "3.2. Model Structure": "(1)\nli,j = −log"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "(cid:80)2N"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "k=1 1[k(cid:54)=i]exp(sim(zi, zk)/τ )"
+        },
+        {
+          "Contrastive": "noise to augment the magnitude of input sequences with a prob-",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "ability PN . For PN of the time, a random magnitude matrix z",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "where 1[k = i] ∈ {0, 1} is an indicator function evaluating to 1"
+        },
+        {
+          "Contrastive": "of dimensions Lx and Hx is sampled, which has the same shape",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "iff k (cid:54)= i and τ denotes a temperature parameter. The ﬁnal loss"
+        },
+        {
+          "Contrastive": "as x. Each element in z is sampled from the normal distribution",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "is computed across all positive pairs, both (i, j) and (j, i), in a"
+        },
+        {
+          "Contrastive": "N with zero mean and 0.2 variance. z is then added on top of",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "mini-batch. The temperature of NT-Xent is set to 0.1 throughout"
+        },
+        {
+          "Contrastive": "the real frames of x.",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "our experiments."
+        },
+        {
+          "Contrastive": "The ﬁnal objective of TERA is the L1 reconstruction loss",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "For reconstruction loss, we ﬁrst adopted time alteration and"
+        },
+        {
+          "Contrastive": "computed between input x and network output from TERA.",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "channel alteration strategy similar\nto TERA. For\ntemporal al-"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "to 4 frames\nternation, we reduced the time alteration width Wt"
+        },
+        {
+          "Contrastive": "3.\nSpeech SimCLR",
+          "3.2. Model Structure": "because in contrastive training,\ntime masking has already been"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "applied. Channel alteration width Wc is reduced to 4 channels"
+        },
+        {
+          "Contrastive": "An illustration of Speech SimCLR is provided in Fig 1. We will",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "for the same reason. The objective for reconstruction is the L1"
+        },
+        {
+          "Contrastive": "discuss each part of Speech SimCLR in detail\nin the following",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "loss computed between input and encoder output."
+        },
+        {
+          "Contrastive": "subsections.",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "The ﬁnal objective for Speech SimCLR then becomes the"
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "weighted sum of NT-Xent and reconstruction loss. We gave"
+        },
+        {
+          "Contrastive": "3.1. Data Augmentation for Speech",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "them equal weights for the experiments of this paper."
+        },
+        {
+          "Contrastive": "For augmentation to a speciﬁc speech task, we try to use these",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "methods that would bring variation to input speech but would",
+          "3.2. Model Structure": "4. Experiments"
+        },
+        {
+          "Contrastive": "not\naffect\nthe ﬁnal\nresult of downstream tasks.\nFor\nspeech",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "",
+          "3.2. Model Structure": "4.1. Data"
+        },
+        {
+          "Contrastive": "recognition and speech emotion recognition, we applied ran-",
+          "3.2. Model Structure": ""
+        },
+        {
+          "Contrastive": "dom pitch shift, speed perturbation, room reverberation and ad-",
+          "3.2. Model Structure": "During training, WavAugument was used to add random pitch"
+        },
+        {
+          "Contrastive": "ditive noise to the original waveform. Time masking and fre-",
+          "3.2. Model Structure": "shift in the range of -300 to 300 and random speed perturbation"
+        },
+        {
+          "Contrastive": "quency masking are also applied to spectrogram.\nAll of our",
+          "3.2. Model Structure": "in the range of 0.8 to 1.2 to the original audio. Random noise"
+        },
+        {
+          "Contrastive": "augmentations are conducted using the open source WavAug-",
+          "3.2. Model Structure": "taken from [25] was added to the original audio with SNR be-"
+        },
+        {
+          "Contrastive": "ment tool provided in [18].",
+          "3.2. Model Structure": "tween 5-10 db. We also added reverberation with 50% reverber-"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table 2: Error Rate comparsion (%) with other pretraining",
+      "data": [
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "jority of annotators agreed on the emotion labels and it contains"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "4 kinds of emotions: angry, happy, sad and neutral. Happy and"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "excited emotions were combined as happy in order to balance"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "the number of samples in each emotion class. The dataset con-"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "tains 5,531 utterances (1,103 angry, 1,636 happy, 1,708 neu-"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "tral, 1,084 sad) grouped into 5 sessions. We conducted 5-fold"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "cross validation on IEMOCAP, taking samples from 8 speakers"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "as train and development sets and the ones from the remaining"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "2 speakers as respective testset."
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "For downstream ASR task, the model is ﬁne-tuned on Lib-"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "riSpeech train-clean-100 set\nand tested on LibriSpeech test-"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "clean, TIMIT [27] and DIRHA [28]."
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "4.2.\nSpeech Emotion Recognition"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": ""
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "The encoder structure of emotion recognition model\nis similar"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "to TERA, where the encoder is composed of three transformer"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "layers with numlayer = 3, dmodel = 768, df f = 3072 and"
+        },
+        {
+          "speech emotion recognition. We used the recordings where ma-": "In this task, Speech SimCLR is used as feature\ndhead = 12."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 2: Error Rate comparsion (%) with other pretraining",
+      "data": [
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Methods\nPretraining Data\nHours\nUAR"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Multi-task Learning [34]\n-\n-\n62.5"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Autoencoder [35]\nTedlium [36]\n207\n59.5"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "MPC [29]\nOpenAudio [29]\n1715\n64.9"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Speech SimCLR\nLibriSpeech\n960\n64.3"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Speech SimCLR + Recon\nLibriSpeech\n960\n65.1"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Error Rate comparsion (%) with other pretraining\nTable 2:"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "methods as feature extraction. WER is reported for LibriSpeech"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "test-clean while PER is reported for TIMIT"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Datasets\nModel\nError Rate"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Bidir-CPC [39]\n9.41"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "vq-wav2vec [2]\n6.20"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "wav2vec-large [20]\n6.92"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "LibriSpeech\nDeCoAR [20]\n6.10"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "TERA + FMLLR [14]\n6.05"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Speech SimCLR\n6.08"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Speech SimCLR + Recon\n5.89"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "wav2vec [1]\n15.6"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "TERA + FMLLR [14]\n14.5"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "TIMIT\nSpeech XLNET [11]\n13.3"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Speech SimCLR\n15.1"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Speech SimCLR + Recon\n14.2"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "data augmentation for a fair comparsion with TERA [14]. The"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "batch size for Speech SimCLR pretraining is 600 and it was"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "trained for 150 epochs. We compared our\nresults with other"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "work that used a similar\nsetup and listed results\nin Table 2."
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "On LibriSpeech test-clean, Speech SimCLR achieved lower er-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "ror rates than other pretraining methods, even when more ﬁne-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "tuning data is used like in [2].\nPER with Speech SimCLR"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "on TIMIT is only worse than [11], which used a pool of Lib-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "rispeech, TED-LIUM release2 [36] and WSJ-si284 corpora [38]"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "as pretraining data.\nIt is also worth mentioning that FBANK is"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "considered to be a worse feature than FMLLR in TERA. With"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "the help of reconstruction objective, Speech SimCLR is able to"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "achieve better results than TERA despite that."
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Because our model\nis written in Tensorﬂow,\nit\nis not pos-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "sible to conduct ﬁne-tuning experiments using the same setup"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "as feature extraction.\nInstead, we used end-to-end attention-ctc"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "joint\ntraining framework for ASR ﬁne-tuning like the setup in"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "[13]. For encoder,\nthe parameters we used are numlayer = 6,"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "dmodel = 512, df f = 1280 and dhead = 4, while for decoder,"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "the parameters we used are numlayer = 3, dmodel = 512,"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "df f = 1280 and dhead = 4. These parameters are carefully"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "chosen so the total number of parameters will be close to TERA"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "base plus ligru. For ﬁne-tuning experiments with Speech Sim-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "CLR, a source sequence X is ﬁrst\nfed into a prenet\nthat con-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "sists of\ntwo-layer CNN with 256 channels,\nstride size 2 and"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "kernel size 3 and transformed to subsampled sequence X0 ∈"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": ""
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "Rnsub×dattn\nprior to being fed into the encoder."
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "During pretraining, because downsampling is applied in en-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "coder, we used a bigger batch size of 1200 and also trained for"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "150 epochs. The setup for ﬁne-tuning and decoding is similar"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "to the one used in [13]. Except\nthat we also applied speed per-"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "turbation, additive noise and SpecAugument during ﬁne-tuning"
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "stage with the same parameters in pretraining."
+        },
+        {
+          "Table 1: UAR(%) comparsion with other methods on IEMOCAP": "We compared ﬁne-tuned Speech SimCLR with randomly"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 3: Error Rate(%) comparsion with other pretraining Table 4: Baseline accuracy(%) and absolute accuracy reduc-",
+      "data": [
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "methods when used as ﬁne-tuning. WER is reported for Lib-",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "tion(%) of TIMIT, DIRHA and IEMOCAP using different aug-"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "riSpeech test-clean while PER is reported for TIMIT",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "mentation setup for Speech SimCLR. The minus sign in the left-"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "most column means discarding this augmentation"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "Datasets\nModel\nError Rate",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": ""
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "ASR\nEmotion"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "vq-wav2vec [2]\n4.50",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "Augmentation"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "TIMIT\nDIRHA\nIEMOCAP"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "TERA + FMLLR [14]\n5.84",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": ""
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "LibriSpeech",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": ""
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "Rand Init Speech SimCLR\n6.83",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "All\n82.7\n72.5\n63.7"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "Speech SimCLR + Recon\n5.72",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "- Noise\n-0.7\n-1.3\n-0.5"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "wav2vec 2.0 [4]\n3.40",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "- Speed Perturbation\n-0.5\n-0.7\n-1.2"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "- Time Mask\n-0.2\n-0.3\n-0.3"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "TERA + FMLLR [14]\n15.2",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": ""
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "- Freq Mask\n-0.2\n-0.4\n-2.4"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "TIMIT\nRand Init Speech SimCLR\n17.2",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": ""
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "- Room Reverb\n-0.0\n-1.2\n-0.2"
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "Speech SimCLR + Recon\n16.4",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": ""
+        },
+        {
+          "Error Rate(%)\ncomparsion with other pretraining\nTable 3:": "",
+          "Table 4: Baseline accuracy(%) and absolute accuracy reduc-": "- Pitch Shift\n-0.2\n-0.2\n-1.9"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 3: Error Rate(%) comparsion with other pretraining Table 4: Baseline accuracy(%) and absolute accuracy reduc-",
+      "data": [
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "- Room Reverb",
+          "-0.2": "-0.0",
+          "-0.4": "-1.2",
+          "-2.4": "-0.2"
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "- Pitch Shift",
+          "-0.2": "-0.2",
+          "-0.4": "-0.2",
+          "-2.4": "-1.9"
+        },
+        {
+          "- Freq Mask": "20",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": "Batch size = 600"
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": "Batch size = 300"
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": "Batch size = 150"
+        },
+        {
+          "- Freq Mask": "19",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "18",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "PER",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "17",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "16",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        },
+        {
+          "- Freq Mask": "15\n60",
+          "-0.2": "80",
+          "-0.4": "120",
+          "-2.4": "140"
+        },
+        {
+          "- Freq Mask": "",
+          "-0.2": "",
+          "-0.4": "",
+          "-2.4": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "N. Chen, T. Hayashi, T. Hori, H. Inaguma, Z. Jiang, M. Someki,"
+        },
+        {
+          "6. References": "[1]\nS. Schneider, A. Baevski, R. Collobert, and M. Auli, “wav2vec:",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "N. E. Y. Soplin, and R. Yamamoto, “A comparative study on trans-"
+        },
+        {
+          "6. References": "Unsupervised pre-training for speech recognition,” in Interspeech,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "former vs RNN in speech applications,” in ASRU, 2019."
+        },
+        {
+          "6. References": "2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "[23] K. He, H. Fan, Y. Wu, S. Xie,",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "and R. B. Girshick,\n“Momen-"
+        },
+        {
+          "6. References": "[2] A. Baevski,\nS. Schneider,\nand M. Auli,\n“vq-wav2vec:\nSelf-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "tum contrast for unsupervised visual representation learning,” in"
+        },
+        {
+          "6. References": "supervised learning of discrete speech representations,” in ICLR,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "CVPR, 2020."
+        },
+        {
+          "6. References": "2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "[24] O.",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "J. H´enaff, A. Srinivas,\nJ. D. Fauw, A. Razavi, C. Doer-"
+        },
+        {
+          "6. References": "[3] A. Baevski, M. Auli,\nand A. Mohamed,\n“Effectiveness\nof",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "sch, S. M. A. Eslami, and A. van den Oord, “Data-efﬁcient\nim-"
+        },
+        {
+          "6. References": "self-supervised pre-training for speech recognition,” CoRR, vol.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "age recognition with contrastive predictive coding,” CoRR, vol."
+        },
+        {
+          "6. References": "abs/1911.03912, 2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "abs/1905.09272, 2019."
+        },
+        {
+          "6. References": "[4] A. Baevski, H. Zhou, A. Mohamed, and M. Auli, “wav2vec 2.0:",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[25] D. Snyder, G. Chen, and D. Povey, “MUSAN: A music, speech,"
+        },
+        {
+          "6. References": "A framework for self-supervised learning of speech representa-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "and noise corpus,” CoRR, vol. abs/1510.08484, 2015."
+        },
+        {
+          "6. References": "tions,” CoRR, vol. abs/2006.11477, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[26] C. Busso, M. Bulut, C. Lee, A. Kazemzadeh, E. Mower, S. Kim,"
+        },
+        {
+          "6. References": "[5] Y. Chung, W. Hsu, H. Tang, and J. R. Glass, “An unsupervised",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "J. N. Chang, S. Lee, and S. S. Narayanan, “IEMOCAP: interactive"
+        },
+        {
+          "6. References": "autoregressive model\nfor speech representation learning,” in In-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "emotional dyadic motion capture database,” Lang. Resour. Evalu-"
+        },
+        {
+          "6. References": "terspeech, 2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "ation, vol. 42, 2008."
+        },
+        {
+          "6. References": "[6] Y. Chung and J. R. Glass, “Generative pre-training for speech with",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "autoregressive predictive coding,” in ICASSP, 2020.",
+          "[22]": "[27]",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "J. S. Garofolo, L. F. Lamel, W. M. Fisher, J. G. Fiscus, and D. S."
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "Pallett, “Darpa timit acoustic-phonetic continous speech corpus"
+        },
+        {
+          "6. References": "[7] Y. A. Chung and J. R. Glass, “Improved speech representations",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "cd-rom. nist speech disc 1-1.1,” NASA STI/Recon technical report"
+        },
+        {
+          "6. References": "with multi-target autoregressive predictive coding,” in ACL, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "n, vol. 93, 1993."
+        },
+        {
+          "6. References": "[8] A. T. Liu, S. Yang, P. Chi, P. Hsu, and H. Lee, “Mockingjay: Un-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[28] M. Ravanelli, L. Cristoforetti, R. Gretter, M. Pellin, A. Sosi,"
+        },
+        {
+          "6. References": "supervised speech representation learning with deep bidirectional",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "and M. Omologo,\n“The DIRHA-ENGLISH corpus and related"
+        },
+        {
+          "6. References": "transformer encoders,” in ICASSP, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "tasks for distant-speech recognition in domestic environments,”"
+        },
+        {
+          "6. References": "[9] W. Wang, Q. Tang, and K. Livescu, “Unsupervised pre-training",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "in ASRU, 2015."
+        },
+        {
+          "6. References": "of bidirectional speech encoders via masked reconstruction,” in",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[29] R. Zhang, H. Wu, W. Li, D. Jiang, W. Zou, and X. Li, “Trans-"
+        },
+        {
+          "6. References": "ICASSP, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "former based unsupervised pre-training for acoustic representa-"
+        },
+        {
+          "6. References": "[10]\nP. Chi, P. Chung, T. Wu, C. Hsieh, S. Li, and H. Lee, “Audio",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "tion learning,” CoRR, vol. abs/2007.14602, 2020."
+        },
+        {
+          "6. References": "ALBERT: A lite BERT for self-supervised learning of audio rep-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[30] D. P. Kingma and J. Ba, “Adam: A method for stochastic opti-"
+        },
+        {
+          "6. References": "resentation,” CoRR, vol. abs/2005.08575, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "mization,” in ICLR, 2015."
+        },
+        {
+          "6. References": "[11] X. Song, G. Wang, Z. Wu, Y. Huang, D. Su, D. Yu, and H. Meng,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[31] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N."
+        },
+        {
+          "6. References": "“Speech-xlnet: Unsupervised acoustic model pretraining for self-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "Gomez, L. Kaiser, and I. Polosukhin, “Attention is all you need,”"
+        },
+        {
+          "6. References": "attention networks,” CoRR, vol. abs/1910.10387, 2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "in NIPS, 2017, pp. 5998–6008."
+        },
+        {
+          "6. References": "[12] D. Jiang, X. Lei, W. Li, N. Luo, Y. Hu, W. Zou, and X. Li, “Im-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "proving transformer-based speech recognition using unsupervised",
+          "[22]": "[32] M. A. D. Gangi, R. Cattoni,",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "L. Bentivogli, M. Negri,\nand"
+        },
+        {
+          "6. References": "pre-training,” CoRR, vol. abs/1910.09932, 2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "M. Turchi, “Must-c: a multilingual speech translation corpus,” in"
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "NAACL-HLT, 2019."
+        },
+        {
+          "6. References": "[13] D.\nJiang, W. Li, R. Zhang, M. Cao, N. Luo, Y. Han, W. Zou,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "and X. Li, “A further study of unsupervised pre-training for trans-",
+          "[22]": "[33] K. J. Piczak, “ESC: dataset",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "for environmental sound classiﬁca-"
+        },
+        {
+          "6. References": "former based speech recognition,” CoRR, vol. abs/2005.09862,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "tion,” in ACMMM, 2015."
+        },
+        {
+          "6. References": "2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[34] R. Xia and Y. Liu, “Leveraging valence and activation information"
+        },
+        {
+          "6. References": "[14] A. T. Liu, S. Li, and H. Lee, “TERA: self-supervised learning",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "via multi-task learning for categorical emotion recognition,” in"
+        },
+        {
+          "6. References": "of\ntransformer\nencoder\nrepresentation for\nspeech,” CoRR, vol.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "ICASSP, 2015."
+        },
+        {
+          "6. References": "abs/2007.06028, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[35] M. Neumann and N. T. Vu, “Improving speech emotion recog-"
+        },
+        {
+          "6. References": "[15]\nT. Chen, S. Kornblith, M. Norouzi, and G. E. Hinton, “A sim-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "nition with unsupervised representation learning on unlabeled"
+        },
+        {
+          "6. References": "ple framework for contrastive learning of visual representations,”",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "speech,” in ICASSP, 2019."
+        },
+        {
+          "6. References": "CoRR, vol. abs/2002.05709, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[36] A. Rousseau, P. Del´eglise, and Y. Est`eve, “Enhancing the TED-"
+        },
+        {
+          "6. References": "[16] Y. H. Tsai, Y. Wu, R. Salakhutdinov, and L. Morency, “Demysti-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "LIUM corpus with selected data for language modeling and more"
+        },
+        {
+          "6. References": "fying self-supervised learning: An information-theoretical frame-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "TED talks,” in LREC, 2014."
+        },
+        {
+          "6. References": "work,” CoRR, vol. abs/2006.05576, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "[37] M. Ravanelli, T. Parcollet,",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "and Y. Bengio,\n“The pytorch-kaldi"
+        },
+        {
+          "6. References": "[17]\nS. Pascual, M. Ravanelli, J. Serr`a, A. Bonafonte, and Y. Bengio,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "speech recognition toolkit,” in ICASSP, 2019."
+        },
+        {
+          "6. References": "“Learning problem-agnostic speech representations from multiple",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[38] D. B. Paul and J. M. Baker, “The design for the wall street journal-"
+        },
+        {
+          "6. References": "self-supervised tasks,” in Interspeech, 2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "based CSR corpus,” in ICSLP, 1992."
+        },
+        {
+          "6. References": "[18]\nE. Kharitonov, M. Rivi`ere, G. Synnaeve, L. Wolf, P. Mazar´e,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "[39] K. Kawakami, L. Wang, C. Dyer, P. Blunsom, and A. van den"
+        },
+        {
+          "6. References": "M. Douze, and E. Dupoux, “Data augmenting contrastive learn-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "Oord, “Learning robust and multilingual speech representations,”"
+        },
+        {
+          "6. References": "ing of\nspeech representations\nin the time domain,” CoRR, vol.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": "CoRR, vol. abs/2001.11128, 2020."
+        },
+        {
+          "6. References": "abs/2007.00991, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "[19]\nJ. Kahn, M. Rivi`ere, W. Zheng, E. Kharitonov, Q. Xu, P. Mazar´e,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "J. Karadayi, V. Liptchinsky, R. Collobert, C. Fuegen, T. Likhoma-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "nenko, G. Synnaeve, A.\nJoulin, A. Mohamed, and E. Dupoux,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "“Libri-light: A benchmark for ASR with limited or no supervi-",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "sion,” in ICASSP, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "[20]\nS. Ling, Y. Liu, J. Salazar, and K. Kirchhoff, “Deep contextualized",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "acoustic representations for semi-supervised speech recognition,”",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "in ICASSP, 2020.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "[21] D. S. Park, W. Chan, Y. Zhang, C. Chiu, B. Zoph, E. D. Cubuk,",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "and Q. V. Le, “Specaugment: A simple data augmentation method",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        },
+        {
+          "6. References": "for automatic speech recognition,” in Interspeech, 2019.",
+          "[22]": "",
+          "S. Karita, X. Wang,\nS. Watanabe, T. Yoshimura, W. Zhang,": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "wav2vec: Unsupervised pre-training for speech recognition",
+      "authors": [
+        "S Schneider",
+        "A Baevski",
+        "R Collobert",
+        "M Auli"
+      ],
+      "year": "2019",
+      "venue": "wav2vec: Unsupervised pre-training for speech recognition"
+    },
+    {
+      "citation_id": "3",
+      "title": "vq-wav2vec: Selfsupervised learning of discrete speech representations",
+      "authors": [
+        "A Baevski",
+        "S Schneider",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "4",
+      "title": "Effectiveness of self-supervised pre-training for speech recognition",
+      "authors": [
+        "A Baevski",
+        "M Auli",
+        "A Mohamed"
+      ],
+      "year": "2019",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "5",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "H Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2006",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "6",
+      "title": "An unsupervised autoregressive model for speech representation learning",
+      "authors": [
+        "Y Chung",
+        "W Hsu",
+        "H Tang",
+        "J Glass"
+      ],
+      "year": "2019",
+      "venue": "An unsupervised autoregressive model for speech representation learning"
+    },
+    {
+      "citation_id": "7",
+      "title": "Generative pre-training for speech with autoregressive predictive coding",
+      "authors": [
+        "Y Chung",
+        "J Glass"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "8",
+      "title": "Improved speech representations with multi-target autoregressive predictive coding",
+      "authors": [
+        "Y Chung",
+        "J Glass"
+      ],
+      "year": "2020",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "9",
+      "title": "Mockingjay: Unsupervised speech representation learning with deep bidirectional transformer encoders",
+      "authors": [
+        "A Liu",
+        "S Yang",
+        "P Chi",
+        "P Hsu",
+        "H Lee"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "10",
+      "title": "Unsupervised pre-training of bidirectional speech encoders via masked reconstruction",
+      "authors": [
+        "W Wang",
+        "Q Tang",
+        "K Livescu"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "11",
+      "title": "Audio ALBERT: A lite BERT for self-supervised learning of audio representation",
+      "authors": [
+        "P Chi",
+        "P Chung",
+        "T Wu",
+        "C Hsieh",
+        "S Li",
+        "H Lee"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "12",
+      "title": "Speech-xlnet: Unsupervised acoustic model pretraining for selfnetworks",
+      "authors": [
+        "X Song",
+        "G Wang",
+        "Z Wu",
+        "Y Huang",
+        "D Su",
+        "D Yu",
+        "H Meng"
+      ],
+      "year": "1910",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "13",
+      "title": "Improving transformer-based speech recognition using unsupervised pre-training",
+      "authors": [
+        "D Jiang",
+        "X Lei",
+        "W Li",
+        "N Luo",
+        "Y Hu",
+        "W Zou",
+        "X Li"
+      ],
+      "year": "2019",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "14",
+      "title": "A further study of unsupervised pre-training for transformer based speech recognition",
+      "authors": [
+        "D Jiang",
+        "W Li",
+        "R Zhang",
+        "M Cao",
+        "N Luo",
+        "Y Han",
+        "W Zou",
+        "X Li"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "15",
+      "title": "TERA: self-supervised learning of transformer encoder representation for speech",
+      "authors": [
+        "A Liu",
+        "S Li",
+        "H Lee"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "16",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "17",
+      "title": "Demystifying self-supervised learning: An information-theoretical framework",
+      "authors": [
+        "Y Tsai",
+        "Y Wu",
+        "R Salakhutdinov",
+        "L Morency"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "18",
+      "title": "Learning problem-agnostic speech representations from multiple self-supervised tasks",
+      "authors": [
+        "S Pascual",
+        "M Ravanelli",
+        "J Serrà",
+        "A Bonafonte",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Learning problem-agnostic speech representations from multiple self-supervised tasks"
+    },
+    {
+      "citation_id": "19",
+      "title": "Data augmenting contrastive learning of speech representations in the time domain",
+      "authors": [
+        "E Kharitonov",
+        "M Rivière",
+        "G Synnaeve",
+        "L Wolf",
+        "P Mazaré",
+        "M Douze",
+        "E Dupoux"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "20",
+      "title": "Libri-light: A benchmark for ASR with limited or no supervision",
+      "authors": [
+        "J Kahn",
+        "M Rivière",
+        "W Zheng",
+        "E Kharitonov",
+        "Q Xu",
+        "P Mazaré",
+        "J Karadayi",
+        "V Liptchinsky",
+        "R Collobert",
+        "C Fuegen",
+        "T Likhomanenko",
+        "G Synnaeve",
+        "A Joulin",
+        "A Mohamed",
+        "E Dupoux"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "21",
+      "title": "Deep contextualized acoustic representations for semi-supervised speech recognition",
+      "authors": [
+        "S Ling",
+        "Y Liu",
+        "J Salazar",
+        "K Kirchhoff"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "22",
+      "title": "Specaugment: A simple data augmentation method for automatic speech recognition",
+      "authors": [
+        "D Park",
+        "W Chan",
+        "Y Zhang",
+        "C Chiu",
+        "B Zoph",
+        "E Cubuk",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Specaugment: A simple data augmentation method for automatic speech recognition"
+    },
+    {
+      "citation_id": "23",
+      "title": "A comparative study on transformer vs RNN in speech applications",
+      "authors": [
+        "S Karita",
+        "X Wang",
+        "S Watanabe",
+        "T Yoshimura",
+        "W Zhang",
+        "N Chen",
+        "T Hayashi",
+        "T Hori",
+        "H Inaguma",
+        "Z Jiang",
+        "M Someki",
+        "N Soplin",
+        "R Yamamoto"
+      ],
+      "year": "2019",
+      "venue": "A comparative study on transformer vs RNN in speech applications"
+    },
+    {
+      "citation_id": "24",
+      "title": "Momentum contrast for unsupervised visual representation learning",
+      "authors": [
+        "K He",
+        "H Fan",
+        "Y Wu",
+        "S Xie",
+        "R Girshick"
+      ],
+      "year": "2020",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "25",
+      "title": "Data-efficient image recognition with contrastive predictive coding",
+      "authors": [
+        "O Hénaff",
+        "A Srinivas",
+        "J Fauw",
+        "A Razavi",
+        "C Doersch",
+        "S Eslami",
+        "A Van Den Oord"
+      ],
+      "year": "2019",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "26",
+      "title": "MUSAN: A music, speech, and noise corpus",
+      "authors": [
+        "D Snyder",
+        "G Chen",
+        "D Povey"
+      ],
+      "year": "2015",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "27",
+      "title": "IEMOCAP: interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Lang. Resour. Evaluation"
+    },
+    {
+      "citation_id": "28",
+      "title": "Darpa timit acoustic-phonetic continous speech corpus cd-rom. nist speech disc 1-1.1",
+      "authors": [
+        "J Garofolo",
+        "L Lamel",
+        "W Fisher",
+        "J Fiscus",
+        "D Pallett"
+      ],
+      "year": "1993",
+      "venue": "NASA STI/Recon technical report n"
+    },
+    {
+      "citation_id": "29",
+      "title": "The DIRHA-ENGLISH corpus and related tasks for distant-speech recognition in domestic environments",
+      "authors": [
+        "M Ravanelli",
+        "L Cristoforetti",
+        "R Gretter",
+        "M Pellin",
+        "A Sosi",
+        "M Omologo"
+      ],
+      "year": "2015",
+      "venue": "The DIRHA-ENGLISH corpus and related tasks for distant-speech recognition in domestic environments"
+    },
+    {
+      "citation_id": "30",
+      "title": "Transformer based unsupervised pre-training for acoustic representation learning",
+      "authors": [
+        "R Zhang",
+        "H Wu",
+        "W Li",
+        "D Jiang",
+        "W Zou",
+        "X Li"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "31",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "32",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "L Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "NIPS"
+    },
+    {
+      "citation_id": "33",
+      "title": "Must-c: a multilingual speech translation corpus",
+      "authors": [
+        "M Gangi",
+        "R Cattoni",
+        "L Bentivogli",
+        "M Negri",
+        "M Turchi"
+      ],
+      "year": "2019",
+      "venue": "NAACL-HLT"
+    },
+    {
+      "citation_id": "34",
+      "title": "ESC: dataset for environmental sound classification",
+      "authors": [
+        "K Piczak"
+      ],
+      "year": "2015",
+      "venue": "ACMMM"
+    },
+    {
+      "citation_id": "35",
+      "title": "Leveraging valence and activation information via multi-task learning for categorical emotion recognition",
+      "authors": [
+        "R Xia",
+        "Y Liu"
+      ],
+      "year": "2015",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "36",
+      "title": "Improving speech emotion recognition with unsupervised representation learning on unlabeled speech",
+      "authors": [
+        "M Neumann",
+        "N Vu"
+      ],
+      "year": "2019",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "37",
+      "title": "Enhancing the TED-LIUM corpus with selected data for language modeling and more TED talks",
+      "authors": [
+        "A Rousseau",
+        "P Deléglise",
+        "Y Estève"
+      ],
+      "year": "2014",
+      "venue": "LREC"
+    },
+    {
+      "citation_id": "38",
+      "title": "The pytorch-kaldi speech recognition toolkit",
+      "authors": [
+        "M Ravanelli",
+        "T Parcollet",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "39",
+      "title": "The design for the wall street journalbased CSR corpus",
+      "authors": [
+        "D Paul",
+        "J Baker"
+      ],
+      "year": "1992",
+      "venue": "ICSLP"
+    },
+    {
+      "citation_id": "40",
+      "title": "Learning robust and multilingual speech representations",
+      "authors": [
+        "K Kawakami",
+        "L Wang",
+        "C Dyer",
+        "P Blunsom",
+        "A Van Den Oord"
+      ],
+      "year": "2001",
+      "venue": "CoRR"
+    }
+  ]
+}

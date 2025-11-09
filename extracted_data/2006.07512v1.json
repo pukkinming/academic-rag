@@ -1,0 +1,1035 @@
+{
+  "paper_id": "2006.07512v1",
+  "title": "Frugalml: How To Use Ml Prediction Apis More Accurately And Cheaply",
+  "published": "2020-06-12T23:43:23Z",
+  "authors": [
+    "Lingjiao Chen",
+    "Matei Zaharia",
+    "James Zou"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Prediction APIs offered for a fee are a fast-growing industry and an important part of machine learning as a service. While many such services are available, the heterogeneity in their price and performance makes it challenging for users to decide which API or combination of APIs to use for their own data and budget. We take a first step towards addressing this challenge by proposing FrugalML, a principled framework that jointly learns the strength and weakness of each API on different data, and performs an efficient optimization to automatically identify the best sequential strategy to adaptively use the available APIs within a budget constraint. Our theoretical analysis shows that natural sparsity in the formulation can be leveraged to make FrugalML efficient. We conduct systematic experiments using ML APIs from Google, Microsoft, Amazon, IBM, Baidu and other providers for tasks including facial emotion recognition, sentiment analysis and speech recognition. Across various tasks, FrugalML can achieve up to 90% cost reduction while matching the accuracy of the best single API, or up to 5% better accuracy while matching the best API's cost.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Machine learning as a service (MLaaS) is a rapidly growing industry. For example, one could use Google prediction API  [9]  to classify an image for $0.0015 or to classify the sentiment of a text passage for $0.00025. MLaaS services are appealing because using such APIs reduces the need to develop one's own ML models. The MLaaS market size was estimated at $1 billion in 2019, and it is expected to grow to $8.4 billion by 2025  [1] .\n\nThird-party ML APIs come with their own challenges, however. A major challenge is that different companies charge quite different amounts for similar tasks. For example, for image classification, Face++ charges $0.0005 per image  [6] , which is 67% cheaper than Google  [9] , while Microsoft charges $0.0010  [11] . Moreover, the prediction APIs of different providers perform better or worse on different types of inputs. For example, accuracy disparities in gender classification were observed for different skin colors  [22, 33] . As we will show later in the paper, these APIs' performance also varies by class-for example, we found that on the FER+ dataset, the Face++ API had the best accuracy on surprise images while the Microsoft API had the best performance on neutral images. The more expensive APIs are not uniformly better; and APIs tend to have specific classes of inputs where they perform better than alternatives. This heterogeneity in price and in performance makes it challenging for users to decide which API or combination of APIs to use for their own data and budget.\n\nIn this paper, we propose FrugalML, a principled framework to address this challenge. FrugalML jointly learns the strength and weakness of each API on different data, then performs an efficient optimization to automatically identify the best adaptive strategy to use all the available APIs given the user's budget constraint. FrugalML leverages the modular nature of APIs by designing adaptive strategies that can call APIs sequentially. For example, we might first send an input to API A. If A returns the label \"dog\" with high confidence-and we know A tends to be accurate for dogs-then we stop and report \"dog\". But if A returns \"hare\" with lower confidence, and we have learned that A is less accurate for \"hare,\" then we might adaptively select a second API B to make additional assessment.\n\nFrugalML optimizes such adaptive strategies to substantially improve prediction performance over simpler approaches such as model cascades with a fixed quality threshold (Figure  1 ). Through experiments with real commercial ML APIs on diverse tasks, we observe that FrugalML typically reduces costs more than 50% and sometimes up to 90%. Adaptive strategies are challenging to learn and optimize, because the choice of the 2 nd predictor, if one is chosen, could depend on the prediction and confidence of the first API, and because FrugalML may need to allocate different fractions of its budget to predictions for different classes. We prove that under quite general conditions, there is natural sparsity in this problem that we can leverage to make FrugalML efficient.\n\nContributions To sum up, our contributions are:\n\n1. We formulate and study the problem of learning to optimally use commercial ML APIs given a budget. This is a growing area of importance and is under-explored.\n\n2. We propose FrugalML, a framework that jointly learns the strength and weakness of each API, and performs an optimization to identify the best strategy for using those APIs within a budget constraint. By leveraging natural sparsity in this optimization problem, we design an efficient algorithm to solve it with provable guarantees.\n\n3. We evaluate FrugalML using real-world APIs from diverse providers (e.g., Google, Microsoft, Amazon, and Baidu) for classification tasks including facial emotion recognition, text sentiment analysis, and speech recognition. We find that FrugalML can match the accuracy of the best individual API with up to 90% lower cost, or significantly improve on this accuracy, up to 5%, with the the same cost.\n\n4. We release our dataset of 612,139 samples annotated by commercial APIs as a broad resource to further investigate differences across APIs and improve usage.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work. Mlaas:",
+      "text": "With the growing importance of MLaaS APIs  [2, 3, 6, 9, 10, 11] , existing research has largely focused on evaluating individual API for their performance  [51] , robustness  [27] , and applications  [22, 28, 40] . On the other hand, FrugalML aims at finding strategies to select from or use multiple APIs to reduce costs and increase accuracy.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Mixtures Of Experts:",
+      "text": "A natural approach to exploiting multiple predictors is mixture of experts  [31, 30, 52] , which uses a gate function to decide which expert to use. Substantial research has focused on developing gate function models, such as SVMs  [24, 50] , Gaussian Process  [25, 49] , and neutral networks  [42, 41] . However, applying mixture of experts for MLaaS would result in fixed cost and thus would not  In FrugalML, a base service is first selected and called. If its quality score is smaller than the threshold for its predicted label, FrugalML chooses an add-on service to invoke and returns its prediction. Otherwise, the base service's prediction is returned. allow users to specify a budget constraint as in FrugalML. As we will show later, sometimes FrugalML with a budget constraint can even outperform mixture of experts algorithms while using less budget.\n\nModel Cascades: Cascades consisting of a sequence of models are useful to balance the quality and runtime of inference  [44, 45, 23, 32, 43, 46, 48, 34] . While model cascades use predicted quality score alone to avoid calling computationally expensive models, FrugalML' strategies can utilize both quality score and predicted class to select a downstream expensive add-on service. Designing such strategies requires solving a significantly harder optimization problem, e.g., choosing how to divide the available budget between classes ( §3), but also improves performance substantially over using the quality score alone ( §4).",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Preliminaries",
+      "text": "Notation. In our exposition, we denote matrices and vectors in bold, and scalars, sets, and functions in standard script. We let 1 m denote the m × 1 all ones vector, while 1 n×m denotes the all ones n × m matrix. We define 0 m , 0 n×m analogously. The subscripts are omitted when clear from context. Given a matrix A ∈ R n×m , we let A i,j denote its entry at location (i, j), A i,• ∈ R 1×m denote its ith row, and\n\nML Tasks. Throughout this paper, we focus on (multiclass) classification tasks, where the goal is to classify a data point x from a distribution D into L label classes. Many real world ML APIs aim at such tasks, including facial emotion recognition, where x is a face image and label classes are emotions (happy, sad, etc), and text sentiment analysis, where x is a text passage and the label classes are attitude sentiment (either positive or negative).\n\nMLaaS Market. Consider a MLaaS market consisting of K different ML services which aim at the same classification task. Taken a data point x as input, the kth service returns to the user a predicted label y k (x) ∈ [L] and its quality score q k (x) ∈ [0, 1], where larger score indicates higher confidence of its prediction. This is typical for many popular APIs. There is also a unit cost associated with each service. Let the vector c ∈ R K denote the unit cost of all services. Then c k = 0.005 simply means that users need to pay 0.005 every time they call the kth service. We use y(x) to denote x's true label, and let r k (x) 1 y k (x)=y(x) be the reward of using the k service on x.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Frugalml: A Frugal Approach To Adaptively Leverage Ml Services",
+      "text": "In this section, we present FrugalML, a formal framework for API calling strategies to obtain accurate and cheap predictions from a MLaaS market. All proofs are left to the appendix. We generalize the scheme in Figure  1  (c) to K ML services and L label classes. Let a tuple s (p [1] , Q, P [2] ) represent a calling strategy produced by FrugalML. Given an input data x, FrugalML first calls a base service, denoted by A  [1]  s , which with probability p  [1]  i is the ith service and returns quality score q i (x) and label y i (x). Let D s be the indicator Definition 1. Given a user budget b, the optimal FrugalML strategy s * = (p [1]\n\nwhere r s (x) 1 ŷs (x)=y(x) is the reward and η [s] (x, c) the total cost of strategy s on x.\n\nRemark 1. The above definition can be generalized to wider settings. For example, instead of 0-1 loss, the reward can be negative square loss to handle regression tasks. We pick the concrete form for demonstration purposes. The cost of strategy s, η [s] (x, c), is the sum of all services called on x. For example, if service 1 and 2 are called for predicting x,\n\nGiven the above formulation, a natural question is how to solve it efficiently. In the following, We first highlight an interesting property of the optimal strategy, sparsity, which inspires the design of the efficient solver, and then present the algorithm for the solver.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Sparsity Structure In The Optimal Strategy",
+      "text": "We show that if problem 3.1 is feasible and has unique optimal solution, then we must have p [1] * ≤ 2. In other words, the optimal strategy should only choose the base service from at most two services (instead of K) in the MLaaS market. This is formally stated in Lemma 1.\n\nLemma 1. If problem 3.1 is feasible, then there exists one optimal solution s * = (p [1] * , Q * , P [2] * ) such that p [1] * ≤ 2.\n\nTo see this, let us first expand E[r s (x)] and E[η s (x)] by the law of total expectation.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Lemma 2. The Expected Accuracy Is",
+      "text": "which by definition equals p  [1]  i . Thus, fixing Q and P [2] , problem 3.1 becomes a linear programming in p [1] . Intuitively, the corner points of its feasible region must be 2-sparse, since except E[η s (x)] ≤ b and 1 T p [1] ≤ 1 , all other constraints (p [1] 0) force sparsity. As the optimal solution of a linear programming should be a corner point, p [2] must also be 2-sparse.\n\nThis sparsity structure helps reduce the computational complexity for solving problem 3.1. In fact, the sparsity structure implies problem 3.1 becomes equivalent to a master problem max (i1,i2,p1,p2,b1,b2)∈C\n\nis the optimal value of the subproblem max Q,P [2] :s=(ei,Q,P [2] )∈S\n\nHere, the master problem decides which two services (i 1 , i 2 ) can be the base service, how often (p 1 , p 2 ) they should be invoked, and how large budgets (b 1 , b 2 ) are assigned, while for a fixed base service i and budget b , the subproblem maximizes the expected reward.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "A Practical Algorithm",
+      "text": "Now we are ready to give the sparsity-inspired algorithm for generating an approximately optimal strategy ŝ, summarized in Algorithm 1.\n\nAlgorithm 1 FrugalML Strategy Training.\n\nAlgorithm 1 consists of three main steps. First, the conditional accuracy\n\ns ] is estimated from the training data (line 1). Next (line 2 to line 4), we find the optimal solution i *\n\nTo do so, we first evaluate g i (b ) for M + 1 different budget values (line 2), and then construct the functions g i (•) via linear interpolation (line 3) while enforce g i (b ) = 0, ∀b ≤ c i . Given (piece-wise linear) g i (•), problem 3.2 can be solved by enumerating a few linear programming (line 4). Finally, the algorithm seeks to find the optimal solution in the original domain of the strategy, by solving subproblem 3.3 for base service being i * 1 and i * 2 separately (line 5), and then align those solutions appropriately (line 6). We leave the details of solving subproblem 3.3 to the supplement material due to space constraint. Theorem 3 provides the performance analysis of Algorithm 1.\n\nAs Theorem 3 suggests, the parameter M is used to balance between computational cost and accuracy drop of ŝ.\n\nFor practical cases where K and L (the number of classes) are around ten and N is more than a few thousands, we have found M = 10 is a good value for good accuracy and small computational cost. Note that the coefficient of the K L terms is small: in experiments, we observe it takes only a few seconds for L = 31, M = 40. For datasets with very large number of possible labels, we can always cluster those labels into a few \"supclasses\", or adopt approximation algorithms to reduce O(M L ) to O(M 2 ) (see details in the supplemental materials). In addition, slight modification of ŝ can satisfy strict budget constraint: if budgets allows, use ŝ to pick APIs; otherwise, switch to the cheapest API.\n\nTable  1 : ML services used for each task. Price unit: USD/10,000 queries. A publicly available (and thus free) GitHub model is also used per task: a convolutional neural network (CNN)  [13]  pretrained on FER2013  [26]  for FER , a rule based tool  (Bixin [4]  for Chinese and Vader  [16, 29]  for English ) for SA, and a recurrent neural network (DeepSpeech)  [14, 19]  pretrained on Librispeech  [39]  for STT.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Tasks",
+      "text": "",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Experiments",
+      "text": "We compare the accuracy and incurred costs of FrugalML to that of real world ML services for various tasks.\n\nOur goal is four-fold: (i) understanding when and why FrugalML can reduce cost without hurting accuracy, (ii) evaluating the cost savings by FrugalML, (iii) investigating the trade-offs between accuracy and cost achieved by FrugalML, and (iv) measuring the effect of training data size on FrugalML's performance.\n\nTasks, ML services, and Datasets. We focus on three common ML tasks in different application domains: facial emotion recognition (FER) in computer vision, sentiment analysis (SA) in natural langauge processing), and speech to text (STT) in speech recognition. The ML services used for each task as well as their prices are summarized in Table  1 . For each task we also found a small open source model from GitHub, which is much less expensive to execute per data point than the commercial APIs.   3  demonstrates the learned FrugalML strategy. Interestingly, as shown in Figure  3 (b), FrugalML's accuracy is higher than that of the best ML service (Microsoft Face), while its cost is much lower. This is because base service's quality score, utilized by FrugalML, is a better signal than raw image to identify if its prediction is trustworthy. Furthermore, the quality score threshold, produced by FrugalML also depends on label predicted by the base service. This flexibility helps to increase accuracy as well as to reduce costs. For example, using a universal threshold 0.86 leads to misclassfication on Figure  3 (f), while 0.93 causes unnecessary add-on service call on Figure  3 (c) .\n\nFor comparison, we also train a mixture of experts strategy with a softmax gating network and the majority voting ensemble method. The learned mixture of experts always uses Microsoft API, leading to the same accuracy (81%) and same cost ($10). The accuracy of majority voting on the test data is slightly better at 82%, but substantially worse than the performance of FrugalML using a small budget of $5. Majority vote, and other standard ensemble methods, needs to collect the prediction of all services, resulting in a cost ($30)   (c-f ): FrugalML prediction process on a few testing data. As shown in (a), on most data (55%), calling the cheap open source CNN from GitHub is sufficient. Thus, FrugalML incurs <50% cost than the most accurate API (Microsoft). Note that unique quality score thresholds for different labels predicted by the base service are learned: e.g.\" given label, \"surprise\", 0.86 is used to determine whether (e) or not (c) to call Microsoft, while for label \"happy\", the learned threshold is 0.93 ((d) and (f)). Such unique thresholds are critical for both accuracy improvement and cost reduction: universally using 0.86 leads to misclassification on (f), while globally adopting 0.93 creates extra cost by called unnecessary add-on service on (c).\n\nwhich is 6 times the cost of FrugalML. Moreover, both mixture of experts and ensemble method require fixed cost, while FrugalML gives the users flexibility to choose a budget. Analysis of Cost Savings. Next, we evaluate how much cost can be saved by FrugalML to reach the highest accuracy produced by a single API on different tasks, to obtain some qualitative sense of FrugalML.\n\nAs shown in Table  3 , FrugalML can typically save more than half of the cost. In fact, the cost savings can be as high as 90% on the AUDIOMNIST dataset. This is likely because the base service's quality score is highly correlated to its prediction accuracy, and thus FrugalML only needs to call expensive services for a few difficult data points. A relatively small saving is reached for SA tasks (e.g., on IMDB). This might be that the quality score of the rule based SA tool is not highly reliable. Another possible reason is that SA task has only two labels (positive and negative), limiting the power of FrugalML. Accuracy and Cost Trade-offs. Now we dive deeply into the accuracy and cost trade-offs achieved by FrugalML, shown in Figure  4 . Here we also compare with two oblations to FrugalML, \"Base=GH\", where the base service is forced to be the GitHub model, and \"QS only\", which further forces a universal quality score threshold across all labels.\n\nWhile using any single ML service incurs a fixed cost, FrugalML allows users to pick any point in its trade-off curve, offering substantial flexibility. In addition to cost saving, FrugalML sometimes can achieve higher accuracy than any ML services it calls. For example, on FER+ and AFFECTNET, more than 2% accuracy improvement can be reached with small cost, and on RAFDB, when a large cost is allowed, more than 5% accuracy improvement is gained. It is also worthy noting that each component in FrugalML helps improve the accuracy. On WAIMAI, for instance, \"Base=GH\" and \"QS only\" lead to significant accuracy drops. For speech datasets such as COMMAND, the drop is negligible, as there is no significant accuracy difference between different labels (utterance). Another interesting observation is that there is no universally \"best\" service for a fixed task. For SA task, Baidu NLP achieves the highest accuracy for WAIMAI and SHOP datasets, but Google NLP has best performance on YELP and IMDB. Fortunately, FrugalML adaptively learns the optimal strategy.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Effects Of Training Sample Size",
+      "text": "Finally we evaluate how the training sample size affects FrugalML's performance, shown in Figure  5 . Overall, while larger number of classes need more samples, we observe 3000 labeled samples are enough across all datasets.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Conclusion And Open Problems",
+      "text": "In this work we proposed FrugalML, a formal framework for identifying the best strategy to call ML APIs given a user's budget. Both theoretical analysis and empirical results demonstrate that FrugalML leads to significant cost reduction and accuracy improvement. FrugalML is also efficient to learn: it typically takes a few minutes on a modern machine. Our research characterized the substantial heterogeneity in cost and performance across available ML APIs, which is useful in its own right and also leveraged by FrugalML. Extending FrugalML to produce calling strategies for ML tasks beyond classification (e.g., object detection and language translation) is an interesting future direction. As a resource to stimulate further research in MLaaS, we will also release a dataset used to develop FrugalML, consisting of 612,139 samples annotated by the APIs, and our code.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "A Extra Notations",
+      "text": "Here we introduce a few more notations.\n\nWe first let •, , ⊗ denote inner, element-wise, and Kronecker product, respectively. Next, Let us introduce a few notations: a matrix A ∈ R K×L , a scalar function\n\nPr[y k (x) = ], which represents the probability of kth service producing label . The scalar function F k, (X) Pr[q k (x) ≤ X|y(x) = ] is the probability of the produced quality score from the kth service less than a threshold X conditional on that its predicted label is . The scalar function ψ k1,k2, (•) is defined as ψ k1,k2, (α) E r k1 (x)|y k1 (x) = , q k1 (x) ≤ F -1 k1, (α) , i.e., the executed accuracy of the k 2 service conditional on that the k 1 services produces a label and quality score that is less than F -1 k, (ρ ρ ρ k1, ). Then those matrix to matrix functions are given by r a k1,K( -1)+k2 (ρ ρ ρ) ψ k1,k2, (ρ ρ ρ k1, ), r b k, (ρ ρ ρ) ψ k,k, (ρ ρ ρ k, ), and r [-]",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B Algorithm Subroutines",
+      "text": "In this section we provide the details of the subroutines used in the training algorithm for FrugalML. There are in total four components: (i) estimating parameters, (ii) solving subproblem 3.3 to obtain its optimal value and solution, (iii) constructing the function g i (•), and (iv) solving the master problem 3.2.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "Estimating Parameters. Instead Of Directly Estimating",
+      "text": "s ], we estimate A, r b (1 K×L ), and r [-] (•) as defined in Section A, which are sufficient for the subroutines to solve the subproblem 3.3. Let Â,r b (1 K×L ), and r[-] (•) be the corresponding estimation from the training datasets. Now we describe how to obtain them from a dataset {y(\n\nTo estimate A, we simply apply the empirical mean estimator and obtain Âk,\n\nTo estimate r b (1 K×L ), and r [-] (•), we first compute ψk1,k2, (α m )\n\nis the empirical α mquantile of the quality score of the kth service conditional on its predicted label being . Next we estimate ψ k1,k2, (•) by linear interpolation, i.e., generating ψk1,k2, (α)\n\nand finally compute rb (1 K×L ) k, and r[-] (ρ ρ ρ) ra (ρ ρ ρ) -rb (ρ ρ ρ) ⊗ 1 T K .",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "Solving Subproblem 3.3.",
+      "text": "There are 3 steps for solving problem 3.3. First, for\n\nÂk, ĥk, (β t * ) as an approximation to the de facto optimal value g i (b ), and the approximately optimal solution Qi (b ) and\n\nwhere\n\nObserve that the function r[-] (•) by construction is piece wise linear, and thus rk (ρ) is also piece wise linear. Thus, Algorithm 2 Solver for Problem B.1.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "R[-] (•)",
+      "text": "Output : the optimal solution ρk, (β), Π Π Π k, (β), and the optimal value ĥk, (β)\n\nReturn ρk, (β), Π Π Π k, (β), ĥk, (β)\n\nand ψ i,j (•) are piece wise quadratic functions. Thus, the optimization problems in Algorithm 2 (line 4 and line 5) can be efficiently solved, simply by optimizing a quadratic function for each piece.\n\nConstructing g i (•). We construct an approximation to g i (•), denoted by ĝLI i (•). The construction is based on linear interpolation using ĝi (θ m ) as well as ĝi (c i ) which by definition is 0. More precisely, ĝLI\n\nSolving Master Problem 3.2. To solve Problem 3.2, let us first denote",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "C Missing Proofs",
+      "text": "",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "C.1 Helpful Lemmas",
+      "text": "We first provide some useful lemmas throughout this section.\n\nLemma 4. Suppose the linear optimization problem\n\nis feasible. Then there exists one optimal solution z * such that z * 0 ≤ 2.\n\nProof. Let z * be one solution. If z * 0 ≤ 2, then the statement holds. Suppose z * 0 = nnz > 2 (and thus K ≥ 3). W.l.o.g., let the first nnz elements in z * be the nonzero elements. Let i min = arg min i:i≤nnz v i and\n\nOtherwise, construct z by\n\nNow our goal is to prove that z is one optimal solution and z 0 ≤ 2.\n\n(i) We first show that z is a feasible solution.\n\n(\n\nj ≥ 0, and similarly z imin ≥ 0. Thus, we have z ≥ 0.\n\nIn addition,\n\nwhere the last equality is due to the fact that z i = 0, ∀i > nnz. Similiarly, we have\n\n(\n\nHence, we have shown that v T z ≤ w, 1 T z ≤ 1, z ≥ 0 always hold, i.e., z is a feasible solution to the linear optimization problem.\n\n(ii) Now we show that z is one optimal solution, i.e., u T z = u T z * . The Lagrangian function of the linear optimization problem is\n\nSince z * is one optimal solution and clearly LCQ (linearity constraint qualification) is satisfied, KKT conditions must hold. That is, there exists µ µ µ such that\n\nThat is to say, if w ≤ w, then F (w ) is a linear function of w and thus must be Lipschitz continuous. case (ii): Suppose w ≥ w * . Note that we have just shown that z is one optimal solution to problem C.2. Adding a constraint to problem problem C.2 only leads to smaller objective value. That is to say, u T z ≥ F (w ), which is the optimal value to\n\nOn the other hand, by definition, we have u T z = u T w w * z * = w w * F (w * ), and thus we have\n\nNow let us consider w 1 ≥ w 1 ≥ w * . Let z 1 , z 2 be their corresponding solutions. Since w 2 ≥ w 1 , we have\n\nThus, the objective value must be smaller than the optimal one, i.e., u T z 3 ≤ F (w 1 ). Noting that u T z 3 = u T w 1 w 2 z 2 = w 1 w2 F (w 2 ), we have w 1 w2 F (w 2 ) ≤ F (w 1 ). which is F (w 2 ) -F (w 1 ) ≤ w2-w1 w1 F (w 1 ). Note that we have proved w w * F (w * ) ≥ F (w ) in C.3, i.e., F (w ) w ≤ F (w * ) w * , for any w ≥ w * . Thus, we have F (w 1 )/w 1 ≤ F (w * ) w * . That implies F (w 2 ) -F (w 1 ) ≤ w2-w1 w1 F (w 1 ) ≤ (w 2 -w 1 ) F (w * ) w * . We also have F (w 1 ) ≤ F (w 2 ). That is to say, for any\n\nw * and thus we have just proved that f (w ) is Lipschitz continuous for w ≥ w * . Now let us consider all w. We have shown that F (w) is Lipschitz continuous when w ≤ w * and when w ≥ w * . Let γ 1 and γ 2 denote the Lipschitz constant for both case. Now we can prove that F (w) is Lipschitz continuous with constant γ 1 + γ 2 for any w ≥ 0.\n\nLet us consider any two w 1 , w 2 . If they are both smaller than w * or larger than w * , then clearly we must have\n\nWe only need to consider when w 1 ≤ w * and w 2 ≥ w * . As F (w) is Lipschitz continuous on each side, we have\n\nwhere the first inequality is by triangle inequality, the second ineuqaltiy is by the Lipschitz continuity of F (w) on each side, and the last inequality is due to the assumption that w 1 ≤ w * and w 2 ≥ w * . Thus, we can conclude that F (w) must be Lipschitz continuous on for any w ≥ 0.\n\nwhere the last inequality is due to the Lipschitz continuity and assumption\n\nBy assumption, we have\n\nCombining the above, we have\n\nwhere the first inequality is due to triangle inequality, and the second inequality is simply applying what we have just shown. Note that this holds regardless of the value of i. Thus, this holds for any x, which completes the proof.\n\nthen we must have\n\nwhere the last inequality is due to g(z * ) ≤ 0 by definition. Since, z * is a feasible solution to the second optimization problem, and the optimal value must be no smaller than the value at z * . That is to say,\n\nwhere the last inequality is by definition of z .",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "C.2 Proof Of Lemma 1",
+      "text": "Proof. Given the expected accuracy and cost provided by Lemma 2, the problem 3.1 becomes a linear programming over Pr[A  [1]  s = i] = p  [1]  i , where the constraints are p [1] ≥ 0, 1 T p [1] = 1 and another linear constraint on p [1] . Note that all items in the optimization are positive, and thus changing the constraint to p [1] = 1 to p [1] ≤ 1 does not change the optimal solution. Now, given the constraint p [1] ≥ 0, 1 T p [1] ≤ 1 and one more constraint on p [2] for the linear programing problem over p [1] , we can apply Lemma 4, and conclude that there exists an optimal solution where p [1] * ≤ 2.",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "C.3 Proof Of Lemma 2",
+      "text": "Proof. Let us first consider the expected accuracy. By law of total expectation, we have\n\nPr[A [1]  s = i]E[r s (x)|A [1]\n\nAnd we can further expand the conditional expectation by E[r s (x)|A [1]  s = i] = Pr[D s = 0|A [1]  s = i, ]E[r s (x)|A [1]  s = i, D s = 0] + Pr[D s = 1|A [1]  s = i, ]E[r s (x)|A [1]  s = i, D s = 1] = Pr[D s = 0|A [1]  s = i, ]E[r i (x)|A [1]  s = i, D s = 0] + Pr[D s = 1|A [1]  s = i, ]E[r s (x)|A [1]\n\nwhere the last equality is because when D s = 0, i.e., no add-on service is called, the strategy always uses the base service's prediction and thus r s (x) = r i (x). For the second term, we can bring in A  [2]  s and apply law of total expectation, to obtain E[r s (x)|A [1]  s = i, D s = 1] =",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "K J=1",
+      "text": "Pr[A [2]  s = j|A [1]\n\nPr[A [2]  s = j|A [1]\n\nwhere the last equality is by observing that given the second add-on service is j, the reward simply becomes r j (x). Combining the above, we have\n\n, which is the desired property.\n\nSimilarly, we can expand the expected cost by law of total expectation\n\nPr[A [1]  s = i]E[η s (x)|A [1]  s = i]\n\nAnd we can further expand the conditional expectation by E[η s (x)|A [1]  s = i] = Pr[D s = 0|A [1]  s = i, ]E[η i (x)|A [1]  s = i, D s = 0] + Pr[D s = 1|A [1]  s = i, ]E[η s (x)|A [1]  s = i, D s = 1] = Pr[D s = 0|A [1]  s = i, ]c i + Pr[D s = 1|A [1]  s = i, ]E[η s (x)|A [1]\n\nwhere the last equality is because when D s = 0, i.e., no add-on service is called, the strategy always uses the base service's prediction and incurs the base service's cost η s (x) = c i . For the second term, we can bring in\n\ns and apply law of total expectation, to obtain\n\nPr[A [2]  s = j|A [1]\n\nPr[A [2]  s = j|A [1]\n\nwhere the last equality is because given the base service is i and add-on service is j, the cost is simply the sum of their cost c i + c j . Combining all the above equations, we have the expected cost\n\n, which is the desired term. Thus, we have shown a form of expected accuracy and cost which is exactly the same as in Lemma 2, which completes the proof.",
+      "page_start": 21,
+      "page_end": 21
+    },
+    {
+      "section_name": "C.4 Proof Of Theorem 3",
+      "text": "Proof. To prove Theorem 3, we need a few new definitions and lemmas, which are stated below.",
+      "page_start": 22,
+      "page_end": 22
+    },
+    {
+      "section_name": "Definition 2.",
+      "text": "Let Ê[r s (x)] and Ê[η [s]   (x, c )] denote the empirically estimated accuracy and cost for the strategy s. More precisely, let the empirically estimated accuracy be Ê[r s (x)]\n\nDefinition 3. Let s = (p [1] , Q , P [2] ) be the optimal solution to\n\nNote that s * is the optimal strategy, and s is the optimal strategy when the data distribution is unknown and estimated from N samples, and ŝ is the strategy we actually generate with finite computational complexity by Algorithm 1.\n\nThe following lemma shows the computational complexity of Algorithm 1.",
+      "page_start": 23,
+      "page_end": 23
+    },
+    {
+      "section_name": "Lemma 8. The Complexity Of Algorithm 1 Is",
+      "text": "Proof. Estimating A requires a pass of all the training data, which gives a O(N K) cost. For each k 1 , k 2 , α m , we need a pass over training data for the k 1 th and k 2 th services to estimate ψ k1,k2, (α M ). There are in total K services, and thus this takes O(N M K 2 ) computational cost.\n\nAlgorithm 2 has a complexity of O(K 2 ). Solving Problem 3.3 invokes Algorithm 2 for each ∈ L and m ∈ [M ], and thus takes O(K 2 M L). Computing t * i takes M L , which is O(M L-1 ). That is to say, solving the subproblem 3.3 once requires O(K 2 M L + M L-1 ) computational cost. Solving the master problem 3.2 requires invoking the subproblem M K times, where K times stands for each service, and M stands for the linear interpolation. Thus, the total computational cost for optimization process takes O(K 3 M 3 LM L K 2 ). Combining this with the estimation cost O(N M K 2 ) completes the proof.\n\nNext we evaluate how far the estimated accuracy and cost can be from the true expected accuracy and cost for each strategy, which is stated in Lemma 9.",
+      "page_start": 20,
+      "page_end": 21
+    },
+    {
+      "section_name": "Lemma 9.",
+      "text": "With probability 1 -, we have for all s ∈ S,\n\nand also Recall that the function φk1,k2, (•) is estimated by linear interpolation over α 1 , α 2 , • • • , α M . By assumption, φ k1,k2, (•) is Lipschitz continuous, and α ∈ [0, 1]. Now applying Lemma 6, we have that the estimated function φk1,k2, (•) cannot be too far away from its true value, i.e.,\n\nRecall the definition ra k1,K( -1)+k2 (ρ ρ ρ) ψ k1,k2, (ρ ρ ρ k1, ), rb k, (ρ ρ ρ) ψk,k, (ρ ρ ρ k, ), and r[-] (ρ ρ ρ) ra (ρ ρ ρ) -rb (ρ ρ ρ) ⊗ 1 T K . Then we know that for each element in those matrix function, its estimated value can be at most O( log +log M +log K+log L N + γ M ) away from its true value. Since the true accuracy is the (weighted) average over those functions, its estimated difference is also O( log +log M +log K+log L N + γ M ). The expected cost can be viewed as a (weighted) average over elements in the matrix A i, , and thus the estimation difference is at most O( log +log K+log L N ), which completes the proof.\n\nThen we need to bound how much error is incurred due to our computational approximation. In other words, the difference between s and ŝ, which is given in Lemma 10.",
+      "page_start": 22,
+      "page_end": 22
+    },
+    {
+      "section_name": "Lemma 10.",
+      "text": "",
+      "page_start": 22,
+      "page_end": 22
+    },
+    {
+      "section_name": "Ê[R",
+      "text": "Proof. This lemma requires a few steps. The first step is to show that the subroutine to solve subproblem gives a good approximation. Then we can show that subroutine for solving the master problem gives a good approximation. Finally combing those two, we can prove this lemma.\n\nLet us start by showing that the subroutine to solve subproblem gives a good approximation. Proof. To prove this lemma, we simply note that the problem B.1 also has a sparse structure, which is stated below.\n\nLemma 13. For any constant η, function φ(•) : R → R K , and\n\nis feasible. Then there exists one optimal solution (ρ * ,Π Π Π * ), such that Π Π Π * is sparse and Π Π Π * 0 ≤ 2. More specifically, one of the following must hold:\n\n, for some distinct i, j, and Π Π Π * k = 0, for all k = i, j\n\nProof. Let (p * ,Π Π Π ) be one solution. Our goal is to show that there exists a solution (p * ,Π Π Π * ) which satistfies the above conditions. (i) p * = 0: the optimal value does not depend on Π Π Π , and thus any (p * ,Π Π Π) is a solution. In particular, (p * ,Π Π Π * ) is a solution where Π Π Π * satisfies the first condition in the statement.\n\n(ii) p * = 0: According to Lemma 4, the following linear optimization problem\n\nWe first show that (p * ,Π Π Π * ) is one optimal solution to the confidence score approach. By definition, it is clear that (p * ,Π Π Π * ) is a feasible solution. All that is needed is to show the solution is optimal. Suppose not. We must have\n\nBut noting that Π Π Π by definition is also a feasible solution to the problem C.7, this inequality implies that the objective function achieved by Π Π Π is strictly larger than that achieved by one optimal solution to C.7. A contradiction. Hence, (p * ,Π Π Π * ) is one optimal solution. Next we show that Π Π Π * must follow the presented form. Since Π Π Π * 0 ≤ 2, we can consider the cases separately.\n\n(i\n\nSince the objective function is monotonely increasing w.r.t. Π Π Π i , we must have\n\nAs a linear programming, if it has a solution, then there must exist one solution on the corner point. Since Π Π Π * i = 0,Π Π Π * j = 0, the two constraints must be satisfied to achieve a corner point. The two constraints form a system of linear equations, and solving it gives Π Π Π * i = B/p-cj ci-cj ,Π Π Π * j = ci-B/p ci-cj , which completes the proof. Now we are ready to prove Lemma 12. Recall that in Algorithm 2, we compute (µ\n\nOtherwise, let ρ = µ 2 and Π Π Π =\n\n. Let us consider the two cases separately.\n\nAccording to Lemma 13, there exists a solution ρ * , Π Π Π * to the above problem, such that\n\n, for some distinct i, j, and Π Π Π * k = 0, for all k = i, j\n\nIf the first or second condition happens, the objective then becomes φ i (ρ * ). If the third condition happens, then the objective becomes φ i,j, (ρ * ). Since φ i1 (µ 1 ) ≥ φ i2,j2 (µ 2 ), we must have φ i (ρ * ) ≥ φ i,j, (ρ * ) and thus it must be either first or second condition. By construction of µ 1 , we must have (ii): φ i1 (µ 1 ) ≥ φ i2,j2 (µ 2 ), and thus ρ = µ 2 and Π Π Π =\n\nWe can use a similar argument to show that Π Π Π = Π Π Π * . That is to say, no matter which case we are in, the optimal solution is always returned. Lemma 14. The function ĥk, (β) is Lipschitz continuous with constant O(γ) for β ≥ 0.\n\nProof. Let us use φ k, () to denote ĥk, () for notation simplification. Consider β and β + ∆, and our goal is to bound φ k, (β + ∆) -φ k, (β). Let ρ β+∆ ,Π Π Π β+∆ be the corresponding solution to β + ∆, i.e., the solution to\n\nThus, rk, (1 K×L ) + ρ Π Π Π (β+∆)T • rk, (ρ ) must be smaller or equal to φ k, (β), which is the optimal solution. Thus we must have\n\nNote that by definition,\n\nThe above inequality becomes\n\nwhere the first equality is by adding and subtracting ρ Π Π Π (β+∆)T • rk, (ρ β+∆ ), and the second equality is simply plugging in the value of ρ . According to Lemma 13, Π Π Π β+∆ must be sparse.\n\n, then only the base service (kth service) is used when budget is β + ∆ When the budget becomes smaller, i.e., becomes β, it is always possible to always use the base service. Hence, we must have φ k, (β + ∆) -φ k, (β) = 0.\n\n(ii) Otherwise, since Π Π Π β+∆ ≤ 2, there are at most two elements in Π Π Π β+∆ that are not zeros. Let k 1 , k 2 = k denote the indexes. Then the constraint gives\n\nThus we have\n\nIn addition, note that by assumption, rk, (ρ) is Lipschitz continuous with constant γ. Hence, we must have\n\nAnd thus\n\nWe can further have\n\nCombining it with\n\nThus, no matter which case, we always have\n\nIn addition, since φ k, (β) must be monotone, we have\n\nThat is to say, φ k, (β) is Lipschitz continuous with constant 1+γ min j =k cj , which finishes the proof. Now we are ready to prove Lemma 11. By definition, there must exist a λ λ λ , such that\n\n. Note that Â is empirical probability matrix, by construction, L Âi, = 1 and each A i, is non-negative. Thus, we must have\n\n). On the other hand, by construction, ĝi (b ) produced by the subroutine to solve problem 3.3 is  [1]  s = i]\n\nAbusing the notation a little bit, let us use E to denote Ê for simplicity (as well as Pr for Pr). We can expand the objective function by E[r s (x)|A [1]   [2]  s = j|A [1]\n\nwhere all qualities are simply by applying the conditional expectation formula. That is to say, conditional on the quality score Q, the objective function is a linear function over P where all coefficients are positive.\n\nSimilarly, we can expand the budget constraint by E[η s (x)|A [1]\n\nPr[D s = 1|A [1]  s = i, y i (x) = ] Pr[y i (x) = ] Pr[A [2]  s = j|A [1]\n\nIn addition,by definition g i (b 2 ) -g i (b 1 ) ≥ 0. Hence, we have just shown that |g\n\n) for every m. Now by Lemma 6, we obtain that\n\nExactly the same argument from case 2 can be applied, while noting that we use c i as the interpolation point.\n\nand also\n\nBy Lemma 10, we have\n\nCombining those four inequalities, we have\n\nProof. We simply need to show that E[r s ∆b (x)] is Lipschitz continuous in ∆b. To see this, let us expand s ∆b = (p ∆b , Q ∆b , P ∆b ) and consider the following optimization problem\n\nBy law of total expectation, we have\n\nAnd we can further expand the conditional expectation by\n\nML tasks and services. Recall that We focus on three main ML tasks, namely, facial emotion recognition (FER), sentiment analysis (SA), and speech to text (STT).\n\nFER is a computer vision task, where give a face image, the goal is to give its emotion (such as happy or sad). For FER, we use 3 different ML cloud services, Google Vision  [9] , Microsoft Face (MS Face) [11], and Face++  [6] . We also use a pretrained convolutional neural network (CNN) freely available from github  [13] . Both Microsoft Face and Face++ APIs provide a numeric value in [0,1] as the quality score for their predictions, while Google API gives a value in five categories, namely, \"very unlikely\", \"unlikely\", \"possible\", \"likely\", and \"very likely\". We transform this categorical value into numerical value by linear interpolation, i.e., the five values correspond to 0.2, 0.4, 0.6, 0.8, 1, respectively.\n\nSA is a natural language processing (NLP) task, where the goal is to predict if the attitude of a given text is positive or negative. For SA, the ML services used in the experiments are Google Natural Language (Google NLP)  [7] , Amazon Comprehend (AMZN Comp)  [2] , and Baidu Natural Language Processing (Baidu NLP)  [3] . For English datasets, we use Vader  [29] , a rule-based sentiment analysis engine. For Chinese datasets, we use another rule-based sentiment analysis tool Bixin  [4] .\n\nSTT is a speech recognition task where the goal is to transform an utterance into its corresponding text. for STT, we use three common APIs: Google Speech  [8] , Microsoft Speech (MS Speech) [12], and IBM speech  [10] . a deepspeech model  [14, 19]  from github is also used. Given the returned text from a API, we determine the API's predicted label as the label with smallest edit distance to the returned text. For example, if IBM API produces \"for\" for a sample in AUDIOMNIST, then its label becomes \"four\", since all other numbers have larger distance from the predicted text \"for\".",
+      "page_start": 23,
+      "page_end": 23
+    },
+    {
+      "section_name": "Datasets.",
+      "text": "The experiments were conducted on 12 datasets. The first four datasets, FER+  [20] , RAFDB  [35] , EXPW  [53] , and AFFECTNET  [38]  are FER datasets. The images in FER+ was originally from the FER dataset for the ICML 2013 Workshop on Challenges in Representation, and the label was recreated by crowdsourcing. We only use the testing portion of FER+, since the CNN model from github was pretrained on its training set. For RAFDB and AFFECTNET, we only use the images for basic emotions since commercial APIs cannot work for compound emotions. For EXPW, we use the true bounding box associated with the dataset to create aligned faces first, and only pick the images that are faces with confidence larger than 0.6.\n\nFor SA, we use four datasets, YELP  [18] , IMDB  [37] , SHOP  [15] , and WAIMAI  [17] . YELP and IMDB are both English text datasets. YELP is from the YELP review challenge. Each review is associated with a rating from 1,2,3,4,5. We transform rating 1 and 2 into negative, and rating 4 and 5 into positive. Then we randomly select 10,000 positive and negative reviews, respectively. IMDB is already polarized and partitioned into training and testing parts; we use its testing part which has 25,000 images. SHOP and WAIMAI are two Chinese text datasets. SHOP contains polarized labels for reviews for various purchases (such as fruits, hotels, computers). WAIMAI is a dataset for polarized delivery reviews. We use all samples from SHOP and WAIMAI.\n\nFinally, we use the other four datasets for STT, namely, DIGIT  [5] , AUDIOMNIST  [21] , COMMAND  [47]  and FLUENT  [36] . Each utterance in DIGIT and AUDIOMNIST is a spoken digit (i.e., 0-9). The sampling rate is 8 kHz for DIGIT and 48 kHz for AUDIOMNIST. Each sample in COMMAND is a spoken command such as \"go\", \"left\", \"right\", \"up\", and \"down\", with a sampling rate of 16 kHz. In total, there are 30 commands and a few white noise utterances. FLUENT is another recently developed dataset for speech command. The commands in FLUENT are typically a phrase (e.g., \"turn on the light\" or \"turn down the music\"). There are in total 248 possible phrases, which are mapped to 31 unique labels. The sampling rate is also 16 kHz.\n\nGitHub Model Cost. We evaluate the inference time of all GitHub models on an Amazon EC2 t2.micro instance, which is $0.0116 per hour. The CNN model needs at most 0.016 seconds per 480 x 480 grey image, Bixin and Vader require at most 0.005 seconds for each text with less than 300 words, and DeepSpeech takes at most 0.5 seconds for each less than 15 seconds utterance. Hence, their equivalent price is $0.0005, $0.00016, and $0.016 per 10,000 data points. As shown in Figure  6 , the services from GitHub are much less expensive than the commercial ML services.  Finally we note that while (simple) majority vote gives a poor accuracy (80% in Figure  7  (g)), the majority vote approach does lead to an accuracy (82%) higher than Microsoft API, although it is still lower than FrugalML's accuracy (84%). In addition, ensemble methods like majority vote need access to all ML APIs, and thus requires a cost of 30$, which is 5 times as large as the cost of FrugalML. Hence, they may not help reduce the cost effectively.",
+      "page_start": 33,
+      "page_end": 34
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Comparison of different approaches to use ML APIs. Naively calling a ﬁxed API in (a) provides a",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: ). Through experiments",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: In FrugalML, a base service is ﬁrst selected and called. If its quality score is smaller than the",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: (c) to K ML services and L label classes. Let a tuple s ≜(p[1],Q,P[2]) represent a calling strategy",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Note that the strategy is adaptive: the choice of the add-on API can",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: demonstrates the learned",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: (b), FrugalML’s accuracy is higher than that of the best",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: (f), while 0.93 causes unnecessary add-on service call on Figure 3 (c).",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: A FrugalML strategy learned on the dataset FER+. (a): data ﬂow. (b): accuracy of all ML services",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Accuracy cost trade-offs. Base=GH simpliﬁes FrugalML by ﬁxing the free GitHub model as base",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: Here we also compare with two oblations to FrugalML, “Base=GH”, where",
+      "page": 8
+    },
+    {
+      "caption": "Figure 5: Testing accuracy v.s.training data size. The ﬁxed budget is 5, 1.2, 20, separately.",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Overall, while larger number of classes need more samples, we observe",
+      "page": 9
+    },
+    {
+      "caption": "Figure 6: , the services from GitHub are much less expensive",
+      "page": 33
+    },
+    {
+      "caption": "Figure 6: TCost per 10,000 queries of different ML APIs. GitHub refers to the CNN Model [13] in FER, Vader",
+      "page": 34
+    },
+    {
+      "caption": "Figure 7: shows the confusion matrix of FrugalML, along with all ML services and the other approaches",
+      "page": 34
+    },
+    {
+      "caption": "Figure 6: (f), while reaching the",
+      "page": 34
+    },
+    {
+      "caption": "Figure 6: (f), FrugalML, as shown in Figure 6 (i), produces higher accuracy on all",
+      "page": 34
+    },
+    {
+      "caption": "Figure 6: ), FrugalML slightly hurts",
+      "page": 34
+    },
+    {
+      "caption": "Figure 7: Confusion matrix annotated with overall accuracy and cost on FER+ testing. The y-axis corresponds",
+      "page": 35
+    },
+    {
+      "caption": "Figure 8: Label distribution on dataset FER+. Most of the facial images are neutral and happy faces, and only",
+      "page": 36
+    },
+    {
+      "caption": "Figure 7: (g)), the majority",
+      "page": 36
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "FER+ [20]": "EXPW [53]",
+          "6358": "31510",
+          "7": "7",
+          "RAFDB [35]": "AFFECTNET [38]",
+          "15339": "287401",
+          "FER": ""
+        },
+        {
+          "FER+ [20]": "YELP [18]",
+          "6358": "20000",
+          "7": "2",
+          "RAFDB [35]": "SHOP [15]",
+          "15339": "62774",
+          "FER": "SA"
+        },
+        {
+          "FER+ [20]": "IMDB [37]",
+          "6358": "25000",
+          "7": "2",
+          "RAFDB [35]": "WAIMAI [17]",
+          "15339": "11987",
+          "FER": ""
+        },
+        {
+          "FER+ [20]": "DIGIT [5]",
+          "6358": "2000",
+          "7": "10",
+          "RAFDB [35]": "AUDIOMNIST [21]",
+          "15339": "30000",
+          "FER": "STT"
+        },
+        {
+          "FER+ [20]": "FLUENT [36]",
+          "6358": "30043",
+          "7": "31",
+          "RAFDB [35]": "COMMAND [47]",
+          "15339": "64727",
+          "FER": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "FER+": "EXPW",
+          "81.4": "72.7",
+          "10": "10",
+          "3.3": "5.0",
+          "67%": "50%",
+          "RAFDB": "AFFECTNET",
+          "71.7": "72.2",
+          "4.3": "4.7",
+          "57%": "53%"
+        },
+        {
+          "FER+": "YELP",
+          "81.4": "95.7",
+          "10": "3.5",
+          "3.3": "1.9",
+          "67%": "24%",
+          "RAFDB": "SHOP",
+          "71.7": "92.1",
+          "4.3": "1.9",
+          "57%": "46%"
+        },
+        {
+          "FER+": "IMDB",
+          "81.4": "86.4",
+          "10": "3.5",
+          "3.3": "1.9",
+          "67%": "24%",
+          "RAFDB": "WAIMAI",
+          "71.7": "88.9",
+          "4.3": "1.4",
+          "57%": "60%"
+        },
+        {
+          "FER+": "DIGIT",
+          "81.4": "82.6",
+          "10": "41",
+          "3.3": "23",
+          "67%": "44%",
+          "RAFDB": "COMMAND",
+          "71.7": "94.6",
+          "4.3": "15",
+          "57%": "63%"
+        },
+        {
+          "FER+": "FLUENT",
+          "81.4": "97.5",
+          "10": "41",
+          "3.3": "26",
+          "67%": "37%",
+          "RAFDB": "AUDIOMNIST",
+          "71.7": "98.6",
+          "4.3": "3.9",
+          "57%": "90%"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "MS Face\nGoogle Vision": "Face++\nGitHub (CNN)"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Google NLP\nAMAZ COMP\nGitHub (Vader)": "Baidu NLP"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Baidu NLP\nAMAZ COMP\nGoogle NLP": "GitHub (Bixin)"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "MS Speech\nGoogle Speech": "IBM Speech\nGitHub (DeepSpeech)"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "MS Speech\nIBM Speech": "GitHub (DeepSpeech)"
+        },
+        {
+          "MS Speech\nIBM Speech": "Google Speech"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "MS Speech\nIBM Speech\nGitHub (DeepSpeech)": "Google Speech"
+        }
+      ],
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Machine Learning as a Service Market Report",
+      "venue": "Machine Learning as a Service Market Report"
+    },
+    {
+      "citation_id": "2",
+      "title": "",
+      "authors": [
+        "Amazon Comprehend"
+      ],
+      "year": "2020",
+      "venue": ""
+    },
+    {
+      "citation_id": "3",
+      "title": "",
+      "authors": [
+        "Api Baidu"
+      ],
+      "year": "2020",
+      "venue": ""
+    },
+    {
+      "citation_id": "4",
+      "title": "Chinese Sentiment Analysis tool from GitHub",
+      "authors": [
+        "Bixin"
+      ],
+      "year": "2020",
+      "venue": "Chinese Sentiment Analysis tool from GitHub"
+    },
+    {
+      "citation_id": "5",
+      "title": "DIGIT dataset",
+      "venue": "DIGIT dataset"
+    },
+    {
+      "citation_id": "6",
+      "title": "Face++ Emotion API",
+      "year": "2020",
+      "venue": "Face++ Emotion API"
+    },
+    {
+      "citation_id": "7",
+      "title": "",
+      "authors": [
+        "Nlp Google",
+        "Api"
+      ],
+      "year": "2020",
+      "venue": ""
+    },
+    {
+      "citation_id": "8",
+      "title": "",
+      "authors": [
+        "Google Speech"
+      ],
+      "year": "2020",
+      "venue": ""
+    },
+    {
+      "citation_id": "9",
+      "title": "Google Vision API",
+      "year": "2020",
+      "venue": "Google Vision API"
+    },
+    {
+      "citation_id": "10",
+      "title": "",
+      "authors": [
+        "Api Speech"
+      ],
+      "year": "2020",
+      "venue": ""
+    },
+    {
+      "citation_id": "11",
+      "title": "Pretrained facial emotion model from GitHub",
+      "year": "2020",
+      "venue": "Pretrained facial emotion model from GitHub"
+    },
+    {
+      "citation_id": "12",
+      "title": "Pretrained speech to text model from GitHub",
+      "year": "2020",
+      "venue": "Pretrained speech to text model from GitHub"
+    },
+    {
+      "citation_id": "13",
+      "title": "",
+      "authors": [
+        "Shop",
+        "Dataset"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "14",
+      "title": "Sentiment Analysis tool from GitHub",
+      "authors": [
+        "An Vader",
+        "English"
+      ],
+      "year": "2020",
+      "venue": "Sentiment Analysis tool from GitHub"
+    },
+    {
+      "citation_id": "15",
+      "title": "",
+      "authors": [
+        "Dataset"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "16",
+      "title": "YELP dataset",
+      "venue": "YELP dataset"
+    },
+    {
+      "citation_id": "17",
+      "title": "Deep speech 2 : End-to-end speech recognition in english and mandarin",
+      "authors": [
+        "Dario Amodei",
+        "Rishita Sundaram Ananthanarayanan",
+        "Jingliang Anubhai",
+        "Eric Bai",
+        "Carl Battenberg",
+        "Jared Case",
+        "Bryan Casper",
+        "Jingdong Catanzaro",
+        "Mike Chen",
+        "Adam Chrzanowski",
+        "Greg Coates",
+        "Erich Diamos",
+        "Jesse Elsen",
+        "Linxi Engel",
+        "Christopher Fan",
+        "Fougner",
+        "Y Awni",
+        "Billy Hannun",
+        "Tony Jun",
+        "Patrick Han",
+        "Xiangang Legresley",
+        "Libby Li",
+        "Sharan Lin",
+        "Andrew Narang",
+        "Sherjil Ng",
+        "Ryan Ozair",
+        "Sheng Prenger",
+        "Jonathan Qian",
+        "Sanjeev Raiman",
+        "David Satheesh",
+        "Shubho Seetapun",
+        "Chong Sengupta",
+        "Yi Wang",
+        "Zhiqian Wang",
+        "Bo Wang",
+        "Yan Xiao",
+        "Dani Xie",
+        "Jun Yogatama",
+        "Zhenyao Zhan",
+        "Zhu"
+      ],
+      "year": "2016",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "18",
+      "title": "Training deep networks for facial expression recognition with crowd-sourced label distribution",
+      "authors": [
+        "Emad Barsoum",
+        "Cha Zhang",
+        "Cristian Canton Ferrer",
+        "Zhengyou Zhang"
+      ],
+      "year": "2016",
+      "venue": "Training deep networks for facial expression recognition with crowd-sourced label distribution"
+    },
+    {
+      "citation_id": "19",
+      "title": "Interpreting and explaining deep neural networks for classification of audio signals",
+      "authors": [
+        "Sören Becker",
+        "Marcel Ackermann",
+        "Sebastian Lapuschkin",
+        "Klaus-Robert Müller",
+        "Wojciech Samek"
+      ],
+      "year": "2018",
+      "venue": "Interpreting and explaining deep neural networks for classification of audio signals"
+    },
+    {
+      "citation_id": "20",
+      "title": "Gender shades: Intersectional accuracy disparities in commercial gender classification",
+      "authors": [
+        "Joy Buolamwini",
+        "Timnit Gebru"
+      ],
+      "year": "2018",
+      "venue": "Gender shades: Intersectional accuracy disparities in commercial gender classification"
+    },
+    {
+      "citation_id": "21",
+      "title": "Learning complexity-aware cascades for deep pedestrian detection",
+      "authors": [
+        "Zhaowei Cai",
+        "Mohammad Saberian",
+        "Nuno Vasconcelos"
+      ],
+      "year": "2015",
+      "venue": "Learning complexity-aware cascades for deep pedestrian detection"
+    },
+    {
+      "citation_id": "22",
+      "title": "A parallel mixture of SVMs for very large scale problems",
+      "authors": [
+        "Ronan Collobert",
+        "Samy Bengio",
+        "Yoshua Bengio"
+      ],
+      "year": "2002",
+      "venue": "Neural Computation"
+    },
+    {
+      "citation_id": "23",
+      "title": "Distributed gaussian processes",
+      "authors": [
+        "Marc Peter",
+        "Jun Ng"
+      ],
+      "year": "2015",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "24",
+      "title": "Challenges in representation learning: A report on three machine learning contests",
+      "authors": [
+        "Ian Goodfellow",
+        "Dumitru Erhan",
+        "Pierre Carrier",
+        "Aaron Courville",
+        "Mehdi Mirza",
+        "Benjamin Hamner",
+        "William Cukierski",
+        "Yichuan Tang",
+        "David Thaler",
+        "Dong-Hyun Lee",
+        "Yingbo Zhou",
+        "Chetan Ramaiah",
+        "Fangxiang Feng",
+        "Ruifan Li",
+        "Xiaojie Wang",
+        "Dimitris Athanasakis",
+        "John Shawe-Taylor",
+        "Maxim Milakov",
+        "John Park",
+        "Tudor Radu",
+        "Marius Ionescu",
+        "Cristian Popescu",
+        "James Grozea",
+        "Jingjing Bergstra",
+        "Lukasz Xie",
+        "Bing Romaszko",
+        "Zhang Xu",
+        "Yoshua Chuang",
+        "Bengio"
+      ],
+      "year": "2015",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "25",
+      "title": "Google's cloud vision API is not robust to noise",
+      "authors": [
+        "Hossein Hosseini",
+        "Baicen Xiao",
+        "Radha Poovendran"
+      ],
+      "venue": "Google's cloud vision API is not robust to noise"
+    },
+    {
+      "citation_id": "26",
+      "title": "Studying the live cross-platform circulation of images with computer vision API: An experiment based on a sports media event",
+      "authors": [
+        "Hossein Hosseini",
+        "Baicen Xiao",
+        "Radha Poovendran"
+      ],
+      "year": "2019",
+      "venue": "International Journal of Communication"
+    },
+    {
+      "citation_id": "27",
+      "title": "VADER: A parsimonious rule-based model for sentiment analysis of social media text",
+      "authors": [
+        "Clayton Hutto",
+        "Eric Gilbert"
+      ],
+      "year": "2014",
+      "venue": "ICWSM"
+    },
+    {
+      "citation_id": "28",
+      "title": "Adaptive mixtures of local experts",
+      "authors": [
+        "Robert Jacobs",
+        "Michael Jordan",
+        "Steven Nowlan",
+        "Geoffrey Hinton"
+      ],
+      "year": "1991",
+      "venue": "Neural Computation"
+    },
+    {
+      "citation_id": "29",
+      "title": "Hierarchical mixtures of experts and the EM algorithm",
+      "authors": [
+        "Michael Jordan",
+        "Robert Jacobs"
+      ],
+      "year": "1994",
+      "venue": "Neural Computation"
+    },
+    {
+      "citation_id": "30",
+      "title": "Noscope: Optimizing deep cnn-based queries over video streams at scale",
+      "authors": [
+        "Daniel Kang",
+        "John Emmons",
+        "Firas Abuzaid",
+        "Peter Bailis",
+        "Matei Zaharia"
+      ],
+      "year": "2017",
+      "venue": "PVLDB"
+    },
+    {
+      "citation_id": "31",
+      "title": "Multiaccuracy: Black-box post-processing for fairness in classification",
+      "authors": [
+        "Amirata Michael P Kim",
+        "James Ghorbani",
+        "Zou"
+      ],
+      "venue": "Multiaccuracy: Black-box post-processing for fairness in classification"
+    },
+    {
+      "citation_id": "32",
+      "title": "A convolutional neural network cascade for face detection",
+      "authors": [
+        "Haoxiang Li",
+        "Zhe Lin",
+        "Xiaohui Shen",
+        "Jonathan Brandt",
+        "Gang Hua"
+      ],
+      "year": "2015",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "33",
+      "title": "Reliable crowdsourcing and deep locality-preserving learning for expression recognition in the wild",
+      "authors": [
+        "Shan Li",
+        "Weihong Deng",
+        "Junping Du"
+      ],
+      "year": "2017",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "34",
+      "title": "Speech model pre-training for end-to-end spoken language understanding",
+      "authors": [
+        "Loren Lugosch",
+        "Mirco Ravanelli",
+        "Patrick Ignoto",
+        "Vikrant Singh Tomar",
+        "Yoshua Bengio"
+      ],
+      "year": "2019",
+      "venue": "Speech model pre-training for end-to-end spoken language understanding"
+    },
+    {
+      "citation_id": "35",
+      "title": "Learning word vectors for sentiment analysis",
+      "authors": [
+        "Andrew Maas",
+        "Raymond Daly",
+        "Peter Pham",
+        "Dan Huang",
+        "Andrew Ng",
+        "Christopher Potts"
+      ],
+      "year": "2011",
+      "venue": "Human Language Technologies, ACL"
+    },
+    {
+      "citation_id": "36",
+      "title": "Affectnet: A database for facial expression, valence, and arousal computing in the wild",
+      "authors": [
+        "Ali Mollahosseini",
+        "Behzad Hasani",
+        "Mohammad Mahoor"
+      ],
+      "year": "2019",
+      "venue": "IEEE Trans. Affect. Comput"
+    },
+    {
+      "citation_id": "37",
+      "title": "Librispeech: an asr corpus based on public domain audio books",
+      "authors": [
+        "Vassil Panayotov",
+        "Guoguo Chen",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Librispeech: an asr corpus based on public domain audio books"
+    },
+    {
+      "citation_id": "38",
+      "title": "Using online artificial vision services to assist the blind -an assessment of microsoft cognitive services and google cloud vision",
+      "authors": [
+        "Arsénio Reis",
+        "Dennis Paulino",
+        "Filipe Vítor",
+        "João Barroso"
+      ],
+      "year": "2018",
+      "venue": "Using online artificial vision services to assist the blind -an assessment of microsoft cognitive services and google cloud vision"
+    },
+    {
+      "citation_id": "39",
+      "title": "Granger-causal attentive mixtures of experts: Learning important features with neural networks",
+      "authors": [
+        "Patrick Schwab",
+        "Djordje Miladinovic",
+        "Walter Karlen"
+      ],
+      "year": "2019",
+      "venue": "Granger-causal attentive mixtures of experts: Learning important features with neural networks"
+    },
+    {
+      "citation_id": "40",
+      "title": "Outrageously large neural networks: The sparsely-gated mixture-of-experts layer",
+      "authors": [
+        "Noam Shazeer",
+        "Azalia Mirhoseini",
+        "Krzysztof Maziarz",
+        "Andy Davis",
+        "Quoc Le",
+        "Geoffrey Hinton",
+        "Jeff Dean"
+      ],
+      "year": "2017",
+      "venue": "Outrageously large neural networks: The sparsely-gated mixture-of-experts layer"
+    },
+    {
+      "citation_id": "41",
+      "title": "Deep convolutional network cascade for facial point detection",
+      "authors": [
+        "Yi Sun",
+        "Xiaogang Wang",
+        "Xiaoou Tang"
+      ],
+      "year": "2013",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "42",
+      "title": "Robust real-time object detection",
+      "authors": [
+        "Paul Viola",
+        "Michael Jones"
+      ],
+      "year": "2001",
+      "venue": "International Journal of Computer Vision"
+    },
+    {
+      "citation_id": "43",
+      "title": "Fast and robust classification using asymmetric adaboost and a detector cascade",
+      "authors": [
+        "Paul Viola",
+        "Michael Jones"
+      ],
+      "year": "2001",
+      "venue": "Fast and robust classification using asymmetric adaboost and a detector cascade"
+    },
+    {
+      "citation_id": "44",
+      "title": "A cascade ranking model for efficient ranked retrieval",
+      "authors": [
+        "Lidan Wang",
+        "Jimmy Lin",
+        "Donald Metzler"
+      ],
+      "venue": "SIGIR 2011"
+    },
+    {
+      "citation_id": "45",
+      "title": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "authors": [
+        "Pete Warden"
+      ],
+      "year": "2018",
+      "venue": "Speech commands: A dataset for limited-vocabulary speech recognition"
+    },
+    {
+      "citation_id": "46",
+      "title": "Classifier cascades and trees for minimizing feature evaluation cost",
+      "authors": [
+        "Eddie Zhixiang",
+        "Matt Xu",
+        "Kilian Kusner",
+        "Minmin Weinberger",
+        "Olivier Chen",
+        "Chapelle"
+      ],
+      "year": "2014",
+      "venue": "J. Mach. Learn. Res"
+    },
+    {
+      "citation_id": "47",
+      "title": "An efficient EM approach to parameter learning of the mixture of gaussian processes",
+      "authors": [
+        "Yan Yang",
+        "Jinwen Ma"
+      ],
+      "venue": "An efficient EM approach to parameter learning of the mixture of gaussian processes"
+    },
+    {
+      "citation_id": "48",
+      "title": "Hierarchical mixture of classification experts uncovers interactions between brain regions",
+      "authors": [
+        "Bangpeng Yao",
+        "Dirk Walther",
+        "Diane Beck",
+        "Fei-Fei Li"
+      ],
+      "year": "2009",
+      "venue": "Hierarchical mixture of classification experts uncovers interactions between brain regions"
+    },
+    {
+      "citation_id": "49",
+      "title": "Complexity vs. performance: empirical analysis of machine learning as a service",
+      "authors": [
+        "Yuanshun Yao",
+        "Zhujun Xiao",
+        "Bolun Wang",
+        "Bimal Viswanath",
+        "Haitao Zheng",
+        "Ben Zhao"
+      ],
+      "year": "2017",
+      "venue": "Complexity vs. performance: empirical analysis of machine learning as a service"
+    },
+    {
+      "citation_id": "50",
+      "title": "Twenty years of mixture of experts",
+      "authors": [
+        "Esen Seniha",
+        "Joseph Yuksel",
+        "Paul Wilson",
+        "Gader"
+      ],
+      "year": "2012",
+      "venue": "IEEE Trans. Neural Networks Learn. Syst"
+    },
+    {
+      "citation_id": "51",
+      "title": "Learning social relation traits from face images",
+      "authors": [
+        "Zhanpeng Zhang",
+        "Ping Luo",
+        "Chen Loy",
+        "Xiaoou Tang"
+      ],
+      "year": "2015",
+      "venue": "Learning social relation traits from face images"
+    }
+  ]
+}

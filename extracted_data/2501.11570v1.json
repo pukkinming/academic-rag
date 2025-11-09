@@ -1,0 +1,641 @@
+{
+  "paper_id": "2501.11570v1",
+  "title": "Uncertainty Estimation In The Real World: A Study On Music Emotion Recognition",
+  "published": "2025-01-20T16:19:19Z",
+  "authors": [
+    "Karn N. Watcharasupat",
+    "Yiwei Ding",
+    "T. Aleksandra Ma",
+    "Pavan Seshadri",
+    "Alexander Lerch"
+  ],
+  "keywords": [
+    "Uncertainty quantification",
+    "Emotion recognition",
+    "Psychometric machine learning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Any data annotation for subjective tasks shows potential variations between individuals. This is particularly true for annotations of emotional responses to musical stimuli. While older approaches to music emotion recognition systems frequently addressed this uncertainty problem through probabilistic modeling, modern systems based on neural networks tend to ignore the variability and focus only on predicting central tendencies of human subjective responses. In this work, we explore several methods for estimating not only the central tendencies of the subjective responses to a musical stimulus, but also for estimating the uncertainty associated with these responses. In particular, we investigate probabilistic loss functions and inference-time random sampling. Experimental results indicate that while the modeling of the central tendencies is achievable, modeling of the uncertainty in subjective responses proves significantly more challenging with currently available approaches even when empirical estimates of variations in the responses are available.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "A wide variety of machine-learning tasks require human-annotated data as a proxy for \"ground truths.\" In some tasks, the required annotations are considered mostly \"objective\" (e.g., assigning the label 'cat' to an image), resulting in a high rate of interrater agreements. In other tasks, the required annotations are inherently subjective, opinion-based, or otherwise ambiguous. This is particularly true in any task involving the use of self-reported psychometric responses to stimuli, where there may not even exist an absolute \"ground truth\" corresponding to a particular stimulus  [25] . The \"ground truths\" in these tasks are thus more akin to distributions conditioned on stimulus, that is, associated with some uncertainty. As a result, the corresponding predictions by the model given these stimuli also have associated uncertainties arising from subjective human judgments in the data. Quantifying these uncertainties is crucial as one of the tenets for developing a trustworthy machine learning system.\n\nUncertainty Quantification This characterization falls under larger umbrella task Uncertainty Quantification (UQ). Uncertainties in Machine Learning (ML) systems are commonly categorized into data (aleatoric) uncertainties and model (epistemic) uncertainties  [16] . Data uncertainties arise from inherent randomness or noise and are thus considered irreducible. Model uncertainties, on the other hand, depend on the lack of knowledge, training issues, or architectural constraints.\n\nA variety of uncertainty quantification (UQ) methods have been proposed [see 1, 8, for reviews]. Common methods to characterize model (epistemic) uncertainty include Bayesian methods and ensembling. These methods have been studied, for example, in the context of image classification  [37] , semantic segmentation, biomedical machine learning  [13] , natural language processing  [33] , or intersections thereof, with significant efforts dedicated to reducing model uncertainty. Methods to characterize data (aleatoric) uncertainty include direct predictive distribution modeling and deep generative modeling, however, this problem has been historically given somewhat less attention, presumably due to the irreducibility of data uncertainties. A major limitation of many of the existing UQ methods is that they often cannot distinguish between model and data uncertainty, producing a single uncertainty estimate  [16] . Model uncertainty estimation, in particular, is often made under the assumption that data uncertainty is negligible. Only in recent years have methods directly quantifying both epistemic and aleatoric uncertainty in a disentangled manner gained some interest. It should be noted that most works in this area exclusively focus on classification problems.\n\nMusic Emotion Recognition Music emotion recognition (MER), also known as mood recognition, is an archetypal example of a task without an absolute ground truth. The recognition of emotion in music is a particularly important problem in music information retrieval (MIR), as emotional cues are commonly used as descriptors for a piece of music. The annotations corresponding to a particular stimulus are usually either categorical affective labels (e.g., relaxing, suspenseful) or numerical scores corresponding to different levels of various \"dimensions\" of emotions (e.g., Likert ratings on valence and arousal, see below)  [34, pp. 15-20] .\n\nDepending on the type of annotations, MER can be seen as either a classification or a regression task. A common formation of regression-based MER involves associating a stimulus to a point in a low-dimensional \"space\" of emotion, with the most common being the valence-arousal (V-A) model and variations thereof [see  34, pp. 55-88] . The V-A model is a simplified two-dimensional representation of emotion, originating from Russell's circumplex model of affect  [20] . The valence dimension accounts for \"the degree to which an emotion is associated with favorable outcomes,\" while the arousal dimension accounts for \"the amount of energy associated with an emotion\"  [26, p. 245] . The remainder of this work will focus on MER as a multiple regression problem in the V-A space.\n\nThere is no absolute nor objective ground truth available for such an MER task since (i) different individuals might experience the emotional content and impact of the same piece of music differently  [34, p. 107] , and (ii) two similar affective reactions may be ascribed to two very different numerical values during data collection  [15] .\n\nInterestingly, while the distributional nature of psychometric data has been accounted for in several older feature-based approaches to MER via probabilistic modeling  [3, 5, 9, 10, 21-23, 28-30, 35] , most modern neural MER systems do not take into account the distributional information of these empirical annotations. Instead, central tendencies such as the mean and median of the ratings, are solely predicted without acknowledging that these are ultimately sample estimates of random variables from unknown distributions. As most building blocks of deep learning systems have been designed as deterministic maps, they are arguably not always well suited for psychometric targets where variations in the ground truth cannot be simply treated as label noise.\n\nIn recent years, MER has started to become utilized beyond purely media and entertainment applications, particularly in music therapy for both psychiatric and non-psychiatric treatments  [6] , where ML trustworthiness is of crucial importance. As a result, our study 3  aims to investigate the extent to which these stochasticities, specifically, interrater variations, can be modeled with a deep learning approach, acknowledging that current MER systems are utilizing deep neural architectures. In order to do so, we explore several methods in which such a system can learn to predict a probability distribution or an empirical approximation thereof. To summarize, this study (i) identifies approaches to model the uncertainty in rater annotations of highly subjective regression tasks, and (ii) explores and benchmarks these approaches in the context of music emotion recognition.",
+      "page_start": 1,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methods",
+      "text": "In this section, we first outline the statistical preliminaries and then describe in detail the different methods employed to estimate uncertainty. As noted earlier, these methods cannot strictly distinguish data and model uncertainties from each other. Although we are more interested in modeling data uncertainty, we also investigate methods for estimating model uncertainty for comparison. Practically, we simply categorize the methods by whether they require groundtruth uncertainty during training or not. We assume -where necessary -that both ground-truth data distribution and output distribution are Gaussian. The assumptions and properties of all investigated methods are listed in Table  1 . These methods are chosen for their common usage in literature as baselines and for their ease of interpretation. Many of the state-of-the-art methods either only\n\nTable  1 : Training target(s), output(s), their interpretations, and multiple-run requirements for the methods tested.\n\nwork for classification tasks or require invasive changes to the models, rendering them impractical for a regression task with low data availability such as MER.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Preliminaries",
+      "text": "Following previous work  [21] , we use valence and arousal to measure the emotion of music. Formally, we model an emotional response to a stimulus x as a bivariate conditional variable Y | X = x ∼ N (µ x , Σ x ). Unlike Schmidt and Kim  [21] , however, we model Σ x as a diagonal matrix. This assumption is taken to simplify the downstream methodology and analyses, especially as the prediction of a positive semi-definite matrix in deep learning is nontrivial and prone to numerical instability. Equivalently, this model can be composed into two independent random variables: valence\n\n). Consequently, the spread parameter σ •,x models the level of uncertainty of the emotional responses by individuals for a particular stimulus x. The sources of variations accounted for in an empirical estimate of σ •,x could include the individual demographics, the listening environment, and familiarity with the musical genre, amongst others  [36] . For brevity, we will use µ and σ in the following to denote empirical estimates of the mean and standard deviation in subsequent sections. Figure  1  visualizes the different concepts of uncertainty estimation introduced below.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Methods Requiring Empirical Uncertainty",
+      "text": "In this section, we present training methods for joint mean-uncertainty estimation with the data requirement of empirical uncertainty as training targets, in addition to the V-A ratings. In both methods below, the model outputs estimates of the distributional parameters (ŷ, σ) := f (x | θ).",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Mse Loss:",
+      "text": "The first method naively aims to minimize the mean square error (MSE) on the distributional parameters by minimizing the loss function whose sample contribution is given by\n\nKLD Loss: The second method requires probabilistic modeling of the output as a Gaussian distribution. In doing so, it is possible to minimize the KL divergence (KLD) between the predicted and the empirical distributions\n\nThe uncertainty estimate in both cases is directly the predicted SD σ.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Methods Not Requiring Empirical Uncertainty",
+      "text": "Given that multi-annotator datasets with a sufficient number of raters are relatively rare in MER, we also consider methods where empirical estimates of the rating uncertainty are not needed during training.\n\nNLL Loss: Following  [18, 19, 31] , probabilistic modeling of the outputs can still be employed even when ground truth uncertainty is unavailable. This is done by requiring a two-output model as per above and viewing the estimates Ŷ | X as a Gaussian random variable parametrized by the outputs of f (X | θ), where θ is the learnt model parameters. By using a mini-batch proxy for minimizing\n\n} over a dataset D, it is possible to arrive the negative log-likelihood loss (NLL) contributions as a practical proxy, where\n\nAs with the KLD method, the uncertainty estimate in both cases is directly the predicted SD σ. The same loss and variations thereof have also been used in other UQ studies  [24, 27] , given its direct relation to maximum likelihood estimation.\n\nClearly, the NLL loss function has some similarity with the KLD loss function. Both are effectively some forms of a pseudo-regularized generalization of the MSE, with the difference lying in the pseudo-regularizer. In the NLL loss, the first term leans towards bigger σ2 , especially for samples that have larger MSE, while the second term leans towards lower σ2 , which encourages the model to be more \"certain\" about the predictions.\n\nRandom Seeds: Regardless of the loss function, using n different random seeds during the training runs can be seen as drawing independent and identically distributed (i.i.d.) samples of optimal parameters from a conditional distribution: θ1 , θ2 , ..., θn i.i.d.\n\nwhere D is the dataset. Let ŷi := f (x | θi ) as the rating estimate from the model θi with the ith random seed. For each input x, the averaged prediction over seed is thus given by\n\nwhile the uncertainty estimate is given by\n\n(\n\nThe benefit of using random seeds for uncertainty estimation lies in that there is no need for the model to explicitly output an uncertainty estimate. However, this method requires a considerable amount of training runs, thus resultant models, to obtain a relatively accurate estimation of the uncertainty. Therefore, this method requires a relatively large amount of both computational and storage resources compared to other methods. Additionally, this method is more commonly used to estimate model uncertainty rather than data uncertainty. This method is included to investigate whether variations in the model optima, thus the variations in the prediction for each stimulus, have any relation to the stimulus-dependent variations.\n\nMC Dropout: Given that the multiple-seed method requires a significant number of model instantiations, another -more efficient-possibility of obtaining multiple predictions from a single model is to turn on dropout during inference (\"Monte Carlo dropout\"). Following  [7, 11] , in a system with dropout layers, turning on dropout during inference can be seen as a simulation of drawing i.i.d. parameter samples from a distribution. By repeating the process multiple times using an already optimized set of parameters θ, we have θ1 , θ2 , ..., θn i.i.d.\n\nwhere θ is the parameters during a single inference run. Similar to the Random Seeds method, the prediction for input x is\n\nCompared to using different seeds, MC Dropout requires only one training run, significantly reducing the training cost. As in the previous method, this method is more often used to estimate model uncertainty.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "In this section, we describe our experimental setup, including the dataset and the model used.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Data",
+      "text": "The dataset used for this study, the MediaEval Database for Emotional Analysis in Music (DEAM) dataset  [2] , consists of 1802 songs. In this work, we will only use a subset of 45-second excerpts from 1744 songs whose annotations were collected using a static setup in 2013 and 2014, with at least 10 annotators per song. The remaining 58 songs collected in 2015 with 5 annotators using a dynamic setup were not used due to the smaller number of annotators and the difference in data collection methodology compared to the previous collection efforts.\n\nIn the original 2014 MediaEval setup, the 744 songs collected in 2013 were used as the training set, and the 1000 songs collected in 2014 were used as the evaluation set. In this work, we restructured the dataset into train-validation-test splits with a 70:15:15 ratio, stratified by genres. The song identifiers for each split are published in the accompanying repository for reproducibility. Figures  2  and 3  show the distribution of the mean and SD of the normalized valence and arousal, respectively, aggregated across all raters of a given song. The normalization is discussed below. Each point in the scatter plot represents a song in the dataset, differentiated in color by the data split. The marginal density plots represent the distribution of the mean and SD respectively. The density curves for the split have been normalized to compare their distribution. As shown in the marginal distribution plots in Figures  2  and 3 , the distributions of the mean and SD of both the valence and the arousal ratings are also approximately Gaussian. We note that almost half of the standard deviations are greater than 0.3 and can be as large as 0.5. Given that most mean values are between -0.5 and 0.5, the inter-rater variations can be considerable, and therefore this uncertainty should be non-ignorable in this dataset.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Data Preprocessing",
+      "text": "The data collection for DEAM follows a 9-point Likert scale from 1 to 9, with r neutral = 5 being the neutral point, leaving R = 4 non-neutral options on each end. The ratings were normalized with\n\nto bring them to the [-1 + δ, 1 -δ] ⊂ (-1, 1) range, δ = 1/(R + 1). This normalization is similar in motivation to label smoothing  [17] . It was adopted so that the two most extreme ratings can be achieved non-asymptotically, without requiring disproportionately large logit values before a sigmoidal activation.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Model",
+      "text": "The model used in this work is a combination of the MusicFM-MSD model  [32]  and a smaller fully connected network (FCN) with 2 hidden layers. Each hidden FCN layer consists of 128 hidden neurons, with ELU activation and 50 % dropout.\n\nThe output layer has one output for the mean-only model and two outputs for the mean-variance model. The mean head has hyperbolic tangent activation while the variance head has a negative softplus activation given by\n\nfor stability. In effect, we have σ = (1 + e z ) -1 ∈ (0, 1) for a corresponding finitevalued logit z. The architecture of the smaller network was chosen via preliminary experiments to yield a model with a sufficient complexity that does not overfit in the relatively small MER dataset, especially since data augmentation cannot be easily performed for MER. Each stereo audio signal from DEAM was first downsampled to 24 kHz, then padded or trimmed to 45 s. The preprocessed audio signal was then passed through the foundation model to obtain a 1024-dimensional time series of features for each audio channel. The features were averaged over audio channels and time frames to obtain a single 1024-dimensional vector per song, which was then passed through the FCN to obtain the predictions.  Table  2 : Metrics and their standard deviations for predictions of the mean subjective ratings by different methods, aggregated over 15 random seeds. Note that the results from TNN-SVR were obtained from literature with different data splits.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Training",
+      "text": "For all experiments in this work, the foundation model was frozen. The FCN model was trained with an Adam optimizer with an initial learning rate of 10 -3 for up to 100 epochs. The learning rate is dropped by a factor of 0.9 after 3 epochs of no improvement in validation loss, subject to a minimum learning rate of 10 -5 . Each epoch consists of 128 training batches of size 32 each, totaling 4096 training samples per epoch. For each training sample, we take the mean (and standard deviation if required) of all the raters as the ground-truth.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Results And Discussions",
+      "text": "The results for uncertainty estimation are presented in Table  3  and Figure  5 . The reported metrics are the coefficient of determination R 2 , the Pearson correlation coefficients r p , and the Spearman r s correlation coefficients. For mean prediction,  The results for mean prediction and uncertainty estimation are presented in Table  2  and Figure  4 . The table also includes the results of TNN-SVR  [4] , a baseline model for music emotion recognition, as a comparison.  4  We observe that all of the methods have fairly similar performance on both valence (V) and arousal (A) predictions. Perhaps the only notable difference is the slightly lower performance of the KLD loss in the prediction of the valence ratings.\n\nThe results for uncertainty estimation are presented in Table  3  and Figure  5 . We find that none of the methods capture the ground-truth standard deviation consistently on either valence or arousal. All R 2 metrics are effectively well below zero, indicating that the uncertainty estimations of all methods are significantly worse than a naive linear predictor. Both correlation coefficients for all methods are also either weakly negative or close to zero. This indicates that the model generally could not predict the uncertainty estimates with any appreciable correlation to the interrater variations of the ratings.\n\nBy further visualizing the relationship between the empirical and predicted standard deviations in Figure  5 , however, it can be observed that each method exhibits slightly different \"failure\" behaviors. From this, a few conjectures can be made about the limitation of each uncertainty quantification technique employed.\n\nThe multiple-seed and MC dropout methods consistently underestimate the empirical standard deviations. For the multiple-seed method, the variations in the outputs of differently randomized but otherwise similarly trained models appear to not at all reflect the interrater variations. In other words, a different random seed cannot be successfully used to mimic the effect of a different rater. Similarly, the randomly disconnected activations in the MC dropout method appear to not be an effective method for quantifying the interrater variability.\n\nThe model trained on NLL loss also largely predicted standard deviations within a relatively narrow range, but with a few outliers with large predicted standard deviations. Models trained on the MSE and KLD losses, on the other hand, exhibited a larger range of output values, yet the predicted and empirical standard deviations appear nearly uncorrelated.\n\nThe different scales of standard deviation prediction can be explained by the loss functions. The multiple-seed and MC dropout methods do not involve the standard deviation in the loss at all, and therefore the scale of standard deviation is completely unknown. NLL loss, on the other hand, pushes σ towards zero while it allows larger σ values when the mean prediction deviates more from the empirical mean. MSE loss and KLD loss, with the help of empirical standard deviation, enforce the prediction to be on a similar scale to the empirical value.",
+      "page_start": 9,
+      "page_end": 11
+    },
+    {
+      "section_name": "Discussion",
+      "text": "Overall, our study results indicate that none of the investigated methods can effectively model the uncertainties associated with interrater disagreements. The reasons for this could be related to data, either due to an insufficient amount (of either audio data, or number of ratings per data point), or due to inherent label noisiness of an ill-defined task  [14] .\n\nIn practice, even though we are more interested in the data uncertainty caused by the subjectivity of MER, this type of uncertainty can hardly be disentangled from model uncertainty or other types of data uncertainty. While model uncertainty is considered reducible with additional high-quality data, data uncertainty reflects the intrinsic subjectivity or noise in the data. As a result, additional experiments with varying amounts of data might be required to better understand the sensitivity of each method to each type of uncertainty.\n\nIt should perhaps be noted that our negative results are in line with the results of a recently published work in image classification  [16] , using a large number of methods, some much more complex than the ones presented here. Neither do these methods provide accurate uncertainty estimations, nor do they successfully disentangle between model and data uncertainty. These results, published after we conducted our experiments, indicate that obtaining reliable uncertainty estimates remains difficult even with significant data and resources; it is, therefore, ultimately unsurprising that uncertainties also cannot be reliably estimated in the MER regression task.\n\nFinally, it should be noted that -since the foundation model in our setup is pre-trained -any random initializations or random dropouts only apply to the FCN portion of the model. While the use of frozen pretrained foundation models with a small FCN on top is not uncommon in UQ [see 12, Section 3.2], it is unclear how this may have affected the downstream uncertainty estimates. It is conceivable that the information about uncertainties may have been lost in the embedding extraction process within the foundation model, given the random-masking technique utilized in the training of MusicFM  [32] .",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this study, we investigated several current methods for uncertainty estimation at the example of music emotion recognition, a highly subjective regression task with considerable annotator disagreements.\n\nMore specifically, we test MSE loss and KLD loss, which require empirical uncertainty during training, and NLL loss, different random seeds, and MC dropout, which do not require empirical uncertainty. Results show that -while largely delivering prediction of the mean with expected accuracy -the investigated methods fail at estimating the standard deviation of the distribution of annotations, the uncertainty. This is even the case if the ground-truth standard deviation is added as a training target. In some cases, the uncertainty estimation predicts only noise, in other cases, some minor correlation with the target ground truth can be found, however, none of the investigated methods provide sufficiently useful results.\n\nThus, our results indicate that the investigated methods are insufficient to model uncertainty in data. This means that current systems fail to take into account the inter-rater variability of subjective data and, therefore, this variability cannot be modeled. Future work needs to explore other less common approaches for modeling this uncertainty, as the typically used deterministic machine learning models are apparently unsuited for this task.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: visualizes the different concepts of uncertainty estimation introduced",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: Illustration of different ways of uncertainty estimation.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Distribution of mean and SD of",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: Distribution of mean and SD of",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Empirical and corresponding predicted means of arousal and valence. For",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Empirical and corresponding predicted standard deviations of arousal",
+      "page": 10
+    },
+    {
+      "caption": "Figure 4: The table also includes the results of TNN-SVR [4],",
+      "page": 10
+    },
+    {
+      "caption": "Figure 5: We find that none of the methods capture the ground-truth standard deviation",
+      "page": 10
+    },
+    {
+      "caption": "Figure 5: , however, it can be observed that each method",
+      "page": 11
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "split\ntrain": "test\nval"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "split\ntrain": "test\nval"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 3: Metrics and their standard deviations for predictions of the standard",
+      "data": [
+        {
+          "Emp. Mean\n0.50\n0.25\n0.00\n0.25\n0.50": "Pearson's r=-0.01\nSpearman's r=0.02"
+        }
+      ],
+      "page": 10
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "A review of uncertainty quantification in deep learning: Techniques, applications and challenges",
+      "authors": [
+        "M Abdar",
+        "F Pourpanah",
+        "S Hussain",
+        "D Rezazadegan",
+        "L Liu",
+        "M Ghavamzadeh",
+        "P Fieguth",
+        "X Cao",
+        "A Khosravi",
+        "U Acharya",
+        "V Makarenkov",
+        "S Nahavandi"
+      ],
+      "year": "2021",
+      "venue": "Information Fusion",
+      "doi": "10.1016/j.inffus.2021.05.008"
+    },
+    {
+      "citation_id": "2",
+      "title": "Developing a benchmark for emotional analysis of music",
+      "authors": [
+        "A Aljanaki",
+        "Y Yang",
+        "M Soleymani"
+      ],
+      "year": "2017",
+      "venue": "PLOS ONE",
+      "doi": "10.1371/journal.pone.0173392"
+    },
+    {
+      "citation_id": "3",
+      "title": "Component Tying for Mixture Model Adaptation in Personalization of Music Emotion Recognition",
+      "authors": [
+        "Y Chen",
+        "J Wang",
+        "Y Yang",
+        "H Chen"
+      ],
+      "year": "2017",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing",
+      "doi": "10.1109/TASLP.2017.2693565"
+    },
+    {
+      "citation_id": "4",
+      "title": "Regression-based Music Emotion Prediction using Triplet Neural Networks",
+      "authors": [
+        "K Cheuk",
+        "Y Luo",
+        "B Balamurali",
+        "G Roig",
+        "D Herremans"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 International Joint Conference on Neural Networks (IJCNN)",
+      "doi": "10.1109/IJCNN48605.2020.9207212"
+    },
+    {
+      "citation_id": "5",
+      "title": "Predicting the Probability Density Function of Music Emotion Using Emotion Space Mapping",
+      "authors": [
+        "Y Chin",
+        "J Wang",
+        "J Wang",
+        "Y Yang"
+      ],
+      "year": "2018",
+      "venue": "IEEE Transactions on Affective Computing",
+      "doi": "10.1109/TAFFC.2016.2628794"
+    },
+    {
+      "citation_id": "6",
+      "title": "A review: Musicemotion recognition and analysis based on EEG signals",
+      "authors": [
+        "X Cui",
+        "Y Wu",
+        "J Wu",
+        "Z You",
+        "J Xiahou",
+        "M Ouyang"
+      ],
+      "year": "2022",
+      "venue": "Frontiers in Neuroinformatics",
+      "doi": "10.3389/fninf.2022.997282"
+    },
+    {
+      "citation_id": "7",
+      "title": "Bayesian Convolutional Neural Networks with Bernoulli Approximate Variational Inference",
+      "authors": [
+        "Y Gal",
+        "Z Ghahramani"
+      ],
+      "year": "2016",
+      "venue": "Workshop Track Proceedings of the 4th International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "8",
+      "title": "A survey of uncertainty in deep neural networks",
+      "authors": [
+        "J Gawlikowski",
+        "C Tassi",
+        "M Ali",
+        "J Lee",
+        "M Humt",
+        "J Feng",
+        "A Kruspe",
+        "R Triebel",
+        "P Jung",
+        "R Roscher",
+        "M Shahzad",
+        "W Yang",
+        "R Bamler",
+        "X Zhu"
+      ],
+      "year": "2023",
+      "venue": "Artificial Intelligence Review",
+      "doi": "10.1007/s10462-023-10562-9"
+    },
+    {
+      "citation_id": "9",
+      "title": "Emotion tracking in music using continuous conditional random fields and relative feature representation",
+      "authors": [
+        "V Imbrasaite",
+        "T Baltrusaitis",
+        "P Robinson"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the 2013 IEEE International Conference on Multimedia and Expo Workshops (ICMEW)",
+      "doi": "10.1109/ICMEW.2013.6618357"
+    },
+    {
+      "citation_id": "10",
+      "title": "CCNF for continuous emotion tracking in music: Comparison with CCRF and relative feature representation",
+      "authors": [
+        "V Imbrasaite",
+        "T Baltrusaitis",
+        "P Robinson"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the 2014 IEEE International Conference on Mul-timedia and Expo Workshops (ICMEW)",
+      "doi": "10.1109/ICMEW.2014.6890697"
+    },
+    {
+      "citation_id": "11",
+      "title": "What Uncertainties Do We Need in Bayesian Deep Learning for Computer Vision?",
+      "authors": [
+        "A Kendall",
+        "Y Gal"
+      ],
+      "year": "2017",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "12",
+      "title": "URL: A Representation Learning Benchmark for Transferable Uncertainty Estimates",
+      "authors": [
+        "M Kirchhof",
+        "B Mucsányi",
+        "S Oh",
+        "E Kasneci"
+      ],
+      "year": "2023",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "13",
+      "title": "Uncertainty quantification using Bayesian neural networks in classification: Application to biomedical image segmentation",
+      "authors": [
+        "Y Kwon",
+        "J Won",
+        "B Kim",
+        "M Paik"
+      ],
+      "year": "2020",
+      "venue": "Computational Statistics & Data Analysis",
+      "doi": "10.1016/j.csda.2019.106816"
+    },
+    {
+      "citation_id": "14",
+      "title": "Mood Recognition",
+      "authors": [
+        "A Lerch"
+      ],
+      "year": "2023",
+      "venue": "An Introduction to Audio Content Analysis: Music Information Retrieval Tasks and Applications",
+      "doi": "10.1002/9781119890980.ch7"
+    },
+    {
+      "citation_id": "15",
+      "title": "Introducing a Method for Intervals Correction on Multiple Likert Scales: A Case Study on an Urban Soundscape Data Collection Instrument",
+      "authors": [
+        "M Lionello",
+        "F Aletta",
+        "A Mitchell",
+        "J Kang"
+      ],
+      "year": "2021",
+      "venue": "Frontiers in Psychology",
+      "doi": "10.3389/fpsyg.2020.602831"
+    },
+    {
+      "citation_id": "16",
+      "title": "Benchmarking uncertainty disentanglement: Specialized uncertainties for specialized tasks",
+      "authors": [
+        "B Mucsányi",
+        "M Kirchhof",
+        "S Oh"
+      ],
+      "year": "2024",
+      "venue": "38th Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "17",
+      "title": "When does label smoothing help?",
+      "authors": [
+        "R Müller",
+        "S Kornblith",
+        "G Hinton"
+      ],
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "18",
+      "title": "Probably Pleasant? A Neural-Probabilistic Approach to Automatic Masker Selection for Urban Soundscape Augmentation",
+      "authors": [
+        "K Ooi",
+        "K Watcharasupat",
+        "B Lam",
+        "Z Ong",
+        "W Gan"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 2022 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/icassp43922.2022.9746897"
+    },
+    {
+      "citation_id": "19",
+      "title": "Autonomous Soundscape Augmentation with Multimodal Fusion of Visual and Participantlinked Inputs",
+      "authors": [
+        "K Ooi",
+        "K Watcharasupat",
+        "B Lam",
+        "Z Ong",
+        "W Gan"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 2023 International Conference on Acoustics, Speech, and Signal Processing",
+      "doi": "10.1109/ICASSP49357.2023.10094866"
+    },
+    {
+      "citation_id": "20",
+      "title": "A circumplex model of affect",
+      "authors": [
+        "J Russell"
+      ],
+      "year": "1980",
+      "venue": "Journal of personality and social psychology",
+      "doi": "10.1037/h0077714"
+    },
+    {
+      "citation_id": "21",
+      "title": "Prediction of Time-varying Musical Mood Distributions from Audio",
+      "authors": [
+        "E Schmidt",
+        "Y Kim"
+      ],
+      "year": "2010",
+      "venue": "Proceedings of the 11th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "22",
+      "title": "Prediction of Time-Varying Musical Mood Distributions Using Kalman Filtering",
+      "authors": [
+        "E Schmidt",
+        "Y Kim"
+      ],
+      "year": "2010",
+      "venue": "Proceedings of the 9th International Conference on Machine Learning and Applications",
+      "doi": "10.1109/ICMLA.2010.101"
+    },
+    {
+      "citation_id": "23",
+      "title": "Modeling Musical Emotion Dynamics with Conditional Random Fields",
+      "authors": [
+        "E Schmidt",
+        "Y Kim"
+      ],
+      "year": "2011",
+      "venue": "Proceedings of the 12th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "24",
+      "title": "On the Pitfalls of Heteroscedastic Uncertainty Estimation with Probabilistic Neural Networks",
+      "authors": [
+        "M Seitzer",
+        "A Tavakoli",
+        "D Antic",
+        "G Martius"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 10th International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "25",
+      "title": "Inferring Ground Truth from Subjective Labelling of Venus Images",
+      "authors": [
+        "P Smyth",
+        "U Fayyad",
+        "M Burl",
+        "P Perona",
+        "P Baldi"
+      ],
+      "year": "1994",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "26",
+      "title": "Psychology of Music: From Sound to Significance",
+      "authors": [
+        "S Tan",
+        "P Pfordresher",
+        "R Harré"
+      ],
+      "year": "2018",
+      "venue": "Routledge"
+    },
+    {
+      "citation_id": "27",
+      "title": "A Deeper Look into Aleatoric and Epistemic Uncertainty Disentanglement",
+      "authors": [
+        "M Valdenegro-Toro",
+        "D Mori"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)",
+      "doi": "10.1109/CVPRW56347.2022.00157"
+    },
+    {
+      "citation_id": "28",
+      "title": "A histogram density modeling approach to music emotion recognition",
+      "authors": [
+        "J Wang",
+        "H Wang",
+        "G Lanckriet"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the 2015 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP.2015.7178059"
+    },
+    {
+      "citation_id": "29",
+      "title": "The acoustic emotion gaussians model for emotion-based music annotation and retrieval",
+      "authors": [
+        "J Wang",
+        "Y Yang",
+        "H Wang",
+        "S Jeng"
+      ],
+      "year": "2012",
+      "venue": "Proceedings of the 20th ACM International Conference on Multimedia",
+      "doi": "10.1145/2393347.2393367"
+    },
+    {
+      "citation_id": "30",
+      "title": "Modeling the Affective Content of Music with a Gaussian Mixture Model",
+      "authors": [
+        "J Wang",
+        "Y Yang",
+        "H Wang",
+        "S Jeng"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on Affective Computing",
+      "doi": "10.1109/TAFFC.2015.2397457"
+    },
+    {
+      "citation_id": "31",
+      "title": "Autonomous In-Situ Soundscape Augmentation via Joint Selection of Masker and Gain",
+      "authors": [
+        "K Watcharasupat",
+        "K Ooi",
+        "B Lam",
+        "T Wong",
+        "Z Ong",
+        "W Gan"
+      ],
+      "year": "2022",
+      "venue": "IEEE Signal Processing Letters",
+      "doi": "10.1109/lsp.2022.3194419"
+    },
+    {
+      "citation_id": "32",
+      "title": "A Foundation Model for Music Informatics",
+      "authors": [
+        "M Won",
+        "Y Hung",
+        "D Le"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)",
+      "doi": "10.1109/ICASSP48485.2024.10448314"
+    },
+    {
+      "citation_id": "33",
+      "title": "Quantifying uncertainties in natural language processing tasks",
+      "authors": [
+        "Y Xiao",
+        "W Wang"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the Thirty-Third AAAI Conference on Artificial Intelligence and Thirty-First Innovative Applications of Artificial Intelligence Conference and Ninth AAAI Symposium on Educational Advances in Artificial Intelligence. AAAI'19/IAAI'19/EAAI'19",
+      "doi": "10.1609/aaai.v33i01.33017322"
+    },
+    {
+      "citation_id": "34",
+      "title": "",
+      "authors": [
+        "Y Yang",
+        "H Chen"
+      ],
+      "year": "2011",
+      "venue": "",
+      "doi": "10.1201/b10731"
+    },
+    {
+      "citation_id": "35",
+      "title": "Prediction of the Distribution of Perceived Music Emotions Using Discrete Samples",
+      "authors": [
+        "Y Yang",
+        "H Chen"
+      ],
+      "year": "2011",
+      "venue": "IEEE Transactions on Audio, Speech, and Language Processing",
+      "doi": "10.1109/TASL.2011.2118752"
+    },
+    {
+      "citation_id": "36",
+      "title": "Music emotion recognition: The role of individuality",
+      "authors": [
+        "Y Yang",
+        "Y Su",
+        "Y Lin",
+        "H Chen"
+      ],
+      "year": "2007",
+      "venue": "Proceedings of the International Workshop on Human-centered Multimedia",
+      "doi": "10.1145/1290128.1290132"
+    },
+    {
+      "citation_id": "37",
+      "title": "Explainable machine learning in image classification models: An uncertainty quantification perspective",
+      "authors": [
+        "X Zhang",
+        "F Chan",
+        "S Mahadevan"
+      ],
+      "year": "2022",
+      "venue": "Knowledge-Based Systems",
+      "doi": "10.1016/j.knosys.2022.108418"
+    }
+  ]
+}

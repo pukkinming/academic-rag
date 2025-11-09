@@ -1,0 +1,727 @@
+{
+  "paper_id": "2410.12028v1",
+  "title": "Emotioncaps: Enhancing Audio Captioning Through Emotion-Augmented Data Generation",
+  "published": "2024-10-15T19:57:37Z",
+  "authors": [
+    "Mithun Manivannan",
+    "Vignesh Nethrapalli",
+    "Mark Cartwright"
+  ],
+  "keywords": [
+    "Automated audio captioning",
+    "audio-language dataset",
+    "audio-language modeling",
+    "synthetic data generation"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Recent progress in audio-language modeling, such as automated audio captioning, has benefited from training on synthetic data generated with the aid of large-language models. However, such approaches for environmental sound captioning have primarily focused on audio event tags and have not explored leveraging emotional information that may be present in recordings. In this work, we explore the benefit of generating emotion-augmented synthetic audio caption data by instructing ChatGPT with additional acoustic information in the form of estimated soundscape emotion. To do so, we introduce EmotionCaps, an audio captioning dataset comprised of approximately 120,000 audio clips with paired synthetic descriptions enriched with soundscape emotion recognition (SER) information. We hypothesize that this additional information will result in higher-quality captions that match the emotional tone of the audio recording, which will, in turn, improve the performance of captioning models trained with this data. We test this hypothesis through both objective and subjective evaluation, comparing models trained with the EmotionCaps dataset to multiple baseline models. Our findings challenge current approaches to captioning and suggest new directions for developing and assessing captioning models.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Audio-language modeling tasks, such as language-based audio retrieval  [1] -  [3] , language-guided source separation  [4] , text-to-audio generation  [5] , audio question answering (AQA)  [6] -  [8] , and automated audio captioning (AAC)  [9] ,  [10] , have received significant attention in recent years. However, while several audio-language datasets have been developed  [11] -  [13] , access to an adequate amount of high-quality audio-language pairs is a persistent challenge for this area of research. To address this data scarcity problem and improve performance, researchers have proposed a number of text generation and augmentation schemes to increase the number of audio-caption pairs for training. For example, in two of the earliest approaches, Wu et al  [2]  used a large-language model (LLM) to transform audio event tags to captions, and Mei et al  [3]  further advanced this approach by also transforming noisy descriptions into typical audio captions. Alternative approaches have explored incorporating additional information into the data generation pipeline  [6] -  [8] ,  [14] , retrieving additional captions for augmentation  [15] , and mixing-up existing captions for augmentation  [16] .\n\nHowever, to our knowledge, none of these approaches have explored incorporating the \"emotion\" or \"mood\" of environmental sound as additional information in their data generation pipelines. Prior research has shown that soundscape emotion descriptors, e.g., pleasantness and eventfulness, are key components of soundscape perception  [17] , which have subsequently been linked to individuals' This work was partially supported by the New Jersey Institute of Technology Honors Summer Research Institute (HSRI). psychological well-being  [18] . Given their importance in soundscape perception and that many of the environmental sound recordings we may want to be captioned could be considered soundscapes, we hypothesize that the inclusion of this soundscape \"emotion\" information may improve the quality of synthetically generated captions. For example, without additional information, an LLM prompted given the AudioSet  [19]  tag Vehicle horn, car horn, honking, could generate a caption like \"A car horn honks in the distance.\" However, with additional information that indicates that the recording is highly chaotic, an LLM may generate a caption like \"A car horn honks frantically amidst a chaotic scene\" -a very different description of the auditory scene.\n\nIn this paper, we explore our hypothesis by developing and evaluating a pipeline for emotion-augmented synthetic caption generation. First, we train a model to predict the soundscape emotion and magnitude. Next, we construct the EmotionCaps dataset by instructing ChatGPT  [20]  to generate audio captions using audio event tags augmented with the predicted soundscape emotion information. Lastly, using EmotionCaps in combination with Clotho  [11]  and AudioCaps  [12] , we train a set of audio captioning models and compare their outputs both objectively and subjectively to multiple baseline models.\n\nOur findings challenge current approaches to captioning and suggest new directions for developing and assessing captioning models.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Emotioncaps Dataset",
+      "text": "To incorporate soundscape emotion into audio captioning models, we developed the EmotionCaps dataset, which aims to bridge the gap between soundscape emotion recognition (SER) and automated audio captioning (AAC), using the following emotion-augmented audio caption generation pipeline:\n\nStep 1: Train a soundscape emotion recognition model\n\nWe trained a model to predict the perceived emotion of audio clips using the Emo-Soundscapes dataset  [21] , which contains contains 1213 6-second audio clips sourced from Freesound  [22] -100 clips from each category in Schafer's taxonomy  [23] : natural sounds, human sounds, sounds and society, mechanical sounds, quiet and silence, and sounds as indicators; and 613 mixtures of those 600 clips. Each clip is labeled according to Russel's circumplex of affect  [24] , i.e., valence and arousal, each on a scale from -1 to 1. Valence can be roughly thought of as a measurement of perceived pleasantness, while arousal is perceived eventfulness or energy. While the original model published in  [21]  is not publicly available, we followed a similar modeling approach as they reported and trained a support vector regression (SVR) model on the principal components of 72 summary statistics (mean and standard deviation 13 MFCCs, 13 delta MFCCs, zero crossing rate, spectral centroid, spectral bandwidth, spectral contrast, spectral flatness, spectral roll off, loudness, delta loudness, root-mean-square energy, and delta rootmean-square energy). A grid search with cross-validation was used to choose the number of components for PCA, as well as to choose the C, gamma, and kernel parameters for the SVR. One such model was trained in the same way independently for valence and arousal.\n\nWe evaluated the models similarly to those of Fan et al.  [25] . In each trial, the dataset is shuffled and split into an 80:20 train-test split, and the model is trained and evaluated on R 2 and mean squared error (MSE). The aggregate results from 100 trials are shown in Table  1 .\n\nTo express the emotion with language, we discretized each of the two-dimensional output vectors into one of 8 emotions (eventful, uneventful, pleasant, unpleasant, exciting, boring, quiet, and chaoticemotions equally spaced around the unit circle) by finding its nearest neighbor via cosine similarity. Furthermore, we projected the output vector onto its nearest neighbor emotion vector and retained the magnitude of the projection as an indicator of the emotion intensity. We discretized these intensities into emotion qualifiers based on percentile scores, p, in the sample distribution: p < 0.15: \"neutral\", 0.15 <= p < 0.50: \"slightly <emotion>\", 0.5 <= p < 0.85: \"<emotion>\", 0.85 <= p <= 1.0: \"highly <emotion>\".\n\nStep 2: Augment sound event annotations with estimated soundscape emotion While audio events could be estimated with a SED model, we opted to eliminate that potential source of error in our experiments by instead leveraging the ground-truth annotations in AudioSet SL  [26] , the strongly-labeled set of 120,071 audio clips from the larger AudioSet  [19]  dataset. We converted the sound event annotations into a temporally ordered list of sound events, retaining only the first chronological occurrence of each unique sound event in an audio clip. This sound event list was then augmented using the qualified emotion labels estimated for the model trained in Step 1.\n\nStep 3: Instruct an LLM to construct caption sentences given the estimated emotion along and sound event tags  [20]  can be a valuable tool in generating synthetic captions for training audio-language models  [27] . We leverage that work by using the WavCaps prompt for AudioSet SL as a base prompt upon which we build with our predicted emotions. We create three new prompt variations. The first modified the WavCaps prompt to first describe the scene and only asked for one caption at a time. We refer to this prompt as Scene-focused. Next, we appended that prompt with a statement that we would also include a mood with the list with the intention of generating the desired caption with one instruction. We call this Emotion Addon. Lastly, we created a prompt variation in which we instructed the LLM in two steps, first with the scene-focused prompt and then with a prompt instructing to rewrite the first response with a given emotion. We refer to this prompt method as Emotion Rewrite. We used these four prompts, along with the AudioSet SL sound events and our predicted emotions, to instruct ChatGPT-3.5 Turbo and create four dataset variations. Note that we chose to generate new captions with the WavCaps prompt rather than use examples from the published WavCaps dataset in order to eliminate variation due to changes in ChatGPT versions. See Table  II  for the prompts and Table  III  for example outputs from ChatGPT.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Mei Et Al. Demonstrated That Chatgpt",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Dataset Overview",
+      "text": "The resulting EmotionCaps dataset  1  contains four subsets (one for each prompt method) of captions for the 120,071 audio clips from AudioSet SL. The average word counts for captions from the WavCaps prompt (12.61), scene-focused base prompt (14.04), emotion addon prompt  (18.35) , and emotion rewrite prompt  (18.65 ). The difference between WavCaps and the emotion prompts demonstrates the difference in sentence length when infusing captions with emotion information.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Iii. Experiments",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Datasets",
+      "text": "We used three AAC datasets when training and evaluating the AAC models in our experiments: AudioCaps  [12] , Clotho  [11] , and EmotionCaps. AudioCaps consists of approximately 51,308 10 s clips from AudioSet, each paired with 1 human-labeled caption for the training split and 5 for the test split. Clotho consists of 4981 15-30 s clips, each paired with 5 human-labeled captions in both training and test splits.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Architecture",
+      "text": "To evaluate the EmotionCaps dataset on the AAC task, we employed the same encoder-decoder architecture used to evaluate WavCaps, which was derived from the DCASE 2022 Challenge Task 6a baseline model  [28]  and consists of an HTSAT  [29]  Trasformerbased audio-encoder pre-trained on AudioSet classification and a BART  [30]  Transformer-based language decoder pre-trained on large text corpora.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "C. Training",
+      "text": "We utilized a two-stage training process mirroring that of WavCaps AAC training. The first stage consists of pretraining on EmotionCaps (only one subset for each model), combined with the Clotho and AudioCaps training sets. The first stage used a learning rate of 5 × 10 -5 and a batch size of 48 for 15 epochs. The second stage fine-tuned the model further on either AudioCaps and Clotho when evaluated on the AudioCaps and Clotho test sets, respectively. The second stage used a learning rate of 5 × 10 -6 with a batch size of 32 for 20 epochs. This fine-tuning is necessary for the objective evaluation since the style of the two test sets is a bit different-Clotho tends to exhibit more imaginative description, using more sophisticated vocabulary phrasing  [9] . Since EmotionCaps features 4 different caption subsets, 4 separate models were trained such that each used a different caption subset. As another baseline, we also trained a fifth model without synthetic data, exclusively on Write a one-sentence audio caption to describe these sounds. Make sure you are using grammatical subjectverb-object sentences. Directly describe the sounds and avoid using the word \"heard\". The caption should be less than 20 words.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Scene-Focused",
+      "text": "I will provide a list containing chronological sound events of an auditory scene. Write a one-sentence audio caption to describe the scene. Make sure to use an active voice. Describe the scene without simply listing the sounds. The caption should be less than 20 words.\n\nEmotion Addon (Appended to Scene-focused) I will also provide a mood. Please emphasize this mood in your caption.\n\nEmotion Rewrite (Following to Scene-focused response) I will give you a sentence describing a sound scene, and a mood. Please rewrite the sentence, emphasizing the indicated mood. The wind blows, causing rustling sounds, while birds vocalize with their calls and songs.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Scene-Focused",
+      "text": "Thunder rumbles as rain falls on a surface. The wind rustles as birds sing their melodic calls.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Emotion Addon",
+      "text": "Thunder rumbles ominously as rain pounds relentlessly on the surface.\n\nThe wind gently rustles as birds sing, creating a peaceful and uneventful atmosphere.\n\nEmotion Rewrite Thunder ominously rumbles as relentless rain falls on a desolate surface.\n\nThe wind softly rustles as birds peacefully sing their melodic calls.\n\nboth AudioCaps and Clotho for stage 1, and followed the same training as the other models in stage 2. From hereon, we refer to the model trained on the WavCaps prompted subset as \"WavCaps-Like\" since this, of course, is a different model than that published in the WavCaps paper, which was trained on synthetic caption data generated from three additional datasets (including 262k clips from FreeSound  [22] ) which is significantly larger than AudioSet SL) than we incorporate into this work. A limitation of this current work is that synthetic data was only generated using AudioSet SL. This likely limits overall performance, but the comparisons between data generation strategies should not be affected by this.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "D. Objective Evaluation Metrics",
+      "text": "To evaluate the objective performance of the five models, we used the METEOR  [31] , CIDEr  [32] , SPICE  [33] , SPIDEr  [34] , and FENSE  [35]  metrics as implemented in aac_metrics  [36]  to evaluate the tests of Clotho and AudioCaps. FENSE computed on the validation split was used for model selection during training. We evaluated the best checkpoints from both stage 1 and stage 2.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "E. Subjective Listening Test",
+      "text": "To evaluate the effectiveness of incorporating emotional data into captions, we also conducted a subjective listening test to determine whether participants preferred emotionally enriched captions over other variations. We selected 30 random examples from the Audio-Caps test set, which were divided into six stimulus groups of five examples each, and we used the five models described in Section III-C to estimate captions for each example. Note that in the subjective evaluation, we only used checkpoints after stage 1 training, i.e., we didn't fine-tune on AudioCaps or Clotho-this choice was made so as to retain the emotion information from stage 1 and not fit to the style of one particular dataset. In addition, for each audio example, we added two randomly selected ground-truth captions (of the five) to the set, as well as one random caption from the AudioCaps test set that was sufficiently different from the ground-truth. This latter was done by computing the cosine similarity between the sentence embeddings [37] 2  of ground-truth captions and all the other captions in the test set and then randomly selecting one for which the similarity averaged over both ground-truth captions was less than the median similarity of the sample. We recruited a total of 30 participants via the Prolific crowd-sourcing platform, all of whom were native English speakers from the United States with no reported known hearing conditions. Participants were randomly assigned to one of the 6 stimulus groups We asked participants to listen to an audio sample and then rank order the eight captions on four criteria from best to worst: preference, accuracy, completeness, and affect. Descriptions and examples were used to clarify the scales. The accuracy scale was the precision metric described in layman's terms; The completeness scale was the recall metric described in layman's terms; and the affect scale was described as \"how well the caption conveys the emotional tone of the audio.\" This was task repeated for each audio example in a group in random order. In total, each caption was ranked a total of 5 times for each scale. Participants were compensated $3 and the median completion time was roughly 15 minutes.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Results",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Subjective Evaluation",
+      "text": "As can be seen in Table  IV , the random caption consistently has the highest mean ranking (i.e., ranked last), and while the random caption was occasionally not ranked last (see Figure  2 ), these occurrences are infrequent. These observations provide some validity to our listening test.   We find that captions from models trained on emotion-enriched captions are ranked best on affect. Thus, we achieved our goal of training an AAC model to match the emotional tone of soundscapes. Small differences in prompting also seem to lead to consistently better results-prompting in two steps seems a better strategy than one step (mean affect ranking of Emotion Rewrite: 3.68 vs. Emotion Addon: 3.81), and the small changes made in the Scene-Focused from the WavCaps prompt also consistently improved the model on all scales.\n\nUnfortunately, the emotion-enriched captions performed the worst of the AAC models on completeness and accuracy-though, all models performed quite similarly on completeness, which exhibited the smallest range of mean ranking of all the scales. The performance of emotion-enriched captions was also the lowest of the AAC models for preference, but if we look at the distribution of rankings, we see that despite their overall preference, the ground-truth labels were not consistently ranked the best-53% of the time an AAC model was preferred, and more specifically 12% of the time an emotion-enriched model was preferred.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Objective Evaluation",
+      "text": "When we evaluate the captioning models on the objective metrics (see Table  V ), we find that the baseline model is consistently the highest forming model in stage 1 for both datasets, indicating that training on out-of-distribution synthetic data (as all the other models do) is not helpful without fine-tuning since it likely pushes the outputs further away from the distribution of the test data. With the finetuning of stage 2, we see that the baseline model's performance typically only minimally improves. However, the models trained with synthetic data in stage 1 often saw a dramatic increase in performance in stage 2, so much so that we see that the emotionenriched models actually performed the best on average in stage 2, with the Emotion Addon model performing best on AudioCaps, and the Emotion Rewrite performing best on Clotho. However, the improvements over the baseline are minimal. Similar to the subjective evaluation results, we also observe that the Scene-Focused model exhibits slightly better performance than the WavCaps-Like model.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "V. Discussion",
+      "text": "The emotion-enriched caption models achieved their goal of communicating the emotional tone of the soundscape through the captions. However, their improvement over the baseline was minimal in the objective evaluation-this, however, is not surprising given that they likely don't match the descriptive style of those test sets. In general, they were not preferred over the baseline in the subjective evaluation, but the distribution of rankings in preference indicates that preference for captions varies and that emotion-enriched captions are preferred by some people. This observation indicates maybe we should re-think how we train and evaluate AAC models. Is the one-size-fits-all approach adopted by AAC research the right one? If research in accessible speech captioning  [38]  and image description  [39]  is indicative, then the answer is \"no\"-users have varied preferences and needs for how media should be captioned, and thus customizable and adaptable approaches should possibly be adopted in AAC as well. Future work should investigate these needs and inform how we should design, train, and evaluate AAC models.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Vi. Conclusion",
+      "text": "We proposed a emotion-augmented data generation pipeline for training emotion-enriched AAC models. Emotions are estimated with a soundscape emotion recognition model, and ChatGPT is instructed to generate captions given the estimated emotions and sound event tags. Our experiments found that the emotion-enriched AAC models generate captions that match the emotional tone of the input audio more than the baseline models we compared, and the emotionenriched models performed slightly better than baseline models on standard AAC captioning metrics. The emotion-enriched models were not generally preferred in our subjective listening tests, but our study results exhibit that people have varied preferences on captions. We propose that future work should investigate the diversity of captioning needs and revisit how we design, train, and evaluate AAC models.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: EmotionCaps emotion-augmented caption generation pipeline",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: ), these occurrences are",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Preference rank distribution in subjective listening test.",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Prompt Method": "WavCaps",
+          "Prompt": "I will give you a number of lists containing sound events occurred sequentially in time. Process each individually.\nWrite a one-sentence audio caption to describe these sounds. Make sure you are using grammatical subject-\nverb-object sentences. Directly describe the sounds and avoid using the word ”heard”. The caption should be\nless than 20 words."
+        },
+        {
+          "Prompt Method": "Scene-focused",
+          "Prompt": "I will provide a list containing chronological sound events of an auditory scene. Write a one-sentence audio\ncaption to describe the scene. Make sure to use an active voice. Describe the scene without simply listing the\nsounds. The caption should be less than 20 words."
+        },
+        {
+          "Prompt Method": "Emotion Addon",
+          "Prompt": "I will also provide a mood. Please emphasize this mood in your caption.\n(Appended to Scene-focused)"
+        },
+        {
+          "Prompt Method": "Emotion Rewrite",
+          "Prompt": "(Following to Scene-focused response) I will give you a sentence describing a sound scene, and a mood. Please\nrewrite the sentence, emphasizing the indicated mood."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Prompt Method": "",
+          "Sound Events and Estimated Emotion": "[’Thunder’,\n’Rain on surface’]\nEmotion: unpleasant"
+        },
+        {
+          "Prompt Method": "WavCaps",
+          "Sound Events and Estimated Emotion": "Thunder\nrumbles as rain falls on the surface."
+        },
+        {
+          "Prompt Method": "Scene-focused",
+          "Sound Events and Estimated Emotion": "Thunder\nrumbles as rain falls on a surface."
+        },
+        {
+          "Prompt Method": "Emotion Addon",
+          "Sound Events and Estimated Emotion": "Thunder\nrumbles\nominously\nas\nrain\npounds\nrelent-\nlessly on the surface."
+        },
+        {
+          "Prompt Method": "Emotion Rewrite",
+          "Sound Events and Estimated Emotion": "Thunder ominously rumbles as relentless rain falls on\na desolate surface."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Variation": "GT 1\nGT 2",
+          "Preference\nAcc.\nCompleteness\nAffect": "3.27\n3.37\n3.66\n4.05\n3.72\n3.90\n4.15\n4.40"
+        },
+        {
+          "Variation": "Baseline",
+          "Preference\nAcc.\nCompleteness\nAffect": "3.95\n3.81\n4.17\n4.58"
+        },
+        {
+          "Variation": "WavCaps-Like\nScene-Focused\nEmotion Addon\nEmotion Rewrite",
+          "Preference\nAcc.\nCompleteness\nAffect": "4.12\n4.32\n4.16\n4.12\n3.92\n4.10\n3.97\n4.01\n4.73\n4.81\n4.19\n3.81\n3.68\n4.67\n4.44\n4.37"
+        },
+        {
+          "Variation": "Random",
+          "Preference\nAcc.\nCompleteness\nAffect": "7.44\n7.38\n7.38\n7.35"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "DS": "Cl",
+          "Stage\nVar.\nMETEOR CIDEr\nSPICE\nSPIDEr\nFENSE": "S-F\n14.4\n26.7\n9.67\n18.19\n43.7\nE-A\n13.5\n21.6\n9.0\n15.3\n42.3\n1\nE-RW\n13.7\n24.7\n9.4\n17.0\n44.5\nWC-L\n13.8\n25.0\n8.9\n17.0\n44.3\n16.1\n33.0\n10.8\n21.7\n47.6\nB"
+        },
+        {
+          "DS": "",
+          "Stage\nVar.\nMETEOR CIDEr\nSPICE\nSPIDEr\nFENSE": "S-F\n17.3\n38.8\n12.5\n25.7\n46.0\nE-A\n17.7\n38.5\n12.4\n25.4\n47.0\n40.4\n12.6\n26.5\n48.3\n2\nE-RW\n17.7\nWC-L\n9.1\n28.3\n11.0\n19.7\n46.2\n18.0\nB\n36.8\n12.5\n24.6\n48.0"
+        },
+        {
+          "DS": "AC",
+          "Stage\nVar.\nMETEOR CIDEr\nSPICE\nSPIDEr\nFENSE": "S-F\n20.2\n33.1\n14.7\n23.9\n57.2\nE-A\n15.9\n27.0\n11.9\n19.4\n46.7\n1\nE-RW\n17.5\n34.0\n12.2\n23.1\n49.6\nWC-L\n20.5\n35.6\n14.2\n24.9\n56.6\n23.5\n70.1\n17.8\n44.0\n60.8\nB"
+        },
+        {
+          "DS": "",
+          "Stage\nVar.\nMETEOR CIDEr\nSPICE\nSPIDEr\nFENSE": "S-F\n22.8\n63.8\n17.2\n40.5\n61.9\n24.2\n73.8\n17.8\n45.8\n62.2\nE-A\n2\nE-RW\n24.1\n71.2\n17.4\n44.3\n61.7\nWC-L\n22.5\n59.9\n15.9\n37.9\n60.8\nB\n23.9\n73.1\n17.7\n45.4\n61.4"
+        }
+      ],
+      "page": 4
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "CLAP Learning Audio Concepts from Natural Language Supervision",
+      "authors": [
+        "B Elizalde",
+        "S Deshmukh",
+        "M Ismail",
+        "H Wang"
+      ],
+      "venue": "ICASSP 2023 -2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "2",
+      "title": "Large-scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation",
+      "authors": [
+        "Y Wu",
+        "K Chen",
+        "T Zhang",
+        "Y Hui",
+        "T Berg-Kirkpatrick",
+        "S Dubnov"
+      ],
+      "venue": "Large-scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation"
+    },
+    {
+      "citation_id": "3",
+      "title": "Wavcaps: A chatgpt-assisted weakly-labelled audio captioning dataset for audio-language multimodal research",
+      "authors": [
+        "X Mei",
+        "C Meng",
+        "H Liu",
+        "Q Kong",
+        "T Ko",
+        "C Zhao",
+        "M Plumbley",
+        "Y Zou",
+        "W Wang"
+      ],
+      "year": "2023",
+      "venue": "Wavcaps: A chatgpt-assisted weakly-labelled audio captioning dataset for audio-language multimodal research"
+    },
+    {
+      "citation_id": "4",
+      "title": "Separate Anything You Describe",
+      "authors": [
+        "X Liu",
+        "Q Kong",
+        "Y Zhao",
+        "H Liu",
+        "Y Yuan",
+        "Y Liu",
+        "R Xia",
+        "Y Wang",
+        "M Plumbley",
+        "W Wang"
+      ],
+      "year": "2023",
+      "venue": "Separate Anything You Describe"
+    },
+    {
+      "citation_id": "5",
+      "title": "Improving Text-To-Audio Models with Synthetic Captions",
+      "authors": [
+        "Z Kong",
+        "S -G. Lee",
+        "D Ghosal",
+        "N Majumder",
+        "A Mehrish",
+        "R Valle",
+        "S Poria",
+        "B Catanzaro"
+      ],
+      "venue": "Improving Text-To-Audio Models with Synthetic Captions"
+    },
+    {
+      "citation_id": "6",
+      "title": "Listen, Think, and Understand",
+      "authors": [
+        "Y Gong",
+        "H Luo",
+        "A Liu",
+        "L Karlinsky",
+        "J Glass"
+      ],
+      "year": "2023",
+      "venue": "The Twelfth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "7",
+      "title": "Audio Flamingo: A Novel Audio Language Model with Few-Shot Learning and Dialogue Abilities",
+      "authors": [
+        "Z Kong",
+        "A Goel",
+        "R Badlani",
+        "W Ping",
+        "R Valle",
+        "B Catanzaro"
+      ],
+      "venue": "Audio Flamingo: A Novel Audio Language Model with Few-Shot Learning and Dialogue Abilities"
+    },
+    {
+      "citation_id": "8",
+      "title": "LLark: A Multimodal Foundation Model for Music",
+      "authors": [
+        "J Gardner",
+        "S Durand",
+        "D Stoller",
+        "R Bittner"
+      ],
+      "year": "2023",
+      "venue": "LLark: A Multimodal Foundation Model for Music"
+    },
+    {
+      "citation_id": "9",
+      "title": "Beyond the Status Quo: A Contemporary Survey of Advances and Challenges in Audio Captioning",
+      "authors": [
+        "X Xu",
+        "Z Xie",
+        "M Wu",
+        "K Yu"
+      ],
+      "year": "2024",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Automated Audio Captioning: An Overview of Recent Progress and New Challenges",
+      "authors": [
+        "X Mei",
+        "X Liu",
+        "M Plumbley",
+        "W Wang"
+      ],
+      "venue": "Automated Audio Captioning: An Overview of Recent Progress and New Challenges"
+    },
+    {
+      "citation_id": "11",
+      "title": "Clotho: An Audio Captioning Dataset",
+      "authors": [
+        "K Drossos",
+        "S Lipping",
+        "T Virtanen"
+      ],
+      "venue": "ICASSP 2020 -2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "12",
+      "title": "AudioCaps: Generating Captions for Audios in The Wild",
+      "authors": [
+        "C Kim",
+        "B Kim",
+        "H Lee",
+        "G Kim"
+      ],
+      "venue": "Proceedings of the 2019 Conference of the North American Chapter"
+    },
+    {
+      "citation_id": "13",
+      "title": "Diversity and Bias in Audio Captioning Datasets",
+      "authors": [
+        "Martin Morato",
+        "A Mesaros"
+      ],
+      "venue": "Diversity and Bias in Audio Captioning Datasets"
+    },
+    {
+      "citation_id": "14",
+      "title": "LP-MusicCaps: LLM-Based Pseudo Music Captioning",
+      "authors": [
+        "S Doh",
+        "K Choi",
+        "J Lee",
+        "J Nam"
+      ],
+      "year": "2023",
+      "venue": "LP-MusicCaps: LLM-Based Pseudo Music Captioning"
+    },
+    {
+      "citation_id": "15",
+      "title": "Recap: Retrieval-Augmented Audio Captioning",
+      "authors": [
+        "S Ghosh",
+        "S Kumar",
+        "C Reddy Evuru",
+        "R Duraiswami",
+        "D Manocha"
+      ],
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Improving Audio Captioning Models with Finegrained Audio Features, Text Embedding Supervision, and LLM Mix-up Augmentation",
+      "authors": [
+        "S.-L Wu",
+        "X Chang",
+        "G Wichern",
+        "J.-W Jung",
+        "F Germain",
+        "J Roux",
+        "S Watanabe"
+      ],
+      "year": "2023",
+      "venue": "Improving Audio Captioning Models with Finegrained Audio Features, Text Embedding Supervision, and LLM Mix-up Augmentation"
+    },
+    {
+      "citation_id": "17",
+      "title": "A principal components model of soundscape perception",
+      "authors": [
+        "Ö Axelsson",
+        "M Nilsson",
+        "B Berglund"
+      ],
+      "year": "2010",
+      "venue": "The Journal of the Acoustical Society"
+    },
+    {
+      "citation_id": "18",
+      "title": "Psychological wellbeing and demographic factors can mediate soundscape pleasantness and eventfulness: A large sample study",
+      "authors": [
+        "M Erfanian",
+        "A Mitchell",
+        "F Aletta",
+        "J Kang"
+      ],
+      "year": "2021",
+      "venue": "Journal of Environmental Psychology"
+    },
+    {
+      "citation_id": "19",
+      "title": "Audio Set: An ontology and humanlabeled dartaset for audio events",
+      "authors": [
+        "J Gemmeke",
+        "D Ellis",
+        "D Freedman",
+        "A Jansen",
+        "W Lawrence",
+        "R Moore",
+        "M Plakal",
+        "M Ritter"
+      ],
+      "venue": "Audio Set: An ontology and humanlabeled dartaset for audio events"
+    },
+    {
+      "citation_id": "20",
+      "title": "Chatgpt-3.5 turbo",
+      "authors": [
+        "Openai"
+      ],
+      "year": "2023",
+      "venue": "Chatgpt-3.5 turbo"
+    },
+    {
+      "citation_id": "21",
+      "title": "Emo-soundscapes: A dataset for soundscape emotion recognition",
+      "authors": [
+        "J Fan",
+        "M Thorogood",
+        "P Pasquier"
+      ],
+      "year": "2017",
+      "venue": "2017 Seventh International Conference on Affective Computing and Intelligent Interaction (ACII)"
+    },
+    {
+      "citation_id": "22",
+      "title": "Freesound 2: An improved platform for sharing audio clips",
+      "authors": [
+        "V Akkermans",
+        "F Font",
+        "J Corbera",
+        "B Funollet",
+        "G Jong",
+        "S Roma Trepat",
+        "X Togias",
+        "Serra"
+      ],
+      "year": "2011",
+      "venue": "ISMIR 2011: Proceedings of the 12th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "23",
+      "title": "The Soundscape: Our Sonic Environment and the Tuning of the World",
+      "authors": [
+        "R Schafer"
+      ],
+      "venue": "The Soundscape: Our Sonic Environment and the Tuning of the World"
+    },
+    {
+      "citation_id": "24",
+      "title": "A circumplex model of affect",
+      "authors": [
+        "J Russell"
+      ],
+      "year": "1980",
+      "venue": "Journal of personality and social psychology"
+    },
+    {
+      "citation_id": "25",
+      "title": "Emo-soundscapes: A dataset for soundscape emotion recognition",
+      "authors": [
+        "J Fan",
+        "M Thorogood",
+        "P Pasquier"
+      ],
+      "year": "2017",
+      "venue": "2017 Seventh International Conference on Affective Computing and Intelligent Interaction"
+    },
+    {
+      "citation_id": "26",
+      "title": "The Benefit of Temporally-Strong Labels in Audio Event Classification",
+      "authors": [
+        "S Hershey",
+        "D Ellis",
+        "E Fonseca",
+        "A Jansen",
+        "C Liu",
+        "R Moore",
+        "M Plakal"
+      ],
+      "venue": "ICASSP 2021 -2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "27",
+      "title": "WavCaps: A ChatGPT-Assisted Weakly-Labelled Audio Captioning Dataset for Audio-Language Multimodal Research",
+      "authors": [
+        "X Mei",
+        "C Meng",
+        "H Liu",
+        "Q Kong",
+        "T Ko",
+        "C Zhao",
+        "M Plumbley",
+        "Y Zou",
+        "W Wang"
+      ],
+      "year": "2023",
+      "venue": "WavCaps: A ChatGPT-Assisted Weakly-Labelled Audio Captioning Dataset for Audio-Language Multimodal Research"
+    },
+    {
+      "citation_id": "28",
+      "title": "Baseline system for dcase 2022 task 6, subtask a",
+      "authors": [
+        "F Gontier"
+      ],
+      "year": "2022",
+      "venue": "Baseline system for dcase 2022 task 6, subtask a"
+    },
+    {
+      "citation_id": "29",
+      "title": "HTS-AT: A Hierarchical Token-Semantic Audio Transformer for Sound Classification and Detection",
+      "authors": [
+        "K Chen",
+        "X Du",
+        "B Zhu",
+        "Z Ma",
+        "T Berg-Kirkpatrick",
+        "S Dubnov"
+      ],
+      "venue": "ICASSP 2022 -2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "30",
+      "title": "BART: Denoising sequence-tosequence pre-training for natural language generation, translation, and comprehension",
+      "authors": [
+        "M Lewis",
+        "Y Liu",
+        "N Goyal",
+        "M Ghazvininejad",
+        "A Mohamed",
+        "O Levy",
+        "V Stoyanov",
+        "L Zettlemoyer"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "31",
+      "title": "in Proceedings of the ACL Workshop on Intrinsic and Extrinsic Evaluation Measures for Machine Translation and/or Summarization",
+      "authors": [
+        "S Banerjee",
+        "A Lavie"
+      ],
+      "year": "2005",
+      "venue": "in Proceedings of the ACL Workshop on Intrinsic and Extrinsic Evaluation Measures for Machine Translation and/or Summarization"
+    },
+    {
+      "citation_id": "32",
+      "title": "Cider: Consensus-based image description evaluation",
+      "authors": [
+        "R Vedantam",
+        "C Zitnick",
+        "D Parikh"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "33",
+      "title": "Spice: Semantic propositional image caption evaluation",
+      "authors": [
+        "P Anderson",
+        "B Fernando",
+        "M Johnson",
+        "S Gould"
+      ],
+      "year": "2016",
+      "venue": "Spice: Semantic propositional image caption evaluation"
+    },
+    {
+      "citation_id": "34",
+      "title": "Improved image captioning via policy gradient optimization of spider",
+      "authors": [
+        "S Liu",
+        "Z Zhu",
+        "N Ye",
+        "S Guadarrama",
+        "K Murphy"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE International Conference on Computer Vision (ICCV)"
+    },
+    {
+      "citation_id": "35",
+      "title": "Can audio captions be evaluated with image caption metrics?",
+      "authors": [
+        "Z Zhou",
+        "Z Zhang",
+        "X Xu",
+        "Z Xie",
+        "M Wu",
+        "K Zhu"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022 -2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "36",
+      "title": "aac-metrics",
+      "authors": [
+        "E Labbé"
+      ],
+      "year": "2024",
+      "venue": "aac-metrics"
+    },
+    {
+      "citation_id": "37",
+      "title": "Mpnet: Masked and permuted pre-training for language understanding",
+      "authors": [
+        "K Song",
+        "X Tan",
+        "T Qin",
+        "J Lu",
+        "T.-Y Liu"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "38",
+      "title": "Customization of Closed Captions via Large Language Models",
+      "authors": [
+        "M Chavez",
+        "B Thompson",
+        "M Feanny",
+        "K Alabi",
+        "M Kim",
+        "L Ming",
+        "A Glasser",
+        "R Kushalnagar",
+        "C Vogler"
+      ],
+      "venue": "Computers Helping People with Special Needs"
+    },
+    {
+      "citation_id": "39",
+      "title": "Going Beyond One-Size-Fits-All Image Descriptions to Satisfy the Information Wants of People Who are Blind or Have Low Vision",
+      "authors": [
+        "A Stangl",
+        "N Verma",
+        "K Fleischmann",
+        "M Morris",
+        "D Gurari"
+      ],
+      "venue": "Proceedings of the 23rd International ACM SIGACCESS Conference on Computers and Accessibility, ser. ASSETS '21"
+    }
+  ]
+}

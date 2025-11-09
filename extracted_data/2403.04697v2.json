@@ -1,0 +1,1085 @@
+{
+  "paper_id": "2403.04697v2",
+  "title": "Auformer: Vision Transformers Are Parameter-Efficient Facial Action Unit Detectors",
+  "published": "2024-03-07T17:46:50Z",
+  "authors": [
+    "Kaishen Yuan",
+    "Zitong Yu",
+    "Xin Liu",
+    "Weicheng Xie",
+    "Huanjing Yue",
+    "Jingyu Yang"
+  ],
+  "keywords": [
+    "Facial AU detection",
+    "Parameter-efficient transfer learning",
+    "Mixture-of-knowledge expert",
+    "Margin-truncated difficulty-aware loss"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Facial Action Units (AU) is a vital concept in the realm of affective computing, and AU detection has always been a hot research topic. Existing methods suffer from overfitting issues due to the utilization of a large number of learnable parameters on scarce AUannotated datasets or heavy reliance on substantial additional relevant data. Parameter-Efficient Transfer Learning (PETL) provides a promising paradigm to address these challenges, whereas its existing methods lack design for AU characteristics. Therefore, we innovatively investigate PETL paradigm to AU detection, introducing AUFormer and proposing a novel Mixture-of-Knowledge Expert (MoKE) collaboration mechanism. An individual MoKE specific to a certain AU with minimal learnable parameters first integrates personalized multi-scale and correlation knowledge. Then the MoKE collaborates with other MoKEs in the expert group to obtain aggregated information and inject it into the frozen Vision Transformer (ViT) to achieve parameter-efficient AU detection. Additionally, we design a Margin-truncated Difficulty-aware Weighted Asymmetric Loss (MDWA-Loss), which can encourage the model to focus more on activated AUs, differentiate the difficulty of unactivated AUs, and discard potential mislabeled samples. Extensive experiments from various perspectives, including within-domain, cross-domain, data efficiency, and micro-expression domain, demonstrate AUFormer's stateof-the-art performance and robust generalization abilities without relying on additional relevant data. The code for AUFormer is available at https://github.com/yuankaishen2001/AUFormer.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Facial Action Unit Detection. With the rapid development of Computer Vision (CV) technology in recent years, more and more researchers are devoted to AU detection. Most traditional methods relied on hand-crafted features, leading to limited performance  [10, 17, 52, 64] . The rise of deep learning has greatly promoted the progress of AU detection. Due to the sizes of the muscles associated with different AUs are not consistent, some methods focused on learning multiscale features to enhance the model's ability  [24, 44, 47, 56, 65] . JÂA-Net  [44]  introduced the hierarchical and multi-scale region layer, which divided feature map into several patches and applied independent convolutional kernels to each patch. The patch sizes increased layer by layer to extract multi-scale information. From another perspective, considering intricate inherent correlations among AUs, some methods were dedicated to studying effective modeling of correlation information  [15, 23, 30, 33, 39, 46, 55] . ME-GraphAU  [33]  proposed a graph structure with multi-dimensional edge features, and used a Gated Graph Convolutional Network (GGCN)  [2]  to capture more abundant intrinsic correlation clues for each AU pair. Most existing methods were based on CNN or GNN, limiting model's perspective to local regions, while some emerging methods  [15, 30, 55]  introduced Transformer to leverage its powerful long-range dependency modeling capabilities. FAUDT  [15]  used Transformer blocks to adaptively extract global correlation knowledge between AUs. Although the methods mentioned above have shown satisfactory results, existing models with a large number of learnable parameters inevitably face the issue of overfitting on limited AU-annotated data. Recently, KDSRL  [3]  and BG-AU  [5]  have attempted to mitigate overfitting through contrastive learning or biomechanical guidance, respectively, but they still necessitates a large amount of additional relevant data. Unlike previous methods that utilized Transformer as a backbone  [30, 33]  or for global correlation learning  [15, 55]  in a fully fine-tuning paradigm, we propose a novel parameter-efficient MoKE collaboration mechanism to leverage pre-trained ViT. In this mechanism, several experts, each with a small number of learnable parameters and capable of learning personalized features for different AUs, collaborate within the group and inject consolidated knowledge into frozen ViT to adapt it to AU detection. Even though only trained on a limited dataset with AU annotations, AUFormer achieves state-of-the-art performance.\n\nParameter-Efficient Transfer Learning. With the rapid growth in model scales, the PETL paradigm has attracted increasing research interest. Initially applied in Natural Language Processing (NLP) for efficiently fine-tuning models pre-trained on large datasets  [7, 40, 49] , it has recently shown remarkable success in CV. Adapter  [4, 13]  was a bottleneck consisting of a downsampling layer, an up- sampling layer, and an activation function (such as GELU  [12] ) inserted between them, which is connected in series or in parallel in the Multi-head Self-attention (MHSA) or Multi-layer Perceptron (MLP) layer of ViT. LoRA  [14]  learned the low-rank approximation of increments to indirectly optimize the Queries and Keys in ViT. VPT  [16]  prepended a set of learnable prompts to the input, which can be viewed as inserting some learnable pixels into the input space, to adapt the pre-trained ViT to new tasks. Recently, Convpass  [18]  introduced convolutional layers into the adaptation module to capture spatial information of images and learn visual inductive bias, demonstrating superior performance. However, existing PETL methods that rely solely on naive learnable prompts, linear or convolutional layers cannot fully extract the meticulous knowledge required for AU detection, so directly applying these methods leads to suboptimal results. To our best knowledge, we are the first to investigate the PETL paradigm to AU detection.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Methodology",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Preliminary",
+      "text": "We first provide a brief review of ViT  [8] . ViT consists of a series of consecutive Transformer blocks, each of which mainly includes MHSA and MLP layers for feature extraction, as shown by the blue squares in Figure  2 . Ignoring the LayerNorm  [1]  layers, a Transformer block can be represented as\n\nwhere X l-1 and X ′ l respectively represent the tokens input to MHSA and MLP of the l-th Transformer block, and X l represents the tokens output from the l-th Transformer block. ViT has demonstrated strong feature representation and long-range dependency modeling capabilities. However, fully fine-tuning pretrained ViT on downstream tasks with limited datasets often leads to overfitting or catastrophic forgetting issues, resulting in suboptimal performance  [18] . Consequently, we proceed to introduce the proposed AUFormer, a Mixture-of-Knowledge Expert (MoKE) collaboration mechanism that can efficiently utilize the pre-trained parameters of ViT.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Collaboration Mechanism",
+      "text": "To adapt the pre-trained ViT for AU detection, we freeze the parameters of ViT and introduce N MoKEs with minimal learnable parameters into both MHSA and MLP layers of each Transformer block, forming MoKE groups, where N represents the number of AUs. Each MoKE learns personalized knowledge for a specific AU and receives information from two aspects, namely the global information that will be input to MHSA/MLP and the knowledge inherited from the previous generation of MoKEs. Taking the MoKE group corresponding to MHSA of the l-th Transformer block as an example, each MoKE in the group first learns knowledge for the corresponding AU, and this process can be expressed as\n\nwhere MoKE M HSA l,i is the MoKE of the i-th AU in the MHSA group, X l-1 is the input to MHSA, K M LP l-1,i is the output of MoKE of the i-th AU in the MLP group of the previous block, K M HSA l,i is the personalized knowledge that MoKE M HSA l,i has learned for the i-th AU.\n\nThen, MoKEs corresponding to different AUs pass on the acquired knowledge to the next generation of MoKEs and collaborate within their group, integrating information by averaging to obtain comprehensive expertise. Specifically, the collaboration process can be represented as\n\nwhere K M HSA l represents comprehensive expertise obtained through collaboration among MoKEs within group.\n\nThe comprehensive expertise obtained is injected back into the Transformer block. Therefore, the input of the MLP in the l-th block is transformed from Equation (1) to\n\nThe green area in Figure  2  illustrates the overall process described above. The process for MoKE groups of MLP is similar and will not be reiterated here.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Structure Of Moke",
+      "text": "To ensure that MoKEs can acquire knowledge beneficial for AU detection, we incorporate Multi-Receptive Field (MRF) and Context-Aware (CA) operators to capture multi-scale and correlation knowledge relevant to AUs, as shown in the orange area of Figure  2 .\n\nSpecifically, since ViT flattens the image into 1D token sequences, the input M ∈ R Nt×D of MoKEs is firstly reshaped to get M ′ ∈ R H×W ×D to restore the 2D spatial structure, where N t , D, H, and W represent the number of tokens, the number of channels, and the height and width of reshaped features, respectively. Then, M ′ undergoes channel reduction through a 1 × 1 convolutional layer and is further processed by a 3 × 3 convolutional layer to extract basic features M ′′ ∈ R H×W ×d which are input into the MRF and CA operator, where d is the number of channels after reduction. It should be noted that we treat the [CLS] token as an individual image following  [18] . Due to the identical process, we omit the description of its transformation here.\n\nMRF operator is designed to extract features with varying receptive field sizes, accommodating the distinct muscle region sizes corresponding to different AUs. It consists of three parallel dilated convolutional layers, each with a 3 × 3 kernel, where the dilated rates increase gradually, denoted as r 1 , r 2 and r 3 . The outputs of these three dilated convolutional layers are concatenated and channelcompressed through a 1 × 1 convolutional layer to obtain integrated multi-scale knowledge K M RF .\n\nCA operator focuses on perceiving the contextual information of features, thereby implicitly modeling potential correlation knowledge among muscles. Specifically, input basic features M ′′ are firstly mapped to Q, K, and V through three parallel 1×1 convolutional layers. Then, Q is Hadamard producted with the vectors of K in its neighborhood (assuming a size of S × S) and passed through Softmax to obtain correlation matrix. Utilizing obtained correlation knowledge, V is aggregated within the neighborhood of Q to update it to K CA . This process can be expressed as\n\nwhere ⊙ is Hadamard product, x is the spatial index of query vector Q x , and R(x) is the set of indices for the neighborhood of Q x to be aggregated. The purple area in Figure  2  illustrates the details of MRF and CA operator. Finally, we integrate the basic feature M ′′ , multi-scale knowledge K M RF , and correlation knowledge K CA together, and expand channels through a 1 × 1 convolutional layer to obtain informative mixture-of-knowledge features.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Loss Function",
+      "text": "AU detection is typically regarded as a multi-label binary classification problem. To make final predictions, we transform the [CLS] token from the last block of ViT into Z ∈ R N through a linear projector and convert it into probabilities p using the Sigmoid activation function.\n\nHistorically, most methods have used a weighted multi-label cross-entropy loss (WCE-Loss) as supervision signal during training. However, this straightforward setup does not account for the issue of significantly fewer activated AUs compared to unactivated AUs. Therefore, ME-GraphAU  [33]  introduced a weighted asymmetric loss (WA-Loss) to guide model's attention towards both activated and challenging unactivated AUs. Nevertheless, WA-Loss does not differentiate the difficulty levels among different AUs, nor does it consider samples potentially mislabeled. Recognizing these issues, we propose a novel Margintruncated Difficulty-aware Weighted Asymmetric Loss (MDWA-Loss), which can focus more on activated AUs, adaptively discern the difficulty of unactivated AUs, and discard the potentially mislabeled samples. It can be formulated as\n\nwhere y i and p i represent the ground truth and predictions for the i-th AU, respectively. ω i is the weight for addressing class imbalance, and it can be formulated as\n\n, where r i is the occurrence rate of the i-th AU. p m,i is used to discard potentially mislabeled samples and can be formulated as p m,i = max(p i -m, 0), where m ∈ [0, 1] is the truncation margin. γ i is used to distinguish the different difficulty levels of unactivated AUs and can be formulated as γ i = B L + (B R -B L ) × r i , where B L and B R are left and right boundaries of γ i respectively.\n\nTo better understand how MDWA-Loss works, we analyze the gradient of the loss. Ignoring the index i of AUs (e.g., p m,i →p m ), the loss gradient for unactivated AU, calculated for the output Z, can be expressed as\n\nThe derivation process is detailed in Appendix.\n\nWe first explore the effect of truncation margin m. By fixing γ to 1, i.e., temporarily ignoring the difficulty differences of AUs, we can obtain a degenerate version called MWA-Loss. We compare it with the losses commonly used before, and Figure  3a  illustrates the gradient curves of different losses. The gradient of WCE-Loss increases linearly and does not focus on the more challenging samples.\n\nAlthough WA-Loss suppresses the gradient of easy negative samples (p ≪ 0.5), placing more emphasis on the harder samples, its gradient increases with the prediction probability, potentially propagating the gradient of mislabeled samples. In contrast, the MWA-Loss can be divided into three stages. When negative samples are very easy (p < m), the gradient is directly ignored. As the difficulty of negative samples increases, the gradient also increases nonlinearly, giving higher attention to challenging samples. When negative samples are extremely difficult (p ≈ 1), it is suspected that these are actually positive samples that have been mislabeled, so the gradient propagation for such samples is rejected. For densely annotated AU datasets, mislabeled samples are inevitable (several examples are detailed in Appendix), thus the introduction of m is helpful for training.\n\nThen, the role of γ is discussed. Since the difficulty of detecting different AUs varies greatly, we introduce γ specific to each AU for differentiation. We intuitively use the occurrence rate to measure the difficulty of AUs, and they often show an inverse relationship. Specifically, the lower the occurrence rate, the greater the difficulty, and the smaller the value of γ, leading to larger gradients being back-propagated. Figure  3b  shows the γ values and gradient curves of AU2, AU7, and AU17, which have different degrees of difficulty, demonstrating the ability of MDWA-Loss to differentiates unactivated AUs.\n\nBesides, referring to  [44] , we also introduce a weighted multi-label dice loss (WDI-Loss) to alleviate the issue of AU prediction bias towards non-occurrence, as follow\n\nwhere ε is a smooth term and the meanings of y i , p i , and ω i remain consistent with those defined in Equation  (6) . Additionally, to ensure that each MoKE can learn personalized knowledge about a particular AU, we pass the [CLS] tokens from the final group of MoKE outputs through linear projectors and apply Sigmoid activation to predict each AU separately. We also employ MDWA-Loss as supervision signal, and denote it as L ′ MDWA . Due to its expression being the same as L MDWA , it is omitted here. The overall loss of AUFormer can be expressed as\n\n4 Experimental results",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Settings",
+      "text": "Datasets. We evaluate the proposed AUFormer on three datasets: BP4D  [60]  and DISFA  [37]  in the macro-expression domain, and CASME II  [53]  in the micro-expression domain. For BP4D and DISFA, following  [33, 44, 65] , we employ subject-exclusive 3-fold cross-validation. For CASME II, following  [27] , we extract the apex frame of each video for experiments and employ subjectexclusive 4-fold cross-validation. More details about the datasets and data preprocessing are in Appendix.\n\nImplementation Details. We choose ViT-B/16 pre-trained on ImageNet-1K  [6]  as the backbone. Regarding the model configuration, the number of channels d after reduction in MoKE is set to 4. The dilated rates r 1 , r 2 , and r 3 in MRF are set to 1, 3, and 5. The neighborhood size S × S in CA is set to 3 × 3. The left and right boundaries B L and B R of γ are set to 1 and 2. The truncation margin m for BP4D, DISFA, and CASME II are set to 0.1, 0.15, and 0.3. The smooth term ε is set to 1. The number of AUs N for BP4D, DISFA, and CASME II are set to 12, 8 and 8, following  [27, 65] . More details about the training are in Appendix.\n\nEvaluation Metric. Consistent with the previous methods  [24, 25, 44, 65 ], F1-score, which is the harmonic mean of precision and recall, is used as a metric to measure AU detection performance. ) that initialized models with well-trained parameters from BP4D when training on the DISFA, we train AUFormer from scratch solely on DISFA, achieving superior results. These advancements can be attributed to the proposed parameter-efficient collaboration mechanism, the tailored MoKE considering AU characteristics, and the meticulously crafted MDWA-Loss, which distinguishes AU difficulty and enables the discarding of potentially mislabeled samples.",
+      "page_start": 9,
+      "page_end": 10
+    },
+    {
+      "section_name": "Comparison With State-Of-The-Art Methods",
+      "text": "Cross-domain Evaluation. To explore the generalization of AUFormer, we conduct bidirectional cross-domain evaluations, specifically from BP4D to DISFA and from DISFA to BP4D. Similar to  [56] , we utilize two folds of data from the source domain as the training set, while the entire dataset from the target domain is used as the testing set. We compare AUFormer with seven state-of-the-art methods on five AUs that are present in both datasets and the F1-score results of cross-domain evaluations are shown in Table  2 . It can be observed that AUFormer outperforms all methods by at least 7.1% in the DISFA to BP4D direction and is second only to FG-Net in the BP4D to DISFA direction, demonstrating its highly competitive generalization. For the BP4D to DISFA direction, we speculate that the higher occurrence rates of individual AUs in the BP4D (at least 15%) lead AUFormer to capture more dataset-specific features, making it difficult to transfer seamlessly to DISFA. In contrast, FG-Net utilized features from the StyleGAN2  [20, 41]  pre-trained on FFHQ  [19] , a dataset with high-quality diverse facial data on a large scale, reducing the degree of overfitting on BP4D. Nevertheless, even without using more diverse additional data, AUFormer still outperforms other methods by at least 3.9% in the BP4D to DISFA direction, except for FG-Net. Data Efficiency. We also investigate AUFormer's capability to efficiently utilize limited data on BP4D. Specifically, we perform equidistant sampling on the original training set to obtain a subset as the new training set, while keeping the original testing set unchanged for evaluation. We set the sampling rates to 10%, 1%, 0.5%, and 0.1%, respectively. Figure  4  illustrates the comparison of average F1-scores results of AUFormer with ME-GraphAU  [33]  and KS  [25] , where the results of ME-GraphAU are obtained by reproducing the open-source code.  1  It can be observed that when the sampling rate is 10%, the performance remains relatively stable, which is due to the dense frame-level annotation of BP4D. As the sampling rate is further reduced, the performance decreases accordingly, which is an expected outcome. However, it should be noted that both ME-GraphAU and KS experience a drastic decline when the number of samples is extremely limited. In contrast, AUFormer shows a more gradual decline. Even with only 0.1% of the original training set (less than 100 samples) utilized as training data, AUFormer achieves remarkably im- pressive results, showcasing its robust ability to extract effective information from limited data. Micro-expression Domain Evaluation. In addition to commonly used macro-expression AU datasets, we also consider the micro-expression AU dataset, namely CASME II  [53] , to evaluate the ability of AUFormer in the microexpression domain, which has been rarely explored in previous methods. We compare AUFormer with seven methods specifically designed for micro-expression AU detection, as well as ME-GraphAU, which performed excellently in macroexpression AU detection. Table  3  shows F1-score results of these methods on CASME II, where the results of ME-GraphAU are obtained by reproducing the open-source code. It can be seen that, although ME-GraphAU outperforms most methods specifically designed for micro-expression AU detection, demonstrating its feasibility in the micro-expression domain, it still falls short of ASP. On the other hand, AUFormer surpasses all methods with at least a 4% improvement, proving that it can excel in the micro-expression domain as well. We hope that AUFormer can serve as a catalyst, inspiring more research that bridges the macro-expression and micro-expression domains. We conduct ablation studies on BP4D dataset using subjectexclusive 3-fold cross-validation to explore the effects of each component of AUFormer, as well as the selection of important parameters and settings. Table  4  presents the average F1-score results of various combinations of AUFormer's components. We regard ViT/B-16 fully fine-tuned under the supervision of WA-Loss and WDI-Loss as the baseline, and its result is shown in the first row of Table  4 . PETL paradigm. Compared to fully fine-tuning, PETL paradigm offers a   5  presents the average F1-score results for different choices of important parameters or settings. Adaptation modules. We explore the effects of several representative adaptation modules in PETL paradigm in AU detection, including Adapter  [13] , LoRA  [14] , VPT  [16] , and Convpass  [18] , as shown in Table  5a . It can be seen that VPT performs the worst, Adapter and LoRA are in the middle, and Convpass is the optimal. This is because the convolutional layers introduced in Convpass align with the spatial information requirements Fig.  6 : Activation maps for MoKEs corresponding to activated AUs generated using Grad-CAM  [43] .",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Ablation Study",
+      "text": "in AU detection. Therefore, when designing MoKE, we also incorporate convolutional layers. Dilated rates. We default the dilated rates r 1 , r 2 and r 3 to 1, 3, and 5, and explore the impact of different dilated rates on performance, as shown in Table  5b . When removing the convolutional layers with dilated rates of 5 or 3 and 5, the performance experiences varying degrees of decline due to the reduced receptive field. Interestingly, experimenting with dilated rates of 1, 2, and 3 shows equivalent performance to rates 1 and 3, indicating the convolutional layers with a dilated rate of 2 does not bring an information increment, affirming the necessity of introducing convolutional layers with larger dilated rates. Correlation neighborhood size. How much contextual information to aggregate within the correlation neighborhood is a question to consider. We set the neighborhood size S × S to 3 × 3, 5 × 5, and 7 × 7, and observe that a larger neighborhood did not lead to a better result, as seen in Table  5c . Therefore, we opt for the more computationally efficient 3×3. Truncation margin. We investigate the setting of the truncation margin m, as shown in Table  5d . When m is too small, MDWA-Loss almost fails to serve its purpose of discarding potentially mislabeled samples. Conversely, when m is too large, MDWA-Loss may lead to misjudgment, ignoring samples that are actually correctly labeled. In summary, we set m to 0.1. In addition to the above mentioned, we also explore the choices of adaptation module placement, reduced channel number d in MoKE, correlation matrix calculation method, boundaries of γ, and applicability of AUFormer on various backbones  [31] , etc. For more details, please refer to Appendix.\n\nVisualization. The question of whether MoKEs targeting different AUs actually capture the personalized features of corresponding AUs is a matter of concern, and we illustrate this through visualization on BP4D. We first visualize the distribution of [CLS] tokens from the final group of MoKEs using t-SNE to explore the necessity of setting L ′ MDWA . As shown in Figure  5a , without supervision of L ′ MDWA for MoKEs, their outputs are chaotic and disorderly. In contrast, when L ′ MDWA is introduced, the outputs from the same MoKE corresponding to a certain AU are clustered together, distinct from the outputs of other MoKEs, as shown in Figure  5b . Then, we generate activation maps for activated AUs utilizing Grad-CAM to observe the facial regions focused on by individual MoKEs. Figure  6  illustrates that each MoKE indeed emphasizes regions related to their respective AU. For example, MoKEs corresponding to AU1 (Inner brow raiser) and AU6 (Cheek raiser) place their focal points on the inner brow and cheeks, respectively. More activation maps are detailed in Appendix.",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "Conclusion And Future Work",
+      "text": "In this paper, we investigate the application of PETL paradigm in AU detection for the first time. We propose AUFormer and develop a novel MoKE collaboration mechanism for efficiently leveraging the pre-trained ViT. We also introduce a novel MDWA-Loss, which considers the properties of AU datasets and difficulty differences in recognizing different AUs. We demonstrate the state-of-the-art performance of AUFormer from multiple perspectives. We note that the study on employing ViT in AU detection is still at an early stage. Future directions include: (i) exploring a dynamic collaborative mechanism that can adaptively adjust the contributions of each MoKE. (ii) utilizing the personalized features of each AU extracted by MoKEs for further subsequent processing.",
+      "page_start": 15,
+      "page_end": 15
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Comparison of AUFormer with",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: The overall architecture of the proposed AUFormer. MoKEs first extract",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: Ignoring the",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: illustrates the overall process described above.",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: Specifically, since ViT flattens the image into 1D token sequences, the input",
+      "page": 7
+    },
+    {
+      "caption": "Figure 2: illustrates the details of MRF and CA operator.",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: Gradient analysis of unactivated AU (negative sample).",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: a illustrates the gradient curves of different losses. The gradient of",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: b shows the γ values and gradient curves of",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: Comparison of data efficiency capa-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 4: illustrates the comparison of average F1-scores results of AUFormer with ME-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 5: The t-SNE [35] distribution of",
+      "page": 14
+    },
+    {
+      "caption": "Figure 6: Activation maps for MoKEs corre-",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: a, without supervi-",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: b. Then, we generate activation maps for activated AUs uti-",
+      "page": 14
+    },
+    {
+      "caption": "Figure 6: illustrates that each MoKE indeed emphasizes regions related to their",
+      "page": 14
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: Average F1-score (in %) results",
+      "page": 10
+    },
+    {
+      "caption": "Table 2: F1-scores (in %) for cross-domain evaluations between BP4D and DISFA. The",
+      "page": 11
+    },
+    {
+      "caption": "Table 2: It can be ob-",
+      "page": 11
+    },
+    {
+      "caption": "Table 3: F1-score results (in %) for micro-expression domain evaluation on CASME",
+      "page": 12
+    },
+    {
+      "caption": "Table 3: shows F1-score results of these methods on",
+      "page": 12
+    },
+    {
+      "caption": "Table 4: The average F1-score (in %) results of",
+      "page": 12
+    },
+    {
+      "caption": "Table 4: presents the average F1-score re-",
+      "page": 12
+    },
+    {
+      "caption": "Table 4: PETL paradigm. Compared to fully fine-tuning, PETL paradigm offers a",
+      "page": 12
+    },
+    {
+      "caption": "Table 5: The average F1-score (in %) on BP4D with different parameter or setting",
+      "page": 13
+    },
+    {
+      "caption": "Table 4: illustrates that it can lead to a 1.7% improvement. Here,",
+      "page": 13
+    },
+    {
+      "caption": "Table 5: a. Collaboration",
+      "page": 13
+    },
+    {
+      "caption": "Table 4: highlights the superiority of collaboration mechanism",
+      "page": 13
+    },
+    {
+      "caption": "Table 4: , respectively, verifying the necessity of multi-scale",
+      "page": 13
+    },
+    {
+      "caption": "Table 4: Then, we investigate the roles",
+      "page": 13
+    },
+    {
+      "caption": "Table 4: Mutual enhancement between MoKE and",
+      "page": 13
+    },
+    {
+      "caption": "Table 4: that when MoKE and MDWA-Loss are applied",
+      "page": 13
+    },
+    {
+      "caption": "Table 5: presents the average F1-score results for different choices of impor-",
+      "page": 13
+    },
+    {
+      "caption": "Table 5: a. It can be seen that VPT performs the worst, Adapter and LoRA are",
+      "page": 13
+    },
+    {
+      "caption": "Table 5: b. When removing the convolutional layers with dilated rates",
+      "page": 14
+    },
+    {
+      "caption": "Table 5: c. Therefore, we",
+      "page": 14
+    },
+    {
+      "caption": "Table 5: d. When m is",
+      "page": 14
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Layer normalization",
+      "authors": [
+        "J Ba",
+        "J Kiros",
+        "G Hinton"
+      ],
+      "year": "2016",
+      "venue": "Layer normalization",
+      "arxiv": "arXiv:1607.06450"
+    },
+    {
+      "citation_id": "2",
+      "title": "Residual gated graph convnets",
+      "authors": [
+        "X Bresson",
+        "T Laurent"
+      ],
+      "year": "2017",
+      "venue": "Residual gated graph convnets",
+      "arxiv": "arXiv:1711.07553"
+    },
+    {
+      "citation_id": "3",
+      "title": "Knowledge-driven self-supervised representation learning for facial action unit recognition",
+      "authors": [
+        "Y Chang",
+        "S Wang"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "4",
+      "title": "Adaptformer: Adapting vision transformers for scalable visual recognition",
+      "authors": [
+        "S Chen",
+        "C Ge",
+        "Z Tong",
+        "J Wang",
+        "Y Song",
+        "J Wang",
+        "P Luo"
+      ],
+      "year": "2022",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "5",
+      "title": "Biomechanics-guided facial action unit detection through force modeling",
+      "authors": [
+        "Z Cui",
+        "C Kuang",
+        "T Gao",
+        "K Talamadupula",
+        "Q Ji"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "6",
+      "title": "Imagenet: A largescale hierarchical image database",
+      "authors": [
+        "J Deng",
+        "W Dong",
+        "R Socher",
+        "L Li",
+        "K Li",
+        "L Fei-Fei"
+      ],
+      "year": "2009",
+      "venue": "Imagenet: A largescale hierarchical image database"
+    },
+    {
+      "citation_id": "7",
+      "title": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2018",
+      "venue": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "arxiv": "arXiv:1810.04805"
+    },
+    {
+      "citation_id": "8",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "A Dosovitskiy",
+        "L Beyer",
+        "A Kolesnikov",
+        "D Weissenborn",
+        "X Zhai",
+        "T Unterthiner",
+        "M Dehghani",
+        "M Minderer",
+        "G Heigold",
+        "S Gelly"
+      ],
+      "year": "2020",
+      "venue": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "arxiv": "arXiv:2010.11929"
+    },
+    {
+      "citation_id": "9",
+      "title": "Facial action coding system",
+      "authors": [
+        "P Ekman",
+        "W Friesen"
+      ],
+      "year": "1978",
+      "venue": "Environmental Psychology & Nonverbal Behavior"
+    },
+    {
+      "citation_id": "10",
+      "title": "A century of portraits: A visual historical record of american high school yearbooks",
+      "authors": [
+        "S Ginosar",
+        "K Rakelly",
+        "S Sachs",
+        "B Yin",
+        "A Efros"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the IEEE International Conference on Computer Vision Workshops"
+    },
+    {
+      "citation_id": "11",
+      "title": "Deep residual learning for image recognition",
+      "authors": [
+        "K He",
+        "X Zhang",
+        "S Ren",
+        "J Sun"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the IEEE conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "12",
+      "title": "Gaussian error linear units (gelus)",
+      "authors": [
+        "D Hendrycks",
+        "K Gimpel"
+      ],
+      "year": "2016",
+      "venue": "Gaussian error linear units (gelus)",
+      "arxiv": "arXiv:1606.08415"
+    },
+    {
+      "citation_id": "13",
+      "title": "Parameter-efficient transfer learning for nlp",
+      "authors": [
+        "N Houlsby",
+        "A Giurgiu",
+        "S Jastrzebski",
+        "B Morrone",
+        "Q De Laroussilhe",
+        "A Gesmundo",
+        "M Attariyan",
+        "S Gelly"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "14",
+      "title": "Lora: Low-rank adaptation of large language models",
+      "authors": [
+        "E Hu",
+        "Y Shen",
+        "P Wallis",
+        "Z Allen-Zhu",
+        "Y Li",
+        "S Wang",
+        "L Wang",
+        "W Chen"
+      ],
+      "year": "2021",
+      "venue": "Lora: Low-rank adaptation of large language models",
+      "arxiv": "arXiv:2106.09685"
+    },
+    {
+      "citation_id": "15",
+      "title": "Facial action unit detection with transformers",
+      "authors": [
+        "G Jacob",
+        "B Stenger"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "16",
+      "title": "Visual prompt tuning",
+      "authors": [
+        "M Jia",
+        "L Tang",
+        "B Chen",
+        "C Cardie",
+        "S Belongie",
+        "B Hariharan",
+        "S Lim"
+      ],
+      "year": "2022",
+      "venue": "European Conference on Computer Vision"
+    },
+    {
+      "citation_id": "17",
+      "title": "Action unit detection using sparse appearance descriptors in space-time video volumes",
+      "authors": [
+        "B Jiang",
+        "M Valstar",
+        "M Pantic"
+      ],
+      "year": "2011",
+      "venue": "2011 IEEE International Conference on Automatic Face & Gesture Recognition (FG)"
+    },
+    {
+      "citation_id": "18",
+      "title": "Convolutional bypasses are better vision transformer adapters",
+      "authors": [
+        "S Jie",
+        "Z Deng"
+      ],
+      "year": "2022",
+      "venue": "Convolutional bypasses are better vision transformer adapters",
+      "arxiv": "arXiv:2207.07039"
+    },
+    {
+      "citation_id": "19",
+      "title": "A style-based generator architecture for generative adversarial networks",
+      "authors": [
+        "T Karras",
+        "S Laine",
+        "T Aila"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "20",
+      "title": "Analyzing and improving the image quality of stylegan",
+      "authors": [
+        "T Karras",
+        "S Laine",
+        "M Aittala",
+        "J Hellsten",
+        "J Lehtinen",
+        "T Aila"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "21",
+      "title": "A spatio-temporal descriptor based on 3dgradients",
+      "authors": [
+        "A Klaser",
+        "M Marszałek",
+        "C Schmid"
+      ],
+      "year": "2008",
+      "venue": "BMVC 2008-19th British Machine Vision Conference"
+    },
+    {
+      "citation_id": "22",
+      "title": "Au-aware 3d face reconstruction through personalized au-specific blendshape learning",
+      "authors": [
+        "C Kuang",
+        "Z Cui",
+        "J Kephart",
+        "Q Ji"
+      ],
+      "year": "2022",
+      "venue": "European Conference on Computer Vision"
+    },
+    {
+      "citation_id": "23",
+      "title": "Semantic relationships guided representation learning for facial action unit recognition",
+      "authors": [
+        "G Li",
+        "X Zhu",
+        "Y Zeng",
+        "Q Wang",
+        "L Lin"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "24",
+      "title": "Eac-net: Deep nets with enhancing and cropping for facial action unit detection",
+      "authors": [
+        "W Li",
+        "F Abtahi",
+        "Z Zhu",
+        "L Yin"
+      ],
+      "year": "2018",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence"
+    },
+    {
+      "citation_id": "25",
+      "title": "Knowledge-spreader: Learning semisupervised facial action dynamics by consistifying knowledge granularity",
+      "authors": [
+        "X Li",
+        "X Zhang",
+        "T Wang",
+        "L Yin"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "26",
+      "title": "Micro-expression action unit detection with spatial and channel attention",
+      "authors": [
+        "Y Li",
+        "X Huang",
+        "G Zhao"
+      ],
+      "year": "2021",
+      "venue": "Neurocomputing"
+    },
+    {
+      "citation_id": "27",
+      "title": "Micro-expression action unit detection with dualview attentive similarity-preserving knowledge distillation",
+      "authors": [
+        "Y Li",
+        "W Peng",
+        "G Zhao"
+      ],
+      "year": "2021",
+      "venue": "2021 16th IEEE International Conference on Automatic Face and Gesture Recognition (FG 2021)"
+    },
+    {
+      "citation_id": "28",
+      "title": "Intra-and inter-contrastive learning for micro-expression action unit detection",
+      "authors": [
+        "Y Li",
+        "G Zhao"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 2021 International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "29",
+      "title": "Gated graph sequence neural networks",
+      "authors": [
+        "Y Li",
+        "D Tarlow",
+        "M Brockschmidt",
+        "R Zemel"
+      ],
+      "year": "2015",
+      "venue": "Gated graph sequence neural networks",
+      "arxiv": "arXiv:1511.05493"
+    },
+    {
+      "citation_id": "30",
+      "title": "Multi-scale promoted self-adjusting correlation learning for facial action unit detection",
+      "authors": [
+        "X Liu",
+        "K Yuan",
+        "X Niu",
+        "J Shi",
+        "Z Yu",
+        "H Yue",
+        "J Yang"
+      ],
+      "year": "2023",
+      "venue": "Multi-scale promoted self-adjusting correlation learning for facial action unit detection",
+      "arxiv": "arXiv:2308.07770"
+    },
+    {
+      "citation_id": "31",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows",
+      "authors": [
+        "Z Liu",
+        "Y Lin",
+        "Y Cao",
+        "H Hu",
+        "Y Wei",
+        "Z Zhang",
+        "S Lin",
+        "B Guo"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF international conference on computer vision"
+    },
+    {
+      "citation_id": "32",
+      "title": "Deep learning face attributes in the wild",
+      "authors": [
+        "Z Liu",
+        "P Luo",
+        "X Wang",
+        "X Tang"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the IEEE international conference on computer vision"
+    },
+    {
+      "citation_id": "33",
+      "title": "Learning multi-dimensional edge feature-based au relation graph for facial action unit recognition",
+      "authors": [
+        "C Luo",
+        "S Song",
+        "W Xie",
+        "L Shen",
+        "H Gunes"
+      ],
+      "year": "2022",
+      "venue": "Learning multi-dimensional edge feature-based au relation graph for facial action unit recognition",
+      "arxiv": "arXiv:2205.01782"
+    },
+    {
+      "citation_id": "34",
+      "title": "Facial action unit detection and intensity estimation from self-supervised representation",
+      "authors": [
+        "B Ma",
+        "R An",
+        "W Zhang",
+        "Y Ding",
+        "Z Zhao",
+        "R Zhang",
+        "T Lv",
+        "C Fan",
+        "Z Hu"
+      ],
+      "year": "2022",
+      "venue": "Facial action unit detection and intensity estimation from self-supervised representation",
+      "arxiv": "arXiv:2210.15878"
+    },
+    {
+      "citation_id": "35",
+      "title": "Visualizing data using t-sne",
+      "authors": [
+        "L Van Der Maaten",
+        "G Hinton"
+      ],
+      "year": "2008",
+      "venue": "Journal of machine learning research"
+    },
+    {
+      "citation_id": "36",
+      "title": "Automatic analysis of facial actions: A survey",
+      "authors": [
+        "B Martinez",
+        "M Valstar",
+        "B Jiang",
+        "M Pantic"
+      ],
+      "year": "2017",
+      "venue": "IEEE transactions on affective computing"
+    },
+    {
+      "citation_id": "37",
+      "title": "Disfa: A spontaneous facial action intensity database",
+      "authors": [
+        "S Mavadati",
+        "M Mahoor",
+        "K Bartlett",
+        "P Trinh",
+        "J Cohn"
+      ],
+      "year": "2013",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "38",
+      "title": "Affectnet: A database for facial expression, valence, and arousal computing in the wild",
+      "authors": [
+        "A Mollahosseini",
+        "B Hasani",
+        "M Mahoor"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "39",
+      "title": "Local relationship learning with person-specific shape regularization for facial action unit detection",
+      "authors": [
+        "X Niu",
+        "H Han",
+        "S Yang",
+        "Y Huang",
+        "S Shan"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE/CVF Conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "40",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "C Hallacy",
+        "A Ramesh",
+        "G Goh",
+        "S Agarwal",
+        "G Sastry",
+        "A Askell",
+        "P Mishkin",
+        "J Clark"
+      ],
+      "year": "2021",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "41",
+      "title": "Encoding in style: a stylegan encoder for image-to-image translation",
+      "authors": [
+        "E Richardson",
+        "Y Alaluf",
+        "O Patashnik",
+        "Y Nitzan",
+        "Y Azar",
+        "S Shapiro",
+        "D Cohen-Or"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "42",
+      "title": "Asymmetric loss for multi-label classification",
+      "authors": [
+        "T Ridnik",
+        "E Ben-Baruch",
+        "N Zamir",
+        "A Noy",
+        "I Friedman",
+        "M Protter",
+        "L Zelnik-Manor"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "43",
+      "title": "Gradcam: Visual explanations from deep networks via gradient-based localization",
+      "authors": [
+        "R Selvaraju",
+        "M Cogswell",
+        "A Das",
+        "R Vedantam",
+        "D Parikh",
+        "D Batra"
+      ],
+      "year": "2017",
+      "venue": "Gradcam: Visual explanations from deep networks via gradient-based localization"
+    },
+    {
+      "citation_id": "44",
+      "title": "Jaa-net: joint facial action unit detection and face alignment via adaptive attention",
+      "authors": [
+        "Z Shao",
+        "Z Liu",
+        "J Cai",
+        "L Ma"
+      ],
+      "year": "2021",
+      "venue": "International Journal of Computer Vision"
+    },
+    {
+      "citation_id": "45",
+      "title": "Uncertain graph neural networks for facial action unit detection",
+      "authors": [
+        "T Song",
+        "L Chen",
+        "W Zheng",
+        "Q Ji"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "46",
+      "title": "Hybrid message passing with performancedriven structures for facial action unit detection",
+      "authors": [
+        "T Song",
+        "Z Cui",
+        "W Zheng",
+        "Q Ji"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "47",
+      "title": "Piap-df: Pixel-interested and anti personspecific facial action unit detection net with discrete feedback learning",
+      "authors": [
+        "Y Tang",
+        "W Zeng",
+        "D Zhao",
+        "H Zhang"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "48",
+      "title": "Idennet: Identity-aware facial action unit detection",
+      "authors": [
+        "C Tu",
+        "C Yang",
+        "J Hsu"
+      ],
+      "year": "2019",
+      "venue": "14th IEEE International Conference on Automatic Face & Gesture Recognition"
+    },
+    {
+      "citation_id": "49",
+      "title": "Attention is all you need. Advances in neural information processing systems",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Attention is all you need. Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "50",
+      "title": "Semantic learning for facial action unit detection",
+      "authors": [
+        "X Wang",
+        "C Chen",
+        "H Yuan",
+        "T Zhang"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Computational Social Systems"
+    },
+    {
+      "citation_id": "51",
+      "title": "Lbp with six intersection points: Reducing redundant information in lbp-top for micro-expression recognition",
+      "authors": [
+        "Y Wang",
+        "J See",
+        "R Phan",
+        "Y Oh"
+      ],
+      "year": "2014",
+      "venue": "Computer Vision-ACCV 2014: 12th Asian Conference on Computer Vision, Singapore"
+    },
+    {
+      "citation_id": "52",
+      "title": "Capturing global semantic relationships for facial action unit recognition",
+      "authors": [
+        "Z Wang",
+        "Y Li",
+        "S Wang",
+        "Q Ji"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the IEEE International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "53",
+      "title": "Casme ii: An improved spontaneous micro-expression database and the baseline evaluation",
+      "authors": [
+        "W Yan",
+        "X Li",
+        "S Wang",
+        "G Zhao",
+        "Y Liu",
+        "Y Chen",
+        "X Fu"
+      ],
+      "year": "2014",
+      "venue": "PloS one"
+    },
+    {
+      "citation_id": "54",
+      "title": "Exploiting semantic embedding and visual feature for facial action unit detection",
+      "authors": [
+        "H Yang",
+        "L Yin",
+        "Y Zhou",
+        "J Gu"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "55",
+      "title": "Fan-trans: Online knowledge distillation for facial action unit detection",
+      "authors": [
+        "J Yang",
+        "J Shen",
+        "Y Lin",
+        "Y Hristov",
+        "M Pantic"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision"
+    },
+    {
+      "citation_id": "56",
+      "title": "Fg-net: Facial action unit detection with generalizable pyramidal features",
+      "authors": [
+        "Y Yin",
+        "D Chang",
+        "G Song",
+        "S Sang",
+        "T Zhi",
+        "J Liu",
+        "L Luo",
+        "M Soleymani"
+      ],
+      "year": "2023",
+      "venue": "Fg-net: Facial action unit detection with generalizable pyramidal features",
+      "arxiv": "arXiv:2308.12380"
+    },
+    {
+      "citation_id": "57",
+      "title": "Self-supervised patch localization for crossdomain facial action unit detection",
+      "authors": [
+        "Y Yin",
+        "L Lu",
+        "Y Wu",
+        "M Soleymani"
+      ],
+      "year": "2021",
+      "venue": "2021 16th IEEE International Conference on Automatic Face and Gesture Recognition (FG 2021)"
+    },
+    {
+      "citation_id": "58",
+      "title": "Facial action unit detection with local key facial sub-region based multi-label classification for micro-expression analysis",
+      "authors": [
+        "L Zhang",
+        "O Arandjelovic",
+        "X Hong"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 1st Workshop on Facial Micro-Expression: Advanced Techniques for Facial Expressions Generation and Spotting"
+    },
+    {
+      "citation_id": "59",
+      "title": "Multimodal channel-mixing: Channel and spatial masked autoencoder on facial action unit detection",
+      "authors": [
+        "X Zhang",
+        "H Yang",
+        "T Wang",
+        "X Li",
+        "L Yin"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision"
+    },
+    {
+      "citation_id": "60",
+      "title": "Bp4d-spontaneous: a high-resolution spontaneous 3d dynamic facial expression database",
+      "authors": [
+        "X Zhang",
+        "L Yin",
+        "J Cohn",
+        "S Canavan",
+        "M Reale",
+        "A Horowitz",
+        "P Liu",
+        "J Girard"
+      ],
+      "year": "2014",
+      "venue": "Image and Vision Computing"
+    },
+    {
+      "citation_id": "61",
+      "title": "Neural prompt search",
+      "authors": [
+        "Y Zhang",
+        "K Zhou",
+        "Z Liu"
+      ],
+      "year": "2022",
+      "venue": "Neural prompt search",
+      "arxiv": "arXiv:2206.04673"
+    },
+    {
+      "citation_id": "62",
+      "title": "Multimodal spontaneous emotion corpus for human behavior analysis",
+      "authors": [
+        "Z Zhang",
+        "J Girard",
+        "Y Wu",
+        "X Zhang",
+        "P Liu",
+        "U Ciftci",
+        "S Canavan",
+        "M Reale",
+        "A Horowitz",
+        "H Yang"
+      ],
+      "year": "2016",
+      "venue": "Multimodal spontaneous emotion corpus for human behavior analysis"
+    },
+    {
+      "citation_id": "63",
+      "title": "Dynamic texture recognition using local binary patterns with an application to facial expressions",
+      "authors": [
+        "G Zhao",
+        "M Pietikainen"
+      ],
+      "year": "2007",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence"
+    },
+    {
+      "citation_id": "64",
+      "title": "Joint patch and multi-label learning for facial action unit detection",
+      "authors": [
+        "K Zhao",
+        "W Chu",
+        "F De La Torre",
+        "J Cohn",
+        "H Zhang"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "65",
+      "title": "Deep region and multi-label learning for facial action unit detection",
+      "authors": [
+        "K Zhao",
+        "W Chu",
+        "H Zhang"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the IEEE conference on computer vision and pattern recognition"
+    }
+  ]
+}

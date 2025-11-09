@@ -1,0 +1,1057 @@
+{
+  "paper_id": "2407.20254v2",
+  "title": "Eegmamba: Bidirectional State Space Model With Mixture Of Experts For Eeg Multi-Task Classification A Preprint",
+  "published": "2024-07-20T11:15:47Z",
+  "authors": [
+    "Yiyu Gui",
+    "MingZhi Chen",
+    "Yuqi Su",
+    "Guibo Luo",
+    "Yuchao Yang"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In recent years, with the development of deep learning, electroencephalogram (EEG) classification networks have achieved certain progress. Transformer-based models can perform well in capturing long-term dependencies in EEG signals. However, their quadratic computational complexity poses a substantial computational challenge. Moreover, most EEG classification models are only suitable for single tasks and struggle with generalization across different tasks, particularly when faced with variations in signal length and channel count. In this paper, we introduce EEGMamba, the first universal EEG classification network to truly implement multi-task learning for EEG applications. EEGMamba seamlessly integrates the Spatio-Temporal-Adaptive (ST-Adaptive) module, bidirectional Mamba, and Mixture of Experts (MoE) into a unified framework. The proposed ST-Adaptive module performs unified feature extraction on EEG signals of different lengths and channel counts through spatial-adaptive convolution and incorporates a class token to achieve temporal-adaptability. Moreover, we design a bidirectional Mamba particularly suitable for EEG signals for further feature extraction, balancing high accuracy, fast inference speed, and efficient memory-usage in processing long EEG signals. To enhance the processing of EEG data across multiple tasks, we introduce task-aware MoE with a universal expert, effectively capturing both differences and commonalities among EEG data from different tasks. We evaluate our model on eight publicly available EEG datasets, and the experimental results demonstrate its superior performance in four types of tasks: seizure detection, emotion recognition, sleep stage classification, and motor imagery. The code is set to be released soon.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Electroencephalogram (EEG) is a technique of recording brain activity using electrophysiological indicators, which captures the electrical wave changes during brain activity. EEG can be utilized to detect various human physiological activities such as seizure detection, emotion recognition, motor imagery, sleep stage classification, and other physiological related task  [Shoeibi et al., 2021 , Jafari et al., 2023 , Altaheri et al., 2023 , Sri et al., 2022] .\n\nIn recent years, with the development of deep learning, EEG classification models based on deep learning have been widely used  [Chen et al., 2022] . Among them, models based on Convolutional Neural Networks (CNNs) and Transformers are the most representative, each with their own strengths and weaknesses. CNN-based EEG classification networks have the advantage of faster training and inference speeds, and they perform well on short EEG signals. However, due to the lack of global sequence modeling ability, their performance on long EEG signals cannot be guaranteed  [Sakhavi et al., 2018 , Thuwajit et al., 2021 , Schirrmeister et al., 2017] . In contrast, Transformer-based EEG classification networks have good capability of global sequence modeling, achieving excellent performance on both short and long EEG signals. Nevertheless, as the length of the EEG signals increases, the computational complexity of the model increases quadratically, significantly raising the training and inference costs  [Dai et al., 2023 , Xie et al., 2022 , Wang et al., 2022] . Recently, State Space Models (SSM) with selection mechanism and efficient hardware-aware design, such as Mamba  [Gu and Dao, 2023] , have shown great potential in long sequence modeling. By utilizing selective state space model, it effectively captures the relationships between tokens in a sequence, addressing the limitation of CNNs in modeling long sequences. Moreover, it exhibits linear computational complexity, which outperforms the quadratic complexity of Transformers and provides a strong backbone network for training EEG classification models on long EEG signals.\n\nSingle-task learning (STL) is the most commonly used paradigm in current EEG classification models [O'  Shea et al., 2020 , Phan et al., 2022 , Algarni et al., 2022 , Autthasan et al., 2021] , where each task is learned independently given a set of learning tasks. For example, EEGNet  [Lawhern et al., 2018]  has been validated on four different tasks but can only address one type of task in a single training session. In contrast, multi-task learning (MTL) trains models by simultaneously learning all tasks and sharing representations across related ones, which enabling the model to learn more robust and universal representations for multiple tasks compared to single-task model  [Choo et al., 2023] . Therefore, designing a classification network capable of handling multi-task EEG data simultaneously might be a promising approach.\n\nFew previous studies have employed multi-task classification in EEG, and they all have certain limitations  [Prodhan et al., 2022 , Li et al., 2022] . For instance,  [Li et al., 2022]  achieved simultaneous classification tasks across four emotion evaluation metrics using the same dataset, but its multi-task classification ability is limited to handling multiple labels within a single dataset. The lack of models capable of performing EEG classification across multiple different datasets may be due to the highly challenging problems.\n\nOne of the significant obstacles for multi-task EEG classification is that different EEG data have varying numbers of channels and signal lengths, which makes it difficult for networks to adapt during a single training. For example, MaskSleepNet  [Zhu et al., 2023]  can classify EEG signals with different numbers of channels by manually setting the channel parameter, but it uses a fixed-parameter Multi-scale CNN that can only process EEG signals with limited input lengths.  While EEG ConvNet [Schirrmeister et al., 2017]  is designed with a structure capable of adapting to arbitrary signal lengths, it still requires manual setting in different trainings. Therefore, enabling the model to adapt to different signal lengths and channel counts represents a significant challenge.\n\nOn the other hand, EEG data from different tasks show both differences and commonalities, making it challenging for models without specialized multi-task processing module to capture these relationships, ultimately leading to interference between tasks. Mixture of Experts (MoE) is a deep learning model with sparse gate-controlled architecture, consisting of a group of expert models and a gating network  [Jacobs et al., 1991 , Shazeer et al., 2016 , Xue et al., 2024] . The gating network can dynamically select experts to specifically process input data, enabling the network to accurately distinguish and better process multi-task data, thus reducing interference between tasks. Therefore, using MoE to achieve EEG multi-task classification might be a feasible solution.\n\nIn general, existing EEG classification models mainly face two challenges. First, these models find it difficult to balance high accuracy, fast inference speed, and efficient memory-usage when dealing with long EEG signals. Second, they often struggle to handle different EEG classification tasks and demonstrate poor generality.\n\nTo address the aforementioned two issues, we propose EEGMamba, which utilizes bidirectional Mamba suitable for EEG signals, as well as a Spatio-Temporal-Adaptive (ST-Adaptive) module and task-aware MoE for targeted processing of multi-task EEG classification. Our model enhances Mamba by employing bidirectional modeling to capture the relationships between tokens in a one-dimensional temporal sequence, achieving high accuracy and fast inference speed.\n\nAdditionally, we propose an ST-Adaptive module that uses spatial-adaptive convolution to process EEG signals of varying channel numbers and a class token to achieve temporal adaptability without any additional processing. To efficiently capture differences and commonalities between EEG data from different tasks, we design a task-aware gating network that accurately directs different EEG task tokens to specific experts for processing, while also employing a universal EEG expert to exploit commonalities among different EEG tasks. In summary, our contributions are as follows:\n\n• Bidirectional Mamba Design for EEG Signals. We introduce bidirectional Mamba specifically for EEG signals, achieving the balance between fast inference speed, efficient memory-usage and excellent global perception ability.\n\n• First Implementation of Multi-task Learning in EEG application. EEGMamba is the first model to truly implement multi-task learning for EEG classification, enabling a more integrated and effective analysis of complex brain signal data.\n\n• ST-Adaptive Module for Flexible EEG Processing. We propose an ST-Adaptive module that can automatically adapt to EEG signals of different lengths and channels, allowing for simultaneous processing in single training session.\n\n• Task-aware MoE for EEG Data. We design Task-aware MoE with a universal expert, achieving the capture of both differences and commonalities between EEG data from different tasks.",
+      "page_start": 1,
+      "page_end": 3
+    },
+    {
+      "section_name": "Method",
+      "text": "EEGMamba",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Preliminary Work",
+      "text": "Mamba is inspired by continuous state space equations. For continuous input x(t) ∈ R in the time domain, the corresponding output y(t) ∈ R is determined by the current hidden state h(t) and input x(t) at time t , as shown in Equation (1). Here, A ∈ R N ×N is the state matrix, B ∈ R N ×1 is related to the system's hidden state, and C ∈ R 1×N is a parameter associated with the input and output.\n\nMamba discretizes the continuous time t into discrete time, transforming the continuous state space equations into discrete state space equations. Specifically, by introducing a time-scale parameter ∆, A and B are transformed into discrete time parameters Ā and B respectively. The zero-order hold (ZOH) technique is used as the transformation rule, as shown in Equation (2).\n\nIn practice, following the approach of  [Gu and Dao, 2023] , we approximate B using a first-order Taylor expansion, as show in Equation (  3 ):\n\nFinally, the discretized form of the continuous state space equation is shown in Equation (4).\n\nBased on the mentioned discrete state-space equations, Mamba further introduces data dependency into the model parameters, enabling the model to selectively propagate or forget information based on the sequential input tokens. In addition, it utilizes a parallel scanning algorithm to accelerate the equation solving process. To handle the inconsistency in the number of input channels, we introduce a spatial-adaptive convolutional module, which standardizes the data to a fixed number of channels. This module consists of a series of 1D-CNN sub-modules, each designed with a uniform output channel count but adaptable to varying input channels. Through this approach, EEG data with different channel numbers are processed uniformly. Let x ∈ R B×Ci×Li represent the EEG signals, where C i denotes the number of EEG channels for the i-th task, and L i is the EEG signal length for the i-th task.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "St-Adaptive Module",
+      "text": "As shown in Equation (  5 ), y SA is the result obtained through spatial-adaptive convolution, where the channel dimension is changed from C i determined by the task i to a unified D. Then, y SA is converted into an EEG token sequence through the tokenize layer. In order to better extract features from EEG signals, we design a dual-path structure utilizing a small kernel convolution module CN N S and a wide convolutional module CN N W . Obtain the small kernel feature token sequence z s and the wide kernel feature token sequence z w , respectively. Finally, we concatenate them in the time dimension to form the EEG token sequence T , as shown in Equation (6).\n\nAmong them, T represents the transpose operation, N s , N w , N are the number of EEG small kernel feature tokens, EEG wide kernel feature tokens, and overall EEG tokens, respectively.\n\nDue to the varying lengths of EEG signals, the number of EEG tokens (i.e., the length of the token sequence T ) obtained from the tokenize layer is inconsistent. To address this issue, we introduce a temporal-adaptive module that incorporates a special class token  [Dosovitskiy et al., 2021]\n\nThen, the input token sequence T is processed through a network (using bidirectional Mamba blocks in this study) to integrate EEG token sequence information into the class token. This approach prevents the network from developing biases towards certain tokens in the EEG feature token sequence T due to variations in input length, thereby achieving temporal adaptability.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Bidirectional Mamba Block For Eeg",
+      "text": "Mamba is designed for Natural Language Processing (NLP), with its output at each moment depends only on the current input and hidden state, without consideration for future time steps. Since NLP is primarily a generative autoregressive task that relies on previous information for judgment, Mamba's single-directional modeling approach is sufficient to complete such tasks. However, EEG classification tasks require simultaneous processing of both preceding and following information, which cannot be learned by single-directional modeling. Therefore, for EEG signals, the original Mamba's single-directional modeling is insufficient.\n\nTo address this issue, we design a bidirectional Mamba for one-dimensional temporal signals, which can model the input bidirectionally and more effectively learn the dependencies between time series tokens. We use the features extracted by the ST-Adaptive module as the input for the first bidirectional Mamba block.\n\nAlgorithm 1 Bidirectional Mamba Block Process\n\nWe denote the input of the bidirectional Mamba block as a sequence T k-1 and the output as a sequence T k . First, T k-1 is normalized to T norm k-1 by layer normalization. Next, it is mapped by Linear X and Linear Z to X k-1 and Z k-1 , respectively. Then, X k-1 enters parallel forward and backward sequence modeling modules. The forward module includes forward 1D causal convolution Conv f and forward SSM module SSM f . Similarly, the backward module includes backward 1D causal convolution Conv b and backward SSM module SSM b . Then, the results of forward sequence modeling Y f k-1 and backward sequence modeling Y b k-1 are summed with Z k-1 through gating and then projected through a linear layer Linear D to obtain T ′ k-1 . Finally, the output sequence T k is obtained through residual connection. The detailed process is shown in Algorithm 1.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Task-Aware Moe With Universal Expert",
+      "text": "",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Sparsely-Activated Moe",
+      "text": "A typical Mixture of Experts (MoE) usually consists of several experts, and each expert is typically represented as a Multi-Layer Perceptron (MLP) whose activation is controlled by a gating network  [Shazeer et al., 2016] . We define N e as the number of experts, E i as the i-th expert, and G as the gating network. For each input EEG token sequence T , the output T * of MoE can be expressed as Equation (  8 ):",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Task-Aware Gating Networks",
+      "text": "A gating network calculates gating values based on the input tokens and selects top k experts for activation, typically implemented using a fully connected layer Linear Gate . However, this can lead to the problem that only a few experts are trained. To avoid this, we adopted the method from  [Shazeer et al., 2016] , adding noise to the gating value computation process using a fully connected layer Linear N oise , which increases randomness and helps in balancing the load among the experts. Furthermore, we propose a task-aware gating network which helps improve the accuracy of experts in processing different types of EEG tokens. Specifically, we encode the EEG task into task tokens t task ∈ R B×D , then concatenate t task with the EEG token sequence T to obtain T cat , which is then sent to the gating network. The gating values calculated in this manner incorporate task information, allowing for better assignment of different tasks to different experts. The working process of the task-aware gating network is shown in Equation (  9 ), where ϵ represents standard Gaussian noise.\n\nG(T, t task ) = Linear Gate (T cat ) + ϵ * Sof tP lus(Linear N oise (T cat ))",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Eeg Universal Expert",
+      "text": "EEG signals from different tasks exhibit both differences and commonalities. Only using different experts to process EEG tokens might overlook the connections between tokens from different tasks. Therefore, we design an EEG universal expert that can process EEG tokens from all different tasks and capture their commonalities. To achieve this function, the universal expert is activated for any inputs and not controlled by the gating network's output values.\n\nOverall, our MoE module includes both task experts and a universal expert. Task experts can accurately process EEG tokens from different tasks according to gating values, while universal experts can process all EEG tokens. The output of MoE is the weighted sum of these two types of experts. We adopted a weight design scheme similar to  [Gou et al., 2023] , as shown in Equation (  10 ). Here, the output weight ω of the universal expert is determined by the maximum gating value:\n\n3 Experimental Setup",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Dataset",
+      "text": "We evaluate the proposed EEGMamba by using eight datasets from four different tasks, including Siena Scalp EEG Database  [Detti et al., 2020] , CHB-MIT  [Shoeb, 2009] , SleepEDF-20  [Kemp et al., 2000] , SHHS  [Quan et al., 1997] , DEAP  [Koelstra et al., 2011] , SEED  [Duan et al., 2013] , Shu  [Ma et al., 2022] , and BCI-IV-2a  [Brunner et al., 2008] .\n\nTable  1  provides an overview of each dataset. For different tasks, the number of classes, the number of channels and the optimal EEG segment length tend to vary depending on the specific task performed. In the experiment, we predefine the number of channels and classes for each EEG dataset. Then, we standardize the sampling rate of all EEG signals to 200 Hz. In addition, the public versions of some datasets have undergone some preprocessing. We include a detailed introduction in the Appendix D.\n\nData Division. In all experiments, including the baseline comparison experiments and ablation experiments, we employ five-fold cross-validation grouped by subjects, so that EEG data from the same subject only appear in one fold. Details of the subject division scheme are provided in the Appendix E.3.\n\nEnvironments. The experiments are implemented by Python 3.9.18, PyTorch 2.0.1 + CUDA 12.2 on a Linux server with 256 GB memory. All models are trained on Intel(R) Xeon(R) Gold 6342 CPU and a Nvidia A100 GPU 80G.\n\nOur detailed training strategy, hyperparameter settings, metrics, and baselines are provided in Appendix E.4, E.5, E.6, and F.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Results And Discussion",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Single-Task Eegmamba Performance Comparison",
+      "text": "The single-task EEGMamba experiment aims to demonstrate the effectiveness of the Mamba-based model. In this experiment, we modify the model by removing MoE modules and redundant spatial-adaptive convolution branches, so the single-task EEGMamba only consists of the essential CNN modules and BiMamba modules. We compare the performance of single-task EEGMamba with previous classification models on eight datasets, as shown in Figure  1 . Obviously, single-task EEGMamba outperforms the other non Mamba-based models on the majority of datasets.\n\nWe also discuss the memory-usage and inference speed of single-task EEGMamba and Transformer-based models, particularly for long sequences. Figure  4a  and Figure  4b  show the results for single-channel and multi-channel (here 20 channels) data, respectively. The Transformer-based models in baselines include AttnSleep, EEG Conformer and HCANN. As signal length increases, the memory-usage of Transformer-based models grows quadratically, while single-task EEGMamba grows linearly. In terms of inference speed, Transformer-based models slow down sharply with longer sequences, while the speed of single-task EEGMamba decreases gently. HCANN performs well on single-channel data due to structural modifications on classical Transformer, but it experiences a significant increase in memory-usage and a notable decrease in inference speed when handling multi-channel data. Overall, single-task EEGMamba comprehensively outperforms Transformer-based models in memory-usage and inference speed.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Eegmamba For Multi-Task Eeg Classification",
+      "text": "Table  2 , 3, 4 and 5 show the performance of EEGMamba on different datasets compared with several state-of-the-art (SOTA) baselines. EEGMamba ranks among the top three on seven datasets and achieves the best performance on four datasets.\n\nIt is worth noting that all classification networks, except EEGMamba, are trained on a single dataset. Single datasets typically have consistency in data distribution, features, and labels, which allows the model to better adapt and optimize for specific patterns of that dataset, thus improving accuracy. Nevertheless, EEGMamba outperforms existing SOTA models across multiple datasets and showed superior overall performance, demonstrating its strong generalization ability to integrate EEG signals from different tasks.   [Eldele et al., 2021]  0.9895 ± 0.0032 0.9066 ± 0.0196 0.6918 ± 0.0588 0.9723 ± 0.0190 0.9048 ± 0.0465 0.7549 ± 0.0657 EEGConformer  [Song et al., 2022]  0.9878 ± 0.0044 0.8744 ± 0.0377 0.6366 ± 0.0273 0.9810 ± 0.0040 0.8917 ± 0.0927 0.7507 ± 0.0648 BIOT  [Yang et al., 2023]  0.9897 ± 0.0043 0.8986 ± 0.0223 0.7301 ± 0.0550 0.9678 ± 0.0284 0.8996 ± 0.0831 0.7278 ± 0.0886 HCANN  [Ji et al., 2024]  0.9906 ± 0.0026 0.9283 ± 0.0208 0.6714 ± 0.1115 0.9664 ± 0.0227 0.9110 ± 0.0572 0.7680 ± 0.1203\n\nSingle-task EEGMamba 0.9897 ± 0.0053 0.9137 ± 0.0105 0.7106 ± 0.0326 0.9817 ± 0.0036 0.9084 ± 0.0437 0.7712 ± 0.0600 EEGMamba 0.9897 ± 0.0038 0.9082 ± 0.0179 0.7070 ± 0.0260 0.9789 ± 0.0132 0.9126 ± 0.0492 0.7964 ± 0.0444\n\nBold for the best, red for the second, and underlined for the third.   [Eldele et al., 2021]  0.8172 ± 0.0346 0.9383 ± 0.0123 0.7244 ± 0.0270 0.8366 ± 0.0169 0.9557 ± 0.0053 0.7270 ± 0.0153 EEGConformer  [Song et al., 2022]  0.7998 ± 0.0486 0.9385 ± 0.0220 0.7118 ± 0.0392 0.8000 ± 0.0154 0.9343 ± 0.0069 0.6543 ± 0.0085 BIOT  [Yang et al., 2023]  0.8226 ± 0.0387 0.9536 ± 0.0147 0.7455 ± 0.0315 0.8331 ± 0.0152 0.9501 ± 0.0103 0.7243 ± 0.0287 HCANN  [Ji et al., 2024]  0.8316 ± 0.0396 0.9589 ± 0.0129 0.7573 ± 0.0387 0.8355 ± 0.0167 0.9581 ± 0.0077 0.7425 ± 0.0117\n\nSingle-task EEGMamba 0.8387 ± 0.0399 0.9608 ± 0.0116 0.7681 ± 0.0359 0.8441 ± 0.0163 0.9578 ± 0.0074 0.7387 ± 0.0155 EEGMamba 0.8486 ± 0.0276 0.9636 ± 0.0107 0.7738 ± 0.0293 0.8478 ± 0.0177 0.9587 ± 0.0077 0.7433 ± 0.0160\n\nBold for the best, red for the second, and underlined for the third.   [Eldele et al., 2021]  0.5930 ± 0.0173 0.5941 ± 0.0346 0.5590 ± 0.0112 0.4808 ± 0.0232 0.6717 ± 0.0318 0.4900 ± 0.0295 EEGConformer  [Song et al., 2022]  0.5905 ± 0.0351 0.5500 ± 0.0275 0.5545 ± 0.0222 0.4861 ± 0.0172 0.6642 ± 0.0302 0.4846 ± 0.0302 BIOT  [Yang et al., 2023]  0.5900 ± 0.0165 0.5703 ± 0.0283 0.5495 ± 0.0310 0.5507 ± 0.0591 0.7363 ± 0.0666 0.5453 ± 0.0700 HCANN  [Ji et al., 2024]  0.5881 ± 0.0226 0.5878 ± 0.0350 0.5083 ± 0.0484 0.5284 ± 0.0282 0.7061 ± 0.0589 0.5101 ± 0.0361\n\nSingle-task EEGMamba 0.5985 ± 0.0247 0.5721 ± 0.0184 0.5505 ± 0.0157 0.5779 ± 0.0584 0.7636 ± 0.0514 0.5718 ± 0.0580 EEGMamba 0.5994 ± 0.0134 0.5957 ± 0.0209 0.5628 ± 0.0262 0.5646 ± 0.0366 0.7538 ± 0.0413 0.5583 ± 0.0326\n\nBold for the best, red for the second, and underlined for the third. Bold for the best, red for the second, and underlined for the third.\n\nAdditionally, the multi-task training of EEGMamba provides significant advantages in terms of convenience. First, it is an end-to-end system that does not require separate pre-training and fine-tuning stages, yet offers stronger generalization ability than the pre-trained model. Furthermore, to obtain the corresponding results presented in Table  2  to 5, EEGMamba only needs to be trained once. In contrast, other classification networks require multiple training sessions, each time involving manual adjustments to data length, channel count, and class numbers, making the process much more cumbersome.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Visualization Of Task-Aware Moe In Multi-Task Classification",
+      "text": "We explore the role of designed task-aware MoE in practical applications. Since the EEGMamba model contains eight independent MoE modules, we focus our discussion on the last one MoE module as an example. We calculate the activation probability of each expert for different tasks in the task-aware MoE, as shown in Figure  5 . The x-axis represents the index of experts, and the y-axis represents their activation probabilities. When using task-aware MoE, the model exhibits a clear preference for specific experts based on the given task, with different tasks evidently favoring different experts. Specifically, different tasks tend to activate different experts, while data from the same task show similar expert selection probabilities. For instance, experts 5 and 6 are preferred for epilepsy detection, while experts 0 and 5 are favored for sleep stage classification, demonstrating how task-aware MoE enhances flexibility by dynamically adapting to different tasks. This targeted expert selection not only improves task-specific performance but also maintains efficient processing by bypassing irrelevant experts, thereby reducing unnecessary computational overhead.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Ablation Study",
+      "text": "To",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we propose EEGMamba, the first model that truly implements multi-task learning for EEG applications. EEGMamba integrates a Spatio-Temporal-Adaptive module to adaptively extract features of EEG data with different lengths and channel counts. We introduce bidirectional Mamba to achieve high accuracy and fast inference speed when processing long-term EEG datasets. Moreover, we design a task-aware Mixture of Experts (MoE) and an EEG universal expert, allowing the model to process multiple tasks simultaneously and better learn the commonalities among EEG signals from different tasks. Our experiments across eight publicly available EEG datasets from four tasks demonstrate the superior performance of our proposed model in multi-task classification scenarios. Our work fills the gap in multi-task classification research within EEG applications, paving the way for future development in this field.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "A Related Works",
+      "text": "A.1 EEG Classification\n\nThe development of deep learning has greatly advanced EEG classification tasks. CNNs are a classic type of neural network with mature applications in EEG classification.  [Schirrmeister et al., 2017]  proposed a shallow convolutional network with both spatiotemporal convolutional layers to decode task-related information from raw EEG signals.\n\nSimilarly,  [Lawhern et al., 2018]  introduced EEGNet, a classic EEG classification network based on depthwise separable convolution, which has demonstrated stable and robust performance in various EEG classification tasks. Recurrent Neural Networks (RNNs) are proposed to capture temporal dependencies in time-series EEG signals.  [Supratak et al., 2017]  used the RNN architecture for sleep stage classification.  [Chen et al., 2020]   In recent years, there has been notable progress in pre-trained EEG classification networks.  [Yang et al., 2023]  proposed BIOT, a generic biosignal learning model that employs a tokenization module and was evaluated on several EEG, ECG, and human sensory datasets.  [Yi et al., 2023]  proposed a pre-training framework named MMM, which follows the approach of Masked Auto-Encoder (MAE) for pre-training and employs a multi-stage pre-training strategy to enhance the robustness of the representations.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "A.2 State Space Model",
+      "text": "A state space model is a mathematical model that represents a physical system as a set of input, output, and state variables related by a first-order differential equation.  [Gu et al., 2021]  proposed the Structured State-Space Sequence Model (S4) to model long-term dependencies.  [Smith et al., 2022]  introduced a new S5 layer by incorporating Multiple Input Multiple Output (MIMO) SSM and efficient parallel scanning within the S4 layer.  [Fu et al., 2022]  designed a new SSM layer, H3, which further narrowed the performance gap between SSM and Transformers. Recently,  [Gu and Dao, 2023]  proposed a data-dependent SSM structure and built a universal language model backbone network: Mamba. Its selective mechanism and hardware-aware design allow it to maintain computational efficiency and excellent performance while scaling to billions of parameters.",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "A.3 Mixture Of Experts",
+      "text": "The Mixture of Experts model was first introduced by  [Jacobs et al., 1991] , which controls a system composed of different networks called experts through a supervisory program, with each expert responsible for handling a specific subset of training samples.  [Shazeer et al., 2016]  introduced the concept of sparsity into MoE and applied it to LSTM models for translation tasks. With the development of large language models,  [Fedus et al., 2022]  extensively investigated the stability issues of MoE models during training and fine-tuning processes, and built a MoE model with 16 trillion parameters and 2048 experts. Recently,  [Xue et al., 2024]  proposed OpenMOE, which further explores the details of MoE using the power of the open-source community, thereby promoting the development of MoE.",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "B Overall Structure Of Single-Task Eegmamba",
+      "text": "",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "C Notaion Table",
+      "text": "Table  6  shows the notations used in the main text.\n\nTable  6 : Notations used in EEGMamba.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Symbols Descriptions",
+      "text": "Hidden dimension of the model\n\nFeatures extracted by the spatial-adaptive convolutional module\n\nWide kernel feature token sequence T ∈ R B×(N +1)×D EEG token sequence\n\nClass token for EEG classification The Siena Scalp EEG Database consists of EEG recordings of 14 patients acquired at the Unit of Neurology and Neurophysiology of the University of Siena. Subjects include 9 males (ages 25-71) and 5 females (ages 20-58). Subjects were monitored with a Video-EEG with a sampling rate of 512 Hz, with electrodes arranged on the basis of the international 10-20 System. Most of the recordings also contain 1 or 2 EKG signals. The data were acquired employing EB Neuro and Natus Quantum LTM amplifiers, and reusable silver/gold cup electrodes. Patients were asked to stay in the bed as much as possible, either asleep or awake. The diagnosis of epilepsy and the classification of seizures according to the criteria of the International League Against Epilepsy were performed by an expert clinician after a careful review of the clinical and electrophysiological data of each patient. In our experiment, we removed non-EEG signals from each EDF record, retaining 29 EEG channels and ensuring that the signals from different subjects maintained the same channel order: Fp1, F3, C3, P3, O1, F7, T3, T5, Fc1, Fc5, Cp1, Cp5, F9, Fz, Cz, Pz, Fp2, F4, C4, P4, O2, F8, T4, T6, Fc2, Fc6, Cp2, Cp6, F10. We discarded the data from Subject 10 due to the lack of some necessary EEG channels. The data records, after channel unification, were segmented into 4-second segments to facilitate classification.",
+      "page_start": 16,
+      "page_end": 16
+    },
+    {
+      "section_name": "D.2 Chb-Mit",
+      "text": "The CHB-MIT Scalp EEG Database is collected by the Children's Hospital Boston, which contains 24 cases of 23 patients with intractable seizures. The first 23 cases are from 22 patients (17 females, aged 1.5-19 years; 5 males, aged 3-22 years). For the last case, there is no clear gender or age record. the Children's Hospital Boston evaluated the potential conditions for surgical intervention in all epilepsy patients after discontinuing medication for a period of time, and monitored the patients for several days. The original EEG record was obtained using 256 Hz sampling rate with 16-bit resolution from electrodes placed according to the international 10-20 EEG electrode positions and nomenclature  [Janjarasjitt, 2017] . Given that the number of available channels varies among different patients, we select 23 common channels and discarded data from less than 23 channels. Due to the varying duration of the original data ranging from tens of minutes to several hours, we have truncated it into 4-second segments for easy classification.",
+      "page_start": 17,
+      "page_end": 17
+    },
+    {
+      "section_name": "D.3 Sleepedf-20",
+      "text": "SleepEDF-20 includes Polysomnography (PSG) records from each subject for two consecutive days and nights. The recording of subject 13 on the second night was lost due to a failing cassette or laserdisc. Sleep experts use R&K rules  [Wolpert, 1969]  to visually determine signal characteristics and label each 30 second period in the dataset as one of eight stages W, N1, N2, N3, N4, REM, MOVEMENT, UNKNOWN. Similar to previous work  [Huy et al., 2019] , N3 and N4 were merged into N3. In addition, the stages of \"MOVEMENT\" and \"UNKNOWN\" have also been removed.  [Eldele et al., 2021]  have preprocessed the raw data, retaining the Fpz-Cz channel with a sampling rate of 100 Hz, and make it publicly available at https://researchdata.ntu.edu.sg/dataset.xhtml?persistentId=doi: 10.21979/N9/MA1AVG. We use this version.",
+      "page_start": 17,
+      "page_end": 17
+    },
+    {
+      "section_name": "D.4 Shhs",
+      "text": "Sleep Heart Health Study (SHHS) is a multi-center cohort study on the cardiovascular and other consequences associated with sleep apnea. The research subjects suffer from various diseases, including lung disease, cardiovascular disease, and coronary heart disease.  [Eldele et al., 2021]  have preprocessed the raw data, including retaining the C4-A1 channel with a sampling rate of 125 Hz, and make it publicly available at https://researchdata.ntu.edu.sg/dataset. xhtml?persistentId=doi:10.21979/N9/EAMYFO. Additionally, in order to reduce the impact of these diseases, only subjects who are considered to have regular sleep patterns (such as subjects with apnea hypopnea index (AHI) less than 5) are retained, and the evaluation criteria here refer to the research method of  [Fonseca et al., 2016] . Finally, data from 329 participants out of 6441 are retained.",
+      "page_start": 17,
+      "page_end": 17
+    },
+    {
+      "section_name": "D.5 Deap",
+      "text": "In the DEAP dataset, movies are used as emotional inducers in experiments. This dataset contains data from over 32 participants aged between 19 and 37, half of whom are females. Participants sit one meter away from the screen. The device records EEG signals at a sampling rate of 512 Hz. 40 selected music video clips were used to trigger emotions. At the end of each video, participants were asked to evaluate their level of arousal, valence, preference, and dominance. The self-assessment scale ranges from 1 to 9. The scores of the subjects are divided into two categories (low or high) based on a stable threshold of 4.5. During the preprocessing process, the EEG signal is downsampled to 128 Hz and a bandpass filter with a cutoff frequency of 4-45 Hz is applied. In this paper, we use the same channel selection as  [Khateeb et al., 2021] , which includes four electrodes: Fp1, Fp2, F3, and C4.",
+      "page_start": 17,
+      "page_end": 18
+    },
+    {
+      "section_name": "D.6 Seed",
+      "text": "The SEED dataset collects EEG data from 15 participants while watching emotional movies. It contains a total of 45 experiments. The EEG data is collected by 62 channels based on the international 10-20 system and a sampling rate of 1000 Hz. During the preprocessing process, the data is downsampled to 200 Hz and subjected to a bandpass filter ranging from 0 to 75 Hz. The extraction of EEG sections was based on the duration of each movie, and we further cut these EEG into segments of 20 seconds in length. Within each subject's data file, there are 16 arrays, with 15 of these arrays containing 15 preprocessed segments of EEG data from the experiment. The label array includes corresponding emotional labels, where 1 for positive, 2 for negative, and 3 for neutral emotions.",
+      "page_start": 18,
+      "page_end": 18
+    },
+    {
+      "section_name": "D.7 Shu",
+      "text": "The motor imagery dataset experiment consists of three phases. The first phase (0-2 seconds) is the resting preparation period, during which subjects can rest, perform minor physical activities, and blink. The second phase (2-4 seconds) is the cue phase, where an animation of left or right hand movement appears on the monitor, indicating the upcoming task.\n\nThe third phase (4-8 seconds) is the MI (Motor Imagery) phase, during which subjects perform the hand movement MI task as prompted, and EEG signals are recorded. We only use 4 seconds of data from the third phase (i.e. MI stage) for classification. Each session consists of 100 trials, with five sessions conducted for each subject every 2 to 3 days, resulting in a total of 500 trials per subject.",
+      "page_start": 18,
+      "page_end": 18
+    },
+    {
+      "section_name": "D.8 Bci-Iv-2A",
+      "text": "The BCI-IV-2a dataset includes EEG signals obtained from trials involving 9 subjects. This experiment includes four different motor imagery tasks: left hand, right hand, foot, and tongue. Each participant participated in two training sessions, with six sessions per session. In each run, there were 48 trials, a total of 288 trials (12 trials per MI task, a total of 72 trials per task). A set of 25 Ag/AgCl electrodes were used in the experiment, of which 22 were dedicated to recording EEG signals, while the remaining three electrodes recorded eye movement signals (not used in our experiment). All recorded signals are processed through a bandpass filter of 0.5 to 100 Hz and a 50 Hz notch filter. The sampling frequency is set to 250 Hz. Similar to Shu, the experiment consists of three phases, with the EEG from the third phase being used for classification. This EEG data, which is for motor imagery, has a duration of 3 seconds and a sampling frequency of 75 Hz.",
+      "page_start": 18,
+      "page_end": 18
+    },
+    {
+      "section_name": "E Experimental Related Supplements E.1 Load Balance And Model Stability In Moe",
+      "text": "Training an MoE typically encounters two issues: (1) Load imbalance: the gating network tends to select only a few experts.\n\n(2) Training instability: excessively large gating values for a few experts lead to an unstable training process.\n\nTo address these issues, we incorporate balance loss L b  [Shazeer et al., 2016]  and router z-loss L z  [Zoph et al., 2022]  as auxiliary losses for the model to mitigate load imbalance and training instability, as shown in Equation (  11 ), where B represents the batch size. To address the inconsistency in the number of classes, we introduce a task-aware classifier, consisting of sub-modules, each with a single linear layer configured to have a different number of output dimension corresponding to the specific number of classes, as shown in Figure  8 . This approach enables uniform processing of EEG data with varying class counts. The number of classes for each dataset is pre-defined, and for data belonging to the same task, the task identifier is passed through the forward pass, ensuring that data from the same task produce outputs with consistent shapes.\n\nLet t cls ∈ R B×D represents the class token output from the final task-aware MoE block. As shown in Equation  12 , logits i is the result obtained through task-aware classifier, where the output dimension is changed from the number of classes K i determined by the task i.",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "E.3 Subject Division In Eegmamba Experiment",
+      "text": "Table  7  presents the grouping and combination of subjects in our five-fold cross-validation experiment. The numbers in the table represent subject IDs in the dataset. Generally, '1 ∼ 5' indicates five subjects, including subject 1 through subject 5. For the SHHS dataset, only a subset of subjects is used (D.4), and '10 -2021' refers to all selected subjects within the range of IDs from 10 to 2021, rather than all subjects in that range consecutively.",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "E.5 Parameter Settings",
+      "text": "Table  8  shows the important hyperparameters we used in the experiment. Accuracy is a fundamental performance metric for classification models, defined as the ratio of correctly classified samples to the total number of samples. It applies to both binary and multi-class tasks.\n\nAUROC is a key metric for evaluating the performance of classification models, summarizing the model's ability to distinguish between positive and negative classes across various thresholds by calculating the area under the ROC curve.\n\nThe AUROC value ranges from 0 to 1, with a value closer to 1 indicating better classification performance.\n\nF1 Score is the harmonic mean of precision and recall, particularly useful in scenarios where a balance between these two metrics is desired. Weighted F1 is used for both binary and multi-class classification in this paper, representing a weighted average of the individual F1 scores for each class, where each score is weighted according to the number of samples in that specific class.",
+      "page_start": 21,
+      "page_end": 21
+    },
+    {
+      "section_name": "G Visualization Of Features Extracted By Single-Task Eegmamba",
+      "text": "",
+      "page_start": 21,
+      "page_end": 21
+    },
+    {
+      "section_name": "H Visualization Of Moe Weights",
+      "text": "",
+      "page_start": 21,
+      "page_end": 21
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Our proposed EEGMamba can simultaneously process EEG signals from multiple tasks including epilepsy",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Figure 2: Overall structure of EEGMamba. The model consists of ST-Adaptive module, Bidirectional Mamba",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Overall structure of ST-Adaptive module.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: To handle the inconsistency in the number of input channels, we introduce a spatial-adaptive convolutional module,",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: Obviously, single-task EEGMamba outperforms the other non Mamba-based models on the majority of datasets.",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: a and Figure 4b show the results for single-channel and multi-channel (here",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Memory-usage and inference speed of Single-task EEGMamba compared with Transformer-based models.",
+      "page": 8
+    },
+    {
+      "caption": "Figure 5: The x-axis",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Activation probabilities of MoE experts in the final layer.",
+      "page": 9
+    },
+    {
+      "caption": "Figure 6: presents a comparison of ablation experiments on eight datasets across four tasks. EEGMamba outperforms",
+      "page": 10
+    },
+    {
+      "caption": "Figure 6: Results of the ablation study on different datasets.",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: shows the structure of the single-task EEGMamba model. Compared to EEGMamba, the single-task version",
+      "page": 15
+    },
+    {
+      "caption": "Figure 7: Overall structure of Single-task EEGMamba.",
+      "page": 15
+    },
+    {
+      "caption": "Figure 8: Overall structure of Task-aware Classifier.",
+      "page": 19
+    },
+    {
+      "caption": "Figure 8: This approach enables uniform processing of EEG data with varying class",
+      "page": 19
+    },
+    {
+      "caption": "Figure 9: shows t-distributed stochastic neighbor embedding (t-SNE) plots of features extracted by single-task EEG-",
+      "page": 22
+    },
+    {
+      "caption": "Figure 9: Visualization results of feature extracted by single-task EEGMamba on different datasets.",
+      "page": 22
+    },
+    {
+      "caption": "Figure 10: The specific structure of an expert.",
+      "page": 22
+    },
+    {
+      "caption": "Figure 2: , each expert is essentially a Multi-Layer Perceptron (MLP) consisting of two linear layers. The detailed",
+      "page": 22
+    },
+    {
+      "caption": "Figure 10: , where hidden dimension D = 128. We visualize the expert weight heatmap for the",
+      "page": 22
+    },
+    {
+      "caption": "Figure 11: shows the weights of the first linear layer and Figure 12 shows",
+      "page": 22
+    },
+    {
+      "caption": "Figure 11: The first linear layer weight visualization of experts in final MoE module.",
+      "page": 23
+    },
+    {
+      "caption": "Figure 12: The second linear layer weight visualization of experts in final MoE module.",
+      "page": 24
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "0.9886±0.0033 0.8828±0.0360 0.6905±0.0185\n0.9895±0.0032 0.9066±0.0196 0.6918±0.0588\n0.9878±0.0044 0.8744±0.0377 0.6366±0.0273\n0.9897±0.0043 0.8986±0.0223 0.7301±0.0550\n0.9906±0.0026 0.9283±0.0208 0.6714±0.1115": "0.9897±0.0053 0.9137±0.0105 0.7106±0.0326\n0.9897±0.0038 0.9082±0.0179 0.7070±0.0260"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "0.5979±0.0341 0.5906±0.0325 0.5624±0.0214\n0.5930±0.0173 0.5941±0.0346 0.5590±0.0112\n0.5905±0.0351 0.5500±0.0275 0.5545±0.0222\n0.5900±0.0165 0.5703±0.0283 0.5495±0.0310\n0.5881±0.0226 0.5878±0.0350 0.5083±0.0484": "0.5985±0.0247 0.5721±0.0184 0.5505±0.0157\n0.5994±0.0134 0.5957±0.0209 0.5628±0.0262"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "0.5971±0.0454 0.6529±0.0708 0.6077±0.0538\n0.6105±0.0454 0.6464±0.0698 0.6061±0.0515\n0.6014±0.0392 0.6418±0.0643 0.6064±0.0494\n0.5186±0.0051 0.5183±0.0050 0.5116±0.0090\n0.5302±0.0229 0.5136±0.0051 0.4131±0.0530": "0.6169±0.0467 0.6597±0.0653 0.6145±0.0437\n0.6207±0.0505 0.6645±0.0681 0.6183±0.0525"
+        }
+      ],
+      "page": 9
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Epileptic seizures detection using deep learning techniques: A review",
+      "authors": [
+        "Afshin Shoeibi",
+        "Marjane Khodatars",
+        "Navid Ghassemi",
+        "Mahboobeh Jafari",
+        "Parisa Moridian",
+        "Roohallah Alizadehsani",
+        "Maryam Panahiazar",
+        "Fahime Khozeimeh",
+        "Assef Zare",
+        "Hossein Hosseini-Nejad"
+      ],
+      "year": "2021",
+      "venue": "International journal of environmental research and public health"
+    },
+    {
+      "citation_id": "2",
+      "title": "Emotion recognition in eeg signals using deep learning methods: A review",
+      "authors": [
+        "Mahboobeh Jafari",
+        "Afshin Shoeibi",
+        "Marjane Khodatars",
+        "Sara Bagherzadeh",
+        "Ahmad Shalbaf",
+        "David García",
+        "Juan Gorriz",
+        "U Rajendra"
+      ],
+      "year": "2023",
+      "venue": "Computers in Biology and Medicine"
+    },
+    {
+      "citation_id": "3",
+      "title": "Deep learning techniques for classification of electroencephalogram (eeg) motor imagery (mi) signals: A review",
+      "authors": [
+        "Hamdi Altaheri",
+        "Ghulam Muhammad",
+        "Mansour Alsulaiman",
+        "Ghadir Syed Umar Amin",
+        "Wadood Ali Altuwaijri",
+        "Mohamed Abdul",
+        "Mohammed Bencherif",
+        "Faisal"
+      ],
+      "year": "2023",
+      "venue": "Neural Computing and Applications"
+    },
+    {
+      "citation_id": "4",
+      "title": "A systematic review on deep learning models for sleep stage classification",
+      "authors": [
+        "Ramya Tellakula",
+        "Jahnavi Sri",
+        "Madala",
+        "Lokesh Sai",
+        "Rupasri Duddukuru",
+        "Phani Reddipalli",
+        "Kumar Polasi"
+      ],
+      "year": "2022",
+      "venue": "2022 6th International Conference on Trends in Electronics and Informatics (ICOEI)"
+    },
+    {
+      "citation_id": "5",
+      "title": "Toward open-world electroencephalogram decoding via deep learning: A comprehensive survey",
+      "authors": [
+        "Xun Chen",
+        "Chang Li",
+        "Aiping Liu",
+        "Martin Mckeown",
+        "Ruobing Qian",
+        "Jane Wang"
+      ],
+      "year": "2022",
+      "venue": "IEEE Signal Processing Magazine"
+    },
+    {
+      "citation_id": "6",
+      "title": "Learning temporal information for brain-computer interface using convolutional neural networks",
+      "authors": [
+        "Siavash Sakhavi",
+        "Cuntai Guan",
+        "Shuicheng Yan"
+      ],
+      "year": "2018",
+      "venue": "IEEE transactions on neural networks and learning systems"
+    },
+    {
+      "citation_id": "7",
+      "title": "Eegwavenet: Multiscale cnn-based spatiotemporal feature extraction for eeg seizure detection",
+      "year": "2021",
+      "venue": "IEEE transactions on industrial informatics"
+    },
+    {
+      "citation_id": "8",
+      "title": "Deep learning with convolutional neural networks for eeg decoding and visualization",
+      "authors": [
+        "Robin Tibor Schirrmeister",
+        "Jost Tobias Springenberg",
+        "Lukas Dominique",
+        "Josef Fiederer",
+        "Martin Glasstetter",
+        "Katharina Eggensperger",
+        "Michael Tangermann",
+        "Frank Hutter",
+        "Wolfram Burgard",
+        "Tonio Ball"
+      ],
+      "year": "2017",
+      "venue": "Human brain mapping"
+    },
+    {
+      "citation_id": "9",
+      "title": "Multichannelsleepnet: A transformer-based model for automatic sleep stage classification with psg",
+      "authors": [
+        "Yang Dai",
+        "Xiuli Li",
+        "Shanshan Liang",
+        "Lukang Wang",
+        "Qingtian Duan",
+        "Hui Yang",
+        "Chunqing Zhang",
+        "Xiaowei Chen",
+        "Longhui Li",
+        "Xingyi Li"
+      ],
+      "year": "2023",
+      "venue": "IEEE Journal of Biomedical and Health Informatics"
+    },
+    {
+      "citation_id": "10",
+      "title": "A transformer-based approach combining deep learning network and spatial-temporal information for raw eeg classification",
+      "authors": [
+        "Jin Xie",
+        "Jie Zhang",
+        "Jiayao Sun",
+        "Zheng Ma",
+        "Liuni Qin",
+        "Guanglin Li",
+        "Huihui Zhou",
+        "Yang Zhan"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "11",
+      "title": "Transformers for eeg-based emotion recognition: A hierarchical spatial information learning model",
+      "authors": [
+        "Zhe Wang",
+        "Yongxiong Wang",
+        "Chuanfei Hu",
+        "Zhong Yin",
+        "Yu Song"
+      ],
+      "year": "2022",
+      "venue": "IEEE Sensors Journal"
+    },
+    {
+      "citation_id": "12",
+      "title": "Linear-time sequence modeling with selective state spaces",
+      "authors": [
+        "Albert Gu",
+        "Tri Dao",
+        "Mamba"
+      ],
+      "year": "2023",
+      "venue": "Linear-time sequence modeling with selective state spaces",
+      "arxiv": "arXiv:2312.00752"
+    },
+    {
+      "citation_id": "13",
+      "title": "Neonatal seizure detection from raw multi-channel eeg using a fully convolutional architecture",
+      "authors": [
+        "Alison O' Shea",
+        "Gordon Lightbody",
+        "Geraldine Boylan",
+        "Andriy Temko"
+      ],
+      "year": "2020",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "14",
+      "title": "Sleeptransformer: Automatic sleep staging with interpretability and uncertainty quantification",
+      "authors": [
+        "Huy Phan",
+        "Kaare Mikkelsen",
+        "Philipp Oliver Y Chén",
+        "Alfred Koch",
+        "Maarten Mertins",
+        "Vos"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Biomedical Engineering"
+    },
+    {
+      "citation_id": "15",
+      "title": "Deep learning-based approach for emotion recognition using electroencephalography (eeg) signals using bi-directional long short-term memory (bi-lstm)",
+      "authors": [
+        "Mona Algarni",
+        "Faisal Saeed",
+        "Tawfik Al-Hadhrami",
+        "Fahad Ghabban",
+        "Mohammed Al-Sarem"
+      ],
+      "year": "2022",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "16",
+      "title": "Min2net: End-to-end multi-task learning for subject-independent motor imagery eeg classification",
+      "authors": [
+        "Rattanaphon Phairot Autthasan",
+        "Thapanun Chaisaen",
+        "Phurin Sudhawiyangkul",
+        "Suktipol Rangpong",
+        "Nat Kiatthaveephong",
+        "Gun Dilokthanakul",
+        "Huy Bhakdisongkhram",
+        "Cuntai Phan",
+        "Theerawit Guan",
+        "Wilaiprasitporn"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Biomedical Engineering"
+    },
+    {
+      "citation_id": "17",
+      "title": "Eegnet: a compact convolutional neural network for eeg-based brain-computer interfaces",
+      "authors": [
+        "Amelia Vernon J Lawhern",
+        "Nicholas Solon",
+        "Waytowich",
+        "Stephen M Gordon",
+        "P Chou",
+        "Brent Hung",
+        "Lance"
+      ],
+      "year": "2018",
+      "venue": "Journal of neural engineering"
+    },
+    {
+      "citation_id": "18",
+      "title": "Effectiveness of multi-task deep learning framework for eeg-based emotion and context recognition",
+      "authors": [
+        "Sanghyun Choo",
+        "Hoonseok Park",
+        "Sangyeon Kim",
+        "Donghyun Park",
+        "Jae-Yoon Jung",
+        "Sangwon Lee",
+        "Chang Nam"
+      ],
+      "year": "2023",
+      "venue": "Expert Systems with Applications"
+    },
+    {
+      "citation_id": "19",
+      "title": "Emotion recognition from brain wave using multitask machine learning leveraging residual connections",
+      "authors": [
+        "Rumman Ahmed Prodhan",
+        "Sumya Akter",
+        "Muhammad Bin Mujib",
+        "Md Akhtaruzzaman Adnan",
+        "Tanmoy Sarkar"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Machine Intelligence and Emerging Technologies"
+    },
+    {
+      "citation_id": "20",
+      "title": "Emotion recognition from eeg based on multi-task learning with capsule network and attention mechanism",
+      "authors": [
+        "Chang Li",
+        "Bin Wang",
+        "Silin Zhang",
+        "Yu Liu",
+        "Rencheng Song",
+        "Juan Cheng",
+        "Xun Chen"
+      ],
+      "year": "2022",
+      "venue": "Computers in biology and medicine"
+    },
+    {
+      "citation_id": "21",
+      "title": "Masksleepnet: A cross-modality adaptation neural network for heterogeneous signals processing in sleep staging",
+      "authors": [
+        "Hangyu Zhu",
+        "Wei Zhou",
+        "Cong Fu",
+        "Yonglin Wu",
+        "Ning Shen",
+        "Feng Shu",
+        "Huan Yu",
+        "Wei Chen",
+        "Chen Chen"
+      ],
+      "year": "2023",
+      "venue": "IEEE Journal of Biomedical and Health Informatics"
+    },
+    {
+      "citation_id": "22",
+      "title": "Adaptive mixtures of local experts",
+      "authors": [
+        "Robert Jacobs",
+        "Michael Jordan",
+        "Steven Nowlan",
+        "Geoffrey Hinton"
+      ],
+      "year": "1991",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "23",
+      "title": "Outrageously large neural networks: The sparsely-gated mixture-of-experts layer",
+      "authors": [
+        "Noam Shazeer",
+        "Azalia Mirhoseini",
+        "Krzysztof Maziarz",
+        "Andy Davis",
+        "Quoc Le",
+        "Geoffrey Hinton",
+        "Jeff Dean"
+      ],
+      "year": "2016",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "24",
+      "title": "Openmoe: An early effort on open mixture-of-experts language models",
+      "authors": [
+        "Fuzhao Xue",
+        "Zian Zheng",
+        "Yao Fu",
+        "Jinjie Ni",
+        "Zangwei Zheng",
+        "Wangchunshu Zhou",
+        "Yang You"
+      ],
+      "year": "2024",
+      "venue": "Forty-first International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "25",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "Alexey Dosovitskiy",
+        "Lucas Beyer",
+        "Alexander Kolesnikov",
+        "Dirk Weissenborn",
+        "Xiaohua Zhai",
+        "Thomas Unterthiner",
+        "Mostafa Dehghani",
+        "Matthias Minderer",
+        "Georg Heigold",
+        "Sylvain Gelly"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "26",
+      "title": "Mixture of cluster-conditional lora experts for vision-language instruction tuning",
+      "authors": [
+        "Yunhao Gou",
+        "Zhili Liu",
+        "Kai Chen",
+        "Lanqing Hong",
+        "Hang Xu",
+        "Aoxue Li",
+        "Dit-Yan Yeung",
+        "James Kwok",
+        "Yu Zhang"
+      ],
+      "year": "2023",
+      "venue": "Mixture of cluster-conditional lora experts for vision-language instruction tuning",
+      "arxiv": "arXiv:2312.12379"
+    },
+    {
+      "citation_id": "27",
+      "title": "Eeg synchronization analysis for seizure prediction: A study on data of noninvasive recordings",
+      "authors": [
+        "Paolo Detti",
+        "Giampaolo Vatti",
+        "Garazi Zabalo",
+        "Manrique De"
+      ],
+      "year": "2020",
+      "venue": "Processes"
+    },
+    {
+      "citation_id": "28",
+      "title": "Application of machine learning to epileptic seizure onset detection and treatment",
+      "authors": [
+        "Ali Hossam"
+      ],
+      "year": "2009",
+      "venue": "Application of machine learning to epileptic seizure onset detection and treatment"
+    },
+    {
+      "citation_id": "29",
+      "title": "Analysis of a sleepdependent neuronal feedback loop: the slow-wave microcontinuity of the eeg",
+      "authors": [
+        "Bob Kemp",
+        "Bert Aeilko H Zwinderman",
+        "Hilbert Tuk",
+        "Josefien Jl Ac Kamphuisen",
+        "Oberye"
+      ],
+      "year": "2000",
+      "venue": "IEEE Transactions on Biomedical Engineering"
+    },
+    {
+      "citation_id": "30",
+      "title": "The sleep heart health study: design, rationale, and methods",
+      "authors": [
+        "Barbara Stuart F Quan",
+        "Conrad Howard",
+        "Iber",
+        "Javier James P Kiley",
+        "George Nieto",
+        "T O' Connor",
+        "David Rapoport",
+        "Susan Redline",
+        "John Robbins",
+        "Jonathan Samet"
+      ],
+      "year": "1997",
+      "venue": "Sleep"
+    },
+    {
+      "citation_id": "31",
+      "title": "Deap: A database for emotion analysis; using physiological signals",
+      "authors": [
+        "Sander Koelstra",
+        "Christian Muhl",
+        "Mohammad Soleymani",
+        "Jong-Seok Lee",
+        "Ashkan Yazdani",
+        "Touradj Ebrahimi",
+        "Anton Thierry Pun",
+        "Ioannis Nijholt",
+        "Patras"
+      ],
+      "year": "2011",
+      "venue": "IEEE transactions on affective computing"
+    },
+    {
+      "citation_id": "32",
+      "title": "Differential entropy feature for eeg-based emotion classification",
+      "authors": [
+        "Jia-Yi Ruo-Nan Duan",
+        "Bao-Liang Zhu",
+        "Lu"
+      ],
+      "year": "2013",
+      "venue": "2013 6th international IEEE/EMBS conference on neural engineering (NER)"
+    },
+    {
+      "citation_id": "33",
+      "title": "A large eeg dataset for studying cross-session variability in motor imagery brain-computer interface",
+      "authors": [
+        "Jun Ma",
+        "Banghua Yang",
+        "Wenzheng Qiu",
+        "Yunzhe Li",
+        "Shouwei Gao",
+        "Xinxing Xia"
+      ],
+      "year": "2022",
+      "venue": "Scientific Data"
+    },
+    {
+      "citation_id": "34",
+      "title": "Bci competition 2008-graz data set a",
+      "authors": [
+        "Clemens Brunner",
+        "Robert Leeb",
+        "Gernot Müller-Putz",
+        "Alois Schlögl",
+        "Gert Pfurtscheller"
+      ],
+      "year": "2008",
+      "venue": "Bci competition 2008-graz data set a"
+    },
+    {
+      "citation_id": "35",
+      "title": "An attention-based deep learning approach for sleep stage classification with single-channel eeg",
+      "authors": [
+        "Emadeldeen Eldele",
+        "Zhenghua Chen",
+        "Chengyu Liu",
+        "Min Wu",
+        "Chee-Keong Kwoh",
+        "Xiaoli Li",
+        "Cuntai Guan"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "36",
+      "title": "Eeg conformer: Convolutional transformer for eeg decoding and visualization",
+      "authors": [
+        "Yonghao Song",
+        "Qingqing Zheng",
+        "Bingchuan Liu",
+        "Xiaorong Gao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "37",
+      "title": "Biot: Biosignal transformer for cross-data learning in the wild",
+      "authors": [
+        "Chaoqi Yang",
+        "M Westover",
+        "Jimeng Sun"
+      ],
+      "year": "2023",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "38",
+      "title": "A novel hybrid decoding neural network for eeg signal representation",
+      "authors": [
+        "Youshuo Ji",
+        "Fu Li",
+        "Boxun Fu",
+        "Yijin Zhou",
+        "Hao Wu",
+        "Yang Li",
+        "Xiaoli Li",
+        "Guangming Shi"
+      ],
+      "year": "2024",
+      "venue": "Pattern Recognition"
+    },
+    {
+      "citation_id": "39",
+      "title": "Deepsleepnet: A model for automatic sleep stage scoring based on raw single-channel eeg",
+      "authors": [
+        "Akara Supratak",
+        "Hao Dong",
+        "Chao Wu",
+        "Yike Guo"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "40",
+      "title": "An attention based cnn-lstm approach for sleep-wake detection with heterogeneous sensors",
+      "authors": [
+        "Zhenghua Chen",
+        "Min Wu",
+        "Wei Cui",
+        "Chengyu Liu",
+        "Xiaoli Li"
+      ],
+      "year": "2020",
+      "venue": "IEEE Journal of Biomedical and Health Informatics"
+    },
+    {
+      "citation_id": "41",
+      "title": "Learning topology-agnostic eeg representations with geometry-aware modeling",
+      "authors": [
+        "Ke Yi",
+        "Yansen Wang",
+        "Kan Ren",
+        "Dongsheng Li"
+      ],
+      "year": "2023",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "42",
+      "title": "Efficiently modeling long sequences with structured state spaces",
+      "authors": [
+        "Albert Gu",
+        "Karan Goel",
+        "Christopher Ré"
+      ],
+      "year": "2021",
+      "venue": "Efficiently modeling long sequences with structured state spaces",
+      "arxiv": "arXiv:2111.00396"
+    },
+    {
+      "citation_id": "43",
+      "title": "Simplified state space layers for sequence modeling",
+      "authors": [
+        "Jimmy Th Smith",
+        "Andrew Warrington",
+        "Scott Linderman"
+      ],
+      "year": "2022",
+      "venue": "Simplified state space layers for sequence modeling",
+      "arxiv": "arXiv:2208.04933"
+    },
+    {
+      "citation_id": "44",
+      "title": "Hungry hungry hippos: Towards language modeling with state space models",
+      "authors": [
+        "Tri Daniel Y Fu",
+        "Dao",
+        "K Khaled",
+        "Armin Saab",
+        "Atri Thomas",
+        "Christopher Rudra",
+        "Ré"
+      ],
+      "year": "2022",
+      "venue": "Hungry hungry hippos: Towards language modeling with state space models",
+      "arxiv": "arXiv:2212.14052"
+    },
+    {
+      "citation_id": "45",
+      "title": "Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity",
+      "authors": [
+        "William Fedus",
+        "Barret Zoph",
+        "Noam Shazeer"
+      ],
+      "year": "2022",
+      "venue": "Journal of Machine Learning Research"
+    },
+    {
+      "citation_id": "46",
+      "title": "Epileptic seizure classifications of single-channel scalp eeg data using wavelet-based features and svm",
+      "authors": [
+        "Suparerk Janjarasjitt"
+      ],
+      "year": "2017",
+      "venue": "Medical & biological engineering & computing"
+    },
+    {
+      "citation_id": "47",
+      "title": "A manual of standardized terminology, techniques and scoring system for sleep stages of human subjects",
+      "authors": [
+        "A Edward",
+        "Wolpert"
+      ],
+      "year": "1969",
+      "venue": "Archives of General Psychiatry"
+    },
+    {
+      "citation_id": "48",
+      "title": "Seqsleepnet: End-to-end hierarchical recurrent neural network for sequence-to-sequence automatic sleep staging",
+      "authors": [
+        "Phan Huy",
+        "Fernando Andreotti",
+        "Navin Cooray",
+        "Maarten Oliver Y Chen",
+        "Vos"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Neural Systems and Rehabilitation Engineering"
+    },
+    {
+      "citation_id": "49",
+      "title": "Cardiorespiratory sleep stage detection using conditional random fields",
+      "authors": [
+        "Pedro Fonseca",
+        "Niek Den Teuling",
+        "Xi Long",
+        "Ronald Aarts"
+      ],
+      "year": "2016",
+      "venue": "IEEE journal of biomedical and health informatics"
+    },
+    {
+      "citation_id": "50",
+      "title": "Multi-domain feature fusion for emotion classification using deap dataset",
+      "authors": [
+        "Muhammad Khateeb",
+        "Syed Muhammad Anwar",
+        "Majdi Alnowami"
+      ],
+      "year": "2021",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "51",
+      "title": "St-moe: Designing stable and transferable sparse expert models",
+      "authors": [
+        "Barret Zoph",
+        "Irwan Bello",
+        "Sameer Kumar",
+        "Nan Du",
+        "Yanping Huang",
+        "Jeff Dean",
+        "Noam Shazeer",
+        "William Fedus"
+      ],
+      "year": "2022",
+      "venue": "St-moe: Designing stable and transferable sparse expert models",
+      "arxiv": "arXiv:2202.08906"
+    }
+  ]
+}

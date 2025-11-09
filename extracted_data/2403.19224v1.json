@@ -1,0 +1,2465 @@
+{
+  "paper_id": "2403.19224v1",
+  "title": "Emotion Neural Transducer For Fine-Grained Speech Emotion Recognition",
+  "published": "2024-03-28T08:38:43Z",
+  "authors": [
+    "Siyuan Shen",
+    "Yu Gao",
+    "Feng Liu",
+    "Hanyang Wang",
+    "Aimin Zhou"
+  ],
+  "keywords": [
+    "Speech emotion recognition",
+    "speech emotion diarization",
+    "automatic speech recognition"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "The mainstream paradigm of speech emotion recognition (SER) is identifying the single emotion label of the entire utterance. This line of works neglect the emotion dynamics at fine temporal granularity and mostly fail to leverage linguistic information of speech signal explicitly. In this paper, we propose Emotion Neural Transducer for fine-grained speech emotion recognition with automatic speech recognition (ASR) joint training. We first extend typical neural transducer with emotion joint network to construct emotion lattice for fine-grained SER. Then we propose lattice max pooling on the alignment lattice to facilitate distinguishing emotional and non-emotional frames. To adapt fine-grained SER to transducer inference manner, we further make blank, the special symbol of ASR, serve as underlying emotion indicator as well, yielding Factorized Emotion Neural Transducer. For typical utterance-level SER, our ENT models outperform state-of-the-art methods on IEMOCAP in low word error rate. Experiments on IEMOCAP and the latest speech emotion diarization dataset ZED also demonstrate the superiority of fine-grained emotion modeling. Our code is available at https://github.com/ECNU-Cross-Innovation-Lab/ENT.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Speech emotion recognition (SER) aims to identify emotional states of human speech signals. Many works follow the recipe of classifying the whole utterance into single emotion category  [1, 2, 3, 4, 5, 6] . Fueled by various datasets containing emotional labels at utterance level  [7, 8] , such sequence-tolabel methods have made great progress in recent years. However, emotional states inherently exhibit diverse temporal dynamics, often leading to alternating shifts between emotional This paper is funded by the Science and Technology Commission of Shanghai Municipality (Grant No. 22511105901) and the Beijing Key Laboratory of Behavior and Mental Health, Peking University.\n\n† Work done while intern at Midea Group. * Corresponding author. gaoyu11@midea.com, amzhou@cs.ecnu.edu.cn and non-emotional states within a single utterance  [9] . Consequently, recognizing emotions at a fine temporal granularity is desirable for better emotion understanding  [10, 11] .\n\nFor fine-grained SER, another line of previous works consider this task as a sequence-to-sequence problem. These methods can be thought of as aligning frames and emotional labels in a weakly supervised manner. Frame-wise methods simply assign overall emotional label to each frame  [12]  while segment-wise methods identify emotional regions according to contribution of salient parts with attention mechanism  [13] . Connectionist temporal classification (CTC) methods  [14]  first construct emotion sequence heuristically and then align emotionally relevant segments within the utterance automatically  [9] . Though driven by the common motivation for fine-grained SER, these approaches only consider acoustic information of speech signals and evaluate performance at utterance level. Thanks to the latest proposed benchmark of speech emotion diarization  [10] , the frontier of distinguishing emotions at a fine temporal granularity is to be uncovered.\n\nMotivated by the nature of neural transducer for sequence alignment conditioning on both linguistic tokens and acoustic units  [15, 16] , we explore SER and fine-grained SER based on transducer models with automatic speech recognition (ASR) joint training. To date, recent paradigms for joint SER and ASR at utterance level include cascading off-the-shelf ASR model  [17]  as well as adopting multi-task learning framework, where intermediate  [18, 19]  or task-specific output layers  [20]  are supervised by CTC loss. Despite the huge success of transducer family in the field of ASR  [15, 16, 21] , existing extension on RNN-T for additional SER functionality solely focuses on modifying target transcriptions with emotion tags  [22] . Moreover, these ASR-based methods view SER as a typical utterance-level classification problem, disregarding the temporal granularity of emotion.\n\nIn this paper, we aim to bridge the gap between ASRbased SER and fine-grained SER, allowing generating rich transcripts along with emotion synchronously. We propose Emotion Neural Transducer (dubbed ENT) for fine-grained speech emotion recognition with ASR joint training. We first build the emotion joint network upon the typical acoustic arXiv:2403.19224v1 [cs.SD] 28 Mar 2024 encoder and vocabulary predictor and thus enable modeling emotion categorical distribution through the alignment lattice as standard neural transducer  [15] . Since fine-grained SER operates under a a weakly-supervised learning paradigm, we propose lattice max-pooling loss for the emotion lattice to distinguish emotional and non-emotional timestamps automatically. Motivated by the inference manner of neural transducer, we further extend emotion neural transducer to the factorized variant (called FENT). The key concept behind FENT is to utilize the blank symbol as both a time separator and an underlying indicator of emotion. Specifically, we disentangle emotion and blank prediction from vocabulary prediction with separate predictors and share the predictor for both blank and emotion prediction. Our proposed ENT models outperform previous state-of-the-arts on the benchmark IEMOCAP dataset with low word error rate. Moreover, we validate fine-grained emotion modeling with ASR on the newly proposed emotion diarization dataset ZED.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Neural Transducer",
+      "text": "Standard neural transducer consists of three components, the acoustic encoder, prediction network and joint network  [15, 16] . Considering the acoustic input x with duration T and target label sequence y with length U , the acoustic encoder takes acoustic features x ≤t as input and produces hidden features h t for each timestamp. The prediction network generates label representations g u conditioning on previous tokens y ≤u . The joint network integrates the outputs of acoustic encoder and prediction network as z t,u to compute vocabulary label distribution. The procedure can be formulated as\n\nThen the probability of next token can be computed as\n\nTo address the length difference between acoustic features x and token sequences y, transducer models add a special blank symbol to the vocabulary for alignment and optimize log probability over all possible alignments as\n\nwhere α denotes the alignment, each containing T +U tokens and β is the mapping from alignment to target sequence by removing blank symbols.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Emotion Neural Transducer",
+      "text": "In this section, we present two key components of ENT and subsequently extend it to its factorized variant FENT. First,  we construct the emotion joint network to integrate representations from the encoder and predictor to yield emotion lattice. To further enhance emotional and non-emotional awareness at temporal granularity, we then devise lattice max pooling loss to the generated emotion lattice. Next, we make the blank symbol work as an emotion indicator for FENT by disentangling blank from vocabulary and meanwhile sharing the same predictor for both blank and emotion prediction.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Joint Emotion Prediction",
+      "text": "To integrate both acoustic and linguistic tokens for emotion recognition at a fine temporal granularity, we build emotion joint network upon the typical acoustic encoder and vocabulary predictor (Figure  1 ). Formally, the emotion representation z E t,u given speech and text history can be obtained by substituting joint E into Equation 1. Similar to standard neural transducer modeling sequence alignment via lattice  [15] , our emotion joint network models emotion emission probability through the T × U alignment lattice. As shown in Figure  1 , each node p t,u denotes the emotion probability distribution having output u tokens by frame t, where p k t,u is the probability of emotion k with darker color indicating higher probability, orange/grey denoting emotional/non-emotional.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Lattice Max Pooling",
+      "text": "Given the utterance-level emotion label k * , our goal is to identify the emotional and non-emotional frames automatically through the lattice. Inspired by max pooling loss used in keyword spotting  [23, 24] , we extend the frame-level max pooling loss on the emotion lattice, thus leveraging acoustic and linguistic alignment. For each utterance, we select the node with the highest predicted posterior probability of target emotion p k * t,u and the node with the minimum non-emotional or neutral category probability p k - t,u . In Figure  1 , the selected nodes are indicated by dashed borderline. Our proposed lattice max pooling loss can be formulated as From the view of positive and negative samples as max pooling loss, the first term optimizes the most positive frame while the second term selects the hardest negative sample through the emotion lattice. See Appendix A for variants.\n\nTo maintain the capability of conventional SER at utterance level, we do mean pooling for the representations from acoustic encoder and predictor, optimized by cross entropy loss L emotion at utterance level.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Factorized Emotion Neural Transducer",
+      "text": "Our intuition for the factorized variant is based on the natural inference manner of neural transducer. At each timestamp, the standard transducer model consumes one frame and then outputs multiple non-blank tokens until the blank is emitted. We assume the blank symbol as accumulation of both acoustic and linguistic information and thus we allocate temporal emotion awareness to blank representations. Inspired by recent advances in language model adaptation  [21, 25] , we first disentangle blank from vocabulary prediction by using two separate predictors. The overall architecture of FENT is described in Figure  2 . Specifically, the vocabulary predictor V is dedicated to predicting label vocabulary representations g V u excluding blank while the blank predictor predictor B produces blank representations g B u as the right part of Figure  2 . Then the corresponding joint network fuses acoustic features h t with predictor outputs similar to Equation 1, yielding z V t,u and z B t,u respectively. The whole vocabulary label distribution can be computed by softmax and concatenation as\n\nTo bias the blank symbol towards emotion, we employ a shared predictor for emotion and blank prediction and adopt aforementioned emotion joint network as shown in left part of Figure  2 . For each time step during inference, the acoustic encoder takes one frame as input and the vocabulary predictor outputs the most probable tokens iteratively until the blank is emitted. At this point, the emotion joint network fuses acoustic and blank representation to predict current emotion.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Method",
+      "text": "Year WA (%) UA (%)\n\nWav2vec2-PT  [1]",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experiments",
+      "text": "In this section, we first demonstrate the superiority of ENT models on the benchmark dataset IEMOCAP for utterancelevel SER. Next we validate the capability of fine-grained speech emotion recognition on the speech emotion diarization dataset ZED and meanwhile ablate key components.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "Dataset and evaluation. Interactive emotional dyadic motion capture database (IEMOCAP)  [7]  is a widely-used benchmark SER dataset, where each utterance is annotated with the transcript and single emotion category label. We adopt leave-one-session-out 5-fold cross-validation, following the typical evaluation protocol. The unweighted accuracy (UA) and weighted accuracy (WA) for utterance-level SER are computed by averaging the results obtained from the 5 folds. The average word error rate (WER) across the 5 folds is reported to measure ASR performance. Zaion Emotion Dataset (ZED)  [10]  is a recently proposed dataset for fine-grained SER, named as speech emotion diarization, including 180 utterances annotated with emotional boundaries for each. It is worth noting that due to its limited scale, ZED is primarily suitable for evaluating the fine-grained SER capability rather than serving as a comprehensive training set in a fully supervised manner. Thus we train our ENT models on IEMOCAP and validate on ZED. We adopt emotion diarization error rate (EDER) for finegrained SER, which assesses the temporal alignment between predicted emotion intervals and the actual emotion intervals. Lower EDER indicates better fine-grained SER ability.\n\nImplementation Details. We take wav2vec 2.0 Base  [26]  as feature extractor for input speech signals, where the pretrained model is frozen for training efficiency and the features from different layers are performed weighted sum in line with SUPERB  [27] . The acoustic encoder and the predictors are one-layer LSTM with a hidden dimension of 640. The joint network combines features of encoder and predictor by addition operation, followed by a linear layer.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Utterance-Level Speech Emotion Recognition",
+      "text": "Comparison with state-of-the-arts. We compare our proposed models with recent state-of-the-art methods in Table  1 . ENT outperforms all the strong baselines, showing the effectiveness of leveraging linguistic information and fine-grained temporal modeling. While FENT achieves competitive results as well, the factorization technique degrades its utterancelevel SER performance slightly compared with ENT just as its counterpart in language adaptation  [21] . This phenomenon indicates that factorization of predictor partially compromises the integrity of whole vocabulary modeling, resulting in inferior representation for utterance-level discrimination.\n\nComparison with ASR-based methods. We evaluate the SER and ASR performance in Table  2 . For fair comparison, all the methods take features from self-supervised or ASR pre-trained models. Although ASR joint training enables the model to predict emotions along with transcriptions, previous attempts fail to balance the mutual influence between ASR and SER. Taking RNN-T method as an example, appending a special emotion tag to the target text is conductive to the original ASR output manner, yet deteriorating SER ability (only 58.2% WA). In contrast, the family of ENT attains better performance in both ASR and SER (+3% UA and meanwhile -0.7% WER). Notably, the top performance of FENT in WER validates the effectiveness of factorization of emotion from vocabulary, preserving the modularity of the transducer for ASR capability  [28, 29]  while endowing SER capability.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Fine-Grained Speech Emotion Recognition",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Ablation Studies",
+      "text": "We investigate key components of ENT models in Table  3 . Overall, FENT architecture excels at fine-grained SER on SED regardless of L lattice while ENT obtains better UA in typical utterance-level SER. Compared with character units, text encoded with byte-pair encoding (BPE) degrades WER as well as emotion recognition performance significantly, which may be attributed to vocabulary sparsity for relatively small SER dataset, further yielding negative mutual impact of speech and emotion recognition. We then compare our lattice max pooling to some straightforward variants, where L T lattice selects the entire timestamp (target row of emotion lattice in Figure  1 ) while L U lattice selects the target token column. And L all lattice applies supervision on the whole emotion lattice. We can observe that L T lattice achieves on-par performance as original L lattice , signifying the importance of temporal localization. More importantly, the improvement of models with lattice max pooling on IEMOCAP also verifies that fine-grained emotion modeling helps utterance-level SER. Moreover, improvement by mixing different audio segments shows compatibility of our lattice loss to supervised data.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we present Emotion Neural Transducer models for fine-grained speech emotion recognition, with a favorable capability of predicting transcripts along with emotion at fine temporal granularity for practice. We hope our work will draw more attention from the community toward more comprehensive fine-grained emotion benchmarks.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Variants Of Lattice Max Pooling",
+      "text": "As mentioned in our experiment, the lattice max pooling loss can be extended to some variants based on the groups of selected node and the supervision manner. We define the indices of the nodes with the highest predicted probability of the target emotion as t * and u * , and the indices of the nodes with the minimum non-emotional probability as t -and u -.\n\nToken Lattice Max Pooling L U lattice (see Figure  3 (b)) first selects the nodes within the entire token column and then calculates the loss as follows\n\nMixing method (see Figure  4 ) concatenates neutral speech recordings with other emotional speech recordings to create training samples that contain emotional intervals. Subsequently, we can apply supervision to each interval.",
+      "page_start": 6,
+      "page_end": 6
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Emotion Neural Transducer.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: ). Formally, the emotion represen-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: , the selected",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Factorized Emotion Neural Transducer.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Specifically, the vocabulary predictorV",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Then the corresponding joint network fuses acoustic features",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: For each time step during inference, the acoustic",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: ) while LU",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Temporal and Token Lattice Max Pooling Loss.",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: (a)) first",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: (b)) first se-",
+      "page": 6
+    },
+    {
+      "caption": "Figure 4: ) concatenates neutral speech",
+      "page": 6
+    },
+    {
+      "caption": "Figure 4: Mixing on Emotion lattice.",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "3AI Innovation Center, Midea Group, Shanghai, China"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "and non-emotional states within a single utterance [9]. Con-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "sequently, recognizing emotions at a fine temporal granularity"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "is desirable for better emotion understanding [10, 11]."
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "For fine-grained SER, another line of previous works con-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "sider\nthis\ntask as a sequence-to-sequence problem.\nThese"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "methods can be thought of as aligning frames and emotional"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "labels\nin a weakly supervised manner.\nFrame-wise meth-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "ods simply assign overall emotional\nlabel\nto each frame [12]"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "while segment-wise methods identify emotional\nregions ac-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "cording to contribution of salient parts with attention mecha-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "nism [13]. Connectionist temporal classification (CTC) meth-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "ods\n[14] first construct emotion sequence heuristically and"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "then align emotionally relevant segments within the utterance"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "automatically [9]. Though driven by the common motivation"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "for fine-grained SER,\nthese approaches only consider acous-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "tic information of speech signals and evaluate performance at"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "utterance level. Thanks to the latest proposed benchmark of"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "speech emotion diarization [10], the frontier of distinguishing"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "emotions at a fine temporal granularity is to be uncovered."
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "Motivated by the nature of neural transducer for sequence"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "alignment conditioning on both linguistic tokens and acoustic"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "units [15, 16], we explore SER and fine-grained SER based on"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "transducer models with automatic speech recognition (ASR)"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "joint\ntraining.\nTo date,\nrecent paradigms for\njoint SER and"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "ASR at utterance level\ninclude cascading off-the-shelf ASR"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "model\n[17] as well as adopting multi-task learning frame-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "work, where intermediate [18, 19] or task-specific output lay-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "ers [20] are supervised by CTC loss. Despite the huge suc-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "cess of\ntransducer\nfamily in the field of ASR [15, 16, 21],"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "existing extension on RNN-T for additional SER function-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "ality solely focuses on modifying target\ntranscriptions with"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "emotion tags [22]. Moreover, these ASR-based methods view"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "SER as a typical utterance-level classification problem, disre-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "garding the temporal granularity of emotion."
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "In this paper, we aim to bridge the gap between ASR-"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "based SER and fine-grained SER, allowing generating rich"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "transcripts along with emotion synchronously. We propose"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "Emotion Neural Transducer\n(dubbed ENT)\nfor fine-grained"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "speech emotion recognition with ASR joint training. We first"
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": ""
+        },
+        {
+          "2School of Computer Science and Technology, East China Normal University, Shanghai, China": "build the\nemotion joint network upon the\ntypical\nacoustic"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "emotion categorical distribution through the alignment lattice",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "𝑡𝑡4"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "as standard neural\ntransducer\n[15].\nSince fine-grained SER",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "𝐸𝐸"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "𝑡𝑡3"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "operates\nunder\na\na weakly-supervised\nlearning\nparadigm,",
+          "<blank> & Vocabulary\n<emotion>": "Joint\n𝑧𝑧𝑡𝑡,𝑢𝑢\nJointE\n𝑧𝑧𝑡𝑡,𝑢𝑢"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "we propose lattice max-pooling loss for\nthe emotion lattice",
+          "<blank> & Vocabulary\n<emotion>": "𝑡𝑡2"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "to distinguish emotional and non-emotional\ntimestamps au-",
+          "<blank> & Vocabulary\n<emotion>": "𝑡𝑡1"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "tomatically. Motivated by the inference manner of neural",
+          "<blank> & Vocabulary\n<emotion>": "𝑢𝑢3\n𝑢𝑢4\n𝑢𝑢1\n𝑢𝑢2"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "−"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "∗\n𝑘𝑘\n𝑔𝑔𝑢𝑢\nℎ𝑡𝑡"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "transducer, we further extend emotion neural\ntransducer\nto",
+          "<blank> & Vocabulary\n<emotion>": "𝑘𝑘\nEncoder\nPredictor"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "𝑝𝑝𝑡𝑡,𝑢𝑢\n𝑝𝑝𝑡𝑡,𝑢𝑢\nEmotion Lattice"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "the factorized variant (called FENT). The key concept behind",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "FENT is to utilize the blank symbol as both a time separa-",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "tor and an underlying indicator of emotion. Specifically, we",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "𝑦𝑦𝑢𝑢\n𝑥𝑥𝑡𝑡"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "disentangle emotion and blank prediction from vocabulary",
+          "<blank> & Vocabulary\n<emotion>": "Fig. 1. Emotion Neural Transducer."
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "prediction with separate predictors and share the predictor",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "for both blank and emotion prediction. Our proposed ENT",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "we construct the emotion joint network to integrate represen-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "models outperform previous\nstate-of-the-arts on the bench-",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "tations from the encoder and predictor\nto yield emotion lat-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "mark IEMOCAP dataset with low word error rate. Moreover,",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "tice. To further enhance emotional and non-emotional aware-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "we validate fine-grained emotion modeling with ASR on the",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "ness at temporal granularity, we then devise lattice max pool-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "newly proposed emotion diarization dataset ZED.",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "ing loss to the generated emotion lattice. Next, we make the"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "blank symbol work as an emotion indicator for FENT by dis-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "2. NEURAL TRANSDUCER",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "entangling blank from vocabulary and meanwhile sharing the"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "same predictor for both blank and emotion prediction."
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "Standard neural transducer consists of three components,\nthe",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "acoustic encoder, prediction network and joint network [15,",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "3.1.\nJoint Emotion Prediction"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "16]. Considering the acoustic input x with duration T and",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "target\nlabel sequence y with length U ,\nthe acoustic encoder",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "To integrate both acoustic and linguistic tokens for emotion"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "takes acoustic features x≤t as input and produces hidden fea-",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "recognition at a fine temporal granularity, we build emotion"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "for each timestamp. The prediction network gener-\ntures ht",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "joint network upon the typical acoustic encoder and vocab-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "ates label representations gu conditioning on previous tokens",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "ulary predictor\n(Figure 1).\nFormally,\nthe emotion represen-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "y≤u. The joint network integrates the outputs of acoustic en-",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "tation zE\nt,u given speech and text history can be obtained by"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "coder and prediction network as zt,u to compute vocabulary",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "substituting jointE into Equation 1. Similar to standard neu-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "label distribution. The procedure can be formulated as",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "ral\ntransducer modeling sequence alignment via lattice [15],"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "our emotion joint network models emotion emission proba-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "ht = Encoder(x≤t)",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "bility through the T × U alignment lattice. As shown in Fig-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "(1)\ngu = Predictor(y≤u)",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "ure 1, each node pt,u denotes the emotion probability distri-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "zt,u = Joint(ht, gu)",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "bution having output u tokens by frame t, where pk\nt,u is the"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "probability of emotion k with darker color indicating higher"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "Then the probability of next token can be computed as",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "probability, orange/grey denoting emotional/non-emotional."
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "(2)\nP (yu+1 | x≤t, y≤u) = softmax(zt,u).",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "3.2. Lattice Max Pooling"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "To address the length difference between acoustic features",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "x and token sequences y,\ntransducer models add a special",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "Given the utterance-level emotion label k∗, our goal\nis\nto"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "blank symbol\nto the vocabulary for alignment and optimize",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "identify the emotional and non-emotional\nframes automati-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "log probability over all possible alignments as",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "cally through the lattice.\nInspired by max pooling loss used"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "in keyword spotting [23, 24], we extend the frame-level max"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "(cid:88)",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "(P (α | x)),\n(3)\nLtrans = −log",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "pooling loss on the emotion lattice,\nthus leveraging acoustic"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "α∈β−1(y)",
+          "<blank> & Vocabulary\n<emotion>": ""
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "and linguistic alignment.\nFor each utterance, we select\nthe"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "where α denotes the alignment, each containing T +U to-",
+          "<blank> & Vocabulary\n<emotion>": "node with the highest predicted posterior probability of target"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "kens and β is the mapping from alignment to target sequence",
+          "<blank> & Vocabulary\n<emotion>": "emotion pk∗\nt,u and the node with the minimum non-emotional"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "by removing blank symbols.",
+          "<blank> & Vocabulary\n<emotion>": "or neutral category probability pk−\nIn Figure 1,\nthe selected\nt,u."
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "",
+          "<blank> & Vocabulary\n<emotion>": "nodes are indicated by dashed borderline. Our proposed lat-"
+        },
+        {
+          "encoder and vocabulary predictor and thus enable modeling": "3. EMOTION NEURAL TRANSDUCER",
+          "<blank> & Vocabulary\n<emotion>": "tice max pooling loss can be formulated as"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table 1: Comparison with utterance-level SER methods us-",
+      "data": [
+        {
+          "Method": "",
+          "Year": "",
+          "WA (%)": "",
+          "UA (%)": ""
+        },
+        {
+          "Method": "Wav2vec2-PT [1]",
+          "Year": "2021",
+          "WA (%)": "67.90",
+          "UA (%)": "-"
+        },
+        {
+          "Method": "Corr Attentive [2]",
+          "Year": "2023",
+          "WA (%)": "-",
+          "UA (%)": "70.01"
+        },
+        {
+          "Method": "DCW+TsPA [3]",
+          "Year": "2023",
+          "WA (%)": "72.08",
+          "UA (%)": "72.17"
+        },
+        {
+          "Method": "",
+          "Year": "",
+          "WA (%)": "",
+          "UA (%)": ""
+        },
+        {
+          "Method": "Shiftformer [4]",
+          "Year": "2023",
+          "WA (%)": "72.10",
+          "UA (%)": "72.70"
+        },
+        {
+          "Method": "MSTR [5]",
+          "Year": "2023",
+          "WA (%)": "70.60",
+          "UA (%)": "71.60"
+        },
+        {
+          "Method": "EmotionNAS [6]",
+          "Year": "2023",
+          "WA (%)": "69.10",
+          "UA (%)": "72.10"
+        },
+        {
+          "Method": "",
+          "Year": "",
+          "WA (%)": "",
+          "UA (%)": ""
+        },
+        {
+          "Method": "ENT (ours)",
+          "Year": "2023",
+          "WA (%)": "72.43",
+          "UA (%)": "73.88"
+        },
+        {
+          "Method": "",
+          "Year": "",
+          "WA (%)": "",
+          "UA (%)": ""
+        },
+        {
+          "Method": "",
+          "Year": "",
+          "WA (%)": "",
+          "UA (%)": ""
+        },
+        {
+          "Method": "FENT (ours)",
+          "Year": "2023",
+          "WA (%)": "71.84",
+          "UA (%)": "72.37"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: Comparison with utterance-level SER methods us-",
+      "data": [
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "4. EXPERIMENTS"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "In this section, we first demonstrate the superiority of ENT"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "models on the benchmark dataset\nIEMOCAP for utterance-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "level SER. Next we validate the capability of fine-grained"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "speech emotion recognition on the speech emotion diariza-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "tion dataset ZED and meanwhile ablate key components."
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "4.1. Experimental Setup"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "Dataset and evaluation.\nInteractive emotional dyadic mo-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "tion\ncapture\ndatabase\n(IEMOCAP)\n[7]\nis\na widely-used"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "benchmark SER dataset, where each utterance is annotated"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "with the transcript and single emotion category label. We"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "adopt\nleave-one-session-out 5-fold cross-validation,\nfollow-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "ing the typical evaluation protocol. The unweighted accuracy"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "(UA) and weighted accuracy (WA)\nfor utterance-level SER"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "are computed by averaging the results obtained from the 5"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "folds. The average word error rate (WER) across the 5 folds"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "is reported to measure ASR performance."
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "Zaion Emotion Dataset\n(ZED)\n[10]\nis\na\nrecently pro-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "posed dataset for fine-grained SER, named as speech emotion"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "diarization,\nincluding 180 utterances\nannotated with emo-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "tional boundaries for each.\nIt\nis worth noting that due to its"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "limited scale, ZED is primarily suitable for evaluating the"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "fine-grained SER capability rather than serving as a compre-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "hensive training set\nin a fully supervised manner.\nThus we"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "train our ENT models on IEMOCAP and validate on ZED."
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "We\nadopt\nemotion diarization error\nrate\n(EDER)\nfor fine-"
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": ""
+        },
+        {
+          "ing wav2vec 2.0 as feature extractor on IEMOCAP.": "grained SER, which assesses the temporal alignment between"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 3: Comparison of ENT varaints performance on",
+      "data": [
+        {
+          "lattice": "69.61\n26.18\n59.38\n39.11\n-w. Lall\nlattice"
+        },
+        {
+          "lattice": "-w. mixing\n-\n-\n54.41*\n39.93*"
+        },
+        {
+          "lattice": "-w. BPE\n70.33\n30.96\n65.63\n47.26"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "Table\n3.\nComparison\nof ENT varaints\nperformance\non"
+        },
+        {
+          "lattice": "IEMOCAP and ZED. * denotes training models with concate-"
+        },
+        {
+          "lattice": "nated IEMOCAP audio segments like [10] and Lall"
+        },
+        {
+          "lattice": "lattice."
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "4.4. Ablation Studies"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "We investigate key components of ENT models in Table 3."
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "Overall, FENT architecture excels at fine-grained SER on"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "SED regardless of Llattice while ENT obtains better UA in"
+        },
+        {
+          "lattice": "typical utterance-level SER. Compared with character units,"
+        },
+        {
+          "lattice": "text encoded with byte-pair encoding (BPE) degrades WER"
+        },
+        {
+          "lattice": "as well\nas\nemotion\nrecognition\nperformance\nsignificantly,"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "which may be attributed to vocabulary sparsity for relatively"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "small SER dataset, further yielding negative mutual impact of"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "speech and emotion recognition. We then compare our lattice"
+        },
+        {
+          "lattice": "max pooling to some straightforward variants, where LT"
+        },
+        {
+          "lattice": "lattice"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "selects the entire timestamp (target row of emotion lattice in"
+        },
+        {
+          "lattice": "Figure 1) while LU"
+        },
+        {
+          "lattice": "lattice selects the target token column. And"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "Lall\napplies\nsupervision on the whole\nemotion lattice."
+        },
+        {
+          "lattice": "lattice"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "We can observe that LT\nachieves on-par performance"
+        },
+        {
+          "lattice": "lattice"
+        },
+        {
+          "lattice": "signifying the importance of\ntemporal\nas original Llattice,"
+        },
+        {
+          "lattice": "localization. More importantly,\nthe improvement of mod-"
+        },
+        {
+          "lattice": "els with lattice max pooling on IEMOCAP also verifies that"
+        },
+        {
+          "lattice": "fine-grained emotion modeling helps utterance-level SER."
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "Moreover,\nimprovement by mixing different audio segments"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "shows compatibility of our lattice loss to supervised data."
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "5. CONCLUSION"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "In this paper, we present Emotion Neural Transducer mod-"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "els for fine-grained speech emotion recognition, with a favor-"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "able capability of predicting transcripts along with emotion"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "at fine temporal granularity for practice. We hope our work"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "will draw more attention from the community toward more"
+        },
+        {
+          "lattice": ""
+        },
+        {
+          "lattice": "comprehensive fine-grained emotion benchmarks."
+        },
+        {
+          "lattice": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 3: Comparison of ENT varaints performance on",
+      "data": [
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "UA ↑\nWER ↓\nEDER ↓",
+          "ZED": "WER ↓"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "Comparison with state-of-the-arts. We compare our pro-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "posed models with recent state-of-the-art methods in Table 1.",
+          "IEMOCAP": "68.43\n-\n59.73",
+          "ZED": "-"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "ENT outperforms all the strong baselines, showing the effec-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "73.88\n26.47\n56.60",
+          "ZED": "39.37"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "tiveness of leveraging linguistic information and fine-grained",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "71.76\n26.06\n62.47",
+          "ZED": "39.19"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "temporal modeling. While FENT achieves competitive results",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "73.11\n26.42\n61.88",
+          "ZED": "39.39"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "as well,\nthe factorization technique degrades\nits utterance-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "69.86\n26.14\n61.40",
+          "ZED": "38.82"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "level SER performance slightly compared with ENT just as",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "71.85\n26.19\n61.12",
+          "ZED": "39.28"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "its counterpart in language adaptation [21]. This phenomenon",
+          "IEMOCAP": "-\n-\n52.76*",
+          "ZED": "42.54*"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "indicates that factorization of predictor partially compromises",
+          "IEMOCAP": "71.37\n30.13\n67.68",
+          "ZED": "47.42"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "the integrity of whole vocabulary modeling, resulting in infe-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "25.99\n55.07\n72.37",
+          "ZED": "39.34"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "rior representation for utterance-level discrimination.",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "71.84\n26.69\n60.86",
+          "ZED": "39.14"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "Comparison with ASR-based methods. We evaluate the",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "72.52\n26.28\n59.18",
+          "ZED": "39.48"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "SER and ASR performance in Table 2. For fair comparison,",
+          "IEMOCAP": "69.67\n26.23\n60.86",
+          "ZED": "39.17"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "all\nthe methods\ntake features\nfrom self-supervised or ASR",
+          "IEMOCAP": "69.61\n26.18\n59.38",
+          "ZED": "39.11"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "pre-trained models. Although ASR joint training enables the",
+          "IEMOCAP": "-\n-\n54.41*",
+          "ZED": "39.93*"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "model to predict emotions along with transcriptions, previous",
+          "IEMOCAP": "70.33\n30.96\n65.63",
+          "ZED": "47.26"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "attempts fail\nto balance the mutual\ninfluence between ASR",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "and SER. Taking RNN-T method as an example, appending a",
+          "IEMOCAP": "of ENT varaints",
+          "ZED": "performance\non"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "special emotion tag to the target text is conductive to the orig-",
+          "IEMOCAP": "IEMOCAP and ZED. * denotes training models with concate-",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "nated IEMOCAP audio segments like [10] and Lall",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "inal ASR output manner, yet deteriorating SER ability (only",
+          "IEMOCAP": "",
+          "ZED": "lattice."
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "58.2% WA). In contrast, the family of ENT attains better per-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "formance in both ASR and SER (+3% UA and meanwhile -",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "0.7% WER). Notably, the top performance of FENT in WER",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "validates the effectiveness of\nfactorization of emotion from",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "We investigate key components of ENT models in Table 3.",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "vocabulary, preserving the modularity of\nthe transducer\nfor",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "Overall, FENT architecture excels at fine-grained SER on",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "ASR capability [28, 29] while endowing SER capability.",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "SED regardless of Llattice while ENT obtains better UA in",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "typical utterance-level SER. Compared with character units,",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "Type\nMethod\nWA (%)\nWER (%)",
+          "IEMOCAP": "text encoded with byte-pair encoding (BPE) degrades WER",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "recognition\nperformance",
+          "ZED": "significantly,"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "e2e-ASR [18]\n68.60\n35.70",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "which may be attributed to vocabulary sparsity for relatively",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "CTC\nwav2vec 2.0+co-attention [19]\n63.40\n32.70",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "small SER dataset, further yielding negative mutual impact of",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "RNN-T\nEmotion tag [22]\n58.20\n26.70",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "speech and emotion recognition. We then compare our lattice",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "72.43\nENT (ours)\n26.47",
+          "IEMOCAP": "max pooling to some straightforward variants, where LT",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": "lattice"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "ENT",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "25.99\nFENT (ours)\n71.84",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "selects the entire timestamp (target row of emotion lattice in",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "lattice selects the target token column. And",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "Table 2. Comparison with ASR-based utterance-level SER",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "supervision on the whole",
+          "ZED": "emotion lattice."
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "methods on IEMOCAP.",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": "achieves on-par performance"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "lattice",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "signifying the importance of",
+          "ZED": "temporal"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "",
+          "ZED": "the improvement of mod-"
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "4.3. Fine-Grained Speech Emotion Recognition",
+          "IEMOCAP": "els with lattice max pooling on IEMOCAP also verifies that",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "fine-grained emotion modeling helps utterance-level SER.",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "Table 3 is split into 3 parts to compare with frame-wise meth-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "improvement by mixing different audio segments",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "ods and ENT variants.\nIt\nis noteworthy that\nthe weak super-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "shows compatibility of our lattice loss to supervised data.",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "vision paradigm based on utterance-level annotation and ab-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "sence of an appropriate training set makes fine-grained SER",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "5. CONCLUSION",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "validation on SED benchmark extremely challenging.\nInter-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "estingly, standard ENT without\nlattice loss,\nthough utilizing",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "In this paper, we present Emotion Neural Transducer mod-",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "text\ninformation explicitly,\nlags behind frame-wise baseline",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "els for fine-grained speech emotion recognition, with a favor-",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "by nearly 3% EDER, suffering from degraded ASR capability",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "able capability of predicting transcripts along with emotion",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "as well as imperfect transcripts. Thanks to disentangling emo-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "at fine temporal granularity for practice. We hope our work",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "tion and blank from vocabulary prediction, our FENT reaches",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "will draw more attention from the community toward more",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "much lower EDER (about -4.6%) while enjoying speech tran-",
+          "IEMOCAP": "",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "",
+          "IEMOCAP": "comprehensive fine-grained emotion benchmarks.",
+          "ZED": ""
+        },
+        {
+          "4.2. Utterance-level Speech Emotion Recognition": "scription functionality along with fine-grained emotion.",
+          "IEMOCAP": "",
+          "ZED": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "arXiv preprint arXiv:1211.3711, 2012."
+        },
+        {
+          "6. REFERENCES": "[1]\nLeonardo Pepino, Pablo Riera, and Luciana Ferrer, “Emotion recogni-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[16] Qian Zhang, Han Lu, Hasim Sak, Anshuman Tripathi, Erik McDer-"
+        },
+        {
+          "6. REFERENCES": "Proc. Interspeech\ntion from speech using wav2vec 2.0 embeddings,”",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "mott, Stephen Koo, and Shankar Kumar,\n“Transformer transducer: A"
+        },
+        {
+          "6. REFERENCES": "2021, pp. 3400–3404, 2021.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "streamable speech recognition model with transformer encoders and"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "rnn-t\nloss,”\nin ICASSP 2020-2020 IEEE International Conference on"
+        },
+        {
+          "6. REFERENCES": "[2] Ke Liu, Dekui Wang, Dongya Wu, and Jun Feng,\n“Speech emotion",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Acoustics, Speech and Signal Processing (ICASSP).\nIEEE, 2020, pp."
+        },
+        {
+          "6. REFERENCES": "recognition via two-stream pooling attention with discriminative chan-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "7829–7833."
+        },
+        {
+          "6. REFERENCES": "nel weighting,”\nin ICASSP 2023-2023 IEEE International Conference",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2023, pp.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[17] Chengxin Chen\nand\nPengyuan Zhang,\n“Cta-rnn:\nChannel\nand"
+        },
+        {
+          "6. REFERENCES": "1–5.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "temporal-wise attention rnn leveraging pre-trained asr embeddings for"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "speech emotion recognition,” in Interspeech, 2022."
+        },
+        {
+          "6. REFERENCES": "[3]\nSofoklis Kakouros, Themos Stafylakis, Ladislav Moˇsner, and Luk´aˇs",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "Burget, “Speech-based emotion recognition with self-supervised mod-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[18] Han Feng, Sei Ueno, and Tatsuya Kawahara, “End-to-end speech emo-"
+        },
+        {
+          "6. REFERENCES": "els using attentive\nchannel-wise\ncorrelations\nand label\nsmoothing,”",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "tion recognition combined with acoustic-to-word asr model.,” in Inter-"
+        },
+        {
+          "6. REFERENCES": "in ICASSP 2023-2023 IEEE International Conference on Acoustics,",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "speech, 2020, pp. 501–505."
+        },
+        {
+          "6. REFERENCES": "Speech and Signal Processing (ICASSP). IEEE, 2023, pp. 1–5.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[19] Yuanchao Li, Peter Bell, and Catherine Lai, “Fusing asr outputs in joint"
+        },
+        {
+          "6. REFERENCES": "[4]\nSiyuan Shen, Feng Liu, and Aimin Zhou, “Mingling or misalignment?",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "training for speech emotion recognition,” in ICASSP 2022-2022 IEEE"
+        },
+        {
+          "6. REFERENCES": "temporal shift\nfor speech emotion recognition with pre-trained repre-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "International Conference on Acoustics, Speech and Signal Processing"
+        },
+        {
+          "6. REFERENCES": "sentations,”\nin ICASSP 2023-2023 IEEE International Conference on",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "(ICASSP). IEEE, 2022, pp. 7362–7366."
+        },
+        {
+          "6. REFERENCES": "Acoustics, Speech and Signal Processing (ICASSP).\nIEEE, 2023, pp.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[20] Xingyu Cai, Jiahong Yuan, Renjie Zheng, Liang Huang, and Kenneth"
+        },
+        {
+          "6. REFERENCES": "1–5.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Church,\n“Speech emotion recognition with multi-task learning.,”\nin"
+        },
+        {
+          "6. REFERENCES": "[5]\nZhipeng Li, Xiaofen Xing, Yuanbo Fang, Weibin Zhang, Hengsheng",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Interspeech, 2021, vol. 2021, pp. 4508–4512."
+        },
+        {
+          "6. REFERENCES": "Fan,\nand Xiangmin Xu,\n“Multi-Scale Temporal Transformer For",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[21] Xie Chen, Zhong Meng, Sarangarajan Parthasarathy,\nand Jinyu Li,"
+        },
+        {
+          "6. REFERENCES": "Speech Emotion Recognition,”\nin Proc. INTERSPEECH 2023, 2023,",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "“Factorized neural transducer for efficient language model adaptation,”"
+        },
+        {
+          "6. REFERENCES": "pp. 3652–3656.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "in ICASSP 2022-2022 IEEE International Conference on Acoustics,"
+        },
+        {
+          "6. REFERENCES": "[6] Haiyang Sun, Zheng Lian, Bin Liu, Ying Li, Jianhua Tao, Licai Sun,",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Speech and Signal Processing (ICASSP). IEEE, 2022, pp. 8132–8136."
+        },
+        {
+          "6. REFERENCES": "Cong Cai, Meng Wang, and Yuan Cheng, “EmotionNAS: Two-stream",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[22]\nZvi Kons, Hagai Aronowitz, Edmilson Morais, Matheus Damasceno,"
+        },
+        {
+          "6. REFERENCES": "Neural Architecture Search for Speech Emotion Recognition,” in Proc.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Hong-Kwang Kuo, Samuel Thomas, and George Saon,\n“Extending"
+        },
+        {
+          "6. REFERENCES": "INTERSPEECH 2023, 2023, pp. 3597–3601.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "RNN-T-based speech recognition systems with emotion and language"
+        },
+        {
+          "6. REFERENCES": "[7] Carlos Busso, Murtaza Bulut,\nChi-Chun Lee, Abe Kazemzadeh,",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "classification,” in Proc. Interspeech 2022, 2022, pp. 546–549."
+        },
+        {
+          "6. REFERENCES": "Emily Mower, Samuel Kim,\nJeannette N Chang, Sungbok Lee, and",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[23]\nJingyong Hou, Yangyang Shi, Mari Ostendorf, Mei-Yuh Hwang, and"
+        },
+        {
+          "6. REFERENCES": "Shrikanth S Narayanan,\n“Iemocap:\nInteractive emotional dyadic mo-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Lei Xie, “Mining effective negative training samples for keyword spot-"
+        },
+        {
+          "6. REFERENCES": "tion capture database,” Language resources and evaluation, vol. 42, no.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "ting,” in ICASSP 2020-2020 IEEE International Conference on Acous-"
+        },
+        {
+          "6. REFERENCES": "4, pp. 335–359, 2008.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "tics, Speech and Signal Processing (ICASSP). IEEE, 2020, pp. 7444–"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "7448."
+        },
+        {
+          "6. REFERENCES": "[8]\nSoujanya Poria, Devamanyu Hazarika, Navonil Majumder, Gautam",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "Naik, Erik Cambria, and Rada Mihalcea, “Meld: A multimodal multi-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[24]\nJie Wang, Menglong Xu,\nJingyong Hou, Binbin Zhang, Xiao-Lei"
+        },
+        {
+          "6. REFERENCES": "party dataset for emotion recognition in conversations,” in Proceedings",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Zhang, Lei Xie, and Fuping Pan,\n“Wekws: A production first small-"
+        },
+        {
+          "6. REFERENCES": "of\nthe 57th Annual Meeting of\nthe Association for Computational Lin-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "footprint end-to-end keyword spotting toolkit,”\nin ICASSP 2023-2023"
+        },
+        {
+          "6. REFERENCES": "guistics, 2019, pp. 527–536.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "IEEE International Conference on Acoustics, Speech and Signal Pro-"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "cessing (ICASSP). IEEE, 2023, pp. 1–5."
+        },
+        {
+          "6. REFERENCES": "[9] Wenjing Han, Huabin Ruan, Xiaomin Chen, Zhixiang Wang, Haifeng",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "Li, and Bj¨orn Schuller,\n“Towards temporal modelling of categorical",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[25]\nEhsan Variani, David Rybach, Cyril Allauzen, and Michael Riley, “Hy-"
+        },
+        {
+          "6. REFERENCES": "speech emotion recognition,” Interspeech 2018, 2018.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "brid autoregressive transducer (hat),”\nin ICASSP 2020-2020 IEEE In-"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "ternational Conference on Acoustics, Speech and Signal Processing"
+        },
+        {
+          "6. REFERENCES": "[10] Yingzhi Wang, Mirco Ravanelli, Alaa Nfissi,\nand Alya Yacoubi,",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "(ICASSP). IEEE, 2020, pp. 6139–6143."
+        },
+        {
+          "6. REFERENCES": "arXiv\n“Speech emotion diarization: Which emotion appears when?,”",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "preprint arXiv:2306.12991, 2023.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[26] Alexei Baevski, Yuhao Zhou, Abdelrahman Mohamed, and Michael"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Auli,\n“wav2vec 2.0: A framework for\nself-supervised learning of"
+        },
+        {
+          "6. REFERENCES": "[11]\nJuncheng Li, Junlin Xie, Linchao Zhu, Long Qian, Siliang Tang, Wen-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Advances in neural\ninformation processing\nspeech representations,”"
+        },
+        {
+          "6. REFERENCES": "qiao Zhang, Haochen Shi, Shengyu Zhang, Longhui Wei, Qi Tian,",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "systems, vol. 33, pp. 12449–12460, 2020."
+        },
+        {
+          "6. REFERENCES": "et al.,\n“Dilated context\nintegrated network with cross-modal consen-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "sus for temporal emotion localization in videos,” in Proceedings of the",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[27]\nShu-wen Yang, Po-Han Chi, Yung-Sung Chuang, Cheng-I\nJeff Lai,"
+        },
+        {
+          "6. REFERENCES": "30th ACM International Conference on Multimedia, 2022, pp. 5083–",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Kushal Lakhotia, Yist Y Lin, Andy T Liu, Jiatong Shi, Xuankai Chang,"
+        },
+        {
+          "6. REFERENCES": "5092.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Guan-Ting Lin, et al.,\n“Superb: Speech processing universal perfor-"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "mance benchmark,” arXiv preprint arXiv:2105.01051, 2021."
+        },
+        {
+          "6. REFERENCES": "[12]\nSeyedmahdad Mirsamadi, Emad Barsoum, and Cha Zhang, “Automatic",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "speech emotion recognition using recurrent neural networks with local",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[28] Mohammadreza Ghodsi, Xiaofeng Liu,\nJames Apfel, Rodrigo Cabr-"
+        },
+        {
+          "6. REFERENCES": "attention,” in 2017 IEEE International conference on acoustics, speech",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "era, and Eugene Weinstein,\n“Rnn-transducer with stateless prediction"
+        },
+        {
+          "6. REFERENCES": "and signal processing (ICASSP). IEEE, 2017, pp. 2227–2231.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "network,”\nin ICASSP 2020-2020 IEEE International Conference on"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Acoustics, Speech and Signal Processing (ICASSP).\nIEEE, 2020, pp."
+        },
+        {
+          "6. REFERENCES": "[13]\nShuiyang Mao, PC Ching, C-C Jay Kuo, and Tan Lee, “Advancing mul-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "7049–7053."
+        },
+        {
+          "6. REFERENCES": "tiple instance learning with attention modeling for categorical speech",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "emotion recognition,” Proc. Interspeech 2020, pp. 2357–2361, 2020.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "[29]\nZhong Meng, Sarangarajan Parthasarathy, Eric Sun, Yashesh Gaur,"
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Naoyuki Kanda, Liang Lu, Xie Chen, Rui Zhao, Jinyu Li, and Yifan"
+        },
+        {
+          "6. REFERENCES": "[14] Alex Graves,\nSantiago\nFern´andez,\nFaustino Gomez,\nand\nJ¨urgen",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "Gong,\n“Internal\nlanguage model estimation for domain-adaptive end-"
+        },
+        {
+          "6. REFERENCES": "Schmidhuber, “Connectionist temporal classification:\nlabelling unseg-",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "to-end speech recognition,”\nin 2021 IEEE Spoken Language Technol-"
+        },
+        {
+          "6. REFERENCES": "mented sequence data with recurrent neural networks,” in Proceedings",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": "ogy Workshop (SLT). IEEE, 2021, pp. 243–250."
+        },
+        {
+          "6. REFERENCES": "of\nthe 23rd international conference on Machine learning, 2006, pp.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        },
+        {
+          "6. REFERENCES": "369–376.",
+          "[15] Alex Graves, “Sequence transduction with recurrent neural networks,”": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "A. VARIANTS OF LATTICE MAX POOLING": "As mentioned in our experiment, the lattice max pooling loss can be"
+        },
+        {
+          "A. VARIANTS OF LATTICE MAX POOLING": "extended to some variants based on the groups of selected node and"
+        },
+        {
+          "A. VARIANTS OF LATTICE MAX POOLING": "the supervision manner. We define the indices of the nodes with the"
+        },
+        {
+          "A. VARIANTS OF LATTICE MAX POOLING": "highest predicted probability of the target emotion as t∗ and u∗, and"
+        },
+        {
+          "A. VARIANTS OF LATTICE MAX POOLING": "the indices of the nodes with the minimum non-emotional probabil-"
+        },
+        {
+          "A. VARIANTS OF LATTICE MAX POOLING": "ity as t− and u−."
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "𝑡𝑡6": "𝑡𝑡5"
+        },
+        {
+          "𝑡𝑡6": "𝑡𝑡4"
+        },
+        {
+          "𝑡𝑡6": "𝑡𝑡3"
+        },
+        {
+          "𝑡𝑡6": "𝑡𝑡2"
+        },
+        {
+          "𝑡𝑡6": "𝑡𝑡1"
+        },
+        {
+          "𝑡𝑡6": ""
+        }
+      ],
+      "page": 6
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Emotion recognition from speech using wav2vec 2.0 embeddings",
+      "authors": [
+        "Leonardo Pepino",
+        "Pablo Riera",
+        "Luciana Ferrer"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "3",
+      "title": "Speech emotion recognition via two-stream pooling attention with discriminative channel weighting",
+      "authors": [
+        "Ke Liu",
+        "Dekui Wang",
+        "Dongya Wu",
+        "Jun Feng"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "4",
+      "title": "Speech-based emotion recognition with self-supervised models using attentive channel-wise correlations and label smoothing",
+      "authors": [
+        "Sofoklis Kakouros",
+        "Themos Stafylakis",
+        "Ladislav Mošner",
+        "Lukáš Burget"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "5",
+      "title": "Mingling or misalignment? temporal shift for speech emotion recognition with pre-trained representations",
+      "authors": [
+        "Siyuan Shen",
+        "Feng Liu",
+        "Aimin Zhou"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "6",
+      "title": "Multi-Scale Temporal Transformer For Speech Emotion Recognition",
+      "authors": [
+        "Zhipeng Li",
+        "Xiaofen Xing",
+        "Yuanbo Fang",
+        "Weibin Zhang",
+        "Hengsheng Fan",
+        "Xiangmin Xu"
+      ],
+      "year": "2023",
+      "venue": "Proc. INTERSPEECH 2023"
+    },
+    {
+      "citation_id": "7",
+      "title": "EmotionNAS: Two-stream Neural Architecture Search for Speech Emotion Recognition",
+      "authors": [
+        "Haiyang Sun",
+        "Zheng Lian",
+        "Bin Liu",
+        "Ying Li",
+        "Jianhua Tao",
+        "Licai Sun",
+        "Cong Cai",
+        "Meng Wang",
+        "Yuan Cheng"
+      ],
+      "year": "2023",
+      "venue": "Proc. INTERSPEECH 2023"
+    },
+    {
+      "citation_id": "8",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "9",
+      "title": "Meld: A multimodal multiparty dataset for emotion recognition in conversations",
+      "authors": [
+        "Soujanya Poria",
+        "Devamanyu Hazarika",
+        "Navonil Majumder"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "10",
+      "title": "Towards temporal modelling of categorical speech emotion recognition",
+      "authors": [
+        "Wenjing Han",
+        "Huabin Ruan",
+        "Xiaomin Chen",
+        "Zhixiang Wang",
+        "Haifeng Li",
+        "Björn Schuller"
+      ],
+      "year": "2018",
+      "venue": "Towards temporal modelling of categorical speech emotion recognition"
+    },
+    {
+      "citation_id": "11",
+      "title": "Speech emotion diarization: Which emotion appears when?",
+      "authors": [
+        "Yingzhi Wang",
+        "Mirco Ravanelli",
+        "Alaa Nfissi",
+        "Alya Yacoubi"
+      ],
+      "year": "2023",
+      "venue": "Speech emotion diarization: Which emotion appears when?",
+      "arxiv": "arXiv:2306.12991"
+    },
+    {
+      "citation_id": "12",
+      "title": "Dilated context integrated network with cross-modal consensus for temporal emotion localization in videos",
+      "authors": [
+        "Juncheng Li",
+        "Junlin Xie",
+        "Linchao Zhu",
+        "Long Qian",
+        "Siliang Tang",
+        "Wenqiao Zhang",
+        "Haochen Shi",
+        "Shengyu Zhang",
+        "Longhui Wei",
+        "Qi Tian"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 30th ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "13",
+      "title": "Automatic speech emotion recognition using recurrent neural networks with local attention",
+      "authors": [
+        "Seyedmahdad Mirsamadi",
+        "Emad Barsoum",
+        "Cha Zhang"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE International conference on acoustics, speech and signal processing (ICASSP)"
+    },
+    {
+      "citation_id": "14",
+      "title": "Advancing multiple instance learning with attention modeling for categorical speech emotion recognition",
+      "authors": [
+        "Shuiyang Mao",
+        "C-C Jay Ching",
+        "Tan Kuo",
+        "Lee"
+      ],
+      "year": "2020",
+      "venue": "Proc. Interspeech 2020"
+    },
+    {
+      "citation_id": "15",
+      "title": "Connectionist temporal classification: labelling unsegmented sequence data with recurrent neural networks",
+      "authors": [
+        "Alex Graves",
+        "Santiago Fernández",
+        "Faustino Gomez",
+        "Jürgen Schmidhuber"
+      ],
+      "year": "2006",
+      "venue": "Proceedings of the 23rd international conference on Machine learning"
+    },
+    {
+      "citation_id": "16",
+      "title": "Sequence transduction with recurrent neural networks",
+      "authors": [
+        "Alex Graves"
+      ],
+      "year": "2012",
+      "venue": "Sequence transduction with recurrent neural networks",
+      "arxiv": "arXiv:1211.3711"
+    },
+    {
+      "citation_id": "17",
+      "title": "Transformer transducer: A streamable speech recognition model with transformer encoders and rnn-t loss",
+      "authors": [
+        "Qian Zhang",
+        "Han Lu",
+        "Hasim Sak",
+        "Anshuman Tripathi",
+        "Erik Mcdermott",
+        "Stephen Koo",
+        "Shankar Kumar"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "18",
+      "title": "Cta-rnn: Channel and temporal-wise attention rnn leveraging pre-trained asr embeddings for speech emotion recognition",
+      "authors": [
+        "Chengxin Chen",
+        "Pengyuan Zhang"
+      ],
+      "year": "2022",
+      "venue": "Cta-rnn: Channel and temporal-wise attention rnn leveraging pre-trained asr embeddings for speech emotion recognition"
+    },
+    {
+      "citation_id": "19",
+      "title": "End-to-end speech emotion recognition combined with acoustic-to-word asr model.,\" in Interspeech",
+      "authors": [
+        "Han Feng",
+        "Sei Ueno",
+        "Tatsuya Kawahara"
+      ],
+      "year": "2020",
+      "venue": "End-to-end speech emotion recognition combined with acoustic-to-word asr model.,\" in Interspeech"
+    },
+    {
+      "citation_id": "20",
+      "title": "Fusing asr outputs in joint training for speech emotion recognition",
+      "authors": [
+        "Yuanchao Li",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "21",
+      "title": "Speech emotion recognition with multi-task learning",
+      "authors": [
+        "Xingyu Cai",
+        "Jiahong Yuan",
+        "Renjie Zheng",
+        "Liang Huang",
+        "Kenneth Church"
+      ],
+      "year": "2021",
+      "venue": "Speech emotion recognition with multi-task learning"
+    },
+    {
+      "citation_id": "22",
+      "title": "Factorized neural transducer for efficient language model adaptation",
+      "authors": [
+        "Xie Chen",
+        "Zhong Meng",
+        "Sarangarajan Parthasarathy",
+        "Jinyu Li"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "23",
+      "title": "Extending RNN-T-based speech recognition systems with emotion and language classification",
+      "authors": [
+        "Zvi Kons",
+        "Hagai Aronowitz",
+        "Edmilson Morais",
+        "Matheus Damasceno",
+        "Hong-Kwang Kuo",
+        "Samuel Thomas",
+        "George Saon"
+      ],
+      "year": "2022",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "24",
+      "title": "Mining effective negative training samples for keyword spotting",
+      "authors": [
+        "Jingyong Hou",
+        "Yangyang Shi",
+        "Mari Ostendorf",
+        "Mei-Yuh Hwang",
+        "Lei Xie"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "25",
+      "title": "Wekws: A production first smallfootprint end-to-end keyword spotting toolkit",
+      "authors": [
+        "Jie Wang",
+        "Menglong Xu",
+        "Jingyong Hou",
+        "Binbin Zhang",
+        "Xiao-Lei Zhang",
+        "Lei Xie",
+        "Fuping Pan"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "26",
+      "title": "Hybrid autoregressive transducer (hat),\" in ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "authors": [
+        "Ehsan Variani",
+        "David Rybach",
+        "Cyril Allauzen",
+        "Michael Riley"
+      ],
+      "year": "2020",
+      "venue": "Hybrid autoregressive transducer (hat),\" in ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "27",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Yuhao Zhou",
+        "Abdelrahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "28",
+      "title": "Superb: Speech processing universal performance benchmark",
+      "authors": [
+        "Shu-Wen Yang",
+        "Po-Han Chi",
+        "Yung-Sung Chuang",
+        "Cheng-I Jeff Lai",
+        "Kushal Lakhotia",
+        "Andy Yist Y Lin",
+        "Jiatong Liu",
+        "Xuankai Shi",
+        "Guan-Ting Chang",
+        "Lin"
+      ],
+      "year": "2021",
+      "venue": "Superb: Speech processing universal performance benchmark",
+      "arxiv": "arXiv:2105.01051"
+    },
+    {
+      "citation_id": "29",
+      "title": "Rnn-transducer with stateless prediction network",
+      "authors": [
+        "Mohammadreza Ghodsi",
+        "Xiaofeng Liu",
+        "James Apfel",
+        "Rodrigo Cabrera",
+        "Eugene Weinstein"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "30",
+      "title": "Internal language model estimation for domain-adaptive endto-end speech recognition",
+      "authors": [
+        "Zhong Meng",
+        "Sarangarajan Parthasarathy",
+        "Eric Sun",
+        "Yashesh Gaur",
+        "Naoyuki Kanda",
+        "Liang Lu",
+        "Xie Chen",
+        "Rui Zhao",
+        "Jinyu Li",
+        "Yifan Gong"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE Spoken Language Technology Workshop (SLT)"
+    }
+  ]
+}

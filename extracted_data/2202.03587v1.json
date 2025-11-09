@@ -1,0 +1,1084 @@
+{
+  "paper_id": "2202.03587v1",
+  "title": "Calm: Contrastive Aligned Audio-Language Multirate And Multimodal Representations",
+  "published": "2022-02-08T01:20:37Z",
+  "authors": [
+    "Vin Sachidananda",
+    "Shao-Yen Tseng",
+    "Erik Marchi",
+    "Sachin Kajarekar",
+    "Panayiotis Georgiou"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Deriving multimodal representations of audio and lexical inputs is a central problem in Natural Language Understanding (NLU). In this paper, we present Contrastive Aligned Audio-Language Multirate and Multimodal Representations (CALM), an approach for learning multimodal representations using contrastive and multirate information inherent in audio and lexical inputs. The proposed model aligns acoustic and lexical information in the input embedding space of a pretrained language-only contextual embedding model. By aligning audio representations to pretrained language representations and utilizing contrastive information between acoustic inputs, CALM is able to bootstrap audio embedding competitive with existing audio representation models in only a few hours of training time. Operationally, audio spectrograms are processed using linearized patches through a Spectral Transformer (SpecTran) which is trained using a Contrastive Audio-Language Pretraining objective to align audio and language from similar queries. Subsequently, the derived acoustic and lexical tokens representations are input into a multimodal transformer to incorporate utterance level context and derive the proposed CALM representations. We show that these pretrained embeddings can subsequently be used in multimodal supervised tasks and demonstrate the benefits of the proposed pretraining steps in terms of the alignment of the two embedding spaces and the multirate nature of the pretraining. Our system shows 10-25% improvement over existing emotion recognition systems including state-of-the-art three-modality systems under various evaluation objectives.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Unsupervised and self-supervised representation learning are critical tools in a wide range of machine learning tasks in natural language processing (NLP), natural language understanding (NLU), computer vision, and speech and audio processing. In particular, these approaches learn feature representations from large amounts of input data, without explicit supervision, which are then utilized in downstream tasks often with small amounts of labeled data. In NLP, context has been employed in deriving embeddings such as word2vec  [28]  or GloVe  [32]  to produce real valued representations of words from large amounts of unlabeled text. Furthermore, these concepts have been extended to sequence to sequence models  [42]  in order to encode whole sentences and allowed integration of higher level context. Recently, bidirectional contextual embeddings, such as BERT  [12] , have been introduced which are able to incorporate more general forms of context dependent on a particular input sequence through the use of compositions of multi-head self-attention. In this paper, we propose Contrastive Aligned Audio-Language Multirate and Multimodal Representations (CALM), an approach for learning contextual representations of both audio and language modalities in a shared representation space. We find that CALM is able to make use of contrastive and multirate information 2 Overview of contributions Our contributions are briefly described here.\n\n• Our development employs the notions of short-term stationarity (context) and independence (contrastive) based on multimodal and temporal cues. This allows for low bandwidth streams (e.g. lexical) to be abstracted from coarser temporal context such as utterances rather than subwords or words. This is the fundamental assumption behind this work (Sec. 4.1).\n\n• SpecTran: Employs a patch-based transformer on the spectrum (or cepstrum) space in order to create embeddings for small frames of an audio input resulting in \"tokens of audio\". To the best of our knowledge this is a novel contribution in the speech domain (Sec. 4.2).\n\n• CALP: Pretrains audio embeddings by aligning them in the embedding space with pretrained lexical embeddings. This provides a novel representation that is partly shared among the two modalities, efficient to train, and novel in the audio-language domain (Sec. 4.3).\n\n• We introduce a form of unsupervised learning using a composition of Masked-Language-Modeling (MLM) and Masked-Audio-Modeling (MAM) losses. This approach incorporates multiple modalities in a single transformer model (Sec. 4.5).\n\n• The embeddings can be employed in various tasks through supervised training of small networks on top of the multimodal embeddings (Sec.  4.6) . Additionally, a single CALM model is able to operate on unimodal inputs, either audio-only or language-only, in addition to joint audio-language inputs.\n\nWe show that through our approach, we can achieve substantial gains, especially in the case of the hard-to-label tasks such as emotion recognition. CALM pretraining can also aid in robustness and scalability of pretrained systems. While the experimentation in this work is focused on emotion recognition tasks, we intend to investigate the efficacy of our approach on different tasks, datasets, signal resolutions, and modalities in future work. Section 4 presents more details of the contributions and reasoning for the proposed architecture.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Related work can be characterized into two main directions (I) literature related to the fields of cross-modal pretraining and acoustic-embedding extraction and (II) work in the application domain of emotion recognition.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Acoustic Embeddings And Cross-Modal Pretraining",
+      "text": "Various models have been employed to compress acoustic information into embedding representations.\n\nIn unsupervised learning from spectral representations there have been efforts in employing CNN structures  [18] , and ResNet models  [17]  using triplet networks. Other efforts employed supervised training for specific tasks. For example,  [34]  employed a CNN SincNet kernel structure to operate directly on the waveform. Lin and Busso  [25]  employed an LSTM architecture on the spectral representation.  [22]  employed an LSTM network and a time convolution LSTM network.  [20]  has employed frame-stacking to derive a direct representation for the keys and queries of the cross-modal transformer. Recently  [50]  employed a CNN architecture with a deep residual network (and a CTC loss). Yet other approaches have taken an agnostic learning method to derive, using a SincNet convolutional framework, multiple existing knowledge based descriptors  [31] . Indirectly related to our work but important to the pretraining task is the effort by  [2]  that employs CNN networks of very short duration (25 ms) audio segments. There is also a plethora of autoencoder-like systems for pretraining in the audio modality, e.g.  [10]  with various architectures. Recent work in vision transformers  [14] , which encode and reconstruct linear patches of images using multi-head attention, is most similar to our architecture for learning representations for audio frames.\n\nAlso in cross-modal learning, there have been multiple efforts in the speech domain, although significantly related works are the vision-language cross-modal training frameworks, such as for captioning based on image content. For emotions and behavior the audio (A), vision (V), and language (L) modalities are often used, however most efforts focus on single modal or two-modality (A/L) systems. Some examples with three modalities include  [24]  that employed a simple yet effective dynamic fusion graph between the A/V/L modalities. In  [20]  a three modality setup is obtained via two transformers that share input text as a query field with separate keys and values for A/V modalities. Tzirakis et al.  [47]  have investigated a range of fusion techniques, including concatenation, hierarchical attention, self-attention, residual self-attention, and cross-modal hierarchical self-attention. In all of these cases, the systems were supervised and learned the two modalities concurrently.\n\nIn our case, we want to exploit existing pretrained systems in the lexical modality to learn in the acoustic modality. Some work along this direction includes  [45]  where an ELMo network is used to jointly train the two modalities and  [40]  where a BERT-like self-supervised architecture is employed. Radford et al.  [33]  has aligned lexical and visual embeddings by applying a contrastive objective to match images to textual captions. This, similar to our work, assumes a dependence in the two modalities and also similar to our work employs different representation dimensions.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Multi-Modal Emotion Recognition",
+      "text": "Towards our goal of cross modal and multirate pretraining, we selected as a first task for evaluation the task of emotion recognition. This was to benefit from the significant inter-dependency between the modalities inherent in human expressiveness. For example, in expressing emotions speakers will likely express the same emotional content in both modalities, e.g. \"I am upset\" may sound acoustically distressed.\n\nThere has been significant work in emotion recognition in recent years. Much of that work dealt with corpora that are collected in a lab or controlled setting and are thus not going to be examined in this work, for example IEMOCAP  [4]  which was collected in clean recording conditions of acted scenarios with few speakers. In our case we want to evaluate in more realistic data so we evaluate on the CMU-MOSEI and UTD MSP Podcast datasets. There are many works in emotion recognition on these data including on emotional primitives, such as valence, activation, and dominance  [35] , and categorical emotions  [15] . On emotional primitives  [25]  employed a technique on MSP whereby the feature size of each utterance remained fix via changing the window overlap. This novel method may have some drawbacks in a real-time scenario of unknown word-chunks but nevertheless performs well. Further to that  [22]  has employed the MSP corpus in addition to proprietary data for the same task.\n\nIn our work we focus mostly on categorical emotion recognition. In this task the best performing systems in literature on CMU-MOSEI to the best of our knowledge are by  [20]  and  [30]  that employed all three modalities on the CMU-MOSEI dataset. The best two-modality system was an ELMo architecture employing only the lexical and acoustic modalities  [45] . Recently  [9]  described a transformer-based system and based on authors' code we achieved slightly better performance at 66.5% weighted accuracy. This matches our independent and concurrent work in transformers that employed a CNN front end and a multimodal BERT model which achieved 66.6%.\n\nOn the MSP dataset,  [27]  proposed a multitask learning system to jointly model primary and secondary emotions. Importantly they analyze the human performance (via the inter-annotator agreement) and provide an estimated human-performance metric. Prior work has also shown that machine-learning systems can improve over the average annotator  [44]  and in some such cases alternative evaluation metrics have to be established.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Calm Architecture",
+      "text": "4.1 Short-term stationarity and contrastive elements\n\nOur work below assumes that short term stationarity holds for the information of interest, that is, nearby audio frames will very likely encode the same target information. To give a few specific examples, it is more likely that nearby frames of audio are generated by the same speaker and likely contain the same behavioral content (i.e. speaker unlikely to change or their emotions to drastically change), as established by  [23] . Similarly for the active speaker  [18]  or for the audio events  [16] . This assumption has to be revisited when the information of interest changes, e.g. frames/ms in the case of phoneme modeling  [2]  versus seconds for speaker identification, emotion, or behavior recognition. In many tasks, annotation happens at a coarse scale because of this reason. e.g.  [3]  employs segments at 2.75 to 11 seconds to annotate emotions;  [5]  presents an analysis of lexical observation requirements for behaviors where original annotation was on 10 minute scale  [6] ; and speaker ID is often defined for segments of 4 to 20 seconds.  [7] .\n\nSimilarly we can assume that this stationarity holds across modalities as well. We can think of the two modalities as being encoded through the same generator, that being the speaker (brain, articulation, acoustic environment). Thus there are several ways that this assumption can manifest in practice: speakers will tend to have specific articulations for specific words, which creates an inter-modality dependence; or emotions and behavioral states will affect the choice of words and vice versa. Sometimes these can even be dependent on the environment of the speaker; something often undesired and removed via augmentation, e.g.  [7] . For example, talking over the car speakers while driving may change the articulation of specific words to reflect the noisy and far field environment. These assumptions may be weakened, yet not eliminated, by external factors, such as for example if the choice of words is somehow dictated by another task, e.g. reading or speaking with an assistant agent, that restrict the free choice of vocabulary.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Spectral Transformer",
+      "text": "For encoding audio frames we utilize a Spectral Transformer (SpecTran) whose architecture follows the work in  [14] . The spectral block is converted into a set of linearized patches. The patches can be of arbitrary size and overlap, covering the whole acoustic block. Additionally, a positional embedding is computed for each patch which is incremented first across time and then across frequency band.\n\nThose are fed into a transformer network and the first output embedding is then used downstream in supervised heads as shown in Fig.  1 .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Contrastive Acoustic Language Pretraining: Single Block Audio With Coarse Language Information",
+      "text": "Based on the short-term stationarity assumption we propose a Contrastive Acoustic Language Pretraining (CALP) step, which is based on the efficient multimodal contrastive learning approach in  [33] . In this step, we allow nearby data to generate similar embeddings. We assume a recording of sufficient context for the construct of interest; in our case here we are investigating emotions, affect, speaker ID so above a few words is usually sufficient.\n\nLet's denote such a group of N audio files as A i , where i = [0, N ]. In each of these audio files, we can choose an acoustic token to be of fixed length, e.g. 1 second long audio, and represent that as A ij , where j is an index into the audio. For example assuming an audio token of 1 second with no overlap then A 4,5 will correspond to the 5th second in the 4th file.\n\nWe denote the corresponding language as T i , since language is a lower bandwidth signal we can choose the language blocks to be longer. For example, someone can say \"I'm feeling so tired today I didn't sleep last night\" and we will need significant amount of language to detect their fatigued state, but that may be captured from just a short sample of audio. Similarly with speaker ID a lot more language will be needed to capture speaker-specific word choices versus listening to their voices.\n\nIn most cases we have utterance-level segmentation of audio (if not we can automate this based on pauses) so here we assume that we use all the language from the utterance (since lower rate information) while only employing a fixed length audio. We thus drop the temporal index from the language. This can create similar pairs A ij with A i(j+1) and A ij with T i while it can create contrastive pairs like A ij with A kl and A ij with T m where i = k and i = m.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Close In Embedding Space:",
+      "text": "A ij A i(j+1) T i Far in embedding space:\n\nNote that in the case of augmentation in any modality the corresponding augmented pairs can also be employed (e.g.\n\nGiven the shuffled nature of a minibatch, we ensure that we capture one set of A ij , A i(j+1) , T i from each utterance i. We then construct the loss matrix M × M for the minibatch of size M . The optimization objective is to minimize elements on the diagonal (same audio-file) while off-diagonal elements are pushed apart. A visualization is shown on the right of Fig.  1 .\n\nA weighted composite NTXent contrastive loss  [41] ,\n\n, is optimized to seed coarse audio embeddings by minimizing distances between audio frame and language representations within an utterance and maximizing distances of representations belonging to different utterances. During experimentation, we fix fixed α = 0.25; the objective is provided below for a single minibatch of size M with τ being the standard temperature scaling parameter: Using Log-Sum-Exp properties, we can see that the objective seeks to maximize the cosine similarity of representations of contiguous frames and a frame and its language representation through the terms -sim(A t i , T i ) and -sim(A t i , A t+1 i\n\n). Additionally, cosine similarity between an audio frame and negative audio frame and language samples within the minibatch are penalized through the terms max j =i sim(A t i , A t+1 j ) and max k =i sim(A t i , T k ).",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Multimodal Transformer",
+      "text": "The output of the SpecTran, trained through CALP, is employed in the subsequent multimodal transformer as depicted in Fig.  2 . The set of tokens provided to the multimodal transformer include \"Acoustic Tokens\", learned using SpecTran, and \"Lexical Tokens\", equivalent to the tokens of a pretrained language model. These inputs are accompanied by two embeddings: (i) a positional embedding that corresponds to time in the acoustic modality and to the token index in the language sequence and (ii) a modality embedding. These embeddings are utilized the same manner as the positional and sequence embeddings in the original BERT model  [12]  where the different forms of input embeddings are combined additively with a subsequent Layer Norm operation. The multimodal transformer is initialized to have weights equivalent to the pre-trained language model used when training SpecTran. In all of our experimentation, we utilize either the BERT base  [11]  or BERT tiny  [46]  and denote the resulting CALM models when using each of these pretrained language models as CALM BASE and CALM T IN Y . Language and Audio token sequences are padded separately and inputted to the model in succession which allows for cross-attention between modalities within each multi-head attention block.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Audio-Language Masked Prediction",
+      "text": "During pretraining, we utilize a masked language modeling (MLM) head for reconstructing masked language tokens and a masked acoustic modeling (MAM) head for reconstructing masked acoustic frames. Both of these masked prediction heads utilize the same architecture as the BERT masked language modeling head, a two layer fully connected network with a GeLU hidden activation.\n\nIn constructing our loss function, denote the input audio representations from SpecTran and language tokens for an individual sample as {A 0 , A 1 , . . . , A n } and {T 0 , T 1 , . . . , T m } respectively. Additionally, denote the decoding of the Multimodal Transformer outputs using the aforementioned MLM and MAM heads as { Â0 , Â1 , . . . , Ân } and { T0 , T1 , . . . , Tm }. Note that the decoded acoustic outputs Âi ∈ R xy where x and y are the dimensions of the input log mel spectogram, used in SpecTran, for the acoustic frame and that the decoded language outputs Ti ∈ R |V | where |V | is the total number of tokens in the Language Model tokenizer.\n\nDuring training a subset of input audio frames and language tokens is masked; in the case of language tokens a special [MASK] token replaces 15% of the input tokens while 10% of audio representations and the representations from the subsequent 2 frames are set to the zero vector. Masking audio inputs chunks is necessary to avoid due to the overlap of nearby audio inputs and smoothness of the audio signal.\n\nDuring training, we minimize the sum of masked audio and masked language modeling losses. For given sequences of corresponding audio, let the sets K and L constitute the audio and language indices being masked. For each masked audio frame, the corresponding loss value is the mean squared error between the original Log Mel Spectogram frame and the predicted output of the MAM head. For each masked language token, the loss is computed as the cross entropy H(•, •) between the predicted token distribution and the true one-hot token distribution.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Supervised Training Heads",
+      "text": "Supervised training can take place on top of the multimodal embeddings of CALM. There are two approaches on how to employ the pretrained embeddings. In the case of frozen pretrained embeddings, multiple heads (shallow feed forward networks) can be added to CALM to achieve multitask learning without any cross-task influences and is the preferred method. However in some cases we may have tasks and datasets that can benefit from larger amounts of supervised data, in which case we can unfreeze pretraining and allow the CALM network to be adapted to the task.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Experimentation",
+      "text": "We conduct experimentation on two multimodal datasets for emotion recognition: CMU MOSEI  [48]  and UTD MSP-Podcasts  [26] . We include a number of baselines from recent literature against which to compare the downstream performance of CALM. Baselines used for comparison either use the same or more data for pretraining compared to CALM.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Terminology",
+      "text": "To keep explanations clear we use frame to describe a slice of the spectral plane. We use an Acoustic Token or block for brevity to describe a short window of spectral features that will generate an acoustic token embedding, e.g. 1 second of audio or 100x64 (assuming standard 64 dimensional filterbanks or MFCC's and 10ms shift). Within that block we employ patches. These can be of arbitrary size with arbitrary 2-D shift, e.g. 20x20 with 10x16 shift. Note that patches are accompanied by a positional embedding and hence any arbitrary configuration trades-off the size of the patch versus the number of patches. Multiple acoustic tokens can form an utterance, and acoustic tokens can have an overlap themselves, e.g. 1 second blocks with 0.25 second shift.\n\nIn this work, for consistency, we keep patch size at 10x16 with a stride of  (5, 8) , and the audio block at (50x64) with 30 frames shift (i.e. 64 dimensional filterbanks, 0.5 seconds block with 0.2s overlap).",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Cmu Multimodal Opinion Sentiment And Emotion Intensity (Mosei)",
+      "text": "The CMU-MOSEI  [48]  dataset was constructed from YouTube videos featuring more than 1000 speakers and contains 23.5k utterances with Audio, Visual, and Language modalities. In this paper, we utilize only the Audio and Language modalities in the CALM model. Each utterance in the dataset is annotated for Ekman emotions  [15]  of {happiness, sadness, anger, fear, disgust, surprise} on a [0,3] Likert scale for presence of emotion. Following previous literature  [49] , we binarize the labels such that an emotion is said to be present in an utterance for a nonzero Likert score and not present for a score of 0. As multiple emotions can be present in an utterance, this task constitutes a multi-label multi-class classification problem.\n\nFor audio features we use 64 dimensional log spectrum with 10ms shift. For language, to be consistent with literature, we employed the corpus-provided transcripts and removed casing.    1  for CALM and previous approaches. The Adam optimizer  [21]  with a learning rate of 5e -5 and batch size of 64 is used for training over 50 epochs.\n\nTo evaluate the benefits of the various pretraining steps we performed an ablation study as shown in Table  2 . We can see that pretraining helps in performance gains over supervised training. We also see very small gains in performance through incorporating out-of-domain (OOD) data, in this case the MSP podcast data used in the next section. Likely due to the nature of our OOD data the gains were very small. We will employ larger datasets for OOD ablation in the future.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Utd Multimodal Signal Processing Podcasts (Msp)",
+      "text": "The UTD MSP-Podcast corpus v1.6 contains about 83 hours of spoken language collected from podcast recordings and about 50k utterances. Each utterance is annotated for emotions (Angry,Sad, Happy, Surprise, Fear, Disgust, Contempt, Neutral, Other, No agreement)  [26] . Annotators are also allowed to choose a secondary emotion. We convert this list into a Prominent emotion (the main emotion annotators chose) and a list of all emotions (Primary + Secondary). This results in a similar setup to CMU-MOSEI and to the one in  [27] .\n\nFor audio features we use 64 dimensional log spectrum with 10ms shift. For language we automatically transcribed the data with an ASR system and removed casing. Following previous literature  [27] , we evaluate CALM in predicting emotions as a regression task. During the supervised stage we train a head for the 8 emotions (ignoring as per convention Other and No Agreement) comprised of a 2 layer MLP, with hidden layer of size 64, that outputs a binary label for the 8 categorical emotions using a binary cross-entropy loss. The Adam optimizer  [21]  with a learning rate of 1e -4 and batch size of 128 is used for training over 20 epochs. Both weighted accuracy and F 1 over the validation and test sets are reported in Table  3  for CALM and previous approaches.\n\nNote that there are many different evaluation numbers in literature which were difficult to compare with (e.g. using only subset emotion classes and rejecting the remaining). It is also difficult to find papers employing automated (ASR generated) transcription and to employ the lexical modality. Further the dataset is evolving and different versions are employed by different authors. Nevertheless we see a big improvement in both F1 and accuracies from the comparable baselines in literature.    [27]  and  [1] . Note that we were unable to find good A+L comparison points in literature, likely due to most teams not using automatically generated transcripts due to their high word error rate. Nevertheless our approach is robust to such errors and we use the ASR-Language representation. We do not claim that is the best comparison point but the one available. Further we note the estimated performance from  [27]  may reflect annotator disagreements due to the variability of the data. Our system is trained on the aggregate annotator opinions so it performs more inline with the average human annotator which may explain the much better F1 scores. Nevertheless, results show improvements over existing data points with both TINY and BASE models.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Discussion",
+      "text": "In this section, we review the performance of the CALM model on downstream spoken language understanding tasks and the computational efficiency of training CALM.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Performance",
+      "text": "Based on experimental results, we find that CALM provides performance improvements relative to baselines across different metrics and datasets in emotion recognition. We saw an improvement on both CMU-MOSEI and MSP-Podcasts datasets. We also saw that the pretraining was important in providing about 2% absolute improvement in WA on the CMU-MOSEI task. The gains were roughly equisplit through the CALP pretraining and the MM-BERT pretraining, thus demonstrating the importance of both tasks. Our ablations also showed that even BERT TINY , with its much smaller parameter space, can provide good gains. We believe that introducing large amounts of varied data in pretraining will not only improve performance but will lead to increase robustness to channel and speaker characteristics.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Computational And Resource Efficiency",
+      "text": "The computational and resource efficiency of CALM is dependent on three factors: (i) whether a pretrained language model is utilized, (ii) the size of the language model to which the audio modality is aligned, and (iii) whether external audio data, i.e. outside of a dataset's training set, is used for pretraining.\n\nWhen utilizing an open-source pretrained language model, CALM is efficient when compared to other multimodal representation learning approaches as minimal training is performed for the lexical modality. Additionally, the method is aligning of audio representations to the pretrained language model thus exploiting an existing representation space. In our experiments, CALM pretrains joint audio-language representations on both the CMU-MOSEI and MSP-Podcasts datasets in less than 3 hours on 8 Nvidia Tesla V100 GPUs.\n\nIn this paper, in addition to BERT BASE , we also evaluate CALM in highly resource constrained settings by using a compressed pretrained language model, BERT TINY , and performing experimentation in the setting where only the training set is used for pretraining. Despite it's reduced parameter space the CALM TINY representation still outperforms other SOTA algorithms. In Table  4",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "We introduced CALM, a pretraining framework for learning multimodal audio-language representations aligned in a common input space, such as that of a pretrained language model. CALM is flexible in its resource requirements, both due to its ability to leverage pretrained language models and learn audio representations from small amounts of supervised training data. Additionally, the two components of CALM, a multimodal contrastive learning framework and an individual audio-language transformer, are novel in the context of multimodal speech processing. We evaluate on emotion recognition as a downstream task and show that CALM outperforms previous approaches. CALM provides a novel, efficient approach to learning joint audio-language embeddings in a common and multimodally aligned representation space.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "A Appendix",
+      "text": "A.1 Importance of Audio-Language embedding alignment\n\nOne of the contributions of CALM is the CALP pretraining step that aligns audio with text representations. In order to identify the contribution of this pretraining step to overall performance, we perform ablations by removing all lexical pretraining in CALP, while preserving the audio-to-audio pretraining and all supervision. This is equivalent to setting α = 0 in equation 2 and removing lexical modality from the multimodal transformer. We see from the tables below that although we are not employing the lexical modality in inference, incorporating the audio-language alignment step in CALP provides performance gains through cross-modal information transfer.",
+      "page_start": 11,
+      "page_end": 14
+    },
+    {
+      "section_name": "Cmu-Mosei Multiclass Emotion Recognition",
+      "text": "Pretrain   As seen in Table  5  and 6, both CMU and MSP datasets have gains from the embedding alignment. We see a larger improvement in the BASE case for MSP-Podcasts and we reason this can be explained by the tougher lexical conditions of this dataset (due to ASR transcription) and better lexical to audio knowledge transfer from the BASE model.\n\nThe performance improvements are consistent and strongly support the notion of the modality alignment of CALP. This infers that we can also use lexical information for pretraining even if during test time lexical transcriptions are not available.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "A.2 Modality Ablation",
+      "text": "As expected we see that both modalities perform very well but most of the gains can be achieved with a bimodal system.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Cmu-Mosei Multiclass Emotion Recognition",
+      "text": "Pretrain  We wanted to check if pretraining allowed for training with limited supervised data. While as expected having more supervised data provided the best system we also see that limited data also allowed for good performance. This will be a useful aspect in learning new representations in data starved conditions as is often the case for example in complex human behavioral domains.",
+      "page_start": 16,
+      "page_end": 16
+    },
+    {
+      "section_name": "Cmu-Mosei Multiclass",
+      "text": "",
+      "page_start": 16,
+      "page_end": 16
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: The ﬁgure shows the ﬁrst step for training CALM. Patches of audio are linearized and",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: A weighted composite NTXent contrastive loss [41], LCALP,τ(At) = LNT Xent(At, At+1) +",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: The acoustic tokens, as output by the SpecTran network pretrained via CALP, are employed",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: The set of tokens provided to the multimodal transformer include",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "A11•A12\nA11•A21\nA11•A35": "A11•A22\nA21•A22\nA11•A'12\nA11•A’21\nA11•A'35\nA35•A36\nA11•A'22\nA21•A'22\nA11•T1\nA11•T2\nA11•T3\nA35•A'36\nANk• \n  AN(k+1)"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "A11•T1": "A11•T2",
+          "A11•T2\nA35•A'36": "A21•T2",
+          "A11•T3\nANk•": "AN(k+1)"
+        },
+        {
+          "A11•T1": "",
+          "A11•T2\nA35•A'36": "",
+          "A11•T3\nANk•": "A35•T3"
+        },
+        {
+          "A11•T1": "",
+          "A11•T2\nA35•A'36": "",
+          "A11•T3\nANk•": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 2: Ablation study on CMU-MOSEI. Rows in each section represent: Supervised training",
+      "data": [
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Model"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Chance"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "M-ELMo Tseng"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "MM-BERT small"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Transformer Delbrouck"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Transformer Khare"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "BERT TINY"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "BERT BASE"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "Pretrain/Train/Valid/Test in domain"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": ""
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "Loftian and Busso (Interspeech '18)"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "Est. Human Performance (Loftian \nand Busso Interspeech '18)"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "Listener Adaptive models"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "CALM TINY"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "CALM BASE"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Dataset \n LM \n CALM \n Train \n    CALM Pretraining Dataset \n Pretrained LM \nSize \nparams \nparams \nTime": "MOSEI only \n65 hr.\n BERT TINY \n4.5M\n5M\n40 min.\nMOSEI only \n65 hr.\n BERT BASE \n125M\n19M\n2.5 hr."
+        },
+        {
+          "Dataset \n LM \n CALM \n Train \n    CALM Pretraining Dataset \n Pretrained LM \nSize \nparams \nparams \nTime": "CMU-MOSEI & MSP-Podcasts \n148 hr.\n BERT BASE \n125M\n19M\n5.5 hr."
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Modality"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY without CALP (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE without CALP (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE (A)"
+        }
+      ],
+      "page": 14
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "Pretrain/Train/Valid/Test in domain\nModality\nVal F1\nTest F1\nVal WA\nTest WA\nVal Acc\nTest Acc\nCALM TINY without CALP (A)\n38.8\n44.1\n69.1\n72.1\n87.5\n87.5\n45.8\n75.1\nCALM TINY (A)\n39.1\n69.2\n84.3\n85.1"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task": "CALM BASE without CALP (A)\n38.8\n37.3\n69.1\n71.2\n87.5\n87.5\n46.0\n75.1\nCALM BASE (A)\n39.1\n69.4\n84.3\n79.8"
+        }
+      ],
+      "page": 14
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Modality"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY without CALP (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY (L)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY (A+L)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE without CALP (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE (A)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE (L)"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM BASE (A+L)"
+        }
+      ],
+      "page": 15
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "Modality"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY without CALP (A)"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY (A)"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY (L)"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY (A+L)"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM BASE without CALP (A)\n38.8"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM BASE (A)\n39.1"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM BASE (L)\n43.1"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM BASE (A+L)\n44.7"
+        }
+      ],
+      "page": 15
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition - Tiny model\nPretrain/Train/Valid/Test in domain": "% of labeled data"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition - Tiny model\nPretrain/Train/Valid/Test in domain": "20%"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition - Tiny model\nPretrain/Train/Valid/Test in domain": "40%"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition - Tiny model\nPretrain/Train/Valid/Test in domain": "60%"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition - Tiny model\nPretrain/Train/Valid/Test in domain": "80%"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition - Tiny model\nPretrain/Train/Valid/Test in domain": "100%"
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task - Tiny model\nPretrain/Train/Valid/Test in domain": "% of labeled data"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task - Tiny model\nPretrain/Train/Valid/Test in domain": "20%"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task - Tiny model\nPretrain/Train/Valid/Test in domain": "40%"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task - Tiny model\nPretrain/Train/Valid/Test in domain": "60%"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task - Tiny model\nPretrain/Train/Valid/Test in domain": "80%"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task - Tiny model\nPretrain/Train/Valid/Test in domain": "100%"
+        }
+      ],
+      "page": 17
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "Patch/Stride Size"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY [2*64 Patch, 1*64 Stride]"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY [20*8 Patch, 10*4 Stride]"
+        },
+        {
+          "CMU-MOSEI Multiclass Emotion Recognition\nPretrain/Train/Valid/Test in domain": "CALM TINY [10*16 Patch, 5*8 Stride]"
+        }
+      ],
+      "page": 18
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "Patch/Stride Size"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY [2*64 Patch, 1*64 Stride]"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY [20*8 Patch, 10*4 Stride]"
+        },
+        {
+          "UTD MSP-Podcasts dataset - Primary emotion task\nPretrain/Train/Valid/Test in domain": "CALM TINY [10*16 Patch, 5*8 Stride]"
+        }
+      ],
+      "page": 18
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Speech emotion recognition based on listener adaptive models",
+      "authors": [
+        "A Ando",
+        "R Masumura",
+        "H Sato",
+        "T Moriya",
+        "T Ashihara",
+        "Y Ijima",
+        "T Toda"
+      ],
+      "year": "2021",
+      "venue": "ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "2",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "H Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "arxiv": "arXiv:2006.11477"
+    },
+    {
+      "citation_id": "3",
+      "title": "Increasing the reliability of crowdsourcing evaluations using online quality assessment",
+      "authors": [
+        "A Burmania",
+        "S Parthasarathy",
+        "C Busso"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "4",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Journal of Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "5",
+      "title": "An analysis of observation length requirements for machine understanding of human behaviors from spoken language",
+      "authors": [
+        "S Chakravarthula",
+        "B Baucom",
+        "S Narayanan",
+        "P Georgiou"
+      ],
+      "year": "2021",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "6",
+      "title": "Traditional versus integrative behavioral couple therapy for significantly and chronically distressed married couples",
+      "authors": [
+        "A Christensen",
+        "D Atkins",
+        "S Berns",
+        "J Wheeler",
+        "D Baucom",
+        "L Simpson"
+      ],
+      "year": "2004",
+      "venue": "Journal of Consulting and Clinical Psychology"
+    },
+    {
+      "citation_id": "7",
+      "title": "Voxceleb2: Deep speaker recognition",
+      "authors": [
+        "J Chung",
+        "A Nagrani",
+        "A Zisserman"
+      ],
+      "year": "2018",
+      "venue": "Voxceleb2: Deep speaker recognition",
+      "arxiv": "arXiv:1806.05622"
+    },
+    {
+      "citation_id": "8",
+      "title": "Splat: Speech-language joint pre-training for spoken language understanding",
+      "authors": [
+        "Y.-A Chung",
+        "C Zhu",
+        "M Zeng"
+      ],
+      "year": "2020",
+      "venue": "North American Chapter of the Association for Computational Linguistics (NAACL)"
+    },
+    {
+      "citation_id": "9",
+      "title": "A transformer-based joint-encoding for emotion recognition and sentiment analysis",
+      "authors": [
+        "J.-B Delbrouck",
+        "N Tits",
+        "M Brousmiche",
+        "S Dupont"
+      ],
+      "year": "2020",
+      "venue": "Second Grand-Challenge and Workshop on Multimodal Language (Challenge-HML)"
+    },
+    {
+      "citation_id": "10",
+      "title": "Autoencoder-based unsupervised domain adaptation for speech emotion recognition",
+      "authors": [
+        "J Deng",
+        "Z Zhang",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2014",
+      "venue": "IEEE Signal Processing Letters"
+    },
+    {
+      "citation_id": "11",
+      "title": "Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova",
+        "Bert"
+      ],
+      "year": "2018",
+      "venue": "Pre-training of deep bidirectional transformers for language understanding",
+      "arxiv": "arXiv:1810.04805"
+    },
+    {
+      "citation_id": "12",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "NAACL-HLT"
+    },
+    {
+      "citation_id": "13",
+      "title": "Deep convolutional neural networks for sentiment analysis of short texts",
+      "authors": [
+        "Dos Santos",
+        "M Gatti"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of COLING 2014, the 25th International Conference on Computational Linguistics: Technical Papers"
+    },
+    {
+      "citation_id": "14",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "A Dosovitskiy",
+        "L Beyer",
+        "A Kolesnikov",
+        "D Weissenborn",
+        "X Zhai",
+        "T Unterthiner",
+        "M Dehghani",
+        "M Minderer",
+        "G Heigold",
+        "S Gelly",
+        "J Uszkoreit",
+        "N Houlsby"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "15",
+      "title": "Basic emotions. Handbook of cognition and emotion",
+      "authors": [
+        "P Ekman"
+      ],
+      "year": "1999",
+      "venue": "Basic emotions. Handbook of cognition and emotion"
+    },
+    {
+      "citation_id": "16",
+      "title": "Large-scale audio event discovery in one million youtube videos",
+      "authors": [
+        "A Jansen",
+        "J Gemmeke",
+        "D Ellis",
+        "X Liu",
+        "W Lawrence",
+        "D Freedman"
+      ],
+      "year": "2017",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "17",
+      "title": "Unsupervised learning of semantic audio representations",
+      "authors": [
+        "A Jansen",
+        "M Plakal",
+        "R Pandya",
+        "D Ellis",
+        "S Hershey",
+        "J Liu",
+        "R Moore",
+        "R Saurous"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE international conference on acoustics, speech and signal processing (ICASSP)"
+    },
+    {
+      "citation_id": "18",
+      "title": "Neural predictive coding using convolutional neural networks towards unsupervised learning of speaker characteristics",
+      "authors": [
+        "A Jati",
+        "P Georgiou"
+      ],
+      "year": "2018",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "19",
+      "title": "Acoustic neighbor embeddings",
+      "authors": [
+        "W Jeon"
+      ],
+      "year": "2020",
+      "venue": "Acoustic neighbor embeddings"
+    },
+    {
+      "citation_id": "20",
+      "title": "Self-supervised learning with cross-modal transformers for emotion recognition",
+      "authors": [
+        "A Khare",
+        "S Parthasarathy",
+        "S Sundaram"
+      ],
+      "year": "2021",
+      "venue": "IEEE Spoken Language Technology Workshop (SLT)",
+      "doi": "10.1109/SLT48900.2021.9383618"
+    },
+    {
+      "citation_id": "21",
+      "title": "A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba",
+        "Adam"
+      ],
+      "year": "2014",
+      "venue": "A method for stochastic optimization",
+      "arxiv": "arXiv:1412.6980"
+    },
+    {
+      "citation_id": "22",
+      "title": "Detecting emotion primitives from speech and their use in discerning categorical emotions",
+      "authors": [
+        "V Kowtha",
+        "V Mitra",
+        "C Bartels",
+        "E Marchi",
+        "S Booker",
+        "W Caruso",
+        "S Kajarekar",
+        "D Naik"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "23",
+      "title": "Unsupervised latent behavior manifold learning from acoustic features: audio2behavior",
+      "authors": [
+        "H Li",
+        "B Baucom",
+        "P Georgiou"
+      ],
+      "year": "2017",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "24",
+      "title": "Computational modeling of human multimodal language: The mosei dataset and interpretable dynamic fusion",
+      "authors": [
+        "P Liang",
+        "R Salakhutdinov",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "First Workshop and Grand Challenge on Computational Modeling of Human Multimodal Language"
+    },
+    {
+      "citation_id": "25",
+      "title": "An efficient temporal modeling approach for speech emotion recognition by mapping varied duration sentences into fixed number of chunks",
+      "authors": [
+        "W.-C Lin",
+        "C Busso"
+      ],
+      "year": "2020",
+      "venue": "Proc. Interspeech 2020"
+    },
+    {
+      "citation_id": "26",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "27",
+      "title": "Predicting categorical emotions by jointly learning primary and secondary emotions through multitask learning",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2018",
+      "venue": "Predicting categorical emotions by jointly learning primary and secondary emotions through multitask learning"
+    },
+    {
+      "citation_id": "28",
+      "title": "Efficient estimation of word representations in vector space",
+      "authors": [
+        "T Mikolov",
+        "K Chen",
+        "G Corrado",
+        "J Dean"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of Workshop at ICLR"
+    },
+    {
+      "citation_id": "29",
+      "title": "Unspeech: Unsupervised speech context embeddings",
+      "authors": [
+        "B Milde",
+        "C Biemann"
+      ],
+      "year": "2018",
+      "venue": "Unspeech: Unsupervised speech context embeddings"
+    },
+    {
+      "citation_id": "30",
+      "title": "M3er: Multiplicative multimodal emotion recognition using facial, textual, and speech cues",
+      "authors": [
+        "T Mittal",
+        "U Bhattacharya",
+        "R Chandra",
+        "A Bera",
+        "D Manocha"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "31",
+      "title": "Learning Problem-Agnostic Speech Representations from Multiple Self-Supervised Tasks",
+      "authors": [
+        "S Pascual",
+        "M Ravanelli",
+        "J Serrà",
+        "A Bonafonte",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Proc. of the Conf. of the Int. Speech Communication Association (INTERSPEECH)",
+      "doi": "10.21437/Interspeech.2019-2605"
+    },
+    {
+      "citation_id": "32",
+      "title": "Glove: Global vectors for word representation",
+      "authors": [
+        "J Pennington",
+        "R Socher",
+        "C Manning"
+      ],
+      "year": "2014",
+      "venue": "Empirical Methods in Natural Language Processing (EMNLP)"
+    },
+    {
+      "citation_id": "33",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "C Hallacy",
+        "A Ramesh",
+        "G Goh",
+        "S Agarwal",
+        "G Sastry",
+        "A Askell",
+        "P Mishkin",
+        "J Clark"
+      ],
+      "year": "2021",
+      "venue": "Learning transferable visual models from natural language supervision",
+      "arxiv": "arXiv:2103.00020"
+    },
+    {
+      "citation_id": "34",
+      "title": "Speaker recognition from raw waveform with sincnet",
+      "authors": [
+        "M Ravanelli",
+        "Y Bengio"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE Spoken Language Technology Workshop (SLT)"
+    },
+    {
+      "citation_id": "35",
+      "title": "Emotion, the psychological structure of emotions. International Encyclopedia of the Social & Behavioral Sciences",
+      "authors": [
+        "K Scherer"
+      ],
+      "venue": "Emotion, the psychological structure of emotions. International Encyclopedia of the Social & Behavioral Sciences",
+      "doi": "10.1016/B0-08-043076-7/01711-3"
+    },
+    {
+      "citation_id": "36",
+      "title": "Towards end-to-end spoken language understanding",
+      "authors": [
+        "D Serdyuk",
+        "Y Wang",
+        "C Fuegen",
+        "A Kumar",
+        "B Liu",
+        "Y Bengio"
+      ],
+      "year": "2018",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "37",
+      "title": "Twitter sentiment analysis with deep convolutional neural networks",
+      "authors": [
+        "A Severyn",
+        "A Moschitti"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the 38th International ACM SIGIR Conference on Research and Development in Information Retrieval"
+    },
+    {
+      "citation_id": "38",
+      "title": "Confusion2vec: Towards enriching vector space word representations with representational ambiguities",
+      "authors": [
+        "P Shivakumar",
+        "P Georgiou"
+      ],
+      "year": "2018",
+      "venue": "PeerJ Computer Science"
+    },
+    {
+      "citation_id": "39",
+      "title": "Spoken language intent detection using confusion2vec",
+      "authors": [
+        "P Shivakumar",
+        "M Yang",
+        "P Georgiou"
+      ],
+      "year": "2019",
+      "venue": "ISCA"
+    },
+    {
+      "citation_id": "40",
+      "title": "Jointly fine-tuning \"bert-like\" self supervised models to improve multimodal speech emotion recognition",
+      "authors": [
+        "S Siriwardhana",
+        "A Reis",
+        "R Weerasekera",
+        "S Nanayakkara"
+      ],
+      "year": "2020",
+      "venue": "Jointly fine-tuning \"bert-like\" self supervised models to improve multimodal speech emotion recognition"
+    },
+    {
+      "citation_id": "41",
+      "title": "Improved deep metric learning with multi-class n-pair loss objective",
+      "authors": [
+        "K Sohn"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 30th International Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "42",
+      "title": "Sequence to sequence learning with neural networks",
+      "authors": [
+        "I Sutskever",
+        "O Vinyals",
+        "Q Le"
+      ],
+      "year": "2014",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "43",
+      "title": "Approaching human performance in behavior estimation in couples therapy using deep sentence embeddings",
+      "authors": [
+        "S.-Y Tseng",
+        "B Baucom",
+        "P Georgiou"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of Interspeech"
+    },
+    {
+      "citation_id": "44",
+      "title": "Unsupervised online multitask learning of behavioral sentence embeddings",
+      "authors": [
+        "S.-Y Tseng",
+        "B Baucom",
+        "P Georgiou"
+      ],
+      "year": "2019",
+      "venue": "PeerJ Computer Science"
+    },
+    {
+      "citation_id": "45",
+      "title": "Multimodal embeddings from language models for emotion recognition in the wild",
+      "authors": [
+        "S.-Y Tseng",
+        "S Narayanan",
+        "P Georgiou"
+      ],
+      "year": "2021",
+      "venue": "IEEE Signal Processing Letters"
+    },
+    {
+      "citation_id": "46",
+      "title": "Well-read students learn better: On the importance of pre-training compact models",
+      "authors": [
+        "I Turc",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Well-read students learn better: On the importance of pre-training compact models"
+    },
+    {
+      "citation_id": "47",
+      "title": "End-to-end multimodal affect recognition in real-world environments",
+      "authors": [
+        "P Tzirakis",
+        "J Chen",
+        "S Zafeiriou",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "Information Fusion"
+    },
+    {
+      "citation_id": "48",
+      "title": "Multi-attention recurrent network for human communication comprehension",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "P Vij",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the ... AAAI Conference on Artificial Intelligence. AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "49",
+      "title": "Multimodal language analysis in the wild: CMU-MOSEI dataset and interpretable dynamic fusion graph",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "50",
+      "title": "Combining a parallel 2D CNN with a self-attention dilated residual network for CTC-based discrete speech emotion recognition",
+      "authors": [
+        "Z Zhao",
+        "Q Li",
+        "Z Zhang",
+        "N Cummins",
+        "H Wang",
+        "J Tao",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "Neural Networks"
+    }
+  ]
+}

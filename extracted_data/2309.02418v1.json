@@ -1,0 +1,1763 @@
+{
+  "paper_id": "2309.02418v1",
+  "title": "Personalized Adaptation With Pre-Trained Speech Encoders For Continuous Emotion Recognition",
+  "published": "2023-09-05T17:50:12Z",
+  "authors": [
+    "Minh Tran",
+    "Yufeng Yin",
+    "Mohammad Soleymani"
+  ],
+  "keywords": [
+    "Speech Emotion Recognition",
+    "Personalization",
+    "Adaptation"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "There are individual differences in expressive behaviors driven by cultural norms and personality. This between-person variation can result in reduced emotion recognition performance. Therefore, personalization is an important step in improving the generalization and robustness of speech emotion recognition. In this paper, to achieve unsupervised personalized emotion recognition, we first pre-train an encoder with learnable speaker embeddings in a self-supervised manner to learn robust speech representations conditioned on speakers. Second, we propose an unsupervised method to compensate for the label distribution shifts by finding similar speakers and leveraging their label distributions from the training set. Extensive experimental results on the MSP-Podcast corpus indicate that our method consistently outperforms strong personalization baselines and achieves state-of-the-art performance for valence estimation.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "With the ubiquity of voice assistive technologies, speech emotion recognition (SER) is becoming increasingly important as it allows for a more natural and intuitive interaction between humans and machines. Although SER technology has made significant progress in recent years, accurately detecting emotions from speech remains a challenging task. This is partly due to the vast variability in how people express their feelings through speech, which can depend on culture  [1] , gender  [2] , or age  [3] , among others. Personalization is a promising solution to address the variability of emotional expression in speech. By tailoring emotion recognition systems to match individuals' unique expressive behaviors, the approach can lead to a more robust and inclusive model that is better equipped to accurately detect emotions for a wide range of users.\n\nExisting studies on personalized emotion recognition generally use hand-crafted features of speech on datasets with a small number of speakers (ten or fewer speakers)  [4, 5, 6, 7, 8] . Recently, SER systems achieve state-of-the-art results  [9, 10]  via fine-tuning large pre-trained speech encoders such as Hu-BERT  [11]  or wav2vec2.0  [12] . This raises three important questions:  (1)  What happens to the personalization gap as the number of speakers increases for fine-tuned encoders? (2) How do existing personalization methods behave when the input speech features are not fixed? (3) How can we incorporate personalization with pre-trained encoders to boost performance?\n\nIn this paper, we perform extensive experiments on the MSP-Podcast corpus  [13]  with more than 1,000 speakers to an-* Equal contribution swer these questions. We first show that as the number of speakers increases, the personalization gap (the performance difference between speaker-dependent and speaker-independent) of fine-tuned models decreases, which motivates the need for methods that adapts the pre-trained weights for personalization prior to fine-tuning. Hence, we propose to continue the pretraining process of the speech encoder jointly with speaker embeddings (see Figure  2 (a) ). We also introduce a simple yet effective unsupervised personalized calibration step to adjust label distribution per speaker for better accuracy (see Figure  2 (b) ). The proposed methods are unsupervised, requiring no prior knowledge of the test labels. Experimental results on arousal and valence estimation show that the proposed methods achieve state-of-the-art results for valence estimation while consistently outperforming the encoder fine-tuning baseline and a recent personalization method evaluated on the same dataset  [14] . The major contributions of this work are as follows.  (1)  We propose a method for personalized adaptive pre-training to adjust the existing speech encoders for a fixed set of speakers.\n\n(2) We propose an unsupervised personalized post-inference technique to adjust the label distributions. (3) We provide extensive experimental results along with an ablation study to demonstrate the effectiveness of the methods. (4) We further show that our methods can be extended to unseen speakers without the need to re-train any component, achieving superior performance compared to the baselines.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Adaptive Pre-training. Adaptive pre-training resumes the pretraining process for the pre-trained encoders on either domain data (domain adaptive pre-training) or task data (task adaptive pre-training) to improve the downstream task performance of a specific domain or dataset  [15] . The method has been shown to be highly effective for a wide range of natural language processing and computer vision applications such as machine translation  [16] , sentiment analysis  [17] , and image classification  [18] . In the field of speech emotion recognition, Chen et al.  [10]  propose a novel pseudo-label generation method in combination with task-adaptive pre-training for wav2vec2.0  [12]  to boost emotion recognition accuracy. However, there is no prior work exploring personalized adaptive pre-training. Personalized Speech Emotion Recognition. There have been a few methods  [5, 8, 4, 6, 14]  proposed for personalized SER. However, most of the existing work are validated on datasets with limited speakers. Most relevant to our work is the unsupervised personalized method proposed by Sridhar et al.  [14] , which is validated on the same dataset (MSP-Podcast) as in this paper. They propose to find speakers in the train set to form the adaptation set whose acoustic patterns closely resemble those of the speakers in the test set. Specifically, they apply Principal Component Analysis (PCA) on the feature set proposed for the computational paralinguistics challenge (ComParE)  [19]  and fit Gaussian Mixture Models to measure the speaker similarity based on the KL divergence metric. Samples of the selected speakers are given more weight during the training process. With a light architecture, i.e., the multi-layer perceptron, the method is shown to be highly effective for valence personalization. However, it requires extra training (model adaptation) during inference and thus can not be extended to new speakers.\n\nIn contrast to prior work, we explore personalization with fine-tuned encoders instead of pre-extracted features, which achieves superior performance compared to the best-performing models. For example, our weakest baseline (HuBERT-large fine-tuning) achieves a two times higher Concordance Correlation Coefficient (CCC) compared to the reported results from Sridhar et al.  [14]  for valence estimation. More importantly, our method is extensible and remains effective for unseen speakers without the need to re-train any components.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Preliminary Information",
+      "text": "Problem Formulation. Unsupervised personalized speech emotion recognition: Given a speech dataset containing N utterances with emotion labels (arousal or valence) and speaker IDs D = {(ui, yi, si)} N i=1 . We assume access to all information except for the emotion labels of the test set during the training phase. Our goal is to produce a robust emotion recognition model that performs better than a model exposed to the same amount of data excluding speaker ID information. We further want our method to be extensible to new speakers outside of D. Dataset. We use the MSP-Podcast corpus  [13]  as our dataset D. MSP-Podcast is the largest corpus for speech emotion recognition in English, containing emotionally rich podcast segments retrieved from audio-sharing websites. Each utterance in the dataset is annotated using crowd-sourcing with continuous labels of arousal, valence, and dominance along with categorical emotions. In this paper, we focus on arousal and valence estimation. The labels range from 1 to 7. The dataset contains pre-defined train, validation, and test sets, namely Dtr, D val , Dte, which are subject independent. We use two versions of the dataset, namely v1.6 and v1.10, for the experiments. To be consistent with prior studies  [20, 14, 9] , most of our experiments are based on MSP-Podcast v1.6. We remove all the utterances marked with \"Unknown\" speakers in accordance with our problem formulation. Following Sridhar et al.  [14] , we split the test set into two subsets test-a and test-b that share the same set of speakers. Each speaker in test-a contains 200s of speech in total while test-b contains the rest of the recordings. test-a is used to train speaker-dependent models along with the train set. For experiments on the unseen speakers, we evaluate the models on the speakers who are in the v1.10 test set but not in the v1.6 test set, namely test-c. Table  1  provides the details and statistics of our splits for the MSP-Podcast dataset. Pre-trained Speech Encoder. In this work, we use HuBERT [11] as our pre-trained encoder E due to its superior performance  [9, 21] . HuBERT consists of two main components, namely a 1D CNN and a Transformer encoder  [22] . The 1D CNN takes raw waveforms as inputs and returns low-level feature representations of speech. Then, the features are passed into the Transformer encoder to generate high-level feature representations via the self-attention mechanism. During the pretraining process, HuBERT first generates pseudo-labels by performing K-means clustering on the pre-extracted features, e.g., MFCCs. Then, the model learns in a self-supervised manner through the task of predicting pseudo-labels for randomly masked frames. Therefore, the pre-training loss Lpt for Hu-BERT can be defined as the sum of the cross-entropy loss computed over the masked frames. Personalization Gap. To motivate our proposed methodology, we investigate the potential gain from the personalization of fine-tuned HuBERT on valence regression (the dimension with the most potential gain from personalization as demonstrated by Sridhar et al.  [14] ). In particular, we first create subsets D k tr of Dtr with k speakers, where k ∈ {50, 100, 250, 500, 987}. Speaker-independent models with k speakers are trained on D k tr sets. To make the results stable, we ensure that D i tr ⊂ D j tr , ∀i < j. For speaker-dependent models with k speakers, we randomly remove 50 speakers (# speakers in test-a) from D k tr to get Dk tr , and fine-tune the models on Dk tr ∪ test-a. For all experiments, we fine-tune the HuBERT-base encoder on the generated sets and report the performance on test-b. Since test-a and test-b share the same set of speakers, we consider the performance of speaker-dependent models to loosely correlate with the performance of supervised personalization methods, and hence, the performance gap between speaker-dependent and speaker-independent models captures the potential gain from personalization. Figure  1  demonstrates the inverse relationship between k and the performance gap. The evaluation metric is the Concordance Correlation Coefficient (CCC ↑). It suggests that given sufficiently large and diverse training data, the pre-trained encoders become robust enough to learn both the general emotional patterns and the unique characteristics of different groups of speech expressions such that supervised training of the model on the test speakers leads to marginal gains. Hence, to enhance the performance of the pre-trained encoders for a target speaker, we can: (1) make the input data personalized (pre-processing); (2) modify the weights of the pre-trained encoder for the target speaker; or (3) adjust the label predictions to be more personalized (post-processing). Existing studies on personalized SER, e.g.,  [5, 8, 14] , focus on the first approach. In this work, we explore the other two alternatives. [21] find that there is a huge variance across the per-speaker performance. We investigate whether the performance variance is due to the feature shift or the label shift. Specifically, to measure the feature and label shift for each target speaker, we calculate the KL divergence between the feature and label distributions of the target speaker and those of the whole training set. Then we calculate the Pearson correlation coefficient (PCC) between the feature/label shift and the speaker performance. For arousal estimation, we find that the PCC between the feature shift and the regression performance is -0.714 while the PCC between the label shift and performance is -0.502. The results suggest that both feature and label shifts contribute to the performance variance. Moreover, the correlation between the feature shift and label shift is 0.285, which suggests the potential of using features to detect and remove label shifts.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Method",
+      "text": "Personalized Adaptive Pre-training (PAPT). Inspired by prior study in task-adaptive pre-training  [15]  and the problem of feature shift described above, we propose to perform adaptive pre-training on D = {(ui, si)} N i=1 along with trainable speaker embeddings in a self-supervised manner. Specifically, in addition to the original speech encoder E, we train a speaker embedding network S to extract the speaker embedding ei = S(si) ∈ R d , where d is the embedding size for the Transformer. Then, the speaker embedding ei is summed with the utterance feature fi = E(ui) to get a personalized feature representation f p i = fi + ei. For personalized pre-training, f p i is used to compute the pre-training loss (cross-entropy) on pseudo-label prediction for masked frames.\n\nwhere N b is the number of utterances in the batch, Mi is the number of masked frames for utterance ui, and lit denotes the pseudo-label for the t-th masked frame in utterance ui. For ER downstream tasks, we reduce the temporal dimension for f p i by mean-pooling and feed the output to a fully-connected layer to produce the label predictions. Personalized Label Distribution Calibration (PLDC). Motivated by the problem of label distribution shift described above, we further want to add a personalized post-inference technique to correct the predicted label distributions. Specifically, given the predictions for a target speaker, the main idea is to identify the most similar speakers from the train set based on the feature similarity and use their label distribution statistics (means and standard deviations) to calibrate the predicted label distributions of the target test speaker. In particular, for speaker s in both the train and test set, we extract the features for each utterance of s and average them to form the speaker vector\n\nwhere E p f t denotes the ER-fine-tuned model of E p (the personalized adapted version of E), Ēp f t (u k s ) denotes the mean-pooled vector representation for utterance u k s , and Ns is the number of utterances from speaker s.\n\nThen, for each speaker in the test set, we retrieve the top-k most similar speakers in the train set based on the cosine similarity between the speaker vectors. Next, we average the label distribution statistics from the retrieved speakers to get an estimation of the mean μ and standard deviation σ. Finally, each predicted label y for the target speaker would be shifted as\n\nwhere µ and σ are the mean and standard deviation for the predicted label distribution. Optionally, if we want to only shift the mean or standard deviation, we can replace μ as µ or σ as σ in the above equation, respectively.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experiments And Discussions",
+      "text": "Implementation and Training Details. We perform adaptive pre-training for ten epochs using the Adam optimizer with a linear learning rate scheduler (5% warm-up and a maximum learning rate of 1e -5 ) on a single NVIDIA Quadro RTX8000 GPU. The models are adaptively pre-trained on the combination of the official train, validation, and test-b sets and validated on test-a. All other settings are identical to HuBERT's pre-training configurations. For downstream fine-tuning experiments, we add a light interpreter on top of the HuBERT encoder to process the mean-pooled extracted representations. The interpreter consists of two fully-connected layers of size {128, 32} with ReLU activation, 1D BatchNorm, and a dropout ratio of 0.1 inbetween the layers. The downstream models are fine-tuned for at most ten epochs using Adam optimizer (5e -5 learning rate) with early stopping. Following prior work  [14] , the models are optimized with a CCC loss LCCC = 1 -CCC for arousal and valence estimation. All of our experiments are performed with the HuBERT-large architecture, except for the personalization   2  shows the comparison between our proposed methods and the baselines on MSP-Podcast. Compared to the best-performing baselines, our methods achieve superior performance on both arousal and valence estimation, with a gain of 0.023 and 0.009 on arousal and valence A-CCC respectively. Notably, we achieve state-of-the-art results for the task of valence estimation, in which our Overall-CCC score achieves 0.665 (on the whole test set of MSP-Podcast v1.6) compared to 0.627 as reported by Sriniva et al.  [9] . When using PLDC, we can observe a significant increase in A-CCC, which suggests performance improvement for individual speakers. However, we can also see that as A-CCC improves with PLDC, O-CCC generally decreases. We attribute this to the high variance in the number of utterances of each speaker in the test set. Furthermore, Table  2  also demonstrates that PLDC consistently achieves the best performance when we only perform σ shifting, while µ shifting often reduces both A-CCC and O-CCC. We hypothesize that it is more difficult to estimate the mean than the (high) variance for a speaker with a wide range of arousal/valence labels.\n\nEvaluations on Unseen Speakers. We further validate the robustness of our method on unseen speakers (test-c). We directly make inference with E p f t on test-c without re-training any components. Specifically, for each utterance from an unseen speaker, we provide E p f t with a training speaker embedding as a proxy for the unseen speaker. We apply the same strategy used in our PLDC module, in which we compute a vector representation for the current unseen speaker and each speaker in the train set as in Equation  2 . However, we use the original pre-trained encoder E instead of E p f t as the model cannot extract feature representation for the current (unseen) speaker without a proxy speaker. We then use the (seen) speaker in the train set with the highest similarity score as a proxy for the current speaker. The retrieved proxy speakers can later be used for the PLDC module to further boost prediction performance, as demonstrated in   4  shows the experimental results for arousal estimation on test-b of fine-tuned encoders (without PLDC) adaptively pre-trained with different fusion positions of the speaker embeddings. In particular, Last refers to our proposed setting in which the speaker embeddings are added to the output of the Transformer encoder; First refers to speaker embeddings being added to the inputs of the first layer of the Transformer encoder, and Prefix refers to the setting in which the speaker embeddings are concatenated as prefixes to the inputs of the Transformer encoder. None refers to the vanilla Hu-BERT encoder. We also provide L val pt , the best pre-train loss on the validation set, i.e., test-a, during the PAPT phase. We find that Last provides the best results.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we propose two methods to adapt pre-trained speech encoders for personalized speech emotion recognition, namely PAPT, which jointly pre-trains speech encoders with speaker embeddings to produce personalized speech representations, and PLDC, which performs distribution calibration for the predicted labels based on retrieved similar speakers. We validate the effectiveness of the proposed techniques via extensive experiments on the MSP-Podcast dataset, in which our models consistently outperform strong baselines and reach state-of-theart performance for valence estimation. We further demonstrate the robustness of the personalized models for unseen speakers.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Acknowledgement",
+      "text": "This work is supported by the National Science Foundation under Grant No. 2211550. Research was also sponsored by the Army Research Office and was accomplished under Cooperative Agreement Number W911NF-20-2-0053. The views and conclusions contained in this document are those of the authors and should not be interpreted as representing the official policies, either expressed or implied, of the Army Research Office or the U.S. Government. The U.S. Government is authorized to reproduce and distribute reprints for Government purposes notwithstanding any copyright notation herein.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 2: (a)). We also introduce a simple yet",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: (b)). The proposed methods are unsupervised, requiring no",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: Performance gap between speaker-dependent and",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: demonstrates the inverse relationship",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Overview of our proposed method. (a) Personalized Adaptive Pre-Training (PAPT) pre-trains the HuBERT encoder with",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "yin,\n{mtran,": "Abstract",
+          "soleymani}@ict.usc.edu": "swer these questions. We first show that as the number of speak-"
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "ers\nincreases,\nthe personalization gap (the performance dif-"
+        },
+        {
+          "yin,\n{mtran,": "There are individual differences in expressive behaviors driven",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "ference between speaker-dependent and speaker-independent)"
+        },
+        {
+          "yin,\n{mtran,": "by cultural norms and personality. This between-person vari-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "of fine-tuned models decreases, which motivates the need for"
+        },
+        {
+          "yin,\n{mtran,": "ation can result\nin reduced emotion recognition performance.",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "methods that adapts the pre-trained weights for personalization"
+        },
+        {
+          "yin,\n{mtran,": "Therefore, personalization is an important step in improving the",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "prior\nto fine-tuning. Hence, we propose to continue the pre-"
+        },
+        {
+          "yin,\n{mtran,": "generalization and robustness of speech emotion recognition. In",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "training process of the speech encoder jointly with speaker em-"
+        },
+        {
+          "yin,\n{mtran,": "this paper, to achieve unsupervised personalized emotion recog-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "beddings\n(see Figure 2 (a)). We also introduce a simple yet"
+        },
+        {
+          "yin,\n{mtran,": "nition, we first pre-train an encoder with learnable speaker em-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "effective unsupervised personalized calibration step to adjust"
+        },
+        {
+          "yin,\n{mtran,": "beddings\nin a self-supervised manner\nto learn robust\nspeech",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "label distribution per\nspeaker\nfor better accuracy (see Figure"
+        },
+        {
+          "yin,\n{mtran,": "representations conditioned on speakers.\nSecond, we propose",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "2 (b)). The proposed methods are unsupervised,\nrequiring no"
+        },
+        {
+          "yin,\n{mtran,": "an unsupervised method to compensate for\nthe label distribu-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "prior knowledge of\nthe test\nlabels.\nExperimental\nresults on"
+        },
+        {
+          "yin,\n{mtran,": "tion shifts by finding similar speakers and leveraging their\nla-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "arousal and valence estimation show that\nthe proposed meth-"
+        },
+        {
+          "yin,\n{mtran,": "bel distributions from the training set.\nExtensive experimen-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "ods achieve state-of-the-art results for valence estimation while"
+        },
+        {
+          "yin,\n{mtran,": "tal results on the MSP-Podcast corpus indicate that our method",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "consistently outperforming the encoder fine-tuning baseline and"
+        },
+        {
+          "yin,\n{mtran,": "consistently outperforms strong personalization baselines and",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "a recent personalization method evaluated on the same dataset"
+        },
+        {
+          "yin,\n{mtran,": "achieves state-of-the-art performance for valence estimation.",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "[14]. The major contributions of this work are as follows.\n(1)"
+        },
+        {
+          "yin,\n{mtran,": "Index Terms: Speech Emotion Recognition, Personalization,",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "We propose a method for personalized adaptive pre-training to"
+        },
+        {
+          "yin,\n{mtran,": "Adaptation.",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "adjust\nthe existing speech encoders for a fixed set of speakers."
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "(2) We propose an unsupervised personalized post-inference"
+        },
+        {
+          "yin,\n{mtran,": "1.\nIntroduction",
+          "soleymani}@ict.usc.edu": "technique to adjust the label distributions. (3) We provide exten-"
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "sive experimental results along with an ablation study to demon-"
+        },
+        {
+          "yin,\n{mtran,": "With the ubiquity of voice assistive technologies, speech emo-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "strate the effectiveness of\nthe methods.\n(4) We further show"
+        },
+        {
+          "yin,\n{mtran,": "tion recognition (SER)\nis becoming increasingly important as",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "that our methods can be extended to unseen speakers without"
+        },
+        {
+          "yin,\n{mtran,": "it allows for a more natural and intuitive interaction between",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "the need to re-train any component, achieving superior perfor-"
+        },
+        {
+          "yin,\n{mtran,": "humans and machines.\nAlthough SER technology has made",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "mance compared to the baselines."
+        },
+        {
+          "yin,\n{mtran,": "significant progress in recent years, accurately detecting emo-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "tions from speech remains a challenging task.\nThis is partly",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "due to the vast variability in how people express their feelings",
+          "soleymani}@ict.usc.edu": "2. Related work"
+        },
+        {
+          "yin,\n{mtran,": "through speech, which can depend on culture [1], gender\n[2],",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "Adaptive Pre-training. Adaptive pre-training resumes the pre-"
+        },
+        {
+          "yin,\n{mtran,": "or age [3], among others. Personalization is a promising solu-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "training process for the pre-trained encoders on either domain"
+        },
+        {
+          "yin,\n{mtran,": "tion to address the variability of emotional expression in speech.",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "data (domain adaptive pre-training) or task data (task adaptive"
+        },
+        {
+          "yin,\n{mtran,": "By tailoring emotion recognition systems to match individuals’",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "pre-training) to improve the downstream task performance of a"
+        },
+        {
+          "yin,\n{mtran,": "unique expressive behaviors,\nthe approach can lead to a more",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "specific domain or dataset [15]. The method has been shown to"
+        },
+        {
+          "yin,\n{mtran,": "robust and inclusive model that is better equipped to accurately",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "be highly effective for a wide range of natural language process-"
+        },
+        {
+          "yin,\n{mtran,": "detect emotions for a wide range of users.",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "ing and computer vision applications\nsuch as machine trans-"
+        },
+        {
+          "yin,\n{mtran,": "Existing studies on personalized emotion recognition gen-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "lation [16],\nsentiment analysis\n[17],\nand image classification"
+        },
+        {
+          "yin,\n{mtran,": "erally use hand-crafted features of\nspeech on datasets with a",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "[18].\nIn the field of speech emotion recognition, Chen et al."
+        },
+        {
+          "yin,\n{mtran,": "small number of speakers (ten or fewer speakers) [4, 5, 6, 7, 8].",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "[10] propose a novel pseudo-label generation method in com-"
+        },
+        {
+          "yin,\n{mtran,": "Recently, SER systems achieve state-of-the-art\nresults [9, 10]",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "bination with task-adaptive pre-training for wav2vec2.0 [12] to"
+        },
+        {
+          "yin,\n{mtran,": "via fine-tuning large pre-trained speech encoders such as Hu-",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "boost emotion recognition accuracy. However, there is no prior"
+        },
+        {
+          "yin,\n{mtran,": "BERT [11] or wav2vec2.0 [12].\nThis\nraises\nthree important",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "work exploring personalized adaptive pre-training."
+        },
+        {
+          "yin,\n{mtran,": "questions:\n(1) What happens to the personalization gap as the",
+          "soleymani}@ict.usc.edu": ""
+        },
+        {
+          "yin,\n{mtran,": "number of speakers increases for fine-tuned encoders? (2) How",
+          "soleymani}@ict.usc.edu": "Personalized Speech Emotion Recognition. There have been"
+        },
+        {
+          "yin,\n{mtran,": "do existing personalization methods behave when the\ninput",
+          "soleymani}@ict.usc.edu": "a few methods [5, 8, 4, 6, 14] proposed for personalized SER."
+        },
+        {
+          "yin,\n{mtran,": "speech features are not fixed? (3) How can we incorporate per-",
+          "soleymani}@ict.usc.edu": "However, most of\nthe existing work are validated on datasets"
+        },
+        {
+          "yin,\n{mtran,": "sonalization with pre-trained encoders to boost performance?",
+          "soleymani}@ict.usc.edu": "with limited speakers. Most relevant\nto our work is the unsu-"
+        },
+        {
+          "yin,\n{mtran,": "In this paper, we perform extensive\nexperiments on the",
+          "soleymani}@ict.usc.edu": "pervised personalized method proposed by Sridhar et al.\n[14],"
+        },
+        {
+          "yin,\n{mtran,": "MSP-Podcast corpus [13] with more than 1,000 speakers to an-",
+          "soleymani}@ict.usc.edu": "which is validated on the same dataset (MSP-Podcast) as in this"
+        },
+        {
+          "yin,\n{mtran,": "",
+          "soleymani}@ict.usc.edu": "paper. They propose to find speakers in the train set to form the"
+        },
+        {
+          "yin,\n{mtran,": "*Equal contribution",
+          "soleymani}@ict.usc.edu": "adaptation set whose acoustic patterns closely resemble those"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 1: Details and statistics of our splits for MSP-Podcast.": "split"
+        },
+        {
+          "Table 1: Details and statistics of our splits for MSP-Podcast.": "# utterances"
+        },
+        {
+          "Table 1: Details and statistics of our splits for MSP-Podcast.": "# speakers"
+        },
+        {
+          "Table 1: Details and statistics of our splits for MSP-Podcast.": "total duration"
+        },
+        {
+          "Table 1: Details and statistics of our splits for MSP-Podcast.": "corpus version"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "corpus version\nv1.6\nv1.6\nv1.6\nv1.6\nv1.10"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "of\nthe speakers in the test set.\nSpecifically,\nthey apply Prin-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "cipal Component Analysis (PCA) on the feature set proposed"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "for the computational paralinguistics challenge (ComParE) [19]"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": ""
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "and fit Gaussian Mixture Models to measure the speaker simi-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": ""
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "larity based on the KL divergence metric.\nSamples of\nthe se-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": ""
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "lected speakers are given more weight during the training pro-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "cess. With a light architecture,\ni.e.,\nthe multi-layer perceptron,"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "the method is shown to be highly effective for valence personal-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "ization. However,\nit requires extra training (model adaptation)"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "during inference and thus can not be extended to new speakers."
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "In contrast\nto prior work, we explore personalization with"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "fine-tuned encoders\ninstead of pre-extracted features, which"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "achieves superior performance compared to the best-performing"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "models.\nFor example, our weakest baseline (HuBERT-large"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "fine-tuning) achieves a two times higher Concordance Corre-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "lation Coefficient (CCC) compared to the reported results from"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "Sridhar et al. [14] for valence estimation. More importantly, our"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "method is extensible and remains effective for unseen speakers"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "without the need to re-train any components."
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": ""
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": ""
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "3. Preliminary information"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": ""
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "Problem Formulation.\nUnsupervised\npersonalized\nspeech"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "emotion recognition: Given a speech dataset containing N ut-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "terances with emotion labels (arousal or valence) and speaker"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "informa-\nIDs D = {(ui, yi, si)}N\ni=1. We assume access to all"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "tion except for the emotion labels of the test set during the train-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "ing phase. Our goal is to produce a robust emotion recognition"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "model\nthat performs better\nthan a model exposed to the same"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "amount of data excluding speaker ID information. We further"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "want our method to be extensible to new speakers outside of D."
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "Dataset. We use the MSP-Podcast corpus [13] as our dataset D."
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "MSP-Podcast is the largest corpus for speech emotion recogni-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "tion in English, containing emotionally rich podcast segments"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "retrieved from audio-sharing websites.\nEach utterance in the"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "dataset\nis annotated using crowd-sourcing with continuous la-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "bels of arousal, valence, and dominance along with categorical"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "emotions.\nIn this paper, we focus on arousal and valence es-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "timation. The labels range from 1 to 7. The dataset contains"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "pre-defined train, validation, and test sets, namely Dtr, Dval,"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "Dte, which are subject independent. We use two versions of the"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "dataset, namely v1.6 and v1.10, for the experiments. To be con-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "sistent with prior studies [20, 14, 9], most of our experiments"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "are based on MSP-Podcast v1.6. We remove all\nthe utterances"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "marked with “Unknown” speakers in accordance with our prob-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "lem formulation. Following Sridhar et al. [14], we split the test"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "set\ninto two subsets test-a and test-b that share the same set of"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "speakers. Each speaker in test-a contains 200s of speech in to-"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "tal while test-b contains the rest of the recordings.\ntest-a is used"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "to train speaker-dependent models along with the train set. For"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "experiments on the unseen speakers, we evaluate the models on"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "the speakers who are in the v1.10 test set but not in the v1.6 test"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "set, namely test-c. Table 1 provides the details and statistics of"
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "our splits for the MSP-Podcast dataset."
+        },
+        {
+          "total duration\n44.2h\n10h\n2.9h\n13.8h\n9.5h": "Pre-trained Speech Encoder.\nIn this work, we use HuBERT"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "HuBERT Encoder",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "Utterance",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Test speaker"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Interpreter\n𝑠𝑡 features\n𝑠𝑡 utterances"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "1D",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": ". . .",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Cos Sim"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "CNN",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Train set"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Top-K similar"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Fine-tuned \n𝑠1 utterances\n𝑠1 features\nspeakers"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "HuBERT"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "𝑠2 features\nEncoder\n𝑠2 utterances\nLabel Distribution"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "Statistics (ഥ𝝁, ഥ𝝈)"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "Embedding layer\nFC layer",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ". . .\n. . ."
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": "𝑠𝑛 features\n𝑠𝑛 utterances"
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "Speaker ID\n𝒆𝒊",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "𝒔𝒊\n. . .",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        },
+        {
+          "(a) Personalized Adaptive Pre-training (PAPT)": "",
+          "(b) Personalized Label Distribution Calibration (PLDC)": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "FC-out\n𝑠𝑛 features\nℒ𝑝𝑡\n𝑠𝑛 utterances"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Speaker ID\n𝒆𝒊"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "𝒔𝒊\n. . ."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Main task Loss"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Speaker Embedding Module\nℒ𝐶𝐶𝐶"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "(a) Personalized Adaptive Pre-Training (PAPT) pre-trains the HuBERT encoder with\nFigure 2: Overview of our proposed method."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "learnable speaker embeddings in a self-supervised manner.\n(b) Personalized Label Distribution Calibration (PLDC) finds similar"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "training speakers and calibrates the predicted label distribution with the training label statistics."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "the most similar speakers from the train set based on the feature\nPerformance variance across speakers. Though simply fine-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "similarity and use their label distribution statistics (means and\ntuning HuBERT achieves promising overall performance on"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "standard deviations) to calibrate the predicted label distributions\nMSP-Podcast\nfor\nspeech emotion recognition, Wagner et al."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "of the target test speaker. In particular, for speaker s in both the\n[21] find that there is a huge variance across the per-speaker per-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "train and test set, we extract the features for each utterance of s\nformance. We investigate whether the performance variance is"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "and average them to form the speaker vector\ndue to the feature shift or the label shift. Specifically, to measure"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "the feature and label shift for each target speaker, we calculate"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "(cid:80)Ns"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Ep\nthe KL divergence between the feature and label distributions\ns )\nf t(uk\nk=1"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": ",\n(2)\nvs ="
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "of the target speaker and those of the whole training set. Then"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Ns"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "we calculate the Pearson correlation coefficient (PCC) between"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "where Ep\nthe feature/label shift and the speaker performance. For arousal\nf t denotes the ER-fine-tuned model of Ep (the person-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "estimation, we find that\nthe PCC between the feature shift and\nalized adapted version of E), ¯Ep\ns ) denotes the mean-pooled\nf t(uk"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "the regression performance is −0.714 while the PCC between"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "vector representation for utterance uk\ns , and Ns is the number of"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "the label shift and performance is −0.502. The results suggest"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "utterances from speaker s."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "that both feature and label shifts contribute to the performance"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Then, for each speaker in the test set, we retrieve the top-k"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "variance. Moreover,\nthe correlation between the feature shift"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "most similar speakers in the train set based on the cosine simi-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "and label shift\nis 0.285, which suggests the potential of using"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "larity between the speaker vectors. Next, we average the label"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "features to detect and remove label shifts."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "distribution statistics from the retrieved speakers to get an esti-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "mation of the mean ¯µ and standard deviation ¯σ. Finally, each"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "4. Method\npredicted label y for the target speaker would be shifted as"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Personalized Adaptive Pre-training\n(PAPT).\nInspired\nby"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "y − µ"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "× ¯σ + ¯µ.\ny =\n(3)\nprior\nstudy in task-adaptive pre-training [15]\nand the prob-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "σ"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "lem of\nfeature shift described above, we propose to perform"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "adaptive pre-training on D = {(ui, si)}N\nwhere µ and σ are the mean and standard deviation for the pre-\ni=1 along with train-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "able speaker embeddings in a self-supervised manner. Specif-\ndicted label distribution. Optionally, if we want to only shift the"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "ically,\nin addition to the original\nspeech encoder E, we train\nmean or standard deviation, we can replace ¯µ as µ or ¯σ as σ in"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "a speaker embedding network S to extract\nthe speaker embed-\nthe above equation, respectively."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "ding ei = S(si) ∈ Rd, where d is the embedding size for the"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Transformer. Then,\nis summed with\nthe speaker embedding ei"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "5. Experiments and Discussions"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "the utterance feature fi = E(ui) to get a personalized feature"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Implementation and Training Details. We perform adaptive\nrepresentation f p\nFor personalized pre-training,\n= fi + ei."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "i"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "pre-training for\nten epochs using the Adam optimizer with a\nf p\nis used to compute the pre-training loss (cross-entropy) on"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "i"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "linear\nlearning rate scheduler\n(5% warm-up and a maximum\npseudo-label prediction for masked frames."
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "learning rate of 1e−5) on a single NVIDIA Quadro RTX8000"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "GPU. The models are adaptively pre-trained on the combination\nNb(cid:88)\nMi(cid:88)"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "(1)\nLpt = −\nlog P (lit|f p\nit),"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "of the official\ntrain, validation, and test-b sets and validated on"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "t=1\ni=1"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "test-a. All other settings are identical to HuBERT’s pre-training"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "is the\nconfigurations.\nFor downstream fine-tuning experiments, we\nis the number of utterances in the batch, Mi\nwhere Nb"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "add a light\ninterpreter on top of\nthe HuBERT encoder\nto pro-\nnumber of masked frames for utterance ui, and lit denotes the"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "cess the mean-pooled extracted representations. The interpreter\npseudo-label for the t-th masked frame in utterance ui. For ER"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "downstream tasks, we reduce the temporal dimension for f p\nby\nconsists of\ntwo fully-connected layers of size {128, 32} with\ni"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "mean-pooling and feed the output\nto a fully-connected layer to\nReLU activation, 1D BatchNorm, and a dropout ratio of 0.1 in-"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "produce the label predictions.\nbetween the layers. The downstream models are fine-tuned for"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "Personalized Label Distribution Calibration (PLDC). Moti-\nat most\nten epochs using Adam optimizer (5e−5 learning rate)"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "vated by the problem of label distribution shift described above,\nwith early stopping. Following prior work [14], the models are"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "we further want to add a personalized post-inference technique\noptimized with a CCC loss LCCC = 1 − CCC for arousal and"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "to correct\nthe predicted label distributions. Specifically, given\nvalence estimation. All of our experiments are performed with"
+        },
+        {
+          ". . .\n. . .\nBatchNorm1D\nEmbedding layer\nFC layer": "the predictions for a target speaker,\nthe main idea is to identify\nthe HuBERT-large architecture, except\nfor\nthe personalization"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 4: shows the experimental results for",
+      "data": [
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "and ground truth. A-CCC denotes the average CCC for each",
+          "Table 3: Evaluations on unseen speakers (test-c).": "Arousal"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "test\nspeaker.",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "O-CCC"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "viations calculated across speakers. Our proposed PAPT-FT",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.360"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "achieves superior performance compared to the baselines.",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.384"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.398"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.374"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.386"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "Metric",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.363"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "Vanilla-FT",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "B2",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "TAPT-FT",
+          "Table 3: Evaluations on unseen speakers (test-c).": "Table 4: Effect of different speaker embedding fusion positions."
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "PAPT-FT",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "+ µ shift",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "Last"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "+ σ shift",
+          "Table 3: Evaluations on unseen speakers (test-c).": ""
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "+ (µ, σ) shift",
+          "Table 3: Evaluations on unseen speakers (test-c).": "2.78"
+        },
+        {
+          "Table 2: Evaluations on MSP-Podcast (test-b) in terms of CCC": "",
+          "Table 3: Evaluations on unseen speakers (test-c).": "0.531"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "speech emotion recognition,” in ICASSP 2022-2022 IEEE Inter-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "national Conference on Acoustics, Speech and Signal Processing"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "(ICASSP).\nIEEE, 2022, pp. 6442–6446."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[10]\nL.-W. Chen\nand A. Rudnicky,\n“Exploring wav2vec\n2.0 fine-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "tuning for improved speech emotion recognition,” arXiv preprint"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "arXiv:2110.06309, 2021."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[11] W.-N. Hsu, B. Bolte, Y.-H. H. Tsai, K. Lakhotia, R. Salakhut-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "dinov, and A. Mohamed, “Hubert:\nSelf-supervised speech rep-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "resentation\nlearning\nby masked\nprediction\nof\nhidden\nunits,”"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "IEEE/ACM Transactions on Audio, Speech, and Language Pro-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "cessing, vol. 29, pp. 3451–3460, 2021."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[12] A. Baevski, Y. Zhou, A. Mohamed,\nand M. Auli,\n“wav2vec"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "2.0: A framework for self-supervised learning of speech repre-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "sentations,” Advances in neural\ninformation processing systems,"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "vol. 33, pp. 12 449–12 460, 2020."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[13] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "anced speech corpus by retrieving emotional speech from existing"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "podcast recordings,” IEEE Transactions on Affective Computing,"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "vol. 10, no. 4, pp. 471–483, 2017."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[14] K. Sridhar and C. Busso,\n“Unsupervised personalization of an"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "emotion recognition system: The unique properties of the exter-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "nalization of valence in speech,” IEEE Transactions on Affective"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "Computing, vol. 13, no. 4, pp. 1959–1972, 2022."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[15]\nS. Gururangan, A. Marasovi´c, S. Swayamdipta, K. Lo,\nI. Belt-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "agy, D. Downey,\nand N. A. Smith,\n“Don’t\nstop\npretraining:"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "Adapt\nlanguage models\nto domains and tasks,” arXiv preprint"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "arXiv:2004.10964, 2020."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[16] R. Rubino and E. Sumita,\n“Intermediate self-supervised learn-"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "ing for machine translation quality estimation,” in Proceedings of"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "the 28th International Conference on Computational Linguistics,"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "2020, pp. 4355–4360."
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "[17] H. Xu, B. Liu, L. Shu, and P. S. Yu, “Bert post-training for review"
+        },
+        {
+          "ing through cross-modal conditional\nteacher-student\ntraining for": "reading comprehension and aspect-based sentiment analysis,” in"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "pre-training for domain generalization and adaptation,” in Com-"
+        },
+        {
+          "8. References": "[1] A. von Suchodoletz and R. Hepach, “Cultural values shape the",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "puter Vision–ECCV 2022:\n17th European Conference, Tel Aviv,"
+        },
+        {
+          "8. References": "expression of self-evaluative social emotions,” Scientific Reports,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "Israel, October 23–27, 2022, Proceedings, Part XXXIII, 2022, pp."
+        },
+        {
+          "8. References": "vol. 11, no. 1, pp. 1–14, 2021.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "621–638."
+        },
+        {
+          "8. References": "[2] A. M. Kring and A. H. Gordon, “Sex differences in emotion: ex-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "[19] B. Schuller, S. Steidl, A. Batliner, A. Vinciarelli, K. Scherer,"
+        },
+        {
+          "8. References": "pression, experience, and physiology.” Journal of personality and",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "F. Ringeval, M. Chetouani, F. Weninger, F. Eyben, E. Marchi"
+        },
+        {
+          "8. References": "social psychology, vol. 74, no. 3, p. 686, 1998.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "et al., “The interspeech 2013 computational paralinguistics chal-"
+        },
+        {
+          "8. References": "[3]\nJ. M. Montepare and H. Dobish, “Younger and older adults’ be-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "lenge: Social signals, conflict, emotion, autism,” in Proceedings"
+        },
+        {
+          "8. References": "liefs about\nthe experience and expression of emotions across the",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "INTERSPEECH 2013, 14th Annual Conference of\nthe Interna-"
+        },
+        {
+          "8. References": "life span,” Journals of Gerontology Series B: Psychological Sci-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "tional Speech Communication Association, Lyon, France, 2013."
+        },
+        {
+          "8. References": "ences and Social Sciences, vol. 69, no. 6, pp. 892–896, 2014.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "[20] W.-C. Lin and C. Busso, “Chunk-level speech emotion recogni-"
+        },
+        {
+          "8. References": "[4]\nL. Chen, W. Su, Y. Feng, M. Wu, J. She, and K. Hirota, “Two-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "tion: A general framework of sequence-to-one dynamic temporal"
+        },
+        {
+          "8. References": "layer fuzzy multiple random forest for speech emotion recognition",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "modeling,” IEEE Transactions on Affective Computing, 2021."
+        },
+        {
+          "8. References": "in human-robot\ninteraction,” Information Sciences, vol. 509, pp.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "[21]\nJ. Wagner, A. Triantafyllopoulos, H. Wierstorf, M. Schmitt, F. Ey-"
+        },
+        {
+          "8. References": "150–163, 2020.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "ben, and B. W. Schuller, “Dawn of the transformer era in speech"
+        },
+        {
+          "8. References": "[5]\nJ.-B. Kim and J.-S. Park,\n“Multistage data selection-based un-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "emotion recognition:\nclosing the valence gap,” arXiv preprint"
+        },
+        {
+          "8. References": "supervised speaker adaptation for personalized speech emotion",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "arXiv:2203.07378, 2022."
+        },
+        {
+          "8. References": "recognition,” Engineering applications of artificial\nintelligence,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "vol. 52, pp. 126–134, 2016.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "[22] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N."
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,”"
+        },
+        {
+          "8. References": "[6] N.\nJia\nand C. Zheng,\n“Two-level discriminative\nspeech emo-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": "Advances in neural information processing systems, vol. 30, 2017."
+        },
+        {
+          "8. References": "tion recognition model with wave field dynamics: A personal-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "ized speech emotion recognition method,” Computer Communi-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "cations, vol. 180, pp. 161–170, 2021.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[7] N. Vryzas, L. Vrysis, R. Kotsakis,\nand C. Dimoulas,\n“Speech",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "emotion recognition adapted to multimodal\nsemantic\nreposito-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "ries,” in 2018 13th International Workshop on Semantic and So-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "cial Media Adaptation and Personalization (SMAP).\nIEEE, 2018,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "pp. 31–35.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[8]\nJ. Bang, T. Hur, D. Kim, T. Huynh-The, J. Lee, Y. Han, O. Banos,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "J.-I. Kim, and S. Lee, “Adaptive data boosting technique for robust",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "personalized speech emotion in emotionally-imbalanced small-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "sample environments,” Sensors, vol. 18, no. 11, p. 3744, 2018.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[9]\nS. Srinivasan, Z. Huang, and K. Kirchhoff, “Representation learn-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "ing through cross-modal conditional\nteacher-student\ntraining for",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "speech emotion recognition,” in ICASSP 2022-2022 IEEE Inter-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "national Conference on Acoustics, Speech and Signal Processing",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "(ICASSP).\nIEEE, 2022, pp. 6442–6446.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[10]\nL.-W. Chen\nand A. Rudnicky,\n“Exploring wav2vec\n2.0 fine-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "tuning for improved speech emotion recognition,” arXiv preprint",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "arXiv:2110.06309, 2021.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[11] W.-N. Hsu, B. Bolte, Y.-H. H. Tsai, K. Lakhotia, R. Salakhut-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "dinov, and A. Mohamed, “Hubert:\nSelf-supervised speech rep-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "resentation\nlearning\nby masked\nprediction\nof\nhidden\nunits,”",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "IEEE/ACM Transactions on Audio, Speech, and Language Pro-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "cessing, vol. 29, pp. 3451–3460, 2021.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[12] A. Baevski, Y. Zhou, A. Mohamed,\nand M. Auli,\n“wav2vec",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "2.0: A framework for self-supervised learning of speech repre-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "sentations,” Advances in neural\ninformation processing systems,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "vol. 33, pp. 12 449–12 460, 2020.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[13] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "anced speech corpus by retrieving emotional speech from existing",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "podcast recordings,” IEEE Transactions on Affective Computing,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "vol. 10, no. 4, pp. 471–483, 2017.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[14] K. Sridhar and C. Busso,\n“Unsupervised personalization of an",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "emotion recognition system: The unique properties of the exter-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "nalization of valence in speech,” IEEE Transactions on Affective",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "Computing, vol. 13, no. 4, pp. 1959–1972, 2022.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[15]\nS. Gururangan, A. Marasovi´c, S. Swayamdipta, K. Lo,\nI. Belt-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "agy, D. Downey,\nand N. A. Smith,\n“Don’t\nstop\npretraining:",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "Adapt\nlanguage models\nto domains and tasks,” arXiv preprint",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "arXiv:2004.10964, 2020.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[16] R. Rubino and E. Sumita,\n“Intermediate self-supervised learn-",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "ing for machine translation quality estimation,” in Proceedings of",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "the 28th International Conference on Computational Linguistics,",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "2020, pp. 4355–4360.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "[17] H. Xu, B. Liu, L. Shu, and P. S. Yu, “Bert post-training for review",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "reading comprehension and aspect-based sentiment analysis,” in",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        },
+        {
+          "8. References": "Proceedings of NAACL-HLT, 2019, pp. 2324–2335.",
+          "[18] D. Kim, K. Wang, S. Sclaroff, and K. Saenko, “A broad study of": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Cultural values shape the expression of self-evaluative social emotions",
+      "authors": [
+        "A Suchodoletz",
+        "R Hepach"
+      ],
+      "year": "2021",
+      "venue": "Scientific Reports"
+    },
+    {
+      "citation_id": "3",
+      "title": "Sex differences in emotion: expression, experience, and physiology",
+      "authors": [
+        "A Kring",
+        "A Gordon"
+      ],
+      "year": "1998",
+      "venue": "Journal of personality and social psychology"
+    },
+    {
+      "citation_id": "4",
+      "title": "Younger and older adults' beliefs about the experience and expression of emotions across the life span",
+      "authors": [
+        "J Montepare",
+        "H Dobish"
+      ],
+      "year": "2014",
+      "venue": "Journals of Gerontology Series B: Psychological Sciences and Social Sciences"
+    },
+    {
+      "citation_id": "5",
+      "title": "Twolayer fuzzy multiple random forest for speech emotion recognition in human-robot interaction",
+      "authors": [
+        "L Chen",
+        "W Su",
+        "Y Feng",
+        "M Wu",
+        "J She",
+        "K Hirota"
+      ],
+      "year": "2020",
+      "venue": "Information Sciences"
+    },
+    {
+      "citation_id": "6",
+      "title": "Multistage data selection-based unsupervised speaker adaptation for personalized speech emotion recognition",
+      "authors": [
+        "J.-B Kim",
+        "J.-S Park"
+      ],
+      "year": "2016",
+      "venue": "Engineering applications of artificial intelligence"
+    },
+    {
+      "citation_id": "7",
+      "title": "Two-level discriminative speech emotion recognition model with wave field dynamics: A personalized speech emotion recognition method",
+      "authors": [
+        "N Jia",
+        "C Zheng"
+      ],
+      "year": "2021",
+      "venue": "Computer Communications"
+    },
+    {
+      "citation_id": "8",
+      "title": "Speech emotion recognition adapted to multimodal semantic repositories",
+      "authors": [
+        "N Vryzas",
+        "L Vrysis",
+        "R Kotsakis",
+        "C Dimoulas"
+      ],
+      "year": "2018",
+      "venue": "2018 13th International Workshop on Semantic and Social Media Adaptation and Personalization (SMAP)"
+    },
+    {
+      "citation_id": "9",
+      "title": "Adaptive data boosting technique for robust personalized speech emotion in emotionally-imbalanced smallsample environments",
+      "authors": [
+        "J Bang",
+        "T Hur",
+        "D Kim",
+        "T Huynh-The",
+        "J Lee",
+        "Y Han",
+        "O Banos",
+        "J.-I Kim",
+        "S Lee"
+      ],
+      "year": "2018",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "10",
+      "title": "Representation learning through cross-modal conditional teacher-student training for speech emotion recognition",
+      "authors": [
+        "S Srinivasan",
+        "Z Huang",
+        "K Kirchhoff"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "11",
+      "title": "Exploring wav2vec 2.0 finetuning for improved speech emotion recognition",
+      "authors": [
+        "L.-W Chen",
+        "A Rudnicky"
+      ],
+      "year": "2021",
+      "venue": "Exploring wav2vec 2.0 finetuning for improved speech emotion recognition",
+      "arxiv": "arXiv:2110.06309"
+    },
+    {
+      "citation_id": "12",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "13",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "14",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Unsupervised personalization of an emotion recognition system: The unique properties of the externalization of valence in speech",
+      "authors": [
+        "K Sridhar",
+        "C Busso"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Don't stop pretraining: Adapt language models to domains and tasks",
+      "authors": [
+        "S Gururangan",
+        "A Marasović",
+        "S Swayamdipta",
+        "K Lo",
+        "I Beltagy",
+        "D Downey",
+        "N Smith"
+      ],
+      "year": "2020",
+      "venue": "Don't stop pretraining: Adapt language models to domains and tasks",
+      "arxiv": "arXiv:2004.10964"
+    },
+    {
+      "citation_id": "17",
+      "title": "Intermediate self-supervised learning for machine translation quality estimation",
+      "authors": [
+        "R Rubino",
+        "E Sumita"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th International Conference on Computational Linguistics"
+    },
+    {
+      "citation_id": "18",
+      "title": "Bert post-training for review reading comprehension and aspect-based sentiment analysis",
+      "authors": [
+        "H Xu",
+        "B Liu",
+        "L Shu",
+        "P Yu"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of NAACL-HLT"
+    },
+    {
+      "citation_id": "19",
+      "title": "A broad study of pre-training for domain generalization and adaptation",
+      "authors": [
+        "D Kim",
+        "K Wang",
+        "S Sclaroff",
+        "K Saenko"
+      ],
+      "year": "2022",
+      "venue": "Computer Vision-ECCV 2022: 17th European Conference"
+    },
+    {
+      "citation_id": "20",
+      "title": "The interspeech 2013 computational paralinguistics challenge: Social signals, conflict, emotion, autism",
+      "authors": [
+        "B Schuller",
+        "S Steidl",
+        "A Batliner",
+        "A Vinciarelli",
+        "K Scherer",
+        "F Ringeval",
+        "M Chetouani",
+        "F Weninger",
+        "F Eyben",
+        "E Marchi"
+      ],
+      "year": "2013",
+      "venue": "Proceedings INTERSPEECH 2013, 14th Annual Conference of the International Speech Communication Association"
+    },
+    {
+      "citation_id": "21",
+      "title": "Chunk-level speech emotion recognition: A general framework of sequence-to-one dynamic temporal modeling",
+      "authors": [
+        "W.-C Lin",
+        "C Busso"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "arxiv": "arXiv:2203.07378"
+    },
+    {
+      "citation_id": "23",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Advances in neural information processing systems"
+    }
+  ]
+}

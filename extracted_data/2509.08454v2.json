@@ -1,0 +1,1720 @@
+{
+  "paper_id": "2509.08454v2",
+  "title": "Behind The Scenes: Mechanistic Interpretability Of Lora-Adapted Whisper For Speech Emotion Recognition",
+  "published": "2025-09-10T09:54:27Z",
+  "authors": [
+    "Yujian Ma",
+    "Jinqiu Sang",
+    "Ruizhe Li"
+  ],
+  "keywords": [
+    "Speech Emotion Recognition",
+    "Whisper",
+    "Mechanistic Interpretability",
+    "Low-Rank Adaptation"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Large pre-trained speech models such as Whisper offer strong generalization but pose significant challenges for resource-efficient adaptation. Low-Rank Adaptation (LoRA) has become a popular parameter-efficient fine-tuning method, yet its underlying mechanisms in speech tasks remain poorly understood. In this work, we conduct the first systematic mechanistic interpretability study of LoRA within the Whisper encoder for speech emotion recognition (SER). Using a suite of analytical tools, including layer contribution probing, logit-lens inspection, and representational similarity via singular value decomposition (SVD) and centered kernel alignment (CKA), we reveal two key mechanisms: a delayed specialization process that preserves general features in early layers before consolidating task-specific information, and a forward alignment, backward differentiation dynamic between LoRA's matrices. Our findings clarify how LoRA reshapes encoder hierarchies, providing both empirical insights and a deeper mechanistic understanding for designing efficient and interpretable adaptation strategies in large speech models.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Large-scale pre-trained models have fundamentally transformed speech and language processing. Models such as Whisper  [1] , Wav2Vec2  [2] , and HuBERT  [3]  provide general-purpose representations that are widely adapted to diverse tasks, from automatic speech recognition (ASR) to SER. However, the heavy computational and storage demands of full fine-tuning hinder their deployment in resource-constrained settings. This has motivated the development of Parameter-Efficient Fine-Tuning (PEFT) methods  [4, 5] , which adapt these large encoders with minimal additional parameters.\n\nAmong PEFT approaches, LoRA  [6]  has demonstrated exceptional effectiveness across modalities including text, vision, and speech  [7, 8] . By injecting low-rank trainable matrices into a frozen backbone, LoRA significantly reduces training costs while preserving the model's powerful representational capacity. Despite its practical success, prior studies primarily emphasize performance gains, leaving a critical question unanswered: why does LoRA work so effectively? SER serves as a compelling probe for this investigation. Unlike ASR, which primarily relies on lexical content, SER necessitates *Corresponding author.\n\ncapturing subtle prosodic and paralinguistic cues that reflect highlevel affective states  [9] . This makes SER an ideal testbed for analyzing how LoRA reshapes a model's internal representations and decision dynamics. Recent work has demonstrated the successful adaptation of both Whisper  [10]  and Wav2Vec2  [11]  for SER, further underscoring the value of exploring parameter-efficient strategies in this domain.\n\nIn this work, we present the first systematic mechanistic analysis of LoRA within the Whisper encoder for SER. We employ a multifaceted interpretability toolkit that includes layer-wise contribution probing  [12] , Logit-Lens inspection  [13] , and representation analyses with SVD and CKA  [14] . Our findings reveal two key mechanisms underlying LoRA's success: a depth-specific delayed specialization strategy and a forward alignment, backward differentiation dynamic between LoRA's low-rank matrices. These insights clarify how LoRA reorganizes encoder hierarchies and provide a foundation for designing more efficient and interpretable fine-tuning strategies for deep speech models.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Mechanistic Interpretability",
+      "text": "Mechanistic interpretability (MI) is an emerging field that seeks to reverse-engineer the internal computations of deep networks to understand the algorithms they have learned  [15] . In the domain of natural language processing (NLP), MI studies have shed light on how large language models (LLMs) encode complex behaviors like arithmetic and reasoning  [16, 17] . For instance, Csordás et al. investigated the efficient use of network depth, revealing that in deep LLMs, the latter half of the network is often underutilized, primarily refining the output probability distribution rather than performing novel computations  [12] . Building on this analytical framework, the 'Backward Lens' study extended it to the backward pass, revealing a two-phase 'imprint and shift' mechanism for how models store new knowledge in their feed-forward layers  [18] . Recent multimodal efforts, such as AudioLens  [19] , have further applied these principles to understand auditory perception in large audio-language models. However, within the speech processing community, MI remains limited, with most work focusing on probing intermediate representations rather than the intricate adaptation mechanisms of fine-tuning strategies like LoRA.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Speech Emotion Recognition",
+      "text": "SER has evolved significantly, progressing from systems based on hand-crafted features  [20]  to those leveraging powerful selfsupervised encoders like Wav2Vec2  [2]  and HuBERT  [3] , and more recently, large pre-trained models such as Whisper  [1] . This evolution has led to notable improvements in cross-speaker and cross-domain robustness  [9] . Task-specific fine-tuning approaches, including those that incorporate metadata-enhanced strategies  [21]  and domain generalization for Whisper  [10] , have shown promising results. Nevertheless, the substantial computational and storage costs associated with full fine-tuning necessitate the exploration of more resource-efficient alternatives  [22] .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Parameter-Efficient Fine-Tuning",
+      "text": "Parameter-Efficient Fine-Tuning methods  [4, 5]  offer a compelling solution by adapting frozen backbones with a minimal number of trainable parameters. Popular approaches include adapters, prefixtuning, and prompt-tuning, among which LoRA  [6]  has demonstrated exceptional effectiveness. While adapters may introduce inference latency and prefix-tuning can be unstable for speech tasks, LoRA achieves remarkable efficiency without sacrificing performance by injecting low-rank updates. Its efficacy has been confirmed in various applications, including Whisper for ASR  [8] , yet the precise inner adaptation dynamics of LoRA for complex tasks like SER remain largely unexplored.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Research Gap",
+      "text": "In summary, existing literature has made significant strides in three distinct areas: mechanistic interpretability in NLP, the application of large pretrained encoders for SER, and the development of PEFT methods for speech. However, the intersection of these fields, specifically the mechanistic interpretability of LoRA's adaptation in speech emotion recognition, has not been systematically investigated. This work is dedicated to bridging this critical research gap by analyzing how LoRA reshapes the representational hierarchies and optimization dynamics within the Whisper encoder for the SER task.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "SER is formulated as a four-class task (anger, happiness, neutrality, sadness) with WhisperForAudioClassification as the backbone. We conduct experiments on the IEMOCAP  [23]  dataset using a speakerindependent 10-fold cross-validation. Unweighted recall (UAR) and weighted recall (WAR) serve as our evaluation metrics; UAR provides a robust measure for imbalanced datasets, while WAR reflects overall accuracy. For our mechanistic analysis, we use the Whisperlarge-v2 encoder and the NNsight  [24]  library, with analysis based on a hierarchical sample of 100 examples from a validation set (25 from each emotion class).",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Lora Fine-Tuning",
+      "text": "We adopt LoRA as our primary fine-tuning method, which approximates weight updates via a low-rank decomposition, ∆W = BA. Only the low-rank matrices A ∈ R r×d and B ∈ R d×r are trainable, significantly reducing the number of parameters. We attach LoRA modules to the attention projections, a standard and effective strategy. Unless otherwise noted, we use a configuration of r=32 and apply a dropout of 0.1, with a trainable classification head.\n\nAs shown in Table  1 , LoRA consistently and significantly outperforms the frozen-encoder baselines across all model sizes. The Whisper-large-v2 with LoRA achieves the best performance, with Table  1 .\n\nSER performance on IEMOCAP under speakerindependent 10-fold cross-validation. Results are mean ± std. a UAR of 0.774 and WAR of 0.768, demonstrating substantial improvements over its frozen counterpart. The performance of LoRA scales consistently with model size, highlighting its ability to effectively leverage larger pre-trained representations. In stark contrast, the frozen-encoder results show irregular patterns, which may reflect a fundamental incompatibility between the model's original ASR representations and the demands of the SER task. Our subsequent mechanistic analysis aims to clarify how LoRA effectively resolves this representational conflict.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Layer Contribution Probing",
+      "text": "Our analysis of layer-wise contributions is conceptually inspired by recent work on analyzing the depth efficiency of language models  [12] . We extend this methodology to the LoRA-adapted Whisper encoder by decomposing each Transformer block into its self-attention and MLP sublayers and measuring their effects on the residual stream. For a given layer ℓ with residual state h ℓ , attention output a ℓ , and MLP output m ℓ , we compute the relative contribution ratios ∥a ℓ ∥2/∥h ℓ ∥2 and ∥m ℓ ∥2/∥h ℓ ∥2. We also measure the directional alignment of these outputs with the residual stream using cosine similarity: cos(a ℓ , h ℓ ) and cos(m ℓ , h ℓ ). To isolate LoRA's specific effect, we report the per-layer differences ∆ = (LoRA -f rozen) averaged over the evaluation data, as shown in Fig.  1 .\n\nWhile LoRA introduces negligible changes in the early layers, its relative contribution increases substantially towards the top of the encoder, indicating a depth-specific adaptation strategy. In these deeper layers, the attention sublayer's contribution grows more than the MLP's, suggesting a primary role for LoRA in sharpening temporal focusing and long-range integration. This effect is further complemented by the combined Attention+MLP curve in the top layers, which evidences a synergistic interplay by exceeding the contribution of either component alone. The increasingly negative cosine similarity at higher layers indicates that the updates introduced by LoRA, which are directly applied to the Attention layers, are progressively passed to the subsequent layers. This suggests that the model's self-attention mechanism, having been finely tuned by LoRA to focus on emotional features, actively introduces signals that are counter-directional to the residual stream's information flow in the MLP layers. This is a critical mechanism for effective fine-tuning: by introducing these \"subtractive\" or \"corrective\" signals, LoRA is able to suppress or filter out features from the frozen backbone that are irrelevant or distracting to the new SER task. This targeted suppression allows the model to re-allocate its representational capacity, thereby emphasizing and reinforcing the task-relevant emotional features for a more robust and decisive final prediction.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Logit-Lens Inspection",
+      "text": "To understand how discriminative information propagates through the encoder hierarchy, we conduct a Logit-Lens analysis  [13] . The core idea of this method is to inspect the \"mind\" of the model by projecting the intermediate representations of each layer directly to the final output space. This allows us to observe the layer-wise evolution of the model's predictions. For each layer ℓ, we extract the representation h ℓ , then apply the trained projector and classifier to obtain intermediate logits z ℓ = Classifier(Project(h ℓ )).\n\nWe quantify the alignment between intermediate and final predictions using two complementary metrics: As shown in Figure  2a , the two models exhibit distinct depthwise alignment patterns. The frozen encoder shows volatile KL curves in early layers, drops to a minimum near layer 27, then rebounds at the top. This suggests that while Whisper possesses latent emotion-related capacity, achieving strongest emotional expression at the KL minimum, the original ASR objective creates inherent instability requiring downstream classifier compensation.\n\nIn contrast, the LoRA-adapted encoder employs a \"delayed decision-making\" strategy that maintains a relatively flat and high KL across the early and middle layers, then undergoes a pronounced late-stage drop converging to a very low value at the top. Rather than producing the chaotic signals observed in the frozen encoder, LoRA preserves a \"stable yet unspecialized\" state in the early layers, laying a smooth foundation for final specialization. This strategy allows LoRA to avoid premature commitment to task-specific representations while ensuring that the eventual specialization is both decisive and robust. This observation corroborates our findings in Section 3.2, as both the Logit-Lens and Layer Contribution analyses converge on a shared conclusion: LoRA's most significant contributions are concentrated in the deeper layers of the encoder.\n\nThe prediction-overlap curves further corroborate this delayed specialization mechanism. The frozen encoder begins to increase overlap earlier (around layer 23) but subsequently declines, mirroring the instability seen in its KL trajectory. The LoRA-adapted encoder maintains a higher and steady overlap up to the mid-upper layers, then shows a sharp rise starting around layer 27, quickly approaching near-perfect agreement at the top. This delayed but decisive top-1 prediction consolidation demonstrates LoRA's ability to defer critical decisions until the optimal moment, when sufficient task-relevant information has been accumulated and refined.\n\nTaken together, these trends reveal that LoRA fundamentally restructures the information flow within the encoder: rather than relying on the original model's unstable emotional representations, it establishes a controlled, late-stage specialization process that preserves general representations in earlier layers while performing targeted, robust specialization where it is most effective. This controlled, latestage specialization process not only improves performance but also enhances the stability and interpretability of the model's decisionmaking process.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Rank-Based Representation Analysis",
+      "text": "Our t-SNE analysis across different LoRA ranks (r = 8, 32, 64) reveals a systematic improvement in emotion clustering quality with increasing rank capacity. As shown in Figure  2b , deeper layers with r = 64 achieve the most distinct and well-separated emotion boundaries, while maintaining a consistent depth-wise evolution from mixed to specialized representations. This pattern reinforces our delayed decision-making hypothesis: while the fundamental specialization mechanism remains consistent across ranks, LoRA's representational capacity directly determines the final clustering quality and emotion separability. Low-rank configurations (r = 8) demonstrate a fundamental limitation, exhibiting persistent inter-class overlap even in the deepest layers, suggesting minimal rank capacity constrains the model's ability to achieve complete emotion separation.\n\nAn emotion-specific analysis reveals a hierarchy of ranksensitivity. Neutral emotions maintain stable clustering across all ranks, likely due to their high frequency in the original Whisper training data. Sadness shows moderate rank-sensitivity, forming coherent clusters at r = 32 and above, but fragmenting at r = 8. In contrast, anger and happiness require higher representational capacity (r = 64) for clear separation, with r = 8 configurations showing severe confusion. This hierarchy-neutral < sadness < anger < happiness-suggests that the recognition of positive emotions demands the highest level of LoRA sophistication, likely due to their nuanced acoustic expressions and the need for fine-grained feature discrimination.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Singular Value Decomposition Analysis",
+      "text": "To investigate the intrinsic dimensionality and learning dynamics of LoRA, we conduct a comprehensive SVD analysis on its low-rank matrices across all layers. The \"LoRA (mean)\" is computed by averaging the singular values from all attention heads and all layers, providing a global perspective on its learning dynamics. By comparing a trained LoRA model against a randomly initialized counterpart, we analyze how each component concentrates energy within its dominant singular values. This analysis reveals a sophisticated division of labor between LoRA's matrices, which develop specialized, complementary roles for compression and reconstruction.\n\nThe LoRAA matrix functions as an adaptive compression encoder, projecting high-dimensional input representations into taskrelevant low-dimensional subspaces. As shown in its activation spectrum (Figure  3a ), the trained LoRAA exhibits dramatic compression efficiency, requiring only 2.9 singular values to capture 90% of the energy-a remarkable 5.5× improvement over the untrained baseline. This efficiency is also reflected in its gradient spectrum (Figure  3b ), which shows a 1.7× improvement in concentration, indicating that the training process focuses on identifying optimal directions for feature compression.\n\nConversely, the LoRAB matrix operates as a precision reconstructor. Its post-training activation spectrum (Figure  3c ) demonstrates even more extreme compression efficiency, with a 10.4× improvement over the untrained model. However, a crucial asymmetry emerges in its gradient dynamics: the trained LoRAB (Figure  3d ) exhibits higher dimensionality than its untrained counterpart, representing a 0.4× efficiency ratio. This counterintuitive pattern reveals that while LoRAB produces highly compressed forward activations, it deliberately maintains rich gradient diversity during the backward pass to enable fine-grained reconstruction control.\n\nThis complementary learning architecture-where LoRAA acts as an information compressor and LoRAB as a precision reconstructor-is a key to LoRA's exceptional efficiency. This synergistic specialization ensures both aggressive forward compression and preserved gradient dimensionality, validating that LoRA operates within the intrinsic low-dimensional manifold of the adaptation task.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Centered Kernel Alignment Analysis",
+      "text": "To quantify the representational similarity between LoRA components, we employ CKA. Unlike simple metrics such as cosine similarity, CKA provides a robust, normalized score invariant to linear transformations, making it ideal for comparing neural network representations. High values suggest the components capture similar representational structures, while low or negative values indicate dissimilar or inversely related structures\n\nwhere K and L are kernel matrices derived from representations X and Y, and HSIC is the Hilbert-Schmidt Independence Criterion.\n\nAs depicted in Figure  3ef , our analysis reveals a crucial asymmetry in LoRA's learning dynamics. The forward passes of the LoRA components consistently maintain high representational similarity (0.8-1.0), indicating that LoRA's forward pass acts as a coherent information flow. In stark contrast, their corresponding gradient similarities exhibit a substantial variability, ranging from high positive to negative correlations. The presence of negative correlations is particularly revealing, as it indicates an antagonistic optimization dynamic, where LoRAA and LoRAB actively pull in opposite directions in certain layers during the backward pass.\n\nThis finding elucidates a fundamental forward alignment, backward differentiation mechanism. It shows that LoRA achieves representational consistency during inference (forward) while maintaining specialized, fine-grained optimization roles during training (backward). Our analysis suggests that LoRAA functions primarily as a feature compressor, guided by these differentiated backward signals, while LoRAB acts as a precision reconstructor. This synergistic specialization enables LoRA to achieve exceptional parameter efficiency without sacrificing the model's overall expressivity.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "This paper presents the first systematic mechanistic analysis of LoRA in the Whisper encoder for SER. Our analysis reveals two key mechanisms for its superior performance: \"delayed specialization\", which preserves stable representations in early layers for decisive late-stage consolidation, and a \"forward alignment, backward differentiation\" dynamic between LoRA's matrices. These insights not only clarify LoRA's effectiveness but also establish a theoretical foundation for understanding low-rank fine-tuning in deep speech models. By demonstrating how a small number of parameters can fundamentally restructure the information flow, our work paves the way for the design of more efficient and interpretable adaptation strategies. Future work will investigate whether these dynamics generalize to other speech tasks, such as multilingual emotion recognition or speaker identification, and whether they are consistent across different large-scale pre-trained models. Code is available at https://github.com/harryporry77/Behind-the-Scenes",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Layer-wise differences (LoRA minus frozen) on the encoder",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: While LoRA introduces negligible changes in the early layers,",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: a, the two models exhibit distinct depth-",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Layer-wise analysis of LoRA’s internal representations. (a)",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: b, deeper layers",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Analysis of LoRA’s internal dynamics. (a)-(d): SVD analy-",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: a), the trained LoRAA exhibits dramatic compression",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: ef, our analysis reveals a crucial asym-",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "ABSTRACT"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "Large pre-trained speech models such as Whisper offer strong gen-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "eralization\nbut\npose\nsignificant\nchallenges\nfor\nresource-efficient"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "adaptation.\nLow-Rank Adaptation (LoRA) has become a popular"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "parameter-efficient fine-tuning method, yet\nits underlying mecha-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "nisms in speech tasks remain poorly understood.\nIn this work, we"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "conduct\nthe first\nsystematic mechanistic\ninterpretability study of"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "LoRA within the Whisper encoder for speech emotion recognition"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "(SER). Using a suite of analytical tools, including layer contribution"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "probing,\nlogit-lens\ninspection,\nand representational\nsimilarity via"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "singular value decomposition (SVD) and centered kernel alignment"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "delayed\nspecializa-\n(CKA), we\nreveal\ntwo\nkey mechanisms:\na"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "tion process\nthat preserves general\nfeatures\nin early layers before"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "consolidating task-specific information,\nand a forward alignment,"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "backward differentiation dynamic between LoRA’s matrices. Our"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "findings clarify how LoRA reshapes encoder hierarchies, providing"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "both empirical\ninsights and a deeper mechanistic understanding for"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "designing efficient and interpretable adaptation strategies\nin large"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "speech models."
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "Index Terms— Speech Emotion Recognition, Whisper, Mech-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "anistic Interpretability, Low-Rank Adaptation"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "1.\nINTRODUCTION"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "Large-scale\npre-trained models\nhave\nfundamentally\ntransformed"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "speech and language processing.\nModels\nsuch as Whisper\n[1],"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "Wav2Vec2 [2],\nand HuBERT [3] provide general-purpose\nrepre-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "sentations that are widely adapted to diverse tasks,\nfrom automatic"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "speech recognition (ASR)\nto SER. However,\nthe heavy compu-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "tational\nand storage demands of\nfull fine-tuning hinder\ntheir de-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "ployment\nin resource-constrained settings.\nThis has motivated the"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "development\nof\nParameter-Efficient\nFine-Tuning\n(PEFT) meth-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "ods [4, 5], which adapt these large encoders with minimal additional"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "parameters."
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "Among PEFT approaches, LoRA [6] has demonstrated excep-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "tional\neffectiveness\nacross modalities\nincluding text,\nvision,\nand"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "speech [7, 8]. By injecting low-rank trainable matrices into a frozen"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "backbone, LoRA significantly\nreduces\ntraining\ncosts while\npre-"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "serving the model’s powerful representational capacity. Despite its"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "practical\nsuccess,\nprior\nstudies primarily emphasize performance"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "gains, leaving a critical question unanswered: why does LoRA work"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "so effectively?"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "SER serves as a compelling probe for this investigation. Unlike"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "ASR, which primarily relies on lexical content, SER necessitates"
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": ""
+        },
+        {
+          "3Department of Computing Science, University of Aberdeen, Aberdeen, UK": "*Corresponding author."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table 1: SER performance on IEMOCAP under speaker-",
+      "data": [
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "evolution has\nled to notable\nimprovements\nin cross-speaker\nand"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "cross-domain robustness [9]. Task-specific fine-tuning approaches,"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "including those that\nincorporate metadata-enhanced strategies [21]"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "and domain generalization for Whisper [10], have shown promising"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "results.\nNevertheless,\nthe\nsubstantial\ncomputational\nand storage"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "costs associated with full fine-tuning necessitate the exploration of"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "more resource-efficient alternatives [22]."
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "2.3. Parameter-Efficient Fine-Tuning"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "Parameter-Efficient Fine-Tuning methods [4, 5] offer a compelling"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "solution by adapting frozen backbones with a minimal number of"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "trainable parameters.\nPopular approaches include adapters, prefix-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "tuning,\nand prompt-tuning,\namong which LoRA [6] has demon-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "strated exceptional\neffectiveness. While\nadapters may introduce"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "inference latency and prefix-tuning can be unstable for speech tasks,"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "LoRA achieves\nremarkable\nefficiency without\nsacrificing perfor-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "mance by injecting low-rank updates.\nIts efficacy has been con-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "firmed in various applications,\nincluding Whisper for ASR [8], yet"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "the precise inner adaptation dynamics of LoRA for complex tasks"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "like SER remain largely unexplored."
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "2.4. Research Gap"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "In summary, existing literature has made significant strides in three"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "distinct\nareas:\nmechanistic\ninterpretability\nin NLP,\nthe\napplica-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "tion of\nlarge pretrained encoders for SER, and the development of"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "PEFT methods for speech. However, the intersection of these fields,"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "specifically the mechanistic interpretability of LoRA’s adaptation"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "in speech emotion recognition, has not been systematically investi-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "gated. This work is dedicated to bridging this critical research gap"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "by analyzing how LoRA reshapes the representational hierarchies"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "and optimization dynamics within the Whisper encoder for the SER"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "task."
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "3. EXPERIMENTAL SETUP"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "SER is formulated as a four-class task (anger, happiness, neutrality,"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "sadness) with WhisperForAudioClassification as the backbone. We"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "conduct experiments on the IEMOCAP [23] dataset using a speaker-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "independent 10-fold cross-validation. Unweighted recall (UAR) and"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "weighted recall\n(WAR) serve as our evaluation metrics; UAR pro-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "vides a robust measure for imbalanced datasets, while WAR reflects"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "overall accuracy. For our mechanistic analysis, we use the Whisper-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "large-v2 encoder and the NNsight [24] library, with analysis based"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "on a hierarchical sample of 100 examples from a validation set (25"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "from each emotion class)."
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "3.1. LoRA Fine-tuning"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": ""
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "We adopt LoRA as our primary fine-tuning method, which approx-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "imates weight updates via a low-rank decomposition, ∆W = BA."
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "Only the low-rank matrices A ∈ Rr×d and B ∈ Rd×r are trainable,"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "significantly reducing the number of parameters. We attach LoRA"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "modules to the attention projections, a standard and effective strat-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "egy. Unless otherwise noted, we use a configuration of\nr=32 and"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "apply a dropout of 0.1, with a trainable classification head."
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "As shown in Table 1, LoRA consistently and significantly out-"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "performs the frozen-encoder baselines across all model sizes. The"
+        },
+        {
+          "more recently,\nlarge pre-trained models such as Whisper [1]. This": "Whisper-large-v2 with LoRA achieves the best performance, with"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "poral\nfocusing and long-range integration.\nThis effect\nis\nfurther"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "complemented by the combined Attention+MLP curve in the top"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "layers, which evidences\na\nsynergistic\ninterplay by exceeding the"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "contribution of either component alone. The increasingly negative"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "cosine similarity at higher\nlayers\nindicates\nthat\nthe updates\nintro-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "duced by LoRA, which are directly applied to the Attention layers,"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "are progressively passed to the subsequent\nlayers.\nThis\nsuggests"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "that the model’s self-attention mechanism, having been finely tuned"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "by LoRA to focus on emotional\nfeatures, actively introduces\nsig-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "nals that are counter-directional to the residual stream’s information"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "flow in the MLP layers.\nThis\nis a critical mechanism for effec-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "tive fine-tuning: by introducing these “subtractive” or “corrective”"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "signals, LoRA is able to suppress or filter out\nfeatures\nfrom the"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "frozen backbone that are irrelevant or distracting to the new SER"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "task. This targeted suppression allows the model\nto re-allocate its"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "representational capacity,\nthereby emphasizing and reinforcing the"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "task-relevant emotional features for a more robust and decisive final"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "prediction."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "3.3. Logit-Lens Inspection"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "To understand how discriminative information propagates through"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "the encoder hierarchy, we conduct a Logit-Lens analysis [13]. The"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "core idea of\nthis method is to inspect\nthe ”mind” of\nthe model by"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "projecting the intermediate representations of each layer directly to"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "the final output space. This allows us to observe the layer-wise evo-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "lution of\nthe model’s predictions.\nFor each layer ℓ, we extract\nthe"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "then apply the trained projector and classifier to\nrepresentation hℓ,"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "obtain intermediate logits zℓ = Classifier(Project(hℓ))."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "We quantify the alignment between intermediate and final pre-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "dictions using two complementary metrics:"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "1. KL Divergence: DKL(πℓ∥πL) = (cid:80)\nc πℓ(c) log πℓ(c)"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "πL(c) , where"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "πℓ = softmax(zℓ) and πL is the final prediction. Lower values"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "indicate better alignment."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "2. Prediction Overlap: Oℓ = I[arg max(zℓ) = arg max(zL)],"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "measuring whether\nintermediate\nand\nfinal\npredictions\nagree."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "Higher values indicate stronger consistency."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "As shown in Figure 2a,\nthe two models exhibit distinct depth-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "wise alignment patterns.\nThe frozen encoder\nshows volatile KL"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "curves in early layers, drops to a minimum near\nlayer 27,\nthen re-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "bounds at the top. This suggests that while Whisper possesses latent"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "emotion-related capacity, achieving strongest emotional expression"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": ""
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "at the KL minimum, the original ASR objective creates inherent in-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "stability requiring downstream classifier compensation."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "In\ncontrast,\nthe LoRA-adapted encoder\nemploys\na\n”delayed"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "decision-making” strategy that maintains a relatively flat and high"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "KL across the early and middle layers, then undergoes a pronounced"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "late-stage drop converging to a very low value at\nthe top.\nRather"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "than producing the chaotic signals observed in the frozen encoder,"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "LoRA preserves a ”stable yet unspecialized” state in the early layers,"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "laying a smooth foundation for final specialization.\nThis strategy"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "allows LoRA to avoid premature commitment\nto task-specific rep-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "resentations while ensuring that\nthe eventual specialization is both"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "decisive and robust. This observation corroborates our findings in"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "Section 3.2, as both the Logit-Lens and Layer Contribution anal-"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "yses\nconverge on a\nshared conclusion:\nLoRA’s most\nsignificant"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "contributions are concentrated in the deeper layers of the encoder."
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "The prediction-overlap curves further corroborate this delayed"
+        },
+        {
+          "the MLP’s, suggesting a primary role for LoRA in sharpening tem-": "specialization mechanism.\nThe frozen encoder begins to increase"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "pass to enable fine-grained reconstruction control.": "This complementary learning architecture—where LoRAA acts"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "as an information compressor and LoRAB as a precision recon-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "structor—is a key to LoRA’s exceptional efficiency.\nThis\nsyner-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "gistic specialization ensures both aggressive forward compression"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "and preserved gradient dimensionality, validating that LoRA oper-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ates within the intrinsic low-dimensional manifold of the adaptation"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "task."
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "3.6. Centered Kernel Alignment Analysis"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "To quantify the representational similarity between LoRA compo-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "nents, we employ CKA. Unlike simple metrics such as cosine sim-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ilarity, CKA provides a robust, normalized score invariant\nto lin-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ear\ntransformations, making it\nideal\nfor comparing neural network"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "representations. High values suggest\nthe components capture simi-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "lar representational structures, while low or negative values indicate"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "dissimilar or inversely related structures"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "HSIC(K, L)"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "(1)\nCKA(X, Y) ="
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "(cid:112)HSIC(K, K) · HSIC(L, L)"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "where K and L are kernel matrices derived from representations"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "X and Y, and HSIC is the Hilbert-Schmidt Independence Criterion."
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "As depicted in Figure 3ef, our analysis reveals a crucial asym-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "metry in LoRA’s\nlearning dynamics.\nThe forward passes of\nthe"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "LoRA components consistently maintain high representational simi-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "larity (0.8-1.0), indicating that LoRA’s forward pass acts as a coher-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ent information flow.\nIn stark contrast, their corresponding gradient"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "similarities exhibit a substantial variability, ranging from high pos-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "itive to negative correlations. The presence of negative correlations"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "is particularly revealing, as it indicates an antagonistic optimization"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "dynamic, where LoRAA and LoRAB actively pull in opposite direc-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "tions in certain layers during the backward pass."
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "This finding elucidates a fundamental forward alignment, back-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ward\ndifferentiation mechanism.\nIt\nshows\nthat LoRA achieves"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "representational consistency during inference (forward) while main-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "taining specialized, fine-grained optimization roles during training"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "(backward). Our analysis suggests that LoRAA functions primarily"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "as a feature compressor, guided by these differentiated backward"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "signals, while LoRAB acts as a precision reconstructor. This syner-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "gistic specialization enables LoRA to achieve exceptional parameter"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "efficiency without sacrificing the model’s overall expressivity."
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "4. CONCLUSION"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "This\npaper\npresents\nthe first\nsystematic mechanistic\nanalysis\nof"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "LoRA in the Whisper encoder\nfor SER. Our analysis reveals two"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "key mechanisms\nfor\nits\nsuperior performance:\n“delayed special-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ization”, which preserves stable representations in early layers for"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "decisive late-stage consolidation, and a “forward alignment, back-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "ward differentiation” dynamic between LoRA’s matrices.\nThese"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "insights not only clarify LoRA’s effectiveness but also establish a"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "theoretical\nfoundation\nfor\nunderstanding\nlow-rank fine-tuning\nin"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "deep speech models.\nBy demonstrating how a small number of"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "parameters can fundamentally restructure the information flow, our"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "work paves\nthe way for\nthe design of more\nefficient\nand inter-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "pretable adaptation strategies. Future work will\ninvestigate whether"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "these dynamics generalize to other speech tasks, such as multilin-"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "gual emotion recognition or speaker identification, and whether they"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "are consistent across different\nlarge-scale pre-trained models. Code"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": "is available at https://github.com/harryporry77/Behind-the-Scenes"
+        },
+        {
+          "pass to enable fine-grained reconstruction control.": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Potts, “Do language models use their depth efficiently?,” arXiv"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "This work was\nsupported by the National Natural Science Foun-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "preprint arXiv:2505.13898, 2025."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "dation of China (Grant No.\n12411530075) and the Royal Society",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[13] Nostalgebraist,\n“Interpreting\ngpt:\nthe"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "(Grant No. IEC\\NSFC\\233558).",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "https://www.lesswrong.\nlogit\nlens,”"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "com/posts/AcKRB8wDpdaN6v6ru/"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "6. REFERENCES",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "interpreting-gpt-the-logit-lens,\nAugust"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "2020."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[1] Alec Radford,\nJong Wook Kim, Tao Xu, Greg Brockman,",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[14]\nSimon Kornblith, Mohammad Norouzi, Honglak Lee, and Ge-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Christine McLeavey,\nand\nIlya Sutskever,\n“Robust\nspeech",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "offrey Hinton,\n“Similarity of neural network representations"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "recognition via large-scale weak supervision,” in International",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "revisited,”\nin International conference on machine learning."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "conference on machine learning. PMLR, 2023, pp. 28492–",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "PMlR, 2019, pp. 3519–3529."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "28518.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[15] Daking Rai, Yilun Zhou, Shi Feng, Abulhair Saparov,\nand"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[2] Alexei Baevski, Yuhao Zhou, Abdelrahman Mohamed,\nand",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Ziyu Yao,\n“A practical\nreview of mechanistic interpretabil-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Michael Auli, “wav2vec 2.0: A framework for self-supervised",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "arXiv preprint\nity for\ntransformer-based language models,”"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "learning of speech representations,” Advances in neural infor-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "arXiv:2407.02646, 2024."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "mation processing systems, vol. 33, pp. 12449–12460, 2020.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[16] Ruizhe Li and Yanjun Gao,\n“Anchored answers: Unravelling"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[3] Wei-Ning Hsu,\nBenjamin Bolte,\nYao-Hung Hubert\nTsai,",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "arXiv\npositional bias\nin gpt-2’s multiple-choice questions,”"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Kushal Lakhotia, Ruslan Salakhutdinov,\nand Abdelrahman",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "preprint arXiv:2405.03205, 2024."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Mohamed,\n“Hubert:\nSelf-supervised speech representation",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[17] Ruizhe Li, Chen Chen, Yuchen Hu, Yanjun Gao, Xi Wang, and"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "IEEE/ACM\nlearning by masked prediction of hidden units,”",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Emine Yilmaz,\n“Attributing response to context: A jensen-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "transactions on audio, speech, and language processing, vol.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "shannon divergence driven mechanistic study of context at-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "29, pp. 3451–3460, 2021.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "arXiv preprint\ntribution in retrieval-augmented generation,”"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "arXiv:2505.16415, 2025."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[4] Luping Wang, Sheng Chen, Linnan Jiang, Shu Pan, Runze Cai,",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Sen Yang, and Fei Yang,\n“Parameter-efficient fine-tuning in",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[18]\nShahar Katz, Yonatan Belinkov, Mor Geva,\nand Lior Wolf,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "large language models: a survey of methodologies,” Artificial",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "“Backward lens: Projecting language model gradients into the"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Intelligence Review, vol. 58, no. 8, pp. 227, 2025.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "vocabulary space,” arXiv preprint arXiv:2402.12865, 2024."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[19] Chih-Kai Yang, Neo Ho, Yi-Jyun Lee, and Hung-yi Lee, “Au-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[5] Nakamasa Inoue, Shinta Otake, Takumi Hirose, Masanari Ohi,",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "diolens: A closer look at auditory attribute perception of large"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "and Rei Kawakami, “Elp-adapters: Parameter efficient adapter",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "audio-language models,”\narXiv preprint arXiv:2506.05140,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "tuning for various speech processing tasks,” IEEE/ACM Trans-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "2025."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "actions on Audio, Speech, and Language Processing, 2024.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[20] Bj¨orn Schuller, Gerhard Rigoll, and Manfred Lang,\n“Speech"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[6] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "emotion recognition combining acoustic features and linguis-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu Chen, et al.,",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "tic information in a hybrid support vector machine-belief net-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "“Lora: Low-rank adaptation of large language models.,” ICLR,",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "work architecture,” in 2004 IEEE international conference on"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "vol. 1, no. 2, pp. 3, 2022.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "acoustics, speech, and signal processing. IEEE, 2004, vol. 1,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[7] Rizhao Cai, Zitong Yu, Chenqi Kong, Haoliang Li, Chang-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "pp. I–577."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "sheng Chen, Yongjian Hu, and Alex C Kot, “S-adapter: Gener-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[21] Zixiang Wan, Ziyue Qiu, Yiyang Liu, and Wei-Qiang Zhang,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "alizing vision transformer for face anti-spoofing with statistical",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "“Metadata-enhanced speech emotion recognition: Augmented"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "tokens,” IEEE Transactions on Information Forensics and Se-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "residual integration and co-attention in two-stage fine-tuning,”"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "curity, vol. 19, pp. 8385–8397, 2024.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "ICASSP 2025-2025\nIEEE International Conference\non\nin"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[8] Zheshu Song, Jianheng Zhuo, Yifan Yang, Ziyang Ma, Shix-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Acoustics,\nSpeech\nand Signal Processing (ICASSP).\nIEEE,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "iong Zhang,\nand Xie Chen,\n“Lora-whisper:\nParameter-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "2025, pp. 1–5."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "arXiv\npreprint\nefficient\nand\nextensible multilingual\nasr,”",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[22] Nineli Lashkarashvili, Wen Wu, Guangzhi Sun, and Philip C"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "arXiv:2406.06619, 2024.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Woodland, “Parameter efficient finetuning for speech emotion"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[9]\nSiddique Latif, Rajib Rana, Sara Khalifa, Raja Jurdak, Junaid",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "recognition and domain adaptation,”\nin ICASSP 2024-2024"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "IEEE International Conference on Acoustics, Speech and Sig-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "Qadir,\nand Bj¨orn Schuller,\n“Survey of deep representation",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "IEEE Transactions\nlearning for speech emotion recognition,”",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "nal Processing (ICASSP). IEEE, 2024, pp. 10986–10990."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "on Affective Computing, vol. 14, no. 2, pp. 1634–1654, 2021.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[23] Carlos\nBusso,\nMurtaza\nBulut,\nChi-Chun\nLee,\nAbe"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Kazemzadeh,\nEmily Mower,\nSamuel Kim,\nJeannette N"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[10] Erik Goron, Lena Asai, Elias Rut, and Martin Dinov, “Improv-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Chang, Sungbok Lee, and Shrikanth S Narayanan,\n“Iemocap:"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "ing domain generalization in speech emotion recognition with",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Lan-\nInteractive emotional dyadic motion capture database,”"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "whisper,”\nin ICASSP 2024-2024 IEEE International Confer-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "guage resources and evaluation, vol. 42, no. 4, pp. 335–359,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "ence on Acoustics, Speech and Signal Processing (ICASSP).",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "2008."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "IEEE, 2024, pp. 11631–11635.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "[24]\nJaden Fiotto-Kaufman, Alexander R Loftus, Eric Todd,\nJan-"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "[11] Li-Wei Chen and Alexander Rudnicky,\n“Exploring wav2vec",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "nik Brinkmann, Koyena Pal, Dmitrii Troitskii, Michael Ripa,"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "2.0 fine tuning for improved speech emotion recognition,”\nin",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "Adam Belfki, Can Rager, Caden Juang, et al.,\n“Nnsight and"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "ICASSP 2023-2023 IEEE international conference on acous-",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "ndif: Democratizing access to open-weight foundation model"
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "tics, speech and signal processing (ICASSP). IEEE, 2023, pp.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": "internals,” arXiv preprint arXiv:2407.14561, 2024."
+        },
+        {
+          "5. ACKNOWLEDGEMENTS": "1–5.",
+          "[12] R´obert Csord´as, Christopher D Manning,\nand Christopher": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Tao Xu",
+        "Greg Brockman",
+        "Christine Mcleavey",
+        "Ilya Sutskever"
+      ],
+      "year": "2023",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "3",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Yuhao Zhou",
+        "Abdelrahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "4",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM transactions on audio, speech, and language processing"
+    },
+    {
+      "citation_id": "5",
+      "title": "Parameter-efficient fine-tuning in large language models: a survey of methodologies",
+      "authors": [
+        "Luping Wang",
+        "Sheng Chen",
+        "Linnan Jiang",
+        "Shu Pan",
+        "Runze Cai",
+        "Sen Yang",
+        "Fei Yang"
+      ],
+      "year": "2025",
+      "venue": "Artificial Intelligence Review"
+    },
+    {
+      "citation_id": "6",
+      "title": "Elp-adapters: Parameter efficient adapter tuning for various speech processing tasks",
+      "authors": [
+        "Nakamasa Inoue",
+        "Shinta Otake",
+        "Takumi Hirose",
+        "Masanari Ohi",
+        "Rei Kawakami"
+      ],
+      "year": "2024",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "7",
+      "title": "Lora: Low-rank adaptation of large language models",
+      "authors": [
+        "J Edward",
+        "Yelong Hu",
+        "Phillip Shen",
+        "Zeyuan Wallis",
+        "Yuanzhi Allen-Zhu",
+        "Shean Li",
+        "Lu Wang",
+        "Weizhu Wang",
+        "Chen"
+      ],
+      "year": "2022",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "8",
+      "title": "S-adapter: Generalizing vision transformer for face anti-spoofing with statistical tokens",
+      "authors": [
+        "Rizhao Cai",
+        "Zitong Yu",
+        "Chenqi Kong",
+        "Haoliang Li",
+        "Changsheng Chen",
+        "Yongjian Hu",
+        "Alex Kot"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Information Forensics and Security"
+    },
+    {
+      "citation_id": "9",
+      "title": "Lora-whisper: Parameterefficient and extensible multilingual asr",
+      "authors": [
+        "Zheshu Song",
+        "Jianheng Zhuo",
+        "Yifan Yang",
+        "Ziyang Ma",
+        "Shixiong Zhang",
+        "Xie Chen"
+      ],
+      "year": "2024",
+      "venue": "Lora-whisper: Parameterefficient and extensible multilingual asr",
+      "arxiv": "arXiv:2406.06619"
+    },
+    {
+      "citation_id": "10",
+      "title": "Survey of deep representation learning for speech emotion recognition",
+      "authors": [
+        "Siddique Latif",
+        "Rajib Rana",
+        "Sara Khalifa",
+        "Raja Jurdak",
+        "Junaid Qadir",
+        "Björn Schuller"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "11",
+      "title": "Improving domain generalization in speech emotion recognition with whisper",
+      "authors": [
+        "Erik Goron",
+        "Lena Asai",
+        "Elias Rut",
+        "Martin Dinov"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Exploring wav2vec 2.0 fine tuning for improved speech emotion recognition",
+      "authors": [
+        "Li-Wei Chen",
+        "Alexander Rudnicky"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE international conference on acoustics, speech and signal processing (ICASSP)"
+    },
+    {
+      "citation_id": "13",
+      "title": "Do language models use their depth efficiently?",
+      "authors": [
+        "Róbert Csordás",
+        "Christopher Manning",
+        "Christopher Potts"
+      ],
+      "year": "2025",
+      "venue": "Do language models use their depth efficiently?",
+      "arxiv": "arXiv:2505.13898"
+    },
+    {
+      "citation_id": "14",
+      "title": "8wDpdaN6v6ru/ interpreting-gpt-the-logit-lens",
+      "authors": [
+        "Nostalgebraist"
+      ],
+      "year": "2020",
+      "venue": "8wDpdaN6v6ru/ interpreting-gpt-the-logit-lens"
+    },
+    {
+      "citation_id": "15",
+      "title": "Similarity of neural network representations revisited",
+      "authors": [
+        "Simon Kornblith",
+        "Mohammad Norouzi",
+        "Honglak Lee",
+        "Geoffrey Hinton"
+      ],
+      "year": "2019",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "16",
+      "title": "A practical review of mechanistic interpretability for transformer-based language models",
+      "authors": [
+        "Daking Rai",
+        "Yilun Zhou",
+        "Shi Feng",
+        "Abulhair Saparov",
+        "Ziyu Yao"
+      ],
+      "year": "2024",
+      "venue": "A practical review of mechanistic interpretability for transformer-based language models",
+      "arxiv": "arXiv:2407.02646"
+    },
+    {
+      "citation_id": "17",
+      "title": "Anchored answers: Unravelling positional bias in gpt-2's multiple-choice questions",
+      "authors": [
+        "Ruizhe Li",
+        "Yanjun Gao"
+      ],
+      "year": "2024",
+      "venue": "Anchored answers: Unravelling positional bias in gpt-2's multiple-choice questions",
+      "arxiv": "arXiv:2405.03205"
+    },
+    {
+      "citation_id": "18",
+      "title": "Attributing response to context: A jensenshannon divergence driven mechanistic study of context attribution in retrieval-augmented generation",
+      "authors": [
+        "Ruizhe Li",
+        "Chen Chen",
+        "Yuchen Hu",
+        "Yanjun Gao",
+        "Xi Wang",
+        "Emine Yilmaz"
+      ],
+      "year": "2025",
+      "venue": "Attributing response to context: A jensenshannon divergence driven mechanistic study of context attribution in retrieval-augmented generation",
+      "arxiv": "arXiv:2505.16415"
+    },
+    {
+      "citation_id": "19",
+      "title": "Backward lens: Projecting language model gradients into the vocabulary space",
+      "authors": [
+        "Shahar Katz",
+        "Yonatan Belinkov",
+        "Mor Geva",
+        "Lior Wolf"
+      ],
+      "year": "2024",
+      "venue": "Backward lens: Projecting language model gradients into the vocabulary space",
+      "arxiv": "arXiv:2402.12865"
+    },
+    {
+      "citation_id": "20",
+      "title": "Audiolens: A closer look at auditory attribute perception of large audio-language models",
+      "authors": [
+        "Chih-Kai Yang",
+        "Neo Ho",
+        "Yi-Jyun Lee",
+        "Hung-Yi Lee"
+      ],
+      "year": "2025",
+      "venue": "Audiolens: A closer look at auditory attribute perception of large audio-language models",
+      "arxiv": "arXiv:2506.05140"
+    },
+    {
+      "citation_id": "21",
+      "title": "Speech emotion recognition combining acoustic features and linguistic information in a hybrid support vector machine-belief network architecture",
+      "authors": [
+        "Björn Schuller",
+        "Gerhard Rigoll",
+        "Manfred Lang"
+      ],
+      "year": "2004",
+      "venue": "2004 IEEE international conference on acoustics, speech, and signal processing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Metadata-enhanced speech emotion recognition: Augmented residual integration and co-attention in two-stage fine-tuning",
+      "authors": [
+        "Zixiang Wan",
+        "Ziyue Qiu",
+        "Yiyang Liu",
+        "Wei-Qiang Zhang"
+      ],
+      "year": "2025",
+      "venue": "ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "23",
+      "title": "Parameter efficient finetuning for speech emotion recognition and domain adaptation",
+      "authors": [
+        "Nineli Lashkarashvili",
+        "Wen Wu",
+        "Guangzhi Sun",
+        "Philip Woodland"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "25",
+      "title": "Nnsight and ndif: Democratizing access to open-weight foundation model internals",
+      "authors": [
+        "Jaden Fiotto-Kaufman",
+        "Alexander Loftus",
+        "Eric Todd",
+        "Jannik Brinkmann",
+        "Koyena Pal",
+        "Dmitrii Troitskii",
+        "Michael Ripa",
+        "Adam Belfki",
+        "Can Rager",
+        "Caden Juang"
+      ],
+      "year": "2024",
+      "venue": "Nnsight and ndif: Democratizing access to open-weight foundation model internals",
+      "arxiv": "arXiv:2407.14561"
+    }
+  ]
+}

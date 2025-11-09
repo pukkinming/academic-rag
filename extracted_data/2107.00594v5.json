@@ -1,0 +1,1577 @@
+{
+  "paper_id": "2107.00594v5",
+  "title": "Pretext Tasks Selection For Multitask Self-Supervised Audio Representation Learning",
+  "published": "2021-07-01T16:36:29Z",
+  "authors": [
+    "Salah Zaiem",
+    "Titouan Parcollet",
+    "Slim Essid",
+    "Abdel Heba"
+  ],
+  "keywords": [
+    "Self-Supervised learning",
+    "Conditional Independence",
+    "Audio Representation Learning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Through solving pretext tasks, self-supervised learning leverages unlabeled data to extract useful latent representations replacing traditional input features in the downstream task. In audio and speech signal processing, a wide range of features were engineered through decades of research efforts. As it turns out, learning to predict such features has proven to be a particularly relevant pretext task, leading to useful self-supervised representations which prove to be effective for downstream tasks. However, methods and common practices for combining such pretext tasks for better performance on the downstream task have not been explored and understood properly. In fact, the process relies almost exclusively on a computationally heavy experimental procedure, which becomes intractable with the increase of the number of pretext tasks. This paper introduces a method to select a group of pretext tasks among a set of candidates. The method we propose estimates calibrated weights for the partial losses corresponding to the considered pretext tasks during the self-supervised training process. The experiments conducted on automatic speech recognition, speaker and emotion recognition and instrument classification validate our approach as the groups selected and weighted with our method perform better than classic baselines, thus facilitating the selection and combination of relevant pretext-task labels for self-supervised representation learning.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Self-supervised learning (SSL) methods usually rely on a supervision obtained from the data itself through solving specific pretext tasks leveraging the underlying structure of the considered data  [1] ,  [2] . This technique is used in various domains including image processing  [3] -  [5] , natural language understanding  [6] -  [8]  or speech and audio processing  [9] -  [11] . It offers numerous advantages, such as the independence from labeled data, stronger performance on downstream tasks, more robust models and an easier transfer to low-resource setups (e.g., low-resource languages)  [4] ,  [9] .\n\nThe numerous existing SSL approaches are characterized by the nature of the pretext tasks they solve. For instance, common techniques include predictive coding  [9] ,  [10] ,  [12] -  [14] , pretext-task label learning  [15] ,  [16] , auto-encoding  [17] ,  [18] , triplet-loss learning  [19] ,  [20] , generative modelling  [21] , contrastive learning  [11] ,  [22] , denoised masked speech modelling  [23] , and leveraging labeled and unlabeled data in hybrid trainings  [24] . More precisely, these pretext tasks may be defined through the choice of pretext labels, hereafter referred to as pretext-task labels. The automatic extraction of pretext-task labels for SSL (i.e. from the data itself) is common in many application domains, such as computer vision  [25] ,  [26] , music processing  [27] ,  [28] , speech processing  [15] ,  [29]  and is commonly referred to as multitask self supervised learning. In the specific context of speech processing, the process of designing pretext-task labels may benefit from decades of research in signal processing. For instance, potential candidates are pitch estimations, energy-based features, voicing state, noise estimations and many more.\n\nAs demonstrated by  [15] ,  [28] , multitask speech representation learning is a powerful tool to build representations that are beneficial for a wide range of distinct downstream tasks by combining different pretext-task labels which intuitively correspond to these tasks. Unfortunately, there is no clear understanding of the pretext-task labels' complementarity during joint multi-task SSL training, and therefore, no common practice describing a group selection strategy for pretext-task labels to obtain better performance on a known downstream task. As a matter of fact, this design process has been essentially driven by empirical validation. This empirical approach can rapidly become intractable with modern SSL architectures which may contain billions of parameters trained on thousands of hours of speech, not to mention the carbon footprint of such pretexttask label searches. For instance, the self-supervised training of a single state-of-the-art large wav2vec 2.0 model  [9]  on 53.2k hours of speech currently requires 128 GPUs for 5.2 days.\n\nThis paper builds on previously published work  [30]  which validated Conditional Independence (CI) for individual pretext-task selection. It aims at providing a clear, efficient and theoretically motivated procedure for pretext-task label group selection and weighting based on CI. The method presented allows one to design ahead of training the most adapted multitask self-supervised speech representation learning model which perfectly suits the considered downstream tasks. Such an approach may also enable researchers to save a substantial amount of time and compute devoted to pretext-task label search. Hence, the contributions of this work are fourfold:\n\n1) Introduce a theoretically motivated and computationally efficient method for the selection of groups of pretexttask label among a set of candidates and with respect to the considered downstream tasks (Sections III and V). 2) Validate empirically the proposed approach with a first SSL model relying on different sets of pretext-task labels, corresponding to the ones obtained for three arXiv:2107.00594v5 [eess.AS] 11 Nov 2022 considered speech tasks. (Sections VI). 3) Extend our method to state-of-the-art architectures such as wav2vec 2.0 to enhance its performance and expose the scaling capabilities of our solution (Section VI-D). 4) Perform a thorough study of the robustness and generalization potential of this technique to various changes including: type of data, pretraining and finetuning datasets and pretext-task candidates with an application on instrument classification. 5) Release the code base developed with SpeechBrain  [31]  for replication and to encourage further investigations. 1  The conducted experiments demonstrate that the proposed method allows for a more intelligent, i.e. better informed, pretext-task label group selection for multitask SSL settings. Indeed, we find that the models built with the proposed method obtain a word error rate, an equal error rate and an emotion recognition accuracy respectively, 31.6% and 27.4% and 7.8% lower than the baseline, without the need for any empirical search on the pretext-task selection or weighting. When changing the pretraining dataset and the type of data to tackle musical instrument recognition, the accuracy of the best models is 11% better than the baseline on solos and 4% better in multi-instrument settings.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Related Works And Motivations",
+      "text": "SSL recently became a key component to achieve good performance on downstream tasks especially with low-resource setups, either in speech  [9] ,  [32] , natural language processing  [6] ,  [8]  or computer vision  [3] ,  [4] ,  [33] . Due to its very nature, SSL for Speech. Self-supervised learning for speech has recently enabled researchers to reach state-of-the-art results on various speech processing tasks  [34] . The most successful models rely on predictive and contrastive objectives  [9] ,  [14] ,  [35] ,  [36]  performing well across the different tasks even in low-resource settings. This led to the design of different benchmarks evaluating the self-supervised representations in different languages  [37] ,  [38] . However, in contrast to this proposition, these works have not tried to theoretically motivate beforehand the pretext task choices made in the selfsupervision pipeline.\n\nUnderstanding SSL. A few works have tried to shed some theoretical light on the mainly empirical field of selfsupervised learning. Following the different paradigms in SSL, various tracks have been followed to understand what makes for a good self-supervised representation, exploring different approaches  [39] -  [41] . On the one hand, contrastive learning  [42] -  [44]  has been advocated both theoretically and empirically to achieve a balance in the mutual information between alternative representations of the data, keeping just enough shared information to retain the class-related content  [45] -  [47] . In a recent work  [48] , independence testing has been used to produce better transformations in contrastive learning settings for image representations. Predictive learning, on the other hand, requires the model to predict masked elements in sequential data. This technique is powerful on downstream tasks that can be reduced to a masking problem, as suggested by research on language modeling  [49] . However, all these works have been focusing solely on computer vision or textrelated applications, and none of them addressed the multi-task self supervision problem.\n\nMulti-task self-supervised learning. While the literature on multi-tasking in self-supervised learning remains scarce, it has been shown in classic supervised learning settings, that through estimates of similarity between tasks or thorough empirical testing, several tasks can take advantage of being solved with a common encoder  [50] -  [53] . More specifically, combining pretext tasks with SSL has been mainly explored in computer vision and speech  [15] ,  [16] . Pretext tasks such as Jigsaw  [1] , colourisation and rotation  [26]  have been combined successfully to improve downstream performance  [54] ,  [55] . The two closest works to our line of research are from Lee et al.  [39]  and Doersch et al.  [56] . The former shows that a theoretical link can be established between the conditional independence of the data points and their pretexttask value given the downstream label, and an improvement of the performance on the downstream task, while the latter proposes to select layers from a multitask self-supervised encoder according to the pretext task to be solved. However, in both cases, while succeeding in presenting a proof-of-concept in multitask speech SSL training, the studies do not offer practical and theoretical solutions to select groups of pretexttask labels to build an adapted SSL model that will perform well on the considered downstream tasks.\n\nGroup feature selection. Finally, feature selection, and especially group feature selection is another close and inspiring field given the problem we consider. The relationship and interactions between features have been largely investigated in the supervised learning literature  [57] . This led to multiple solutions to the feature group selection problem, including LASSO-based techniques  [58] , or multiple kernel formulations  [59] ,  [60] . Another type of popular solutions came from the research on submodularity, leading to information-theoretically motivated group selections  [61] ,  [62] . This has been tried specifically on speech to avoid domain mismatch harming the final downstream performance  [63] . Especially on speech, However, these works do not involve any self-supervision, and links between feature selection, self-supervision design and pretext-task selection are yet to be proved. In the experiments section (Section VI), we will consider these lines of works as concurrent baselines.\n\nWith this work, we aim at shortening the process of designing SSL models through giving insights on how to select suitable pretext tasks towards solving a given dowstream one. We decided to experiment primarily with audio data due to the lack of literature on this domain for multitask SSL, and for the various pretext-task labels available, which are based on decades of signal processing research, before extending to music data. The whole pipeline starting from the acoustic feature extraction to the downstream task scoring follows three major steps summarized in Figure  1 . First, for every downstream task, our method produces a pretext task selection and weighting. Then, a SSL model is trained, before being used as a feature extractor front-end to one or many downstream tasks.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Iii. Conditional Independence For Utility",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Estimation",
+      "text": "As a first step, we require a function that estimates the utility of learning to solve a pretext-task to improve the performance on the downstream task. We use an estimation of the conditional independence between the pretext-task label values and the downstream data points given the downstream labels. Hereafter, we explain the theoretical motivations and describe the computation steps.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Problem Definition And Intuition",
+      "text": "Let X, Y and Z be, respectively, the downstream data points, their downstream labels and their pretext-task labels. Let also C be the set of possible downstream classes. As an example, if one considers speaker recognition as a downstream task, X would be the speech samples, Y the speaker IDs, C the set of unique speaker IDs, and Z an automatically computed signal feature, such as the fundamental frequency.\n\nAs stated in Section II, Lee et al.  [39]  linked the utility of a pretext task defined by the prediction of a pretext-task label (Z) to the conditional independence (CI) between Z and X given Y . The approach prescribes that, given the labels Y , one may seek to quantify how much it is possible to predict the pretext-task labels Z without knowing much about X. The authors bounded, under certain assumptions, the downstream classifier error with a function of the downstream training set size, and a measure of the CI. More precisely, the main theorem shows that the bounding function decreases linearly with the downstream-task dataset size (M ) and quadratically with the CI, which indicates a potential estimator for the pretext task utility.\n\nThese results rely on two assumptions that are not upheld in the remaining of this work. First, the modelling functions are expected to be linear. Given the complexity of the considered downstream tasks, such as speech and speaker recognition, limiting ourselves to linear modelling would lead to very limited downstream performances. Second, we will estimate the conditional independence using a kernelized independence test, while the quantity involved in the proven bounds is\n\nComputing this quantity is unpractical, especially with varying length speech samples while the method we chose to go with has been successfully tested on sequential data  [64] .\n\nWhat mainly holds is the intuition behind the use of conditional independence as a pretext task utility estimator. To get an intuitive understanding of the motivations of this choice, let us consider the example of image classification as the downstream task, and image colourization as the pretext task. In this case, this pretext task would be suited to the downstream one if the final classification label can help implying the colours. For instance, if there are only two classes \"Blue skies\" and \"Yellow deserts\", then colourisation is an interesting pretext task, as knowing the final label helps a lot for the pretext task, independently of the image. Similarly, if all the classes share the same colour palette, colourization may not be an interesting task. (In this toy example, we are ignoring the edge detection aspect of colourization, and only focusing on the colour choice part. Obviously, the former aspect plays a role in the success of the colourization pretext task)\n\nThe proposed function depends on the final downstream task to be solved. This is motivated by two main reasons. First, it can be seen through the large literature on feature selection for various speech or computer vision tasks  [10] ,  [65] -  [68] , that different tasks require the description of different aspects of the data. This suggests that different downstream tasks may perform better after different pre-trainings. A second argument is the difficulty to evaluate representations quality intrinsically, i.e. independently from the choice of a particular downstream task. A few metrics and tests  [69] -  [71]  have been proposed for speech, but the correlation between these and downstream-task performance has not been clearly identified  [18] ,  [72] . Finally, recent experiments adapting the self-supervised representation to the speaker identification task have shown substantial improvements compared to task-agnostic representations  [73] , validating our intuition that downstream task oriented SSL is an interesting trend towards better downstream performances. We could also mention research in semi-supervised learning that managed to reach results comparable to the best SSL models through leveraging unlabeled data  [74] ,  [75] .\n\nThe main issue with CI is the difficulty of computing an estimate of how much two variables are independent given a third one on realistic data  [76] . We will start with proposing a simple way to get an estimation of the conditional independence and validate it on individual pretext task selection.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Conditional Independence Estimate Computation",
+      "text": "This section details the computation of the conditional independence estimate that is used as a measure of pretexttask label utility. Let X = {x i } i∈{0,...,M } with with x i being data samples (e.g., Mel-band spectrogram for audio and speech, every x i here being the Mel-band spectrogram of a given speech segment). Every sample x i has a corresponding downstream label y i and an automatically generated pretexttask label z i . We assume that y i is discrete reducing the task to a classification problem such as with speaker ID for speaker recognition. We also assume that for every pretext-task Z, a single z i value corresponds to each x i . In our case, z i values are the mean of the frame-wise pretext-task label values.\n\nFor independence testing, kernel-based Hilbert Schmidt Independence Criterion (HSIC)  [64]  is used for two reasons. First, HSIC has already proven successful for textual data in testing statistical dependence between translated sentences  [64] . Second, kernel-based techniques facilitate the handling of multivariate and varying-length data such as speech, as the estimation then boils down to the computation of a similarity measure between the considered variables.\n\nComputation steps. The estimation of the CI of a pretexttask label Z for a downstream task (X, Y ) consists of three steps. We start by splitting the data samples X according to the downstream (discrete) classes. Then, we compute for every downstream class c ∈ C, the kernel matrices K c and L c representing the similarity measures for the data samples, and the pretext-task labels, respectively. Finally, we perform the independence test for every split group using K c and L c and aggregate the estimates with a weighted mean taking into account the number of samples per downstream class. Thus, for two speech samples x i and x j , holding two pretexttask label values z i and z j , the coefficients of the similarity matrices K c and L c are computed as follows:\n\n(1)\n\nwith GD(.) the Gaussian Downsampling function, cos(., .) the cosine similarity, and RBF (., .) the Radial Basis Function kernel, defined as:\n\nwhere σ is the width of the RBF kernel and trace(.) the sum of elements of the main diagonal. Note that we compute the matrices K c and L c , for each group of samples sharing the same downstream class c ∈ C. Hence, K c and L c correspond to the definitions above, but restricted to the points with c as a downstream label. For each downstream class c, and as in  [64] , with n c being the number of points of class c, the HSIC value is given by:\n\nwith H c = I nc -1 nc 1 nc 1 T nc , n c being the number of points with label c, and 1 nc a vector of ones of size n c × 1.\n\nThe HSIC value is non-negative and corresponds to the Hilbert norm of their cross-covariance matrix. It is used to characterize the independence of the two considered quantities. Intuitively, the HSIC value is high if samples similar in K c are similar in L c . Therefore, the lower this value is, the more independent the two arguments of HSIC are and the better the pretext-task label should be for self-supervision before finetuning on the downstream class. The final value for a given pretext-task label and a downstream task is expressed as:\n\nwith M being the number of points in the whole dataset.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Validation On Individual Selection",
+      "text": "This section validates individual pretext task selection pretraining the encoder on the English Common Voice dataset and using the learned representations for two downstream tasks; Automatic Speech Recongition using TIMIT, and Speaker Verification using VoxCeleb1.\n\nSSL pretraining. The train set of the English Common Voice dataset (version 5.1)  [77]  is used for SSL pretraining (700 hours). Common Voice is a collection of speech utterances from worldwide users recording themselves from their own devices. Hence, the closeness to natural settings makes it a suitable choice for self-supervised learning. We remove from Common Voice the sentences lasting more than 10 seconds, as they often contain long silence parts due to open microphones. Downstream evaluation datasets. TIMIT  [78]  is considered for the speech recognition task. It is composed of a standard 462-speakers training set, a 50-speakers development set and a core test set of 192 sentences for a total of 5 hours of clean speech. For the CI estimation, and to get discrete labels to split on, we cut the sentences at the phone level, using the official transcripts. VoxCeleb1  [79]  is used for the speaker verification task. The training set contains 148, 642 utterances from 1, 251 different speakers. The conditional independence is computed at the phone level for ASR and utterance level for speaker recognition making the assumption that phone segments are entirely independent samples Pretext-task labels and architecture details. Based on previous work conclusions  [11] ,  [16] , apart from the pretexttask label to be tested, our self-supervised model learns to reconstruct the input Mel spectrograms, and to compute 40dimensioned MFCC feature vectors. These targets are kept to avoid information loss harming heavily downstream performances. Inspired by the PASE model  [15] ,  [16] , the model consists of an encoder followed by small predictors limited in capacity (more details on the architectures in appendix A) .\n\nInitial results. Figure  2  summarizes the results of the experiment for all the considered pretext-task labels, reporting the CI estimates and the downstream performance for each of the two tasks. It shows the evolution of the conditional independence estimator and the PER and EER, respectively on TIMIT and VoxCeleb. In both figures, the two curves seem to follow the same trajectories showing a monotonic relationship.\n\nAccording to theoretical insights  [39] , the lower the CI estimate is, the more independent is the pretext-task label from the samples given the labels and the lower should the downstream error be. Hence, we are looking for a monotonic relationship between CI estimates and downstream errors. We consider two classic assessors of monotony: Spearman Correlation and Kendall τ . While Pearson correlation measures the linear correlation between the values, Spearman correlation is a Pearson Correlation on the ranks of the values. Kendall τ considers all the pairs of pretext-task labels and checks whether their order in the CI estimate is the same for the error rate ( i.e the pair is concordant ). The more concordant pairs there are, the higher Kendall τ is.\n\nSpearman correlations reach 0.48 for speaker recognition and a high 0.93 on TIMIT for ASR, while Kendall τ is respectively 0.41 and 0.81 for the two tasks. The correlations between CI and the downstream error are logically positive confirming the work of Lee et al.  [39] .",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "V. Pretext Task Group Selection And Weighting",
+      "text": "While we now are able to predict the utility of every considered pretext task individually, the next step remains to define a clever way to combine them optimally within the same pre-training process. Hence, we introduce a method to select a group of pretext-task labels and weight their respective losses to increase or decrease their importance in the self-supervised representation. Such an optimisation of the latent representation is expected to provide better downstream performance. Our method minimises the conditional dependence between the resulting group pretext task, entailing the prediction of a selected pretext-task label group and the downstream samples given the downstream labels.\n\nGiven a set of k possible pretext-task labels (Z i ) i∈[k] (this notation meaning for i an integer between 1 and k), we seek to estimate a set of parameters (λ i ) i∈[k] weighting the loss of every pretext-task label Z i during the pre-training phase. Hence, we define a grouping pretext-task label Z λ as an orthogonal concatenation of\n\nwill be used during the pretraining to scale the loss of every corresponding pretext task\n\nThe custom conditional HSIC computation pipeline described above is fully differentiable with respect to (λ i ) i∈  [k]  . In the HSIC computation, the data similarity matrices {K c } c∈C are independent of Z and therefore of λ. Only the pretexttask label similarity matrices {L c } c∈C are changed. For every downstream class c, L c is defined as:\n\nwhere z h,i denotes the mean value of the h-th pretext-task label for the i-th data point in the dataset.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "A. Constraints On The Weights",
+      "text": "The conditional-independence based utility estimator must be optimized with respect to the weighting parameters (λ i ) i∈[k] and three constraints.\n\nFirst, the parameters (λ i ) i∈[k] must be non negative, as they are used as weights for the corresponding losses. A negative weighting loss would lack interpretability as it could imply that the self-supervised model should \"unlearn\" the corresponding pretext task. This may be the case for adversarial learning, but we are not considering this case in this work.\n\nSecond, the value of the weights must be high enough. Indeed, the presented method for estimating the conditional independence assumes that the considered pretext-task label Z is not independent of X. It is fortunately true for speech features, as Z is a function of X, but not always valid. For instance, with (λ i ) i∈[k] = 0, the utility estimator would be zero and thus the lowest (i.e. the best), but it would break the assumption of non independence between Z and X, and would nullify the participation of the pretext tasks to the training loss. Furthermore, the HSIC value decreases with positive decreasing values of (λ i ) i∈[k] and we thus need to ensure that the sum of the weights is significantly higher than zero to ensure that the pretext tasks are significantly considered in the pretraining loss.\n\nFinally, for a fair comparison between the weighting choices during the optimization, the sum of the weights should remain constant. In the following, the sum of the (λ i ) i∈[k] is fixed to one and the problem is summarized as follows:\n\nTo minimize the estimator quantity while respecting the constraints, the weights used in the computation of the CI value are the softmax output of free learnable parameters\n\nSoftmax enforces the conditions while being differentiable and the problem becomes:",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "B. Weights Sparsity",
+      "text": "Another trait that is desirable for the weighting vector is sparsity. If a few pretext-task labels are not needed for the given downstream task, they would rather be discarded than given a low weight. First, this would save computation time including the extraction of the pretext-task labels, and their extraction and prediction during the self-supervised training process. Second, it would help with transparency to understand what features are included or not in the latent space. This sparsity property is also related to feature selection such as with LASSO  [58] . To ensure the sparsity of the output weighting vector, while maintaining the desired property of differentiability, we choose the sparsemax function  [80]  to replace softmax in equation  (9) .",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Vi. Experimental Setup",
+      "text": "This section details the experiments validating the introduced group selection and weighting strategy, showing its addition to state-of-the-art predictive coding approaches, and testing its robustness. It, first, describes the selection and weighting processes (Section VI-A), the SSL models (Section VI-B), the downstream tasks (Section VI-C), the obtained results (Section VII). Then, it shows how the technique can improve wav2vec2.0  [9]  embeddings (Section VI-D).",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "A. Group Selection And Weighting",
+      "text": "In the first attempt, the same pretext tasks presented in Table  I  are used for the group selection and weighting experiments. According to Figure  1  (step 1), we group these pretext-task labels based on their weights, i.e. by optimising Eq. (  9 ) to   [84]  used as a baseline in this work relies on the Conditional Independence based estimator. It is close to a naive selection of the best pretext tasks according to the CI-based criterion, but it furthermore penalizes the mutual information between the selected pretext tasks. More precisely, we select a group of p = 4 pretext-task labels (Z) i∈[p] maximizing :\n\n-\n\nRecursive Feature Elimination (RFE)  [85]  relies on a classifier that provides information concerning the importance of a given feature in the decision. This classifier is first trained with the whole set of pretext-task labels as features, and the least important feature is eliminated. The process is repeated until only 4 pretext-task labels are kept. We use the scikitlearn implementation with the C-Support Vector Classification as the classifier providing the feature importance values with the default scikit-learn hyperparameters.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "B. Self-Supervised Training",
+      "text": "In the second step of Figure  1 , the SSL model learns to predict the selected pretext-task labels. For every one of those, the loss is multiplied by the corresponding assigned weight. As for individual pretext-task testing, the network learns to reconstruct the input Mel spectrograms, and to compute 40-dimensional Mel-Frequency Cepstral Coefficients (MFCC) feature vectors. These targets are usually kept to avoid information loss harming heavily downstream performance and are used in all our experiments. For a given weighting vector (λ i ) i∈[k] , the self-supervised loss is defined as: Prior to extending our method to state-of-the-art architectures such as wav2vec 2.0 that are particularly costly to train, we propose to first employ a PASE-like model to empirically validate the approach. The encoder and worker architectures are those described in appendix A.\n\nThe SSL model is learned on the training set of the English Common Voice dataset (version 5.1; 700 hours). 700 hours of speech is a relatively small amount compared to what is generally used for state-of-the-art SSL models. However, we believe it is a sound choice as this is generally greater than what is typically available in SSL use-cases like low-resource languages. We decided to not use the LibriSpeech dataset for pre-training as it is part of our downstream evaluation protocol hence alleviating a strong bias shown in table IV.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "C. Downstream Tasks",
+      "text": "Our proposed pretext-task label selection strategy is compared with the two baselines on three different downstream tasks leading to different groups of pretext-task labels: automatic speech recognition (ASR, with LibriSpeech 100 hours) speaker recognition (SR, with VoxCeleb 1), and emotion recognition (ER with IEMOCAP). Datasets and downstream architectures are inspired from the SUPERB benchmark  [37]  for self-supervised learning representations and carefully described in Appendix B. Prior to downstream training, the SSL model are frozen to be used as a feature extractor with the new pipeline that is task-dependent. We do not use any data augmentation for a pristine comparison of the learned models.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "D. Extending Wav2Vec 2.0 To Multitask Ssl",
+      "text": "To the best of our knowledge, multi-task speech representation learning has not been scaled to a point where it could represent a state-of-the-art alternative. Contrastive predictive coding  [42]  based techniques like wav2vec 2.0  [9] , on the other hand, currently trust most of the leader-boards for speech-related tasks. Recently, Sadhu et al.  [87]  showed that combining a consistency loss and contrastive predictive coding improves the results of the wav2vec 2.0 architectures in noisy conditions. Following this idea, we propose to further validate our selection method with an extension of wav2vec 2.0 to multitask SSL to demonstrate its scaling capabilities. Hence, the training loss is extended in a second experiment to:\n\nWe use the standard BASE wav2vec 2.0 first described in  [9]  as a SSL model and train it with the same Common Voice dataset. The pre-training pipeline is implemented within SpeechBrain. The trained BASE model has been compared to one obtained with the official Fairseq implementation from  [9] , and results are strictly equivalent. The entire recipe alongside with the large set of hyperparameters needed to properly train a wav2vec 2.0 model are released under our repository and will be made available within SpeechBrain afterwards.\n\nWe follow the SUPERB benchmark conventions  [37]  both at the data and downstream architecture levels. Hence, and conversely to the previous experiments, the ASR system solely optimises the CTC criterion over characters. For each of the three tasks (i.e. ASR, SV, ER) we compare the standard BASE Wav2vec 2.0 model with one trained following the sparsemax selection of multitask SSL. Sparsemax is chosen over softmax because it enforces the sparsity criterion and removes completely a few pretext-task labels from the training, which is one of the objectives of this work. Another experiment is led with a \"naive\" pretext-task selection where a constant weight of 0.5 is used across all signal-based pretext-tasks. Each wav2vec 2.0 model required 24 NVIDIA Tesla V100 GPUs to train for 150 epochs (40 hours). Finally, we also propose to compare frozen and unfrozen (i.e. where the wav2vec 2.0 encoder is fine-tuned with the downstream task) SSL models.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Vii. Experimental Results",
+      "text": "This sections details the main experiments validating the proposed approach on speech data. Table  II  shows the results of the group selection methods on the three considered downstream tasks, while Table  III  shows the impact of adding a careful selection of pretext tasks to Wav2vec 2.0 training loss.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "A. Group Selection Results",
+      "text": "Baselines detailed in Section VI-A are respectively referred to as \"All\", \"RFE\" and \"MRMR\". First, it is clear from the without LM. Hence, our method even further decreases the WER while being only pretrained with a reasonable amount of data (i.e. only 700 hours compared to a few thousands for common SSL techniques  [9] ). As expected, introducing the joint decoding with a language model strongly decreases the WER but also introduces a bias in our comparison as probabilities are smoothed with a third-party neural model. Nevertheless, and even in this scenario, our weighting strategy outperforms all the baselines. In the context of speaker recognition, Sparsemax beats Softmax with an EER 0.61 lower. For IEMOCAP, Softmax and Sparsemax weighting still perform the best among all methods. To investigate how strongly improvements are correlated to the task, we took the best learned model for LibriSpeech (i.e. softmax weighting) and fine-tuned it on VoxCeleb1 and IEMOCAP. It reaches an EER of 10.55% and an accuracy of 59.9% respectively. While it performs better than the baselines, the difference between these results and the best performing selections shows that the weightings are indeed task-related.  III  show that our approach improves the performance over the standard wav2vec 2.0 framework for every considered downstream task. While adding pretext tasks naively improves the final performance, the difference in performance between the naive selection and the sparsemax weighting shows the benefit of our method in getting the best downstream performance. Unsurprisingly this difference is small (though statistically significant in all but one case), as the wav2vec 2.0 BASE is already powerful and the additional workers are anyway useful. Here, it is worth noting that the difference in performance compared to the literature mostly comes from the pre-training conditions. For instance, wav2vec 2.0 is commonly pre-trained with larger models on LibriSpeech to achieve lower WER on this dataset.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "B. Wav2Vec 2.0 Extension Results",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Results Reported In Table",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Viii. Robustness Analysis",
+      "text": "This section explores the robustness of the method to changes in the pretraining dataset, in the audio data type and in the set of considered pretext tasks.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A. Pretraining Dataset Robustness",
+      "text": "It is common in the speech SSL literature to train on LibriSpeech 960 before fine-tuning on LibriSpeech100. As explained before, we believe that this introduces a bias due to the closeness of pretraining and finetuning data. Studies have shown, for instance, that adding the downstream training dataset to the pretraing set of wav2vec 2.0 leads to a better downstream word error rates  [88] . To verify this, we train our best multitask BASE wav2vec 2.0 architecture with the best performing pretext tasks and their weights on LibriSpeech 960. The model follows the exact same training procedure as for Table  III . We fine-tune the models on LibriSpeech 100 exactly as it has been done with the other models. Table  IV  shows the results. Two observations deserve to be noted. First, in this case also, adding a selected set of pretext tasks improves the final downstream performance in the frozen and finetuned cases. Second, as expected, the results obtained after training on Librispeech960 are better than with CommonVoice, reaching the lowest 6.01% with the fine-tuned version compared to 9.18% in table III.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "B. Task And Pretext Tasks Change Robustness",
+      "text": "To further validate the proposed technique and test its robustness to task and data change, the following section will detail experiments led on multi-task self supervised learning for musical instrument recognition.\n\nTask change : Instrument Recognition In a first phase, the same pretext-tasks are kept and the weights are computed in a similar way. However, to be closer to the downstream task, we use AudioSet \"Musical Instrument\" partition for the SSL training instead of CommonVoice. The partition contains 57052 files for a total duration of 155 hours. To compute the SSL training weights, the Medley-solos-DB instrument classification dataset is used. Two reasons motivate this choice. First, the music excerpts used come from real instrument recordings as opposed to synthesized audio files from MIDI annotations. Second, every file corresponds to a single instrument played solo thus facilitating the CI estimation. We further test the representations learned in a multi-instrument setting with the OpenMIC-2018 dataset. This tests the robustness of our approach when generalising to a different downstream dataset of a slightly different task. Hence, we start by computing the pretext tasks weights corresponding to Medley-solos-DB and train the encoder using these weights. Then, it is important to note that the same encoder will be used for the two downstream tasks, i.e Medley-solos-DB and OpenMIC-2018.\n\nAdding new pretext tasks candidates In a second time, we study the impact of adding other pretext tasks to the pool of candidates. To investigate this, we select three additional new candidates: mean spectral centroid, mean spectral kurtosis and Hammarberg Index. After adding these features, the sparsemax weighting is computed as in 9. It is interesting to note first, that two of the three features are not selected for pretraining (even when added individually), thus not changing the weighted selection. Mean spectral centroid is the only feature selected for pretraining, lowering the weights of the other selected tasks. We will refer to this experiment as sparsemax+ in the results table (Table  V ).\n\nAre MFCCs essential? A final change is considered. Following the works of Ravanelli et al.  [16]  and their ablation studies, all the experiments considered MFCCs as one of workers with a fixed unit weight. Furthermore, when studying ablations, MFCC shows the highest contribution. While the Mel spectrogram reconstruction is needed to avoid any information loss, the MFCC worker can be weighted as well or replaced with other common time-frequency based representations. To explore this choice and its impact, we select four candidates including MFCC, with SpectralFlatnessPerBand (SFPB)  [89] , Octave band signal intensity (OBSI)  [90] , and Chroma. These features are computed using the Yaafe toolkit  [91] .\n\nThe kernel used for these features is the same used for the speech samples, i.e gaussian downsampling followed by the Frobenius inner product. As in the previous paragraph, we compute a sparsemax based selection on these four candidates along with the initial best selection of weighted pretext-tasks (without the Spectral Centroid addition). The pretraining loss therefore becomes:\n\nwith (S i ) i∈[l] the spectral representations, and l i=1 µ i = 1. This experiment will be refered to as \"spectral+\" in the results. Downstream datasets and architectures Medley-solos-DB contains 21572 3-second audioclips distributed among 11 classes. OpenMIC-2018 contains 20, 000 musical samples with partial instruments annotation for 20 instruments. Although not every file is labeled for every instrument, each class has at least 500 confirmed positives, and at least 1, 500 confirmed positives or negatives. We adopt for downstream finetuning, an X-vector like architecture, similar to the one used for VoxCeleb1 for Medley-solos-DB. For OpenMIC-2018, we use the official baseline technique relying on a random forest classifier for every considered instrument.\n\nThe same grouping techniques presented in the previous section are compared here. Results on the two datasets are shown in table V. We highlight the best results with the standard pool of pretext tasks, and the best score after the additions. Accuracy on the test set is computed for Medleysolos-DB while mean F1 Score is shown for OpenMIC following the SSL literature for music classification  [28] . The results follow those on speech processing tasks both for Medleysolos and OpenMIC. This confirms that the method presented generalizes to other types of data, another pretraining dataset and to downstream tasks that are similar to the one used for weights computing. OpenMIC best selection results are 3 points higher than the selection done in  [28] . Running the experiment on instrument classification with the three additional pretext tasks in the pool of candidates leads to an even better classification reaching 76.1%. This confirms literature findings on the importance of Spectral Centroids in timbre classification. The same model performs better on OpenMIC reaching 66.0 mean F1-score. This suggests that the selection technique is not harmed by adding irrelevant features, while adding relevant ones can improve the final results. Finally, replacing the MFCC tasks by a weighted combination of spectral representations achieves a better result than the Sparsemax selection on Medley-solos-DB with a score of 74.6%. It also reaches the best result on OpenMic with 67.7 mean F1-Score.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Ix. Computational Efficiency",
+      "text": "Efficiency is one of the key motivations of this work, and the gain in time observed with our approach is considerable. The K and L matrices used for the CI estimate are only computed  for the downstream datasets. Two limitations related to the size of the downstream dataset may be faced using our technique. First, very small downstream datasets could not be sufficient for a good estimate of the conditional independence. Second, very large downstream datasets may render the CI estimation intractable as the matrices involved get larger. It is important to note here that the computations needed in order to obtain the weights are performed on the downstream dataset, and not on the pretraining unlabeled one. This means that enlarging the unlabeled dataset does not lead to heavier computations.\n\nThis section shows experimentally on VoxCeleb1 and Medley-solos-DB that our technique is robust to these two situations. First, we show by taking small subsets of Vox-Celeb1 and Medley-solos-DB, that in case of downstream data scarcity, the CI estimations obtained with our method are close to the final estimations, and the ranking of the pretext tasks is not altered even when we take only 200 speakers among the 1 251 in VC. Second, as one of the main motivations of this work is the reduction of the computation needed to get the best selection of pretext-tasks in self-supervised learning settings, we show that the CI estimation converges quickly with a growing number of speakers considered, and is thus resilient to sampling. Considering one pretext task at a time, we consider subsets of VoxCeleb1 using a growing number of considered speakers (total = 1 251), and subsets of Medley-solos-DB using an increasing number of samples per considered instrument class. For each of these considered numbers, we run 10 experiments with sampled speakers and music excerpts. We get the CI estimation for every subset and plot the boxplot of the obtained values. Results are shown in Fig.  3 . We can see that using only 20 speakers exhibits results that are already close to those with 1 000 speakers, and the results using 100 audio files per class are close to those with 1500 points per class. Furthermore, we plot the boxplots of CI values obtained using more than 200 speakers to show the separability between the considered features in Fig.  4 . While values for Voicing and Loudness are slightly overlapping, all the other pretext tasks are already separated and rankable using only 200 random speakers among the whole dataset.\n\nTraining the model with a random selection of pretext tasks takes about 30 hours on a single V100 GPU, for the basic model and 40 hours on 24 GPUs for the wav2vec2.0 enhanced one. Finding, through an empirical random search, the best combination of pretext tasks takes a number of experiments that is exponential in the number of pretext tasks considered in the initial set. In contrast, and using as done in this paper, 50 random speakers of VoxCeleb, the whole computation of the optimal weights is performed in a few hours (6 approximatively) when parallelized on 20 CPUs. This runtime is divided into extracting the pretext-task labels, running the gaussian downsampling of the speech samples (the longest part, as it involves computing the Mel spectrograms before downsampling them), computing the similarity matrices and finally optimizing the HSIC quantity according to the weights. The same durations are observed with LibriSpeech, where the number of points is higher in our experiments, but the speech segments are shorted since we cut them at the word level.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "X. Acknowledgements",
+      "text": "This work has benefited from funding from l'Agence de l'Innovation de Défense, and was performed using HPC resources from GENCI-IDRIS (Grant 2021-AD011012801R1 and AD011012633).",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Xi. Conclusion",
+      "text": "In this work, we introduce a method to quickly and simply combine pretext-task labels into a useful pretext task for multitask self-supervised learning settings. Our approach allows for an optimal selection of pretext-task labels following a cheap optimisation process drastically decreasing the time and compute needed to design the best performing multitask SSL model. Our method is validated on three speech-related downstream tasks and on musical instrument recognition and outperforms common pretext-task label selection strategies when combined with simple and state-of-the-art SSL models. This opens a range of possibilities for finding and selecting new pretext tasks in self-supervised learning for speech, audio or other types of data.\n\n5 bidirectional LSTM layers of size 256 are then stacked. Finally, a MLP with one hidden layer with 256 neurons. The LeakyReLU activation is used across all the layers except for the LSTM. We use a dropout rate of 0.15 during the training. The AdaDelta optimizer is used to update the weights with an initial learning rate of 1.0, ρ = 0.8 and = 10 -8 . For every experiment, the SSL model is trained for 10 epochs ( leading to the convergence of the validation loss).\n\nSpeaker recognition details. VoxCeleb1  [79]  is used for the speaker recognition task. The training set contains 148, 642 utterances from 1, 251 different speakers. To compute the conditional independence estimates while limiting the computational load, we restricted ourselves to the utterances of 50 different speakers (the detailed list is given in the released repository https://github.com/salah-zaiem/ Multitask-pretext-task-selection). A standard xvector model  [92]  is trained following the available VoxCeleb SpeechBrain recipe. The extracted speaker embeddings are tested on the enrol and test splits using PLDA  [93]  as a similarity metric. Performance is reported in terms of equal error rate (EER). While architecture details are given in appendix A, it is worth noticing that the whole pipeline is fully integrated to Speechbrain and can thus easily be extended.\n\nWe train an embedding model (XVector) until the validation loss converges, on top of the self supervised representations using 5 successive layers of time-delay neural networks (TDNN)  [94] . The number of channels is (512, 512, 512, 1500), with kernel sizes of (5, 3, 3, 1, 1) and dilations of (1, 2, 3, 1, 1). The architecture is inspired by successful works on embeddings for speaker recognition  [95] . The learned embeddings are therefore used on a list of pairs of samples to predict whether they are from the same speaker or not. The details of the recipe can be found in the given GitHub repository. We train every embedding model on 10 epochs with an Adam Optimizer starting with a learning rate of 0.001 decaying linearly to 0.0001. Speech recognition details. ASR is conducted with the 100-hour clean subset of the LibriSpeech dataset  [96]  to simulate the low-resource scenario commonly encountered with SSL settings. CI estimations are obtained with word-level alignments from the Montreal Forced Aligner  [97] . The ASR pipeline follows the LibriSpeech recipe of SpeechBrain  [31]  and therefore contains a CRDNN encoder (i.e. CNN, RNN, DNN) trained jointly with CTC  [98]  and attention  [99]  (details in appendix A). The decoding process is based on beam-search with and without shallow fusion with a pretrained recurrent language model that is publicly available and obtained from SpeechBrain. 2 Performance is expressed in word error rate.\n\nThe CRDNN starts with three CNN blocks composed each with two 2D CNN layers, layer-normalisation and (2, 2) maxpooling along the frequency dimension. The filter dimensions for each block are 64, 100, 100. Then, maxpooling of 4 is applied on the time dimension to reduce the sequence length before being fed to the RNN. The latter is made of 5 bidirectional LSTM layers of 1, 024 neurons. Finally two dense layers are connected (with batch-normalisation in between). The 2 https://huggingface.co/speechbrain/asr-crdnn-rnnlm-librispeech LeakyReLU activation function is used across all the layers except for the LSTM. A dropout rate of 0.15 is employed with the encoder. The CTC decoder is a simple dense linear layer of size equal to the vocabulary. The vocabulary is obtained with byte pair encoding or sub-words units (BPE) and is of size 1, 000. The attentional decoder is a one-layered locationaware GRU (1, 024 neurons). Then, a beam search of depth 60 is applied to obtain the output transcripts. The model is trained for 30 epochs. The learning rate (1.0) is multiplied with a factor of 0.8 every time the validation loss is not decreasing to ensure an optimal convergence of all the models.",
+      "page_start": 11,
+      "page_end": 14
+    },
+    {
+      "section_name": "B. Superb Settings",
+      "text": "SUPERB  [37]  is a recent benchmark for self-supervised representations of speech data. We use this benchmark for our experiments in combining wav2vec with our selected pretext tasks. We detail here the downstream models as detailed in the benchmark paper :\n\nEmotion Recognition. IEMOCAP  [100]  is used for the Emotion Recognition (ER) task. 4 classes are considered (neutral, happy, sad, angry), and only the audio data is used. The learned representations are mean-pooled then fed to a final linear classifier to compute a cross-entropy loss. We crossvalidate on five folds of the standard splits. The result shown is the average of the five attempts. The evaluation metric is accuracy (ACC).\n\nAutomatic Speech Recognition For ASR, the decoder is a vanilla 2-layer 1024-unit BLSTM fed with our self-supervised representations and optimized by CTC loss on characters. We use the same language model for decoding as in the first experiments. LibriSpeech Clean-100 only is used for downstream training.\n\nSpeaker Recognition The model and the dataset splits used in the first experiment correspond to the SUPERB ones, so we kept the same settings. The results are therefore comparable.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Pretext-Task Labels' Interactions.",
+      "text": "To understand the interactions between pretext-task labels, studying the evolution of the CI estimate as a function of the weights shows which pretext-task labels seem interchangeable, which ones are complementary and which ones seem only harmful to the considered downstream task. Figure  5  shows the CI estimates for weighted combinations of groups of three pretext-task labels. As the weights sum up to one, two pretext tasks' values are shown on the x and y axes, while the value of the remaining one, whose name is in the title, is equal to 1 -x -y. For instance, at the origin point (0, 0), only the third pretext-task label is selected with a weight equal to one, while its weight is equal to zero on the hypotenuse of the right triangle. Figure  5  illustrates that the relationship leading to a lower CI-based utility estimator is not always straightforward. For instance, if we consider the second plot on the second row (i.e. α-ratio, F0, logHNR), we can see that selecting only one element is always worse than selecting a weighted concatenation, because the areas around the origin and the points (1, 0) and (0, 1) are brighter than the central area.\n\nAbdelwahab Heba has received his Phd from Institut de Recherche en Informatique de Toulouse (France) in 2021, His research mainly focusrs on Speech Recognition and Spoken Language Understanding, He has several industrial expertise and collaborations in speech industry. He is also an active collaborator with the Mila-Quebec AI institute as a core member of the SpeechBrain project.",
+      "page_start": 14,
+      "page_end": 15
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Illustration of the training pipeline. The three steps are depicted: 1. Selecting the group of pretext-task labels and their corresponding weights; 2. SSL",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: First, for",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Left : Phone Error Rate and CI estimate values on TIMIT for every",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: summarizes the results of the",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: (step 1), we group these pretext-task",
+      "page": 6
+    },
+    {
+      "caption": "Figure 1: , the SSL model learns to",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: Evolution of the CI estimation with different numbers of considered speakers for VoxCeleb (First row of plots) and number of samples for Medley",
+      "page": 10
+    },
+    {
+      "caption": "Figure 4: Boxplots of the CI values for every pretext tasks, when more than 200 speakers are considered. Voicing and Loudness are slightly overlapping, but",
+      "page": 10
+    },
+    {
+      "caption": "Figure 3: We can see that using only 20 speakers exhibits results",
+      "page": 11
+    },
+    {
+      "caption": "Figure 5: illustrates that the relationship",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: CI-Based utility estimator as a function of the weighting for groups of three pretext-task labels. Top line is for Librispeech, while the bottom one",
+      "page": 15
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2. Self-Supervised Training  \nSelf-Supervised  \nFeatures\nReconstruction \nPretraining Dataset  \nTarget\nEncoder\nPretext Tasks Group \nPretext Tasks\nPrediction": "3. Downstream Training  \nDownstream Dataset  \nFrozen Encoder\nDownstream Model"
+        }
+      ],
+      "page": 2
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Unsupervised visual representation learning by context prediction",
+      "authors": [
+        "C Doersch",
+        "A Gupta",
+        "A Efros"
+      ],
+      "year": "2016",
+      "venue": "Unsupervised visual representation learning by context prediction"
+    },
+    {
+      "citation_id": "2",
+      "title": "Objects that sound",
+      "authors": [
+        "R Arandjelovic",
+        "A Zisserman"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the European Conference on Computer Vision (ECCV)"
+    },
+    {
+      "citation_id": "3",
+      "title": "Self-supervised learning of pretextinvariant representations",
+      "authors": [
+        "I Misra",
+        "L Maaten"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "4",
+      "title": "Self-supervised visual feature learning with deep neural networks: A survey",
+      "authors": [
+        "L Jing",
+        "Y Tian"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "5",
+      "title": "Bootstrap your own latent: A new approach to self-supervised learning",
+      "authors": [
+        "J.-B Grill",
+        "F Strub",
+        "F Altché",
+        "C Tallec",
+        "P Richemond",
+        "E Buchatskaya",
+        "C Doersch",
+        "B Pires",
+        "Z Guo",
+        "M Azar"
+      ],
+      "year": "2020",
+      "venue": "Bootstrap your own latent: A new approach to self-supervised learning",
+      "arxiv": "arXiv:2006.07733"
+    },
+    {
+      "citation_id": "6",
+      "title": "Big self-supervised models are strong semi-supervised learners",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "K Swersky",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "Big self-supervised models are strong semi-supervised learners"
+    },
+    {
+      "citation_id": "7",
+      "title": "Self-training improves pre-training for natural language understanding",
+      "authors": [
+        "J Du",
+        "E Grave",
+        "B Gunel",
+        "V Chaudhary",
+        "O Celebi",
+        "M Auli",
+        "V Stoyanov",
+        "A Conneau"
+      ],
+      "year": "2020",
+      "venue": "Self-training improves pre-training for natural language understanding"
+    },
+    {
+      "citation_id": "8",
+      "title": "Albert: A lite bert for self-supervised learning of language representations",
+      "authors": [
+        "Z Lan",
+        "M Chen",
+        "S Goodman",
+        "K Gimpel",
+        "P Sharma",
+        "R Soricut"
+      ],
+      "year": "2019",
+      "venue": "Albert: A lite bert for self-supervised learning of language representations",
+      "arxiv": "arXiv:1909.11942"
+    },
+    {
+      "citation_id": "9",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "H Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "arxiv": "arXiv:2006.11477"
+    },
+    {
+      "citation_id": "10",
+      "title": "Mockingjay: Unsupervised speech representation learning with deep bidirectional transformer encoders",
+      "authors": [
+        "A Liu",
+        "S -W. Yang",
+        "P.-H Chi",
+        "P.-C Hsu",
+        "H.-Y Lee"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020 -2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "11",
+      "title": "Speech simclr: Combining contrastive and reconstruction objective for selfsupervised speech representation learning",
+      "authors": [
+        "D Jiang",
+        "W Li",
+        "M Cao",
+        "R Zhang",
+        "W Zou",
+        "K Han",
+        "X Li"
+      ],
+      "year": "2020",
+      "venue": "Speech simclr: Combining contrastive and reconstruction objective for selfsupervised speech representation learning"
+    },
+    {
+      "citation_id": "12",
+      "title": "Speech-xlnet: Unsupervised acoustic model pretraining for selfattention networks",
+      "authors": [
+        "X Song",
+        "G Wang",
+        "Z Wu",
+        "Y Huang",
+        "D Su",
+        "D Yu",
+        "H Meng"
+      ],
+      "year": "2020",
+      "venue": "Speech-xlnet: Unsupervised acoustic model pretraining for selfattention networks"
+    },
+    {
+      "citation_id": "13",
+      "title": "Pushing the Limits of Semi-Supervised Learning for Automatic Speech Recognition",
+      "authors": [
+        "Y Zhang",
+        "J Qin",
+        "D Park",
+        "W Han",
+        "C.-C Chiu",
+        "R Pang",
+        "Q Le",
+        "Y Wu"
+      ],
+      "year": "2020",
+      "venue": "Pushing the Limits of Semi-Supervised Learning for Automatic Speech Recognition"
+    },
+    {
+      "citation_id": "14",
+      "title": "Hubert: How much can a bad teacher benefit asr pre-training?",
+      "authors": [
+        "W.-N Hsu",
+        "Y.-H Tsai",
+        "B Bolte",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "ICASSP 2021 -2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Learning problem-agnostic speech representations from multiple selfsupervised tasks",
+      "authors": [
+        "S Pascual",
+        "M Ravanelli",
+        "J Serrà",
+        "A Bonafonte",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Learning problem-agnostic speech representations from multiple selfsupervised tasks"
+    },
+    {
+      "citation_id": "16",
+      "title": "Multi-task self-supervised learning for robust speech recognition",
+      "authors": [
+        "M Ravanelli",
+        "J Zhong",
+        "S Pascual",
+        "P Swietojanski",
+        "J Monteiro",
+        "J Trmal",
+        "Y Bengio"
+      ],
+      "year": "2020",
+      "venue": "Multi-task self-supervised learning for robust speech recognition"
+    },
+    {
+      "citation_id": "17",
+      "title": "A comparison of neural network methods for unsupervised representation learning on the zero resource speech challenge",
+      "authors": [
+        "D Renshaw",
+        "H Kamper",
+        "A Jansen",
+        "S Goldwater"
+      ],
+      "year": "2015",
+      "venue": "A comparison of neural network methods for unsupervised representation learning on the zero resource speech challenge"
+    },
+    {
+      "citation_id": "18",
+      "title": "Evaluating the reliability of acoustic speech embeddings",
+      "authors": [
+        "R Algayres",
+        "M Zaiem",
+        "B Sagot",
+        "E Dupoux"
+      ],
+      "year": "2020",
+      "venue": "INTERSPEECH 2020 -Annual Conference of the International Speech Communication Association, Shanghai / Vitrtual"
+    },
+    {
+      "citation_id": "19",
+      "title": "Towards learning a universal non-semantic representation of speech",
+      "authors": [
+        "J Shor",
+        "A Jansen",
+        "R Maor",
+        "O Lang",
+        "O Tuval",
+        "F Quitry",
+        "M Tagliasacchi",
+        "I Shavitt",
+        "D Emanuel",
+        "Y Haviv"
+      ],
+      "year": "2020",
+      "venue": "Towards learning a universal non-semantic representation of speech",
+      "arxiv": "arXiv:2002.12764"
+    },
+    {
+      "citation_id": "20",
+      "title": "Frill: A non-semantic speech embedding for mobile devices",
+      "authors": [
+        "J Peplinski",
+        "J Shor",
+        "S Joglekar",
+        "J Garrison",
+        "S Patel"
+      ],
+      "year": "2020",
+      "venue": "Frill: A non-semantic speech embedding for mobile devices",
+      "arxiv": "arXiv:2011.04609"
+    },
+    {
+      "citation_id": "21",
+      "title": "A convolutional deep markov model for unsupervised speech representation learning",
+      "authors": [
+        "S Khurana",
+        "A Laurent",
+        "W.-N Hsu",
+        "J Chorowski",
+        "A Lancucki",
+        "R Marxer",
+        "J Glass"
+      ],
+      "year": "2020",
+      "venue": "A convolutional deep markov model for unsupervised speech representation learning"
+    },
+    {
+      "citation_id": "22",
+      "title": "Contrastive Learning of General-Purpose Audio Representations",
+      "authors": [
+        "A Saeed",
+        "D Grangier",
+        "N Zeghidour"
+      ],
+      "year": "2020",
+      "venue": "Contrastive Learning of General-Purpose Audio Representations"
+    },
+    {
+      "citation_id": "23",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao",
+        "J Wu",
+        "L Zhou",
+        "S Ren",
+        "Y Qian",
+        "Y Qian",
+        "J Wu",
+        "M Zeng",
+        "F Wei"
+      ],
+      "year": "2021",
+      "venue": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Unispeech: Unified speech representation learning with labeled and unlabeled data",
+      "authors": [
+        "C Wang",
+        "Y Wu",
+        "Y Qian",
+        "K Kumatani",
+        "S Liu",
+        "F Wei",
+        "M Zeng",
+        "X Huang"
+      ],
+      "year": "2021",
+      "venue": "Unispeech: Unified speech representation learning with labeled and unlabeled data"
+    },
+    {
+      "citation_id": "25",
+      "title": "Unsupervised learning of visual representations by solving jigsaw puzzles",
+      "authors": [
+        "M Noroozi",
+        "P Favaro"
+      ],
+      "year": "2017",
+      "venue": "Unsupervised learning of visual representations by solving jigsaw puzzles"
+    },
+    {
+      "citation_id": "26",
+      "title": "Unsupervised representation learning by predicting image rotations",
+      "authors": [
+        "S Gidaris",
+        "P Singh",
+        "N Komodakis"
+      ],
+      "year": "2018",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "27",
+      "title": "Multitask learning for frame-level instrument recognition",
+      "authors": [
+        "Y.-N Hung",
+        "Y.-A Chen",
+        "Y.-H Yang"
+      ],
+      "year": "2019",
+      "venue": "Multitask learning for frame-level instrument recognition"
+    },
+    {
+      "citation_id": "28",
+      "title": "Multi-task self-supervised pre-training for music classification",
+      "authors": [
+        "H.-H Wu",
+        "C.-C Kao",
+        "Q Tang",
+        "M Sun",
+        "B Mcfee",
+        "J Bello",
+        "C Wang"
+      ],
+      "year": "2021",
+      "venue": "Multi-task self-supervised pre-training for music classification"
+    },
+    {
+      "citation_id": "29",
+      "title": "Learning speech representations from raw audio by joint audiovisual self-supervision",
+      "authors": [
+        "A Shukla",
+        "S Petridis",
+        "M Pantic"
+      ],
+      "year": "2020",
+      "venue": "Learning speech representations from raw audio by joint audiovisual self-supervision"
+    },
+    {
+      "citation_id": "30",
+      "title": "Conditional independence for pretext task selection in self-supervised speech representation learning",
+      "authors": [
+        "S Zaiem",
+        "T Parcollet",
+        "S Essid"
+      ],
+      "year": "2021",
+      "venue": "Conditional independence for pretext task selection in self-supervised speech representation learning"
+    },
+    {
+      "citation_id": "31",
+      "title": "",
+      "authors": [
+        "M Ravanelli",
+        "T Parcollet",
+        "A Rouhe",
+        "P Plantinga",
+        "E Rastorgueva",
+        "L Lugosch",
+        "N Dawalatabad",
+        "C Ju-Chieh",
+        "A Heba",
+        "F Grondin",
+        "W Aris",
+        "C.-F Liao",
+        "S Cornell",
+        "S.-L Yeh",
+        "H Na",
+        "Y Gao",
+        "S.-W Fu",
+        "C Subakan",
+        "R Mori",
+        "Y Bengio"
+      ],
+      "year": "2021",
+      "venue": ""
+    },
+    {
+      "citation_id": "32",
+      "title": "Unsupervised cross-lingual representation learning for speech recognition",
+      "authors": [
+        "A Conneau",
+        "A Baevski",
+        "R Collobert",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2006",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "33",
+      "title": "Boosting few-shot visual learning with self-supervision",
+      "authors": [
+        "S Gidaris",
+        "A Bursuc",
+        "N Komodakis",
+        "P Pérez",
+        "M Cord"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "34",
+      "title": "Exploring wav2vec 2.0 on speaker verification and language identification",
+      "authors": [
+        "Z Fan",
+        "M Li",
+        "S Zhou",
+        "B Xu"
+      ],
+      "year": "2021",
+      "venue": "Exploring wav2vec 2.0 on speaker verification and language identification"
+    },
+    {
+      "citation_id": "35",
+      "title": "An unsupervised autoregressive model for speech representation learning",
+      "authors": [
+        "Y.-A Chung",
+        "W.-N Hsu",
+        "H Tang",
+        "J Glass"
+      ],
+      "year": "2019",
+      "venue": "An unsupervised autoregressive model for speech representation learning"
+    },
+    {
+      "citation_id": "36",
+      "title": "Universal paralinguistic speech representations using self-supervised conformers",
+      "authors": [
+        "J Shor",
+        "A Jansen",
+        "W Han",
+        "D Park",
+        "Y Zhang"
+      ],
+      "year": "2021",
+      "venue": "Universal paralinguistic speech representations using self-supervised conformers",
+      "arxiv": "arXiv:2110.04621"
+    },
+    {
+      "citation_id": "37",
+      "title": "",
+      "authors": [
+        "S Yang",
+        "P.-H Chi",
+        "Y.-S Chuang",
+        "C.-I Lai",
+        "K Lakhotia",
+        "Y Lin",
+        "A Liu",
+        "J Shi",
+        "X Chang",
+        "G.-T Lin",
+        "T.-H Huang",
+        "W.-C Tseng",
+        "K Lee",
+        "D.-R Liu",
+        "Z Huang",
+        "S Dong",
+        "S.-W Li",
+        "S Watanabe",
+        "A Mohamed",
+        "H Yi Lee"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "38",
+      "title": "Lebenchmark: A reproducible framework for assessing self-supervised representation learning from speech",
+      "authors": [
+        "S Evain",
+        "H Nguyen",
+        "H Le",
+        "M Boito",
+        "S Mdhaffar",
+        "S Alisamir",
+        "Z Tong",
+        "N Tomashenko",
+        "M Dinarelli",
+        "T Parcollet",
+        "A Allauzen",
+        "Y Esteve",
+        "B Lecouteux",
+        "F Portet",
+        "S Rossato",
+        "F Ringeval",
+        "D Schwab",
+        "L Besacier"
+      ],
+      "year": "2021",
+      "venue": "Lebenchmark: A reproducible framework for assessing self-supervised representation learning from speech"
+    },
+    {
+      "citation_id": "39",
+      "title": "Predicting what you already know helps: Provable self-supervised learning",
+      "authors": [
+        "J Lee",
+        "Q Lei",
+        "N Saunshi",
+        "J Zhuo"
+      ],
+      "year": "2020",
+      "venue": "Predicting what you already know helps: Provable self-supervised learning"
+    },
+    {
+      "citation_id": "40",
+      "title": "A Theoretical Analysis of Contrastive Unsupervised Representation Learning",
+      "authors": [
+        "S Arora",
+        "H Khandeparkar",
+        "M Khodak",
+        "O Plevrakis",
+        "N Saunshi"
+      ],
+      "year": "2019",
+      "venue": "36th International Conference on Machine Learning, ICML 2019"
+    },
+    {
+      "citation_id": "41",
+      "title": "Theoretical analysis of self-training with deep networks on unlabeled data",
+      "authors": [
+        "C Wei",
+        "K Shen",
+        "Y Chen",
+        "T Ma"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "42",
+      "title": "Representation learning with contrastive predictive coding",
+      "authors": [
+        "A Oord",
+        "Y Li",
+        "O Vinyals"
+      ],
+      "year": "2018",
+      "venue": "Representation learning with contrastive predictive coding",
+      "arxiv": "arXiv:1807.03748"
+    },
+    {
+      "citation_id": "43",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 37th International Conference on Machine Learning, ser. Proceedings of Machine Learning Research"
+    },
+    {
+      "citation_id": "44",
+      "title": "What should not be contrastive in contrastive learning",
+      "authors": [
+        "T Xiao",
+        "X Wang",
+        "A Efros",
+        "T Darrell"
+      ],
+      "year": "2021",
+      "venue": "What should not be contrastive in contrastive learning"
+    },
+    {
+      "citation_id": "45",
+      "title": "On mutual information maximization for representation learning",
+      "authors": [
+        "M Tschannen",
+        "J Djolonga",
+        "P Rubenstein",
+        "S Gelly",
+        "M Lucic"
+      ],
+      "year": "2020",
+      "venue": "8th International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "46",
+      "title": "What Makes for Good Views for Contrastive Learning?",
+      "authors": [
+        "Y Tian",
+        "C Sun",
+        "B Poole",
+        "D Krishnan",
+        "C Schmid",
+        "P Isola"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "47",
+      "title": "Learning Representations by Maximizing Mutual Information across Views",
+      "authors": [
+        "P Bachman",
+        "R Hjelm",
+        "W Buchwalter"
+      ],
+      "year": "2019",
+      "venue": "Learning Representations by Maximizing Mutual Information across Views"
+    },
+    {
+      "citation_id": "48",
+      "title": "Self-supervised learning with kernel dependence maximization",
+      "authors": [
+        "Y Li",
+        "R Pogodin",
+        "D Sutherland",
+        "A Gretton"
+      ],
+      "year": "2021",
+      "venue": "Self-supervised learning with kernel dependence maximization"
+    },
+    {
+      "citation_id": "49",
+      "title": "A mathematical exploration of why language models help solve downstream tasks",
+      "authors": [
+        "N Saunshi",
+        "S Malladi",
+        "S Arora"
+      ],
+      "year": "2020",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "50",
+      "title": "Taskonomy: Disentangling task transfer learning",
+      "authors": [
+        "A Zamir",
+        "A Sax",
+        "W Shen",
+        "L Guibas",
+        "J Malik",
+        "S Savarese"
+      ],
+      "year": "2018",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "51",
+      "title": "Representation Similarity Analysis for Efficient Task taxonomy & Transfer Learning",
+      "authors": [
+        "K Dwivedi",
+        "G Roig"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "52",
+      "title": "Joint speech recognition and speaker diarization via sequence transduction",
+      "authors": [
+        "L Shafey",
+        "H Soltau",
+        "I Shafran"
+      ],
+      "year": "2019",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "53",
+      "title": "Speech enhancement and recognition using multi-task learning of long short-term memory recurrent neural networks",
+      "authors": [
+        "Z Chen",
+        "S Watanabe",
+        "H Erdogan",
+        "J Hershey"
+      ],
+      "year": "2015",
+      "venue": "Speech enhancement and recognition using multi-task learning of long short-term memory recurrent neural networks"
+    },
+    {
+      "citation_id": "54",
+      "title": "Learning image representations by completing damaged jigsaw puzzles",
+      "authors": [
+        "D Kim",
+        "D Cho",
+        "D Yoo",
+        "I Kweon"
+      ],
+      "year": "2018",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "55",
+      "title": "Multiple Pretext-Task for Self-Supervised Learning via Mixing Multiple Image Transformations",
+      "authors": [
+        "S Shin'ya Yamaguchi",
+        "T Kanai",
+        "S Shioda",
+        "N Takeda",
+        "J Tokyo"
+      ],
+      "venue": "Multiple Pretext-Task for Self-Supervised Learning via Mixing Multiple Image Transformations"
+    },
+    {
+      "citation_id": "56",
+      "title": "Multi-task Self-Supervised Visual Learning",
+      "authors": [
+        "C Doersch",
+        "A Zisserman"
+      ],
+      "year": "2017",
+      "venue": "Multi-task Self-Supervised Visual Learning"
+    },
+    {
+      "citation_id": "57",
+      "title": "An introduction of variable and feature selection",
+      "authors": [
+        "I Guyon",
+        "A Elisseeff"
+      ],
+      "venue": "J. Machine Learning Research Special Issue on Variable and Feature Selection"
+    },
+    {
+      "citation_id": "58",
+      "title": "Model selection and estimation in regression with grouped variables",
+      "authors": [
+        "M Yuan",
+        "Y Lin"
+      ],
+      "year": "2006",
+      "venue": "Journal of the Royal Statistical Society Series B"
+    },
+    {
+      "citation_id": "59",
+      "title": "Large scale multiple kernel learning",
+      "authors": [
+        "S Sonnenburg",
+        "G Rätsch",
+        "C Schäfer",
+        "B Schölkopf"
+      ],
+      "year": "2006",
+      "venue": "J. Mach. Learn. Res"
+    },
+    {
+      "citation_id": "60",
+      "title": "More efficiency in multiple kernel learning",
+      "authors": [
+        "A Rakotomamonjy",
+        "F Bach",
+        "S Canu",
+        "Y Grandvalet"
+      ],
+      "year": "2007",
+      "venue": "Proceedings of the 24th International Con-ference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "61",
+      "title": "Generalized submodular information measures: Theoretical properties, examples, optimization algorithms, and applications",
+      "authors": [
+        "R Iyer",
+        "N Khargonkar",
+        "J Bilmes",
+        "H Asnani"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Information Theory"
+    },
+    {
+      "citation_id": "62",
+      "title": "Submodularity in data subset selection and active learning",
+      "authors": [
+        "K Wei",
+        "R Iyer",
+        "J Bilmes"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the 32nd International Conference on Machine Learning, ser. Proceedings of Machine Learning Research"
+    },
+    {
+      "citation_id": "63",
+      "title": "Data-selective transfer learning for multi-domain speech recognition",
+      "authors": [
+        "M Doulaty",
+        "O Saz",
+        "T Hain"
+      ],
+      "year": "2015",
+      "venue": "Data-selective transfer learning for multi-domain speech recognition"
+    },
+    {
+      "citation_id": "64",
+      "title": "A kernel statistical test of independence",
+      "authors": [
+        "A Gretton",
+        "K Fukumizu",
+        "C Teo",
+        "L Song",
+        "B Schölkopf",
+        "A Smola"
+      ],
+      "year": "2007",
+      "venue": "A kernel statistical test of independence"
+    },
+    {
+      "citation_id": "65",
+      "title": "Acoustic Features for Environmental Sound Analysis",
+      "authors": [
+        "R Serizel",
+        "V Bisot",
+        "S Essid",
+        "G Richard"
+      ],
+      "year": "2017",
+      "venue": "Computational Analysis of Sound Scenes and Events"
+    },
+    {
+      "citation_id": "66",
+      "title": "Comparing one and two-stage acoustic modeling in the recognition of emotion in speech",
+      "authors": [
+        "B Schuller",
+        "B Vlasenko",
+        "R Minguez",
+        "G Rigoll",
+        "A Wendemuth"
+      ],
+      "year": "2007",
+      "venue": "2007 IEEE Workshop on Automatic Speech Recognition Understanding (ASRU)"
+    },
+    {
+      "citation_id": "67",
+      "title": "Tafe-net: Task-aware feature embeddings for low shot learning",
+      "authors": [
+        "X Wang",
+        "F Yu",
+        "R Wang",
+        "T Darrell",
+        "J Gonzalez"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "68",
+      "title": "Long-term statistical feature extraction from speech signal and its application in emotion recognition",
+      "authors": [
+        "E Loweimi",
+        "M Doulaty",
+        "J Barker",
+        "T Hain"
+      ],
+      "year": "2015",
+      "venue": "Long-term statistical feature extraction from speech signal and its application in emotion recognition"
+    },
+    {
+      "citation_id": "69",
+      "title": "Evaluating speech features with the Minimal-Pair ABX task: Analysis of the classical MFC/PLP pipeline",
+      "authors": [
+        "T Schatz",
+        "V Peddinti",
+        "F Bach",
+        "A Jansen",
+        "H Hermansky",
+        "E Dupoux"
+      ],
+      "year": "2013",
+      "venue": "INTERSPEECH 2013 : 14th Annual Conference of the International Speech Communication Association"
+    },
+    {
+      "citation_id": "70",
+      "title": "Rapid evaluation of speech representations for spoken term discovery",
+      "authors": [
+        "M Carlin",
+        "S Thomas",
+        "A Jansen",
+        "H Hermansky"
+      ],
+      "year": "2011",
+      "venue": "Rapid evaluation of speech representations for spoken term discovery"
+    },
+    {
+      "citation_id": "71",
+      "title": "Generative spoken language modeling from raw audio",
+      "authors": [
+        "K Lakhotia",
+        "E Kharitonov",
+        "W.-N Hsu",
+        "Y Adi",
+        "A Polyak",
+        "B Bolte",
+        "T.-A Nguyen",
+        "J Copet",
+        "A Baevski",
+        "A Mohamed",
+        "E Dupoux"
+      ],
+      "year": "2021",
+      "venue": "Generative spoken language modeling from raw audio"
+    },
+    {
+      "citation_id": "72",
+      "title": "Unsupervised Methods for Evaluating Speech Representations",
+      "authors": [
+        "M Gump",
+        "W.-N Hsu",
+        "J Glass"
+      ],
+      "year": "2020",
+      "venue": "Unsupervised Methods for Evaluating Speech Representations",
+      "doi": "10.21437/Interspeech.2020-2990"
+    },
+    {
+      "citation_id": "73",
+      "title": "Unispeech-sat: Universal speech representation learning with speaker aware pre-training",
+      "authors": [
+        "S Chen",
+        "Y Wu",
+        "C Wang",
+        "Z Chen",
+        "Z Chen",
+        "S Liu",
+        "J Wu",
+        "Y Qian",
+        "F Wei",
+        "J Li",
+        "X Yu"
+      ],
+      "year": "2021",
+      "venue": "Unispeech-sat: Universal speech representation learning with speaker aware pre-training"
+    },
+    {
+      "citation_id": "74",
+      "title": "Kaizen: Continuously improving teacher using exponential moving average for semisupervised speech recognition",
+      "authors": [
+        "V Manohar",
+        "T Likhomanenko",
+        "Q Xu",
+        "W.-N Hsu",
+        "R Collobert",
+        "Y Saraf",
+        "G Zweig",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "Kaizen: Continuously improving teacher using exponential moving average for semisupervised speech recognition"
+    },
+    {
+      "citation_id": "75",
+      "title": "Large-scale asr domain adaptation using self-and semi-supervised learning",
+      "authors": [
+        "D Hwang",
+        "A Misra",
+        "Z Huo",
+        "N Siddhartha",
+        "S Garg",
+        "D Qiu",
+        "K Sim",
+        "T Strohman",
+        "F Beaufays",
+        "Y He"
+      ],
+      "year": "2021",
+      "venue": "Large-scale asr domain adaptation using self-and semi-supervised learning"
+    },
+    {
+      "citation_id": "76",
+      "title": "The hardness of conditional independence testing and the generalised covariance measure",
+      "authors": [
+        "R Shah",
+        "J Peters"
+      ],
+      "year": "2018",
+      "venue": "Annals of Statistics"
+    },
+    {
+      "citation_id": "77",
+      "title": "Common voice: A massively-multilingual speech corpus",
+      "authors": [
+        "R Ardila",
+        "M Branson",
+        "K Davis",
+        "M Henretty",
+        "M Kohler",
+        "J Meyer",
+        "R Morais",
+        "L Saunders",
+        "F Tyers",
+        "G Weber"
+      ],
+      "year": "2020",
+      "venue": "Common voice: A massively-multilingual speech corpus"
+    },
+    {
+      "citation_id": "78",
+      "title": "Timit acoustic-phonetic continuous speech corpus",
+      "authors": [
+        "J Garofolo",
+        "L Lamel",
+        "W Fisher",
+        "J Fiscus",
+        "D Pallett",
+        "N Dahlgren",
+        "V Zue"
+      ],
+      "year": "1992",
+      "venue": "Timit acoustic-phonetic continuous speech corpus"
+    },
+    {
+      "citation_id": "79",
+      "title": "Voxceleb: A large-scale speaker identification dataset",
+      "authors": [
+        "A Nagrani",
+        "J Chung",
+        "A Zisserman"
+      ],
+      "year": "2017",
+      "venue": "Voxceleb: A large-scale speaker identification dataset"
+    },
+    {
+      "citation_id": "80",
+      "title": "From softmax to sparsemax: A sparse model of attention and multi-label classification",
+      "authors": [
+        "A Martins",
+        "R Astudillo"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 33rd International Conference on International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "81",
+      "title": "Effects of vocal loudness variation on spectrum balance as reflected by the alpha measure of long-termaverage spectra of speech",
+      "authors": [
+        "J Sundberg",
+        "M Nordenberg"
+      ],
+      "year": "2006",
+      "venue": "The Journal of the Acoustical Society of America"
+    },
+    {
+      "citation_id": "82",
+      "title": "Rasta-plp speech analysis technique",
+      "authors": [
+        "H Hermansky",
+        "N Morgan",
+        "A Bayya",
+        "P Kohn"
+      ],
+      "year": "1992",
+      "venue": "Rasta-plp speech analysis technique"
+    },
+    {
+      "citation_id": "83",
+      "title": "Cepstrum-Based Harmonics-to-Noise Ratio Measurement in Voiced Speech",
+      "authors": [
+        "P Murphy",
+        "O Akande"
+      ],
+      "year": "2005",
+      "venue": "Nonlinear Speech Modeling and Applications"
+    },
+    {
+      "citation_id": "84",
+      "title": "Feature selection based on mutual information criteria of max-dependency, max-relevance, and minredundancy",
+      "authors": [
+        "H Peng",
+        "F Long",
+        "C Ding"
+      ],
+      "year": "2005",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "85",
+      "title": "Gene selection for cancer classification using support vector machines",
+      "authors": [
+        "I Guyon",
+        "J Weston",
+        "S Barnhill",
+        "V Vapnik"
+      ],
+      "venue": "Machine Learning"
+    },
+    {
+      "citation_id": "86",
+      "title": "vq-wav2vec: Self-supervised learning of discrete speech representations",
+      "authors": [
+        "A Baevski",
+        "S Schneider",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "vq-wav2vec: Self-supervised learning of discrete speech representations"
+    },
+    {
+      "citation_id": "87",
+      "title": "wav2vec-C: A Self-Supervised Model for Speech Representation Learning",
+      "authors": [
+        "S Sadhu",
+        "D He",
+        "C.-W Huang",
+        "S Mallidi",
+        "M Wu",
+        "A Rastrow",
+        "A Stolcke",
+        "J Droppo",
+        "R Maas"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "88",
+      "title": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training",
+      "authors": [
+        "W.-N Hsu",
+        "A Sriram",
+        "A Baevski",
+        "T Likhomanenko",
+        "Q Xu",
+        "V Pratap",
+        "J Kahn",
+        "A Lee",
+        "R Collobert",
+        "G Synnaeve",
+        "M Auli"
+      ],
+      "year": "2021",
+      "venue": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training"
+    },
+    {
+      "citation_id": "89",
+      "title": "Robust matching of audio signals using spectral flatness features",
+      "authors": [
+        "J Herre",
+        "E Allamanche",
+        "O Hellmuth"
+      ],
+      "year": "2001",
+      "venue": "Proceedings of the 2001 IEEE Workshop on the Applications of Signal Processing to Audio and Acoustics"
+    },
+    {
+      "citation_id": "90",
+      "title": "Classification automatique des signaux audio-fréquences: reconnaissance des instruments de musique",
+      "authors": [
+        "S Essid"
+      ],
+      "year": "2005",
+      "venue": "Classification automatique des signaux audio-fréquences: reconnaissance des instruments de musique"
+    },
+    {
+      "citation_id": "91",
+      "title": "Yaafe, an easy to use and efficient audio feature extraction software",
+      "authors": [
+        "B Mathieu",
+        "S Essid",
+        "T Fillon",
+        "J Prado",
+        "G Richard"
+      ],
+      "year": "2010",
+      "venue": "Proceedings of the 11th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "92",
+      "title": "X-vectors: Robust dnn embeddings for speaker recognition",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "G Sell",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "93",
+      "title": "Probabilistic Linear Discriminant Analysis",
+      "authors": [
+        "S Ioffe"
+      ],
+      "year": "2006",
+      "venue": "Computer Vision -ECCV 2006"
+    },
+    {
+      "citation_id": "94",
+      "title": "A time delay neural network architecture for efficient modeling of long temporal contexts",
+      "authors": [
+        "V Peddinti",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "A time delay neural network architecture for efficient modeling of long temporal contexts"
+    },
+    {
+      "citation_id": "95",
+      "title": "Time Delay Deep Neural Network-Based Universal Background Models for Speaker Recognition",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "D Povey"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE Workshop on Automatic Speech Recognition and Understanding"
+    },
+    {
+      "citation_id": "96",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Librispeech: An asr corpus based on public domain audio books"
+    },
+    {
+      "citation_id": "97",
+      "title": "Montreal forced aligner: Trainable text-speech alignment using kaldi",
+      "authors": [
+        "M Mcauliffe",
+        "M Socolof",
+        "S Mihuc",
+        "M Wagner",
+        "M Sonderegger"
+      ],
+      "year": "2017",
+      "venue": "Montreal forced aligner: Trainable text-speech alignment using kaldi"
+    },
+    {
+      "citation_id": "98",
+      "title": "Connectionist temporal classification,\" in Supervised Sequence Labelling with Recurrent Neural Networks",
+      "authors": [
+        "A Graves"
+      ],
+      "year": "2012",
+      "venue": "Connectionist temporal classification,\" in Supervised Sequence Labelling with Recurrent Neural Networks"
+    },
+    {
+      "citation_id": "99",
+      "title": "Rwth asr systems for librispeech: Hybrid vs attention",
+      "authors": [
+        "C Lüscher",
+        "E Beck",
+        "K Irie",
+        "M Kitza",
+        "W Michel",
+        "A Zeyer",
+        "R Schlüter",
+        "H Ney"
+      ],
+      "year": "2019",
+      "venue": "Rwth asr systems for librispeech: Hybrid vs attention",
+      "doi": "10.21437/Interspeech.2019-1780"
+    },
+    {
+      "citation_id": "100",
+      "title": "Iemocap: interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "E Kazemzadeh",
+        "E Provost",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    }
+  ]
+}

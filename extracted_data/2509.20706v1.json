@@ -1,0 +1,1793 @@
+{
+  "paper_id": "2509.20706v1",
+  "title": "Mi-Fuse: Label Fusion For Unsupervised Domain Adaptation With Closed-Source Large Audio-Language Model",
+  "published": "2025-09-25T03:16:32Z",
+  "authors": [
+    "Hsiao-Ying Huang",
+    "Yi-Cheng Lin",
+    "Hung-yi Lee"
+  ],
+  "keywords": [
+    "Speech emotion recognition",
+    "Source-free unsupervised domain adaptation",
+    "Large audio-language models",
+    "Mutual information"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Large audio-language models (LALMs) show strong zero-shot ability on speech tasks, suggesting promise for speech emotion recognition (SER). However, SER in real-world deployments often fails under domain mismatch, where source data are unavailable and powerful LALMs are accessible only through an API. We ask: given only unlabeled target-domain audio and an API-only LALM, can a student model be adapted to outperform the LALM in the target domain? To this end, we propose MI-Fuse, a denoised label fusion framework that supplements the LALM with a source-domain trained SER classifier as an auxiliary teacher. The framework draws multiple stochastic predictions from both teachers, weights their mean distributions by mutual-information-based uncertainty, and stabilizes training with an exponential moving average teacher. Experiments across three public emotion datasets and six cross-domain transfers show consistent gains, with the student surpassing the LALM and outperforming the strongest baseline by 3.9%. This approach strengthens emotion-aware speech systems without sharing source data, enabling realistic adaptation.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "LALMs such as Desta2.5-Audio  [1] , Qwen2.5-Omni  [2] , and Gemini 2.5  [3]  have recently demonstrated impressive general-purpose capabilities across spoken language understanding, paralinguistics, and speaker-related tasks  [4, 5] . Their versatility and strong zeroshot performance highlight their potential as universal backbones for various speech processing problems, including speech emotion recognition (SER)  [6] .\n\nSER is essential in applications ranging from healthcare and mental health monitoring to empathetic virtual assistants and call center analytics  [7, 8] . However, real-world deployment of SER systems remains challenging because performance often degrades under domain mismatch, especially when training and deployment differ in corpus, speakers, channel/noise, or language  [9, 10] .\n\nIn practice, two constraints frequently arise: (i) the sourcedomain data used to train specialized SER models is unavailable at adaptation time due to privacy and ownership restrictions  [11] , and (ii) the target domain we need to serve is unlabeled. This combination yields the source-free unsupervised domain adaptation (SFUDA) setting: we must adapt to the target domain using only an already-trained source model and unlabeled target audio.\n\nModern deployments pose an even harder challenge. State-ofthe-art LALMs, such as Gemini, are closed-source and accessible only through an API, preventing fine-tuning or inspection of their parameters. We therefore study a harder, practical SFUDA protocol *Equal Contribution in which the source model is a black-box LALM. Concretely, we use the LALM as the source model for SFUDA training and can query it, but cannot fine-tune or inspect its weights. Beyond LALMs, practitioners also often have domain-specific teacher classifiers trained on different corpora, which they wish to evaluate on a new target domain. Our goal is not just to transfer knowledge, but to train a student that surpasses the LALM and the domain-specific teacher in the target domain. This motivates us to the central research question: given only unlabeled target-domain audio and an API-only LALM, can we adapt a student model for SER that outperforms the LALM in the target domain?\n\nTo answer this question, we propose MI-Fuse, a denoised label fusion framework that supplements the LALM with an additional source-domain trained SER classifier acting as an auxiliary teacher. Specifically, we generate multiple stochastic predictions from each teacher and compute their mean distributions. We then merge them using a weighted rule based on mutual information, where lower uncertainty across multiple generations receives a higher weight. To stabilize training, the classifier teacher is further updated via an exponential moving average (EMA) of the student model, ensuring that supervision evolves smoothly across iterations.\n\nIn summary, the main contributions of this work are as follows: • We formalize a realistic and harder SFUDA scenario for speech in which the source model is a closed-source, API-only LALM, aligning with real deployment constraints. • We propose a denoised label fusion approach that integrates mutual-information weighting and an EMA-updated classifier teacher to mitigate noisy pseudo-labels during adaptation. • We conduct extensive experiments on multiple SER datasets, demonstrating that our approach consistently outperforms existing SFUDA methods and achieves better adaptation performance.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "To adapt a source-domain trained model to an unlabeled target domain, most SFUDA methods take inspiration from the semisupervised learning (SSL) field and employ some common SSL techniques during adaptation to make full use of the unlabeled target data and conquer domain mismatch at the same time. These techniques could be broadly categorized into pseudo-labeling, consistency regularization, and clustering-based training.\n\nCommon strategies for generating pseudo-labels to guide training involve class centroid-clustering  [12, 13] , neighborhood aggregation (affinity)  [14] , label ensembling from more than one model  [15, 16, 17] , and some even integrating complementary labels  [18]  into the process. Further, consistency regularization aims to improve model robustness by enforcing consistent network predictions under either data or model variations  [19] , which may also serve as another pseudo-labeling source under some settings. Besides pseudo-labeling signals (instruction), many works also integrate entropy minimization or information maximization  [20]  into the process to reduce the uncertainty of network predictions, and further promote clustering among the target features based on the clustering assumptions  [21]  in SSL.\n\nUnlike prior SFUDA works that rely solely on traditional SSL or self-training techniques, our method introduces general-domain guidance by leveraging LALMs during adaptation. Specifically, we fuse pseudo-labels from a general-domain LALM with those from a source-domain teacher, enabling complementary supervision for more robust target-domain adaptation under source-free constraints.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Methodology",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Problem Formulation",
+      "text": "We study SFUDA for SER. The overall workflow is illustrated in Fig.  1 . Suppose we have a labeled source-domain dataset Ds = {(x s , y s )}, where x s is a speech utterance, y s is its emotion label. The set of all possible labels is denoted by Y = {1, ..., C}, where C is the number of emotion classes. A classifier f cls is first trained on Ds and captures domain-specific SER knowledge.\n\nIn the SFUDA setting, the original source dataset Ds is no longer accessible due to privacy or storage restrictions. We may still keep the trained classifier f cls , but its performance often degrades under domain shift. In addition, we assume access to a closed-source LALM, denoted fLALM , which is available only through an API. While fLALM offers strong generalization, its predictions can be noisy and cannot be fine-tuned or inspected internally.\n\nFinally, we are given an unlabeled target-domain dataset Dt = {x t }. The target distribution is different from the source distribution because of mismatched corpora, speakers, recording channels, or languages. The labels y t are unknown, and the goal is to adapt a student model ftgt that performs well on the target domain without using any labeled target data.\n\nA major challenge is that adaptation typically relies on pseudolabels predicted by the source model, which can be noisy under domain shift. To overcome this, we combine the predictions of the LALM fLALM and the auxiliary classifier f cls into a denoised label distribution. This fused supervision provides a more reliable training signal for the student model ftgt, enabling it to generalize more effectively to the target domain.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Model Uncertainty Estimation",
+      "text": "In our adaptation framework, pseudo-labels are obtained from two teachers: the fLALM and f cls . Under domain shift, their predictions may be noisy, and directly trusting them risks propagating errors to the student ftgt. We address this by explicitly estimating each teacher's uncertainty and using it in label fusion.\n\nWe quantify uncertainty using mutual information (MI) between the predicted label Y and the model parameters Θ (either fLALM or f cls ), conditioned on an input x. MI reflects how much predictions vary across stochastic perturbations such as dropout.\n\nFor each input x, we perform K stochastic forward passes through a teacher model (fLALM or f cls ). This produces a set of predictive distributions {p k (y|x)} K k=1 (detailed in Sec. 3.3). The average distribution is\n\n(\n\nFrom this, the predictive entropy\n\ncaptures the total uncertainty, while the expected entropy\n\nreflects only aleatoric uncertainty, i.e., ambiguity inherent in the input signal. Their difference,\n\nis the mutual information (MI), which captures epistemic uncertainty as the model's disagreement across stochastic predictions. This measure is directly applicable to SFUDA. A high MI value means the teacher's predictions vary significantly across samples, signaling that its output is unstable under domain shift and should be down-weighted. A low MI value indicates stable and consistent predictions that are more trustworthy. We weight each teacher's contribution by e -M I to suppress noise and amplify consistency.\n\nIntegrating MI into our label fusion mechanism provides the student model ftgt with less noisy and more robust pseudo-labels. This allows ftgt to benefit from both the generalization ability of the LALM and the domain-specific knowledge of the classifier, while mitigating the risk of propagating errors from either teacher.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Label Fusion",
+      "text": "We propose a novel label fusion framework for SFUDA in SER. Our approach integrates predictions from a source-pretrained SER model and an LALM to mitigate the noisy label problem. We begin by initializing the student model ftgt with the parameters of the classifier teacher f cls . The student is then adapted using only unlabeled target domain data.\n\nFor each unlabeled target sample xt, we apply Monte Carlo (MC) dropout  [22]  to the classifier teacher and obtain N cls stochastic forward passes. This produces a set of predicted probability distributions {p\n\n(1)\n\ncls (y|xt), . . . , p (N ) cls (y|xt)}. The mean distribution is used as the aggregated classifier teacher prediction:\n\nIn parallel, we query the LALM NLM times with carefully designed prompts that request a probability distribution over emotion classes in natural language. This yields\n\nLM (y|xt), . . . , p (N ) LM (y|xt)}. We then compute the mean LALM probability distribution:\n\nWe fuse the outputs from two models by weighted averaging. The weights are determined by the exponential of the negative mutual information (MI) associated with each model's distribution,\n\nthereby assigning greater importance to the model with lower uncertainty. We set NLM = 5 and N cls = 8 passes in our experiments.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Diversity Loss And Ema Teacher Update",
+      "text": "The student model ftgt is trained on the fused pseudo-labels by minimizing a cross-entropy loss with soft targets. However, relying solely on pseudo-label supervision risks two common issues in SFUDA: (1) class collapse, where the model overfits to a subset of emotions while ignoring others, and (2) unstable supervision, where the teacher's predictions degrade over time due to noisy labels and representation drift. To address these issues, we introduce two complementary mechanisms: a diversity loss and an exponential moving average (EMA) teacher update. Diversity loss. To prevent class collapse, we encourage the model to maintain high entropy across predictions at the batch level, following  [23] . Specifically, given a batch of student predicted probability distributions {ptgt(y|x i t )} B i=1 , we compute the average prediction:\n\nThe diversity loss is then defined as Ldiv = -H(pbatch), which pushes the model to spread its predictions more evenly across emotion classes. In practice, this promotes balanced learning and reduces the effect of noisy pseudo-labels. EMA teacher update. To mitigate unstable supervision, we update the classifier teacher f cls as an exponential moving average of the student ftgt. At each step, the teacher parameters θ cls are updated by\n\nwhere θtgt are the student parameters and α ∈ [0, 1) is a momentum factor. This ensures that the teacher evolves smoothly with the student, filtering out short-term noise and providing more stable guidance during training. We use α = 0.999. Overall objective. The final training objective of the student model combines supervised alignment with regularization:\n\nwhere LCE is the cross-entropy between the student predictions and the fused pseudo-labels, and λdiv are hyperparameters balancing the contributions of the two regularizers. We set λdiv = 1.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Setup",
+      "text": "Dataset. This study uses three publicly available emotion databases, MSP-Podcast  [24] , IMPROV  [25] , and IEMOCAP  [26] , which are denoted as POD, IMP, and IEM, respectively. They cover real-world and acted emotions across different ethnic groups, ensuring diversity. Both IMPROV and IEMOCAP undergo cross-validation settings, including six and five folds for thorough evaluation, while there's only one fold in Podcast. To perform cross-dataset learning, we further filter the datasets to 4 emotion categories (happy, sad, angry, and neutral). We use unweighted accuracy as the evaluation metric.\n\nModel. We use Gemini 2.5 flash as the LALM studied, with a temperature of 0.6 for text generation. For the classifier teacher and student, we use the WavLM base+ model  [27]  with a weighted sum across layers for feature extraction. The extracted representations are then passed through two linear layers to predict the final emotion category, following  [28, 29, 30] . The classifier teacher is trained on the source domain using a cross-entropy loss LCE.\n\nOptimization. We optimize the networks using the AdamW  [31]  optimizer, with a batch size of 32. For regularization, we apply dropout with a rate of 0.4 in the linear layers, and an L2 regularization with weight 0.1. The teacher classifier f cls is trained with a learning rate of 5e-4, and the student model ftgt is scanned through learning rates of {7.5e-4, 5e-4, 1e-4, 5e-5, 1e-6}. The models are trained until the loss stops decreasing for 1000 steps.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Compare With Other Methods",
+      "text": "We compare six baselines spanning zero-shot inference, singleteacher target adaptation, and standard SFUDA. No baseline uses source-domain audio.\n\n• LLM zero-shot: Query the LALM fLALM for class probabilities and take argmax. No target training. • Source model zero-shot: Evaluate the domain-specific classifier fcls directly on target utterances. No target training. • LALM / Source model SFUDA: Adapt a student ftgt on unlabeled target data using pseudo-labels from fLALM/fcls only; the other teacher is unused. • SHOT  [12] / NRC  [14] : State-of-the-art SFUDA methods implemented with our backbone using fcls teacher. Overall performance. Our denoised label fusion framework consistently outperforms all baselines. Averaged across six transfer settings, MI-Fuse achieves 58.38% unweighted accuracy, which is 3.9% higher than the best-performing baseline (LALM SFUDA). This demonstrates that combining the API-based LALM with a source-trained classifier through denoised label fusion provides more reliable supervision than relying on either teacher alone. Performance on individual transfers. MI-Fuse achieves the highest accuracy in four of the six transfer directions. For example, in the IMP → POD setting, the LALM zero-shot baseline already performs strongly (61.44%), but MI-Fuse further improves to 61.92%. In the IMP → IEM setting, where the source model performs better than the LALM (53.75% vs. 45.96%), our framework effectively integrates both sources of information and raises performance to 59.09%, far exceeding the strongest SFUDA baselines SHOT (50.13%) and NRC (52.09%). These results highlight the advantage of uncertainty-aware label fusion when teacher reliability varies across tasks. Competitive performance in challenging cases. Even in the two settings where MI-Fuse does not achieve the top score, it still ranks second. For instance, in IEM → POD, our accuracy of 59.85% is close to the LALM zero-shot performance of 61.44%. Importantly, while conventional SFUDA methods such as SHOT and NRC are sometimes competitive when adapting to the IEMOCAP corpus, they lag behind in other domains. Our approach maintains consistently high performance across all transfer directions, demonstrating stronger generalization.  (iii) Weighting: when fusing, we combine soft labels from teachers using one of: MI (weights ∝ e -MI per teacher), Entropy (weights ∝ e -H ), or Equal (uniform average). Table  2  shows that our full method MI-Fuse (Multi + Direct Fusion + MI) achieves the best accuracy on both transfer directions. KL gating consistently underperforms direct fusion across weightings, indicating that hard disagreement gating discards useful complementary cues. Single-teacher training is clearly weaker, and entropy-based weighting lags behind MI, confirming the benefit of epistemic-uncertainty aware fusion.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Training Stability Analysis",
+      "text": "Fig.  2  shows how the development set accuracy evolves during the adaptation, revealing that our proposed approach achieves not only higher final accuracy but also more stable training dynamics compared to the classifier teacher and LALM teacher baselines. The classifier teacher declines after ∼400 steps, due to overfitting on early pseudo-labels from the EMA teacher. The LALM teacher performs the worst, dropping sharply at the start and then stagnating, which reflects unreliable predictions under domain shift. In contrast, our method steadily improves throughout training, effectively balancing information from both teachers while suppressing noise.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Limitation",
+      "text": "First, MI-Fuse depends on LALMs that can produce meaningful probabilistic predictions over emotion categories. Although models such as Gemini 2.5 are becoming increasingly accessible, their inference cost, latency, and reliance on proprietary APIs may hinder practical deployment in resource-constrained or privacy-sensitive settings. Second, the label fusion scheme assumes a fixed set of discrete emotion categories across datasets. In real-world applications, however, emotion taxonomies may vary. This mismatch can hinder the direct applicability of MI-Fuse when adapting to target domains with different label spaces.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "We present MI-Fuse, a denoised label fusion framework for SFUDA in SER under realistic closed-source LALM constraints. By integrating mutual-information-aware fusion, a diversity loss, and an EMA-updated teacher, our approach produces stable pseudo-labels. It effectively balances the strengths of both general-purpose LALMs and domain-trained classifiers. Extensive experiments across multiple datasets demonstrate that MI-Fuse consistently improves crossdomain performance, surpasses strong baselines, and enables student models to outperform closed-source LALMs on target domains. These results establish MI-Fuse as a practical recipe for deploying emotion-aware speech systems under realistic constraints.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Overview of the SFUDA setting and our proposed method.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: Suppose we have a labeled source-domain dataset Ds =",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: shows how the development set accuracy evolves during the",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Development set accuracy over training steps on IMP →IEM",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "National Taiwan University, Taiwan": "in which the source model is a black-box LALM. Concretely, we use"
+        },
+        {
+          "National Taiwan University, Taiwan": "the LALM as the source model for SFUDA training and can query it,"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "but cannot fine-tune or inspect\nits weights. Beyond LALMs, prac-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "titioners also often have domain-specific teacher classifiers trained"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "on different corpora, which they wish to evaluate on a new target"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "domain. Our goal\nis not\njust\nto transfer knowledge, but\nto train a"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "student that surpasses the LALM and the domain-specific teacher in"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "the target domain. This motivates us to the central research question:"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "given only unlabeled target-domain audio and an API-only LALM,"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "can we adapt a student model\nfor SER that outperforms the LALM"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "in the target domain?"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "To answer this question, we propose MI-Fuse, a denoised label"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "fusion framework that supplements the LALM with an additional"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "source-domain trained SER classifier acting as an auxiliary teacher."
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "Specifically, we generate multiple stochastic predictions from each"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "teacher and compute their mean distributions. We then merge them"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "using a weighted rule based on mutual information, where lower un-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "certainty across multiple generations receives a higher weight. To"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "stabilize training,\nthe classifier teacher is further updated via an ex-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "ponential moving average (EMA) of the student model, ensuring that"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "supervision evolves smoothly across iterations."
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "In summary, the main contributions of this work are as follows:"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "• We formalize a realistic and harder SFUDA scenario for speech"
+        },
+        {
+          "National Taiwan University, Taiwan": "in which the source model\nis a closed-source, API-only LALM,"
+        },
+        {
+          "National Taiwan University, Taiwan": "aligning with real deployment constraints."
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "• We\npropose\na\ndenoised\nlabel\nfusion\napproach\nthat\nintegrates"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "mutual-information weighting and an EMA-updated classifier"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "teacher to mitigate noisy pseudo-labels during adaptation."
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "• We\nconduct\nextensive\nexperiments on multiple SER datasets,"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "demonstrating that our approach consistently outperforms exist-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "ing SFUDA methods and achieves better adaptation performance."
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "2. RELATED WORK"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "To adapt\na\nsource-domain trained model\nto an unlabeled target"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "domain, most SFUDA methods\ntake\ninspiration from the\nsemi-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "supervised learning (SSL) field and employ some\ncommon SSL"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "techniques during adaptation to make full use of the unlabeled tar-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "get data and conquer domain mismatch at\nthe same time.\nThese"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "techniques could be broadly categorized into pseudo-labeling, con-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "sistency regularization, and clustering-based training."
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "Common strategies for generating pseudo-labels to guide train-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "ing involve class centroid-clustering [12, 13], neighborhood aggre-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "gation (affinity)\n[14],\nlabel ensembling from more than one model"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "[15, 16, 17], and some even integrating complementary labels [18]"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "into the process.\nFurther,\nconsistency regularization aims\nto im-"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "prove model robustness by enforcing consistent network predictions"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "under either data or model variations\n[19], which may also serve"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "as\nanother pseudo-labeling source under\nsome\nsettings.\nBesides"
+        },
+        {
+          "National Taiwan University, Taiwan": ""
+        },
+        {
+          "National Taiwan University, Taiwan": "pseudo-labeling\nsignals\n(instruction), many works\nalso\nintegrate"
+        },
+        {
+          "National Taiwan University, Taiwan": "entropy minimization or\ninformation maximization [20]\ninto the"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "3.2. Model uncertainty estimation": "In our adaptation framework, pseudo-labels are obtained from two"
+        },
+        {
+          "3.2. Model uncertainty estimation": "teachers:\nthe fLALM and fcls. Under domain shift, their predictions"
+        },
+        {
+          "3.2. Model uncertainty estimation": "may be noisy, and directly trusting them risks propagating errors"
+        },
+        {
+          "3.2. Model uncertainty estimation": "to the student ftgt. We address this by explicitly estimating each"
+        },
+        {
+          "3.2. Model uncertainty estimation": "teacher’s uncertainty and using it in label fusion."
+        },
+        {
+          "3.2. Model uncertainty estimation": "We quantify uncertainty using mutual information (MI) between"
+        },
+        {
+          "3.2. Model uncertainty estimation": "the predicted label Y and the model parameters Θ (either fLALM or"
+        },
+        {
+          "3.2. Model uncertainty estimation": "fcls), conditioned on an input x. MI reflects how much predictions"
+        },
+        {
+          "3.2. Model uncertainty estimation": "vary across stochastic perturbations such as dropout."
+        },
+        {
+          "3.2. Model uncertainty estimation": "For\neach input x, we perform K stochastic\nforward passes"
+        },
+        {
+          "3.2. Model uncertainty estimation": "through a teacher model\n(fLALM or fcls). This produces a set of"
+        },
+        {
+          "3.2. Model uncertainty estimation": "(detailed in Sec. 3.3).\nThe\npredictive distributions {pk(y|x)}K\nk=1"
+        },
+        {
+          "3.2. Model uncertainty estimation": "average distribution is"
+        },
+        {
+          "3.2. Model uncertainty estimation": "K(cid:88) k\np(y|x) = 1\n(1)\npk(y|x)."
+        },
+        {
+          "3.2. Model uncertainty estimation": "K"
+        },
+        {
+          "3.2. Model uncertainty estimation": "=1"
+        },
+        {
+          "3.2. Model uncertainty estimation": "From this, the predictive entropy"
+        },
+        {
+          "3.2. Model uncertainty estimation": "(cid:88) y\nH(¯p) = −\np(y|x) log ¯p(y|x)\n(2)"
+        },
+        {
+          "3.2. Model uncertainty estimation": "captures the total uncertainty, while the expected entropy"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "1 K\nK(cid:88) k\n(3)\nH(pk)"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "=1"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "reflects only aleatoric uncertainty,\ni.e., ambiguity inherent in the in-"
+        },
+        {
+          "3.2. Model uncertainty estimation": "put signal. Their difference,"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "K(cid:88) k\nI(Y, Θ | x) = H(¯p) − 1\n(4)\nH(pk),"
+        },
+        {
+          "3.2. Model uncertainty estimation": "K"
+        },
+        {
+          "3.2. Model uncertainty estimation": "=1"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "is the mutual information (MI), which captures epistemic uncertainty"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "as the model’s disagreement across stochastic predictions."
+        },
+        {
+          "3.2. Model uncertainty estimation": "This measure is directly applicable to SFUDA. A high MI value"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "means\nthe teacher’s predictions vary significantly across\nsamples,"
+        },
+        {
+          "3.2. Model uncertainty estimation": "signaling that\nits output\nis unstable under domain shift and should"
+        },
+        {
+          "3.2. Model uncertainty estimation": "be down-weighted. A low MI value indicates stable and consistent"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "predictions that are more trustworthy. We weight each teacher’s con-"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "tribution by e−M I to suppress noise and amplify consistency."
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "Integrating MI\ninto our\nlabel\nfusion mechanism provides\nthe"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "student model ftgt with less noisy and more robust pseudo-labels."
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "This allows ftgt to benefit from both the generalization ability of the"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "LALM and the domain-specific knowledge of\nthe classifier, while"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "mitigating the risk of propagating errors from either teacher."
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "3.3. Label fusion"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "We propose a novel label fusion framework for SFUDA in SER. Our"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "approach integrates predictions from a source-pretrained SER model"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "and an LALM to mitigate the noisy label problem. We begin by ini-"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "tializing the student model ftgt with the parameters of the classifier"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "teacher fcls. The student is then adapted using only unlabeled target"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "domain data."
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "For each unlabeled target\nsample xt, we apply Monte Carlo"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "(MC) dropout [22] to the classifier teacher and obtain Ncls stochastic"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "forward passes. This produces a set of predicted probability distri-"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "butions"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        },
+        {
+          "3.2. Model uncertainty estimation": "{p(1)"
+        },
+        {
+          "3.2. Model uncertainty estimation": "(y|xt)}.\ncls (y|xt), p(2)\ncls (y|xt), . . . , p(N )"
+        },
+        {
+          "3.2. Model uncertainty estimation": "The mean distribution is used as\nthe aggregated classifier\nteacher"
+        },
+        {
+          "3.2. Model uncertainty estimation": "prediction:"
+        },
+        {
+          "3.2. Model uncertainty estimation": "1\nNcls(cid:88)"
+        },
+        {
+          "3.2. Model uncertainty estimation": "p(i)\n(5)"
+        },
+        {
+          "3.2. Model uncertainty estimation": "pcls(y|xt) =\ncls (y|xt)."
+        },
+        {
+          "3.2. Model uncertainty estimation": "Ncls"
+        },
+        {
+          "3.2. Model uncertainty estimation": "i=1"
+        },
+        {
+          "3.2. Model uncertainty estimation": ""
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "signed prompts that request a probability distribution over emotion",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "Both IMPROV and IEMOCAP undergo cross-validation settings, in-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "classes in natural language. This yields",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "cluding six and five folds for thorough evaluation, while there’s only"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "one fold in Podcast. To perform cross-dataset\nlearning, we further"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "{p(1)\nLM (y|xt), p(2)\nLM (y|xt), . . . , p(N )\nLM (y|xt)}.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "filter\nthe datasets to 4 emotion categories (happy,\nsad, angry, and"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "We then compute the mean LALM probability distribution:",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "neutral). We use unweighted accuracy as the evaluation metric."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "Model. We use Gemini 2.5 flash as the LALM studied, with a tem-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "1\nNLM(cid:88)",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "p(i)\n(6)\npLM(y|xt) =",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "perature of 0.6 for\ntext generation.\nFor\nthe classifier\nteacher and"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "LM(y|xt).",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "NLM",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "i=1",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "student, we use the WavLM base+ model [27] with a weighted sum"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "We fuse the outputs from two models by weighted averaging.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "across layers for\nfeature extraction.\nThe extracted representations"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "The weights are determined by the exponential of the negative mu-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "are then passed through two linear layers to predict the final emotion"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "tual information (MI) associated with each model’s distribution,",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "category, following [28, 29, 30]. The classifier teacher is trained on"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "the source domain using a cross-entropy loss LCE."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "e−MI1 · ¯pcls(y|xt) + e−MI2 · ¯pLM(y|xt)",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": ",\n(7)\npfused(y|xt) =",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "Optimization. We optimize the networks using the AdamW [31]"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "e−MI1 + e−MI2",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "optimizer, with a batch size of 32.\nFor\nregularization, we apply"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "thereby assigning greater importance to the model with lower uncer-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "dropout with a rate of 0.4 in the linear\nregular-\nlayers, and an L2"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "tainty. We set NLM = 5 and Ncls = 8 passes in our experiments.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "ization with weight 0.1. The teacher classifier fcls is trained with a"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "learning rate of 5e-4, and the student model ftgt is scanned through"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "learning rates of {7.5e-4, 5e-4, 1e-4, 5e-5, 1e-6}. The models are"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "3.4. Diversity Loss and EMA Teacher Update",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "trained until the loss stops decreasing for 1000 steps."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "is\ntrained on the fused pseudo-labels by\nThe student model ftgt",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "minimizing a cross-entropy loss with soft\ntargets. However,\nrely-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "4.2. Compare with other methods"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "ing solely on pseudo-label supervision risks two common issues in",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "We\ncompare\nsix\nbaselines\nspanning\nzero-shot\ninference,\nsingle-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "SFUDA: (1) class collapse, where the model overfits to a subset of",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "teacher\ntarget adaptation, and standard SFUDA. No baseline uses"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "emotions while ignoring others, and (2) unstable supervision, where",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "source-domain audio."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "the teacher’s predictions degrade over time due to noisy labels and",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "• LLM zero-shot: Query the LALM fLALM for class probabilities"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "representation drift. To address these issues, we introduce two com-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "and take argmax. No target training."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "plementary mechanisms: a diversity loss and an exponential moving",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "average (EMA) teacher update.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "•\nSource model zero-shot: Evaluate the domain-specific classifier"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "Diversity loss.\nTo prevent class collapse, we encourage the",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "fcls directly on target utterances. No target training."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "model to maintain high entropy across predictions at the batch level,",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "• LALM / Source model SFUDA: Adapt a student ftgt on unla-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "following [23]. Specifically, given a batch of student predicted prob-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "the\nbeled target data using pseudo-labels from fLALM/fcls only;"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "ability distributions {ptgt(y|xi\nt)}B\ni=1, we compute the average pre-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "other teacher is unused."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "diction:",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "•\nSHOT [12]/ NRC [14]: State-of-the-art SFUDA methods imple-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "1 B\n(8)\nptgt(y|xi",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "teacher.\nmented with our backbone using fcls"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "B(cid:88) i\nt).",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "=1",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "Overall performance. Our denoised label\nfusion framework con-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "The diversity loss\nis\nthen defined as Ldiv = −H(¯pbatch), which",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "sistently outperforms all baselines.\nAveraged across\nsix transfer"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "pushes the model to spread its predictions more evenly across emo-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "settings, MI-Fuse achieves 58.38% unweighted accuracy, which is"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "tion classes. In practice, this promotes balanced learning and reduces",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "3.9% higher\nthan the best-performing baseline (LALM SFUDA)."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "the effect of noisy pseudo-labels.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "This demonstrates\nthat\ncombining the API-based LALM with a"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "EMA teacher update.\nTo mitigate unstable supervision, we",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "source-trained\nclassifier\nthrough\ndenoised\nlabel\nfusion\nprovides"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "update the classifier teacher fcls as an exponential moving average",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "more reliable supervision than relying on either teacher alone."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "of\nthe student ftgt. At each step,\nthe teacher parameters θcls are",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "Performance on individual transfers. MI-Fuse achieves the high-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "updated by",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "est accuracy in four of the six transfer directions. For example,\nin"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "(9)\nθcls ← α θcls + (1 − α) θtgt,",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "the IMP → POD setting, the LALM zero-shot baseline already per-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "where θtgt are the student parameters and α ∈ [0, 1) is a momentum",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "forms strongly (61.44%), but MI-Fuse further improves to 61.92%."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "factor. This ensures that\nthe teacher evolves smoothly with the stu-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "In\nthe\nIMP → IEM setting, where\nthe\nsource model\nperforms"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "dent, filtering out short-term noise and providing more stable guid-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "better than the LALM (53.75% vs. 45.96%), our framework effec-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "ance during training. We use α = 0.999.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "tively integrates both sources of information and raises performance"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "Overall objective.\nThe final\ntraining objective of\nthe student",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "to 59.09%,\nfar\nexceeding the\nstrongest SFUDA baselines SHOT"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "model combines supervised alignment with regularization:",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "(50.13%) and NRC (52.09%). These results highlight the advantage"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "of uncertainty-aware\nlabel\nfusion when teacher\nreliability varies"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "(10)\nL = LCE + λdivLdiv,",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "across tasks."
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "where LCE is the cross-entropy between the student predictions and",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "Competitive performance in challenging cases. Even in the two"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "the fused pseudo-labels, and λdiv are hyperparameters balancing the",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "settings where MI-Fuse does not achieve the top score,\nit still ranks"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "contributions of the two regularizers. We set λdiv = 1.",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "second.\nFor\ninstance,\nin IEM → POD, our accuracy of 59.85%"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "is close to the LALM zero-shot performance of 61.44%.\nImpor-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "4. EXPERIMENTS",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "tantly, while conventional SFUDA methods such as SHOT and NRC"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "4.1.\nSetup",
+          "and acted emotions across different ethnic groups, ensuring diversity.": ""
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "are sometimes competitive when adapting to the IEMOCAP corpus,"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "Dataset. This study uses three publicly available emotion databases,",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "they lag behind in other domains. Our approach maintains consis-"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "MSP-Podcast[24], IMPROV[25], and IEMOCAP[26], which are de-",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "tently high performance across all transfer directions, demonstrating"
+        },
+        {
+          "In parallel, we query the LALM NLM times with carefully de-": "noted as POD, IMP, and IEM, respectively. They cover real-world",
+          "and acted emotions across different ethnic groups, ensuring diversity.": "stronger generalization."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 2: shows that our full method MI-Fuse (Multi + Direct",
+      "data": [
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "IMP → POD"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "60.59"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "61.44"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "41.34"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "41.37"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "41.58"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "41.37"
+        },
+        {
+          "Table 1. Performance across dataset transfer tasks in Accuracy (%). Best results are bolded and second-best are underlined.": "61.92"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 2: shows that our full method MI-Fuse (Multi + Direct",
+      "data": [
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": "racy %). Best performances are in bold."
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": "Generation"
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": "Multi"
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": "Single"
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": ""
+        },
+        {
+          "Table 2. Ablation study on fusion strategies on IEMOCAP (Accu-": "4.3. Ablation study"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "the IEEE/CVF conference\nsegmentation,”\nin Proceedings of"
+        },
+        {
+          "7. REFERENCES": "[1] Ke-Han Lu et al.,\n“Desta2. 5-audio: Toward general-purpose",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "on computer vision and pattern recognition, 2021, pp. 1215–"
+        },
+        {
+          "7. REFERENCES": "large audio language model with self-generated cross-modal",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "1224."
+        },
+        {
+          "7. REFERENCES": "alignment,” arXiv preprint arXiv:2507.02768, 2025.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[18]\nJincen Wang et al.,\n“Confidence-aware hypothesis\ntransfer"
+        },
+        {
+          "7. REFERENCES": "[2]\nJin Xu et al., “Qwen2. 5-omni technical report,” arXiv preprint",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "networks for source-free cross-corpus speech emotion recog-"
+        },
+        {
+          "7. REFERENCES": "arXiv:2503.20215, 2025.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "nition,” in Proc. Interspeech 2024, 2024, pp. 1050–1054."
+        },
+        {
+          "7. REFERENCES": "[3] Gheorghe Comanici et al.,\n“Gemini 2.5:\nPushing the fron-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[19]\nJoonHo Lee and Gyemin Lee,\n“Feature alignment by uncer-"
+        },
+        {
+          "7. REFERENCES": "tier with\nadvanced\nreasoning, multimodality,\nlong\ncontext,",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "tainty and self-training for\nsource-free unsupervised domain"
+        },
+        {
+          "7. REFERENCES": "arXiv\npreprint\nand\nnext\ngeneration\nagentic\ncapabilities,”",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "adaptation,” Neural Networks, vol. 161, pp. 682–692, 2023."
+        },
+        {
+          "7. REFERENCES": "arXiv:2507.06261, 2025.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[20] Andreas Krause et al.,\n“Discriminative clustering by regular-"
+        },
+        {
+          "7. REFERENCES": "[4] Chien yu Huang et al., “Dynamic-SUPERB phase-2: A collab-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "ized information maximization,” Advances in neural informa-"
+        },
+        {
+          "7. REFERENCES": "oratively expanding benchmark for measuring the capabilities",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "tion processing systems, vol. 23, 2010."
+        },
+        {
+          "7. REFERENCES": "of spoken language models with 180 tasks,” in The Thirteenth",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[21] Xiangli Yang et al., “A survey on deep semi-supervised learn-"
+        },
+        {
+          "7. REFERENCES": "International Conference on Learning Representations, 2025.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "ing,”\nIEEE transactions on knowledge and data engineering,"
+        },
+        {
+          "7. REFERENCES": "[5] Haibin Wu et\nal.,\n“Towards\naudio language modeling–an",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "vol. 35, no. 9, pp. 8934–8954, 2022."
+        },
+        {
+          "7. REFERENCES": "overview,” arXiv preprint arXiv:2402.13236, 2024.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[22] Yarin Gal and Zoubin Ghahramani,\n“Dropout as a bayesian"
+        },
+        {
+          "7. REFERENCES": "[6]\nJaime Bellver et al.,\n“Multimodal audio-language model\nfor",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "approximation: Representing model uncertainty in deep learn-"
+        },
+        {
+          "7. REFERENCES": "speech emotion recognition,”\nin The Speaker and Language",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "ing,” in Proceedings of The 33rd International Conference on"
+        },
+        {
+          "7. REFERENCES": "Recognition Workshop (Odyssey 2024), 2024, pp. 288–295.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Machine Learning. 2016, vol. 48 of Proceedings of Machine"
+        },
+        {
+          "7. REFERENCES": "[7] Nelly Elsayed et al., “Speech emotion recognition using super-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Learning Research, pp. 1050–1059, PMLR."
+        },
+        {
+          "7. REFERENCES": "vised deep recurrent system for mental health monitoring,”\nin",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[23]\nJian Liang et al., “Do we really need to access the source data?"
+        },
+        {
+          "7. REFERENCES": "2022 IEEE 8th World Forum on Internet of Things (WF-IoT),",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Source hypothesis\ntransfer\nfor unsupervised domain adapta-"
+        },
+        {
+          "7. REFERENCES": "2022.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "tion,”\nin Proceedings of"
+        },
+        {
+          "7. REFERENCES": "[8]\nFarideh Majidi\nand Marzieh Bahrami,\n“Utilizing\nspeech",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Machine Learning, 2020."
+        },
+        {
+          "7. REFERENCES": "emotion\nrecognition\nand\nrecommender\nsystems\nfor\nnega-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[24] Reza Lotfian and Carlos Busso,\n“Building naturalistic emo-"
+        },
+        {
+          "7. REFERENCES": "arXiv preprint\ntive emotion handling in therapy chatbots,”",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "tionally balanced speech corpus by retrieving emotional speech"
+        },
+        {
+          "7. REFERENCES": "arXiv:2311.11116, 2023.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "IEEE Transactions on Af-\nfrom existing podcast recordings,”"
+        },
+        {
+          "7. REFERENCES": "[9] Cheng Lu et al., “Progressively discriminative transfer network",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "fective Computing, vol. 10, no. 4, pp. 471–483, 2019."
+        },
+        {
+          "7. REFERENCES": "for cross-corpus speech emotion recognition,”\nEntropy, vol.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[25] Carlos Busso, Srinivas Parthasarathy, Alec Burmania, Mo-"
+        },
+        {
+          "7. REFERENCES": "24, 2022.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "hammed AbdelWahab, Najmeh Sadoughi, and Emily Mower"
+        },
+        {
+          "7. REFERENCES": "[10]\nSiddique Latif\net\nal.,\n“Self\nsupervised adversarial domain",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Provost, “Msp-improv: An acted corpus of dyadic interactions"
+        },
+        {
+          "7. REFERENCES": "adaptation for cross-corpus and cross-language speech emo-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "IEEE Transactions on Affective\nto study emotion perception,”"
+        },
+        {
+          "7. REFERENCES": "tion recognition,” IEEE Transactions on Affective Computing,",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Computing, vol. 8, no. 1, pp. 67–80, 2017."
+        },
+        {
+          "7. REFERENCES": "vol. 14, no. 3, pp. 1912–1926, 2023.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[26] Carlos Busso et al.,\n“Iemocap:\nInteractive emotional dyadic"
+        },
+        {
+          "7. REFERENCES": "[11]\nFabian Ritter-Gutierrez et al., “Dataset-Distillation Generative",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "motion capture database,” Language resources and evaluation,"
+        },
+        {
+          "7. REFERENCES": "Model for Speech Emotion Recognition,” in Interspeech 2024,",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "2008."
+        },
+        {
+          "7. REFERENCES": "2024, pp. 2640–2644.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[27]\nSanyuan Chen et al., “Wavlm: Large-scale self-supervised pre-"
+        },
+        {
+          "7. REFERENCES": "[12]\nJian Liang, Dapeng Hu, and Jiashi Feng,\n“Do we really need",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "IEEE Journal of\ntraining for\nfull\nstack speech processing,”"
+        },
+        {
+          "7. REFERENCES": "to access the source data?\nsource hypothesis transfer\nfor un-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Selected Topics in Signal Processing, 2022."
+        },
+        {
+          "7. REFERENCES": "supervised domain adaptation,” in International conference on",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[28] Yi-Cheng Lin et al.,\n“Emo-bias: A Large Scale Evaluation of"
+        },
+        {
+          "7. REFERENCES": "machine learning. PMLR, 2020, pp. 6028–6039.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Social Bias on Speech Emotion Recognition,”\nin Interspeech"
+        },
+        {
+          "7. REFERENCES": "[13]\nJian Liang et al.,\n“Source data-absent unsupervised domain",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "2024, 2024, pp. 4633–4637."
+        },
+        {
+          "7. REFERENCES": "adaptation through hypothesis transfer and labeling transfer,”",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[29] Yi-Cheng Lin et al.,\n“Emo-debias: Benchmarking gender de-"
+        },
+        {
+          "7. REFERENCES": "IEEE Transactions on Pattern Analysis and Machine Intelli-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "biasing techniques in multi-label speech emotion recognition,”"
+        },
+        {
+          "7. REFERENCES": "gence, vol. 44, no. 11, pp. 8602–8617, 2021.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "arXiv preprint arXiv:2506.04652, 2025."
+        },
+        {
+          "7. REFERENCES": "[14]\nShiqi Yang et al., “Exploiting the intrinsic neighborhood struc-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[30] Yi-Cheng Lin et\nal.,\n“Mitigating Subgroup Disparities\nin"
+        },
+        {
+          "7. REFERENCES": "ture for source-free domain adaptation,” Advances in neural in-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "Multi-Label Speech Emotion Recognition: A Pseudo-Labeling"
+        },
+        {
+          "7. REFERENCES": "formation processing systems, vol. 34, pp. 29393–29405, 2021.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "and Unsupervised Learning Approach,”\nin Interspeech 2025,"
+        },
+        {
+          "7. REFERENCES": "[15] Nazmul Karim et al.,\n“C-sfda: A curriculum learning aided",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "2025."
+        },
+        {
+          "7. REFERENCES": "self-training framework for efficient source free domain adap-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "[31]\nIlya Loshchilov and Frank Hutter,\n“Decoupled weight decay"
+        },
+        {
+          "7. REFERENCES": "the IEEE/CVF conference on com-\ntation,”\nin Proceedings of",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "regularization,” in International Conference on Learning Rep-"
+        },
+        {
+          "7. REFERENCES": "puter vision and pattern recognition, 2023, pp. 24120–24131.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": "resentations, 2019."
+        },
+        {
+          "7. REFERENCES": "[16] Antti Tarvainen and Harri Valpola,\n“Mean teachers are bet-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "ter role models: Weight-averaged consistency targets improve",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "semi-supervised deep learning results,” Advances in neural in-",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        },
+        {
+          "7. REFERENCES": "formation processing systems, vol. 30, 2017.",
+          "[17] Yuang Liu et al., “Source-free domain adaptation for semantic": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Desta2. 5-audio: Toward general-purpose large audio language model with self-generated cross-modal alignment",
+      "authors": [
+        "Ke-Han Lu"
+      ],
+      "year": "2025",
+      "venue": "Desta2. 5-audio: Toward general-purpose large audio language model with self-generated cross-modal alignment",
+      "arxiv": "arXiv:2507.02768"
+    },
+    {
+      "citation_id": "3",
+      "title": "Qwen2. 5-omni technical report",
+      "authors": [
+        "Jin Xu"
+      ],
+      "year": "2025",
+      "venue": "Qwen2. 5-omni technical report",
+      "arxiv": "arXiv:2503.20215"
+    },
+    {
+      "citation_id": "4",
+      "title": "Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities",
+      "authors": [
+        "Gheorghe Comanici"
+      ],
+      "year": "2025",
+      "venue": "Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities",
+      "arxiv": "arXiv:2507.06261"
+    },
+    {
+      "citation_id": "5",
+      "title": "Dynamic-SUPERB phase-2: A collaboratively expanding benchmark for measuring the capabilities of spoken language models with 180 tasks",
+      "authors": [
+        "Chien Yu Huang"
+      ],
+      "year": "2025",
+      "venue": "The Thirteenth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "6",
+      "title": "Towards audio language modeling-an overview",
+      "authors": [
+        "Haibin Wu"
+      ],
+      "year": "2024",
+      "venue": "Towards audio language modeling-an overview",
+      "arxiv": "arXiv:2402.13236"
+    },
+    {
+      "citation_id": "7",
+      "title": "Multimodal audio-language model for speech emotion recognition",
+      "authors": [
+        "Jaime Bellver"
+      ],
+      "year": "2024",
+      "venue": "The Speaker and Language Recognition Workshop"
+    },
+    {
+      "citation_id": "8",
+      "title": "Speech emotion recognition using supervised deep recurrent system for mental health monitoring",
+      "authors": [
+        "Nelly Elsayed"
+      ],
+      "venue": "2022 IEEE 8th World Forum on Internet of Things"
+    },
+    {
+      "citation_id": "9",
+      "title": "Utilizing speech emotion recognition and recommender systems for negative emotion handling in therapy chatbots",
+      "authors": [
+        "Farideh Majidi",
+        "Marzieh Bahrami"
+      ],
+      "year": "2023",
+      "venue": "Utilizing speech emotion recognition and recommender systems for negative emotion handling in therapy chatbots",
+      "arxiv": "arXiv:2311.11116"
+    },
+    {
+      "citation_id": "10",
+      "title": "Progressively discriminative transfer network for cross-corpus speech emotion recognition",
+      "authors": [
+        "Cheng Lu"
+      ],
+      "year": "2022",
+      "venue": "Entropy"
+    },
+    {
+      "citation_id": "11",
+      "title": "Self supervised adversarial domain adaptation for cross-corpus and cross-language speech emotion recognition",
+      "authors": [
+        "Siddique Latif"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Dataset-Distillation Generative Model for Speech Emotion Recognition",
+      "authors": [
+        "Fabian Ritter-Gutierrez"
+      ],
+      "venue": "Dataset-Distillation Generative Model for Speech Emotion Recognition"
+    },
+    {
+      "citation_id": "13",
+      "title": "Do we really need to access the source data? source hypothesis transfer for unsupervised domain adaptation",
+      "authors": [
+        "Jian Liang",
+        "Dapeng Hu",
+        "Jiashi Feng"
+      ],
+      "year": "2020",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "14",
+      "title": "Source data-absent unsupervised domain adaptation through hypothesis transfer and labeling transfer",
+      "authors": [
+        "Jian Liang"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "15",
+      "title": "Exploiting the intrinsic neighborhood structure for source-free domain adaptation",
+      "authors": [
+        "Shiqi Yang"
+      ],
+      "year": "2021",
+      "venue": "Exploiting the intrinsic neighborhood structure for source-free domain adaptation"
+    },
+    {
+      "citation_id": "16",
+      "title": "C-sfda: A curriculum learning aided self-training framework for efficient source free domain adaptation",
+      "authors": [
+        "Nazmul Karim"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "17",
+      "title": "Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning results",
+      "authors": [
+        "Antti Tarvainen",
+        "Harri Valpola"
+      ],
+      "year": "2017",
+      "venue": "Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning results"
+    },
+    {
+      "citation_id": "18",
+      "title": "Source-free domain adaptation for semantic segmentation",
+      "authors": [
+        "Yuang Liu"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "19",
+      "title": "Confidence-aware hypothesis transfer networks for source-free cross-corpus speech emotion recognition",
+      "authors": [
+        "Jincen Wang"
+      ],
+      "year": "2024",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "20",
+      "title": "Feature alignment by uncertainty and self-training for source-free unsupervised domain adaptation",
+      "authors": [
+        "Joonho Lee",
+        "Gyemin Lee"
+      ],
+      "year": "2023",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "21",
+      "title": "Discriminative clustering by regularized information maximization",
+      "authors": [
+        "Andreas Krause"
+      ],
+      "year": "2010",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "22",
+      "title": "A survey on deep semi-supervised learning",
+      "authors": [
+        "Xiangli Yang"
+      ],
+      "year": "2022",
+      "venue": "IEEE transactions on knowledge and data engineering"
+    },
+    {
+      "citation_id": "23",
+      "title": "Dropout as a bayesian approximation: Representing model uncertainty in deep learning",
+      "authors": [
+        "Yarin Gal",
+        "Zoubin Ghahramani"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of The 33rd International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "24",
+      "title": "Do we really need to access the source data? Source hypothesis transfer for unsupervised domain adaptation",
+      "authors": [
+        "Jian Liang"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 37th International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "25",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "Reza Lotfian",
+        "Carlos Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "26",
+      "title": "Msp-improv: An acted corpus of dyadic interactions to study emotion perception",
+      "authors": [
+        "Carlos Busso",
+        "Srinivas Parthasarathy",
+        "Alec Burmania",
+        "Mohammed Abdelwahab",
+        "Najmeh Sadoughi",
+        "Emily Provost"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "27",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "28",
+      "title": "Wavlm: Large-scale self-supervised pretraining for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "29",
+      "title": "Emo-bias: A Large Scale Evaluation of Social Bias on Speech Emotion Recognition",
+      "authors": [
+        "Yi-Cheng Lin"
+      ],
+      "venue": "Emo-bias: A Large Scale Evaluation of Social Bias on Speech Emotion Recognition"
+    },
+    {
+      "citation_id": "30",
+      "title": "Emo-debias: Benchmarking gender debiasing techniques in multi-label speech emotion recognition",
+      "authors": [
+        "Yi-Cheng Lin"
+      ],
+      "year": "2025",
+      "venue": "Emo-debias: Benchmarking gender debiasing techniques in multi-label speech emotion recognition",
+      "arxiv": "arXiv:2506.04652"
+    },
+    {
+      "citation_id": "31",
+      "title": "Mitigating Subgroup Disparities in Multi-Label Speech Emotion Recognition: A Pseudo-Labeling and Unsupervised Learning Approach",
+      "authors": [
+        "Yi-Cheng Lin"
+      ],
+      "venue": "Mitigating Subgroup Disparities in Multi-Label Speech Emotion Recognition: A Pseudo-Labeling and Unsupervised Learning Approach"
+    },
+    {
+      "citation_id": "32",
+      "title": "Decoupled weight decay regularization",
+      "authors": [
+        "Ilya Loshchilov",
+        "Frank Hutter"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Learning Representations"
+    }
+  ]
+}

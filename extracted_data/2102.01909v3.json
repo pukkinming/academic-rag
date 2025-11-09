@@ -1,0 +1,3332 @@
+{
+  "paper_id": "2102.01909v3",
+  "title": "Hebert & Hebemo: A Hebrew Bert Model And A Tool For Polarity Analysis And Emotion Recognition",
+  "published": "2021-02-03T06:59:59Z",
+  "authors": [
+    "Avihay Chriqui",
+    "Inbal Yahav"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Sentiment analysis of user-generated content (UGC) can provide valuable information across numerous domains, including marketing, psychology, and public health. Currently, there are very few Hebrew models for natural language processing in general, and for sentiment analysis in particular; indeed, it is not straightforward to develop such models because Hebrew is a Morphologically Rich Language (MRL) with challenging characteristics. Moreover, the only available Hebrew sentiment analysis model, based on a recurrent neural network, was developed for polarity analysis (classifying text as \"positive\", \"negative\", or neutral) and was not used for detection of finergrained emotions (e.g., anger, fear, joy). To address these gaps, this paper introduces HeBERT and HebEMO. HeBERT is a Transformer-based model for modern Hebrew text, which relies on a BERT (Bidirectional Encoder Representations for Transformers) architecture. BERT has been shown to outperform alternative architectures in sentiment analysis, and is suggested to be particularly appropriate for MRLs. Analyzing multiple BERT specifications, we find that while model complexity correlates with high performance on language tasks that aim to understand terms in a sentence, a more-parsimonious model better captures the sentiment of an entire sentence. Notably, regardless of the complexity of the BERT specification, our BERT-based language model outperforms all existing Hebrew alternatives on all common language tasks. HebEMO is a tool that uses HeBERT to detect polarity and extract emotions from Hebrew UGC. HebEMO is trained on a unique Covid-19-related UGC dataset that we collected and annotated for this study. Data collection and annotation followed an active learning procedure that aimed to maximize predictability. We show that HebEMO yields a high F1-score of 0.96 for polarity classification. Emotion detection reaches F1-scores of 0.78-0.97 for various target emotions, with the exception of surprise, which the model failed to capture (F1 = 0.41). These results are better than the best-reported performance, even among English-language models of emotion detection.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Sentiment analysis, also referred to as opinion mining or subjectivity analysis  (Liu and Zhang 2012) , is probably one of the most common tasks in natural language processing (NLP)  (Liu 2012 , Zhang et al. 2018) . The goal of sentiment analysis is to systematically extract, from written text, what people think or feel toward entities such as products, services, individuals, events, news articles, and topics.\n\nSentiment analysis includes multiple types of tasks, one of the most common being polarity classification: the binning of overall sentiment into the three categories of positive, neutral, or negative. Another prominent sentiment analysis task is emotion detection -a process for extracting finer-grained emotions such as happiness, anger, and fear from human language. These emotions, in turn, can shed light on individuals' beliefs, behaviors, or mental states. Both polarity classification and emotion detection have proven to yield valuable information in diverse applications. Research in marketing, for example, has shown that emotions that users express in online product reviews affect products' virality and profitability  (Chitturi et al. 2007 , Ullah et al. 2016 , Adamopoulos et al. 2018) . In finance,  Bellstam et al. (2020)  extracted sentiments from financial analysts' textual descriptions of firm activities, and used those sentiments to measure corporate innovation. In psychology, sentiment analysis has been used to detect distress in psychotherapy patients  (Shapira et al. 2020) , and to identify specific emotions that might be indicative of suicidal intentions  (Desmet and Hoste 2013) . Notably, recent studies suggest that the capacity to identify certain emotions (e.g., fear or distress) can contribute towards the understanding of individuals' behaviors and mental health in the Covid-19 pandemic  (Ahorsu et al. 2020, Pfefferbaum and North 2020) .\n\nThe literature offers a considerable number of methods and models for sentiment analysis, with a strong bias towards polarity detection. Models for emotion detection, though less common, are also accessible to the research community in multiple languages. As yet, however, emotion detection models do not support the Hebrew language. In fact, to our knowledge, only one study thus far has developed a Hebrew-language model for sentiment analysis of any kind (specifically, polarity classification;  Amram et al. (2018) ). Notably, existing sentiment analysis methods developed for other languages are not easily adjustable to Hebrew, due to unique linguistic and cultural features of this language. A key challenge in the development of Hebrew-language sentiment analysis tools relates to the fact that Hebrew is a Morphologically Rich Language (MRL), defined as a language \"in which significant information concerning syntactic units and relations is expressed at word-level\"  (Tsarfaty et al. 2010) . In Hebrew, as in other MRLs (e.g., Arabic), grammatical relations between words are expressed via the addition of affixes (suffixes, prefixes), instead of the addition of particles. Moreover, the word order in Hebrew sentences is rather flexible. Many words have multiple meanings, which change depending on context. Further, written Hebrew contains vocalization diacritics, known as Niqqud (\"dots\"), which are missing in non-formal scripts; other Hebrew characters represent some, but not all of the vowels. Thus, it is common for words that are pronounced differently to be written in the same way. These unique characteristics of Hebrew pose a challenge in developing appropriate Hebrew NLP models. Architectural choices should be made with care, to ensure that the features of the language are well represented. The current best practice for Hebrew NLP is the use of the multilingual BERT model (mBERT, based on the BERT [Bidirectional Encoder Representations from Transformers] architecture, discussed further below;  Devlin et al. (2018) ), which was trained on a small size Hebrew dictionary. When tested on Arabic (the closest language to Hebrew), mBERT was shown to have significantly lower performance than a language-specific BERT model on multiple language tasks  (Antoun et al. 2020) .\n\nThis paper achieves two main goals related to the development of Hebrew-language sentiment analysis capabilities. First, we pre-train a language model for modern Hebrew, called HeBERT, which can be implemented in diverse NLP tasks, and is expected to be particularly appropriate for sentiment analysis (as compared with alternative model architectures). HeBERT is based on the well-established BERT architecture  (Devlin et al. 2018) ; the latter was originally trained for the unsupervised fill-in-the-blank task (known as Masked Language Modeling -MLM  (Fedus et al. 2018) ). We train HeBERT on two large-scale Hebrew corpuses -Hebrew Wikipedia and OSCAR (Open Super-large Crawled ALMAnaCH corpus, a huge multilingual corpus based on open web crawl data,  (Ortiz Suárez et al. 2020) . We then evaluate HeBERT's performance on five key NLP tasks, namely, fill-in-the-blank, out-of-vocabulary (OOV), Name Entity Recognition (NER), Part of Speech (POS), and sentiment (polarity) analysis. We examine several architectural choices for our model and put forward and test hypotheses regarding their relative performance, ultimately selecting the best-performing option. Specifically, we show that while model complexity correlates with high performance on language tasks that aim to understand terms in a sentence, a moreparsimonious model better captures the sentiment of an entire sentence.\n\nSecond, we develop a tool to detect sentiments -specifically, polarity and emotions -from user-generated content (UGC). Our sentiment detector, called HebEMO, is based on HeBERT and operates on a document level. We apply HebEMO to user-generated comments, from three major news sites in Israel, that were posted in response to Covid-19-related articles during 2020.\n\nWe chose this dataset on the basis of findings that the Covid-19 pandemic intensified emotions in multiple communities  (Pedrosa et al. 2020) , suggesting that online discourse regarding the pandemic is likely to be highly emotional. Comments were selected for annotation following an innovative semi-supervised iterative labeling approach that aimed to maximize predictability.\n\nWe show that HebEMO achieves a high performance of weighted average F1-score = 0.96 for polarity classification. Emotion detection reaches F1-scores of 0.8-0.97 for the various target emotions, with the exception of surprise, which the model failed to capture (F1 = 0.41). These results are better than the best reported performance, even when compared to English-language models for emotion detection (Ghanbari-Adivi and Mosleh 2019,  Mohammad et al. 2018) .\n\nThe remainder of this paper is organized as follows. In the next section, we provide a brief overview of the state of the art in sentiment analysis in general and emotion recognition in particular; we also briefly discuss considerations that must be taken into account when developing pre-trained language models for sentiment analysis. Next, we present HeBERT, our language model, elaborating on how we address some of the unique challenges associated with the Hebrew language. We subsequently describe HebEMO and evaluate its performance on our UGC data.",
+      "page_start": 2,
+      "page_end": 4
+    },
+    {
+      "section_name": "Background",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Language Specificity In Emotional Expression",
+      "text": "Psychologists and psychoanalysts have long known that, despite the importance of non-verbal behavior, words are the most natural way to externally express an inner emotional world  (Ortony et al. 1987) . In line with this premise, theories of emotions stress that emotional experience and its intensity can be inferred from spoken or written language  (Argaman 2010 ). Yet, emotions vary across cultures  (Rosaldo et al. 1984) , and, consequently, languages differ in the degree of emotionality they convey and in the ways in which emotions are expressed in words  (Wierzbicka 1994 , Kövecses 2003 ). In particular, as noted by  Kövecses (2003) , the verbalization of emotions commonly relies on the use of metaphorical and metonymic expressions, which may differ across languages. Religion is another source of variation in emotional experience and its associated expression  Kim-Prieto and Diener (2009) . One study showed how the moral system of a culture -and specifically, a Middle Eastern culture -can be linked to certain types of emotions, and suggested that differences in culturally dominant emotions can play a decisive role in cultural clashes  (Fattah and Fierke 2009) .\n\nThe above discussion implies that emotion detection tools that are implemented in one language might not be easily transferable to other languages, particularly languages that are culturally distant. Accordingly, sentiment analysis tools must be tailored to specific language models in order to provide informative results. The current paper proposes such a tool for the Hebrew language -one that takes into account specific linguistic challenges associated with Hebrew, elaborated in subsequent sections.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Overview Of Sentiment Analysis Approaches",
+      "text": "Many studies offer comprehensive overviews of common sentiment analysis methods (e.g.,  Liu et al. 2019 , Hemmatian and Sohrabi 2019 , Yue et al. 2019 , Yadav and Vishwakarma 2020) . We present here the main points, with an emphasis on models that form the basis of this study. Most of the models described below were developed primarily for polarity analysis; however, as noted in the following subsection, the architectures are applicable to other sentiment analysis tasks such as emotion detection.\n\nCurrent reviews on sentiment analysis tend to categorize the various approaches according to the granularity level of text that they accommodate  (Liu et al. 2019 ): document level, that is, evaluating whether an entire document expresses a particular type of sentiment (e.g., positive or negative); sentence level -assigning a sentiment to each sentence in the document separately; and aspect level, that is, assigning sentiment to each \"aspect\" discussed in the text. The latter requires a pre-processing step to extract aspects from a written text. In this paper we follow a document-level approach, elaborated further below.\n\nSentiment classification approaches can further be categorized according to their underlying methodologies. The first, and perhaps the most popular, methodology is the lexicon-based approach. Based on the theory of emotions, this approach uses sentiment terms to score emotions in an input text. Linguistic inquiry and word count (LIWC), for example, is a popular software program that was developed to assess (among other features) emotions in text, using a psychometrically validated internal dictionary  (Pennebaker et al. 2001) . The main advantage of the lexicon-based approach is that it is unsupervised, meaning that it can be applied without any training or labeled data  (Yue et al. 2019) . The main limitation of this approach is that is does not account for the context of terms in the lexicon, and thus overlooks complex linguistic features such as sarcasm, ambiguity, and idioms  (Liu 2012) . Accordingly, its accuracy is fairly low compared with the alternative approaches. In a recent paper,  Amram et al. (2018)  raised the question of the relationship between the characteristics of a language and the DL architectural choices of a sentiment classifier. They analyzed this question for the morphologically rich Hebrew language. Specifically, they compared the performance of CNN and BiLSTM architectures on a polarity classification task. They assumed that the latter method would implicitly capture main morphological signatures, and thus outperform the former. Interestingly, and in contrast to findings in English sentiment analysis  (Yin et al. 2017 , Acheampong et al. 2020) , they found that CNN yielded overall better performance (accuracy = 0.89) than BiLSTM, even when the latter was trained on morphologically segmented inputs. As far as we know, this is the only paper that developed and evaluated a sentiment analysis model for the Hebrew language.\n\nThe last sentiment classification method, which we adopt in this paper, is the transfer learning-based approach. Transfer learning is the act of carrying knowledge gained from one problem and applying it to another, similar problem  (Pan and Yang 2009) . In NLP, transfer learning is implemented via Transformers  (Tay et al. 2020) . Similarly to RNN, transformers use a DL approach to process sequential data. The primary advantage of the Transformer is its unique attention mechanism, which eliminates the need to process data in order, and allows for parallelization  (Vaswani et al. 2017) . With Transformers, a target language is first algorithmically learned, irrespective of the target language task (e.g., sentiment analysis task). To this end, a language model is trained on a pre-selected unsupervised NLP task (see section 3 for details) . Then the language model is transferred to the target task. This process is called fine-tuning.\n\nVarious pre-trained language models have been used in transfer learning for NLP; these include fastText  (Joulin et al. 2016) , ELMo (Embeddings from Language Models, based on forward and backward LSTMs)  (Peters et al. 2018) , GPT (Generative Pre-trained Transformer)  (Radford et al. 2018) , and BERT  (Devlin et al. 2018) . Of these, BERT is one of the most common Transformer models for NLP. For sentiment analysis tasks, BERT models -and Transformer models in general -are widely used and produce the best results compared with alternatives  (Zampieri et al. 2019 , Patwa et al. 2020) . For the Hebrew language, the only BERT model available is mBERT  (Devlin et al. 2018) , which was trained on a small-sized Hebrew dictionary (about 2000 tokens). Notably, for the Arabic language, which is the closest MRL to Hebrew,  Antoun et al. (2020)  showed that a pre-trained Arabic BERT model achieved better performance on polarity analysis than did any other architecture (improvement of 1% to 6% in accuracy). The Arabic-specific model also achieved better performance compared with mBERT.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Emotion Recognition",
+      "text": "Emotion recognition is a sub-task in sentiment analysis that offers a finer granularity sentiment level compared with polarity analysis. Two definitions of human emotions dominate the NLP literature, with no clear preference between them  (Kratzwald et al. 2018) . The first definition, based on a theory developed by  Ekman (1999) , considers emotions as distinct categories, meaning that each emotion differs from the others in important ways rather than simply their intensity. Ekman (1999) identified six basic emotions, consistent across cultures, that fit facial expressions: anger, disgust, fear, happiness, sadness and surprise. The second definition is based on a theory by  Plutchik (1980) , who stressed that emotions can be treated as dimensional constructs, and that there are relations between occurrences and intensities of basic emotions. In particular,  Plutchik (1980)  defined a \"wheel\" comprising four polar-pairs of basic emotions: joy-sadness, anger-fear, trustdisgust, and surprise-anticipation. Combinations of dyads or triads of emotions define another set of 56 emotions. For example, envy is a combination of sadness and anger. This wheel serves as the theoretical basis of common automated emotion detection algorithms  (Medhat et al. 2014) .\n\nNotably, for the purpose of emotion detection, the two conceptualizations of emotion are generally compatible with each other, as they agree on the set of emotions defined as \"basic\" emotions.\n\nThough common, emotion recognition is not as widespread as polarity analysis, and it is considered more challenging  (Acheampong et al. 2020) . A key challenge is that, whereas any text can be classified according to its polarity, not all texts contain emotions, and thus it is harder to infer emotions via a lexicon-based approach. This challenge is further compounded by the fact that labeled data are commonly not available. Further, existing datasets are rather imbalanced.\n\nNaturally, the lack of data availability is more severe in non-English languages  (Ahmad et al. 2020) .\n\nIn general, the emotion detection task is treated as a multi-label classification task, and models for emotion recognition are similar in architecture to polarity detection models. Recent research has shown that, in emotion detection tasks, pre-trained BiLSTM architectures provide advantages over CNN and unidirectional RNN models  (Acheampong et al. 2020) , and that Transformers are preferable to other DL approaches  (Chatterjee et al. 2019 , Zhong et al. 2019) . For example, in a recent SemEval competition  (Chatterjee et al. 2019 ) that included an emotion detection task for three emotions (angry, happy, sad), Transformer-based models were shown to give the best performance (performance ranges: F1-Score = 0.75 -0.8; precision = 0.78 -0.85; recall = 0.78 -0.85).",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Training Language Models For Transfer Learning",
+      "text": "As noted above, transfer learning for polarity analysis and/or emotion recognition requires a pre-trained language model. To develop and train a language model, one needs to make the following three basic decisions:\n\n1. Input representation (tokenization): What is the granularity of the tokens that are fed to the model? Common granularity levels include characters, n-gram-based sub-words (using WordPiece algorithm (Schuster and Nakajima 2012)), morpheme-based sub-words, and full words (see Figure  1  for the differences between the approaches).\n\n2. Architectural choices: What is the exact architecture and specification of the neural network? 3. Output: What is the (unsupervised) task that the model is trained on? Regarding input representation, the choice of representation affects the features that the language model is able to capture, and the training complexity. Character-based representation is better for learning word-morphology, especially for low-frequency words and MRLs  (Belinkov et al. 2017 , Vania et al. 2018 ), but it comes with longer training time and a deeper architecture, compared with other representations  (Bojanowski et al. 2015) . Word-based representation, in turn, treats each word as a separate token, and thus is considered better for understanding semantics  (Pota et al. 2019) . With this representation, however, words that differ by prefix or suffix are considered different, necessitating storage of a very large vocabulary. Moreover, out-of-vocabulary (OOV) tokens are not represented. The intermediate option is to use a sub-word representation, which provides some balance between the character-and word-based representations; moreover, it overcomes the OOV problem associated with the word-based representation, and its vocabulary requirements are more manageable  (Wu et al. 2016) . With sub-words, words can be broken into either n-gram characters, or according to morphemes that have lingual meaning (but also higher computational costs). Previous literature has produced mixed results regarding to the extent to which using a morpheme-based approach can improve upon the n-gram-based approach  (Bareket and Tsarfaty 2020) . Recently,  Klein and Tsarfaty (2020)  showed that sub-word splitting in the multilingual BERT model (mBERT,  Devlin et al. (2018) ) is sub-optimal for capturing morphological information.\n\nFor the question of architecture selection,  Devlin et al. (2018)  and  Radford et al. (2019)  showed that for similar model size, BERT outperforms other architectures such as GPT and ELMo on sentiment tasks.\n\nWith respect to the model output, there are two tasks on which a model can be trained. The first is predict-the-future, meaning that the model is trained to predict the last token of a sentence. This task accounts for uni-directional contexts only. The second is the fill-in-the-blank task, where the model is trained to fill in a missing token within a sentence. This task takes into account the full (bi-directional) sentence context, and is able to better capture the meanings of tokens, both syntactically and semantically  (Devlin et al. 2018) . Recently,  Levine et al. (2020)  offered a method to optimize these tasks, called Pointwise Mutual Information (PMI) masking. The authors suggested that instead of filling in a single random token, the model should be trained to fill in a set of tokens that carry mutual information.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Hebert: Language Model",
+      "text": "In this section we develop an unsupervised Hebrew BERT model, which we will later fine-tune for the tasks of polarity analysis and emotion recognition.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Tokenization, Architecture, And Output",
+      "text": "We begin by addressing the three key modeling decisions outlined in the previous section -input representation (tokenization), architecture, and output -in the context of the Hebrew language.\n\nRecall that, as discussed in the introduction, Hebrew is an MRL with the following important characteristics: (i) grammatical relations in Hebrew are expressed via the addition of affixes; (ii) Hebrew sentences are nearly order-free; (iii) many Hebrew words have multiple meanings, which change depending on context; (iv) Hebrew contains vocalization diacritics that are missing in non-formal scripts, implying that words that are pronounced differently can be written in the same way.\n\nBearing these features in mind, we first address the last two questions, of architectural choice and model output. As discussed in previous sections, BERT has been shown to outperform alternative architectures in sentiment analysis tasks  (Radford et al. 2019) ; moreover, the literature offers evidence that BERT networks effectively capture linguistic information and phrase-level information  (Jawahar et al. 2019 ), a necessary requirement for MRLs  (Tsarfaty et al. 2020) . Accordingly, we decided to use BERT as our base model, with the default architecture. For the output task, we used BERT's default fill-in-the-blank task. Fill-in-the-blank has the advantage of understanding bi-directional context, which corresponds to the order-free property of Hebrew sentences.\n\nWith respect to the input -the granularity of the tokens -the literature on MRLs, and Hebrew specifically, is inconclusive.  Belinkov et al. (2017)  and  Vania et al. (2018)  showed that characterbased representation, which is becoming increasingly popular, is better than word-based representation for learning Hebrew morphology, especially for low-frequency words. For sentiment tasks, however,  Amram et al. (2018)  and  Tsarfaty et al. (2020)  showed that a word-based representation yields better predictions than a char-based representation. With regard to sub-word representations, Klein and Tsarfaty (2020) suggested (but did not verify) that, for BERT for Hebrew, morpheme-based sub-words are likely to be preferable to n-gram-based sub-words. A similar argument was made for Arabic, which is the closest MRL language to Hebrew  (Antoun et al. 2020) .\n\nTo understand what causes differences in findings between different researchers, consider the following three examples:\n\n1. First, is the word NA'AL. NA'AL can be translated as either locked (e.g., he locked the door), a shoe, or the past, singular, tense of the verb wearing (a shoe). It is also often used as a slang term for stupid. The actual semantic meaning of NA'AL in a sentence is derived from the context. In that respect, a high-level text granularity (such as a word-based representation) might be the preferable choice for representing Hebrew, as it is better in capturing semantic meanings in context  (Pota et al. 2019 ).\n\n2. Next, is the word NA'ALO, which is an inflection of the word NA'AL with the suffix \"O\".\n\nNA'ALO can refer to either \"his shoe\" or \"locked it\". In that respect, a finer text granu-larity, such as char-based, which is better at learning morphology, might be preferred.\n\n3. Finally, consider the splitting of the word NA'ALO. Here, a meaningful splitting would be NA'AL-O. However, such a splitting can be only achieved with morpheme-based sub-words, using a tool such as YAP (Yet Another Parser, by  More et al. (2019) ). The alternative, ngram-based sub-words, will result in additional splitting, which might have lower semantic meaning than morpheme-based sub-words, yet higher robustness to OOV.\n\nGiven the above discussion, we hypothesize that sub-word representations (n-gram-or morphemebased representation), which balance semantic meaning with morphology, will best capture the features of the Hebrew language, and will yield better performance for various language tasks, as compared with character-based and word-based representations. Comparing n-gram-based subwords with morpheme-based sub-words, we expect the latter to have an advantage on token-level tasks that require a good \"understanding\" of the language features; yet, a morpheme-based representation might not have such an advantage in document-level downstream tasks.\n\nTo examine our hypothesis, we first train and evaluate multiple small-size BERT models that differ by the granularity of the input. We then choose the best-performing architecture, and re-train the model on a much larger corpus.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Comparison Analysis Of Tokenization Approaches",
+      "text": "We examine five alternative text representations: char-based; two n-gram-based sub-word representations, which differ in the total vocabulary size (30K tokens vs. 50K tokens); a morpheme-based sub-word representation; and a word-based representation, which considers all words in the corpus, after trimming terms in the lowest 5 th quantile according to their term frequency (vocabulary size of over 53K tokens).\n\nTo compare between the input alternatives, we first train small-sized base-BERTs on a Hebrew Wikipedia dump 1  . Our working assumption is that the performance of a small-sized BERT is monotonic with the model's performance when trained on a larger corpus with the same parameters, yet requires significantly fewer resources. We evaluate the models' performances on two common unsupervised language tasks and on three downstream tasks:\n\n1. Unsupervised language tasks: (a) Fill-in-the-blank -the ability to fill in a missing token; tested on a newspaper article 2  and a fairy-tale dataset 3  . Performance was measured with sequence perplexity (P P (W )) -a common measure to examine the ability of a language model to evaluate the correctness of sentences in a sample set. Perplexity of a sequence W with N tokens (W = {w 1 , w 2 , ..., w n }) is calculated as the exponential average log-likelihood of the sequence (P P (W ) = exp{-1 N N i log p θ (w i |w <i )}, where log p θ (w i |w <i ) is the loglikelihood of the i th token conditioned on the preceding tokens, according to the language model).\n\n(b) Generalizability to OOV -the ability of the language model to generalize beyond the trained corpus (Wikipedia vocabulary), as measured by the percentage of tokens in a testing set for which the language model could not predict the term embedding. As a testing set, we used the corpus reported in  Amram et al. (2018) .",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Downstream Classification Tasks:",
+      "text": "(a) Named-entity recognition (NER) -the ability of the model to classify named entities in text, such as persons' names, organizations, and locations; tested on a labeled dataset from  Mordecai and Elhadad (2005) , and evaluated with F1-score (2 × precision×recall precision+recall ). (b) Part of speech (POS) -the ability of the model to classify the grammatical role that a word or phrase plays in a sentence (e.g., noun, pronoun, verb); tested on a labeled Israeli newspaper dataset from  Sima'an et al. (2001) , and evaluated with F1-score (See appendix A for detailed explanation of how we compared the performance of the models).\n\n(c) Polarity analysis -tested on the polarity data that were collected and labeled by  Amram et al. (2018)  and evaluated with F1-score.\n\nThe results of this comparison are shown in Table  1 .  exception of special emojis. The performance for the fill-in-the-blank task is monotonic with respect to the dictionary size. Char-based representation outperformed the sub-word representations on the fill-in-the-blank task and performed equally well on the OOV task. This is not surprising, as smaller-sized dictionaries leave less room for mistakes.\n\nFor each of the downstream tasks, in line with our hypothesis, the top-performing tokenization was a sub-word representation. Specifically, n-gram-based tokenization performed best on the POS task, whereas morpheme-based tokenization achieved the best performance on NER. For polarity analysis, the n-gram-based approach with the smaller dictionary (30K) performed significantly better than all other approaches.\n\nThese results suggest that (1) there is no single representation that is optimal for the entire set of tasks, (2) for each task, there is at least one sub-word representation that outperforms both the char-and word-based representations, and (3) for a sentiment analysis task, which is the focus of this work, an n-gram-based sub-word representation with a smaller dictionary yielded the highest performance. On the basis of these results, we selected the latter tokenization for our model.",
+      "page_start": 12,
+      "page_end": 14
+    },
+    {
+      "section_name": "Final Model",
+      "text": "In line with the specifications outlined above, we trained a large-size BERT on both the Wikipedia corpus and an OSCAR corpus (Ortiz Suárez et al. 2020), with a small-size n-grambased sub-word dictionary. For the Hebrew language, OSCAR contains a corpus of size 9.8 GB, including 1 billion words and over 20.8 million sentences (after de-duplicating the original data).\n\nWe used a Pytorch implementation of Transformers in Python  (Wolf et al. 2020)  to train a base-BERT network for 4 epochs, with learning rate = 5e-5, using the Adam optimizer in batches of 128 sentences each.\n\nThe performance of the final model is reported in Table  2 , and compared to the performance of (i) the (non-BERT) model reported in  Amram et al. (2018)  and  More et al. (2019)  and  Bareket and Tsarfaty (2020) , the only other model developed for NLP tasks in Hebrew (denoted SOTA, or \"state of the art\"); and (ii) mBERT. The best results for each task are in bold.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Task",
+      "text": "Fill-in-the-blank OOV NER POS Polarity analysis Metric The results show that while mBERT outperformed HeBERT in an unsupervised task (fill-inthe-blank), HeBERT performed better on supervised tasks, even when compared to the current SOTA. Of note, mBERT contains only 2,000 tokens in Hebrew (compared to 30K in HeBERT).\n\nHeBERT's higher performance in supervised tasks is thus not surprising.",
+      "page_start": 16,
+      "page_end": 16
+    },
+    {
+      "section_name": "Hebemo: A Model For Polarity Analysis And Emotion Recognition",
+      "text": "In this section we develop HebEMO -a model for sentiment analysis, including polarity analysis and emotion recognition. HebEMO, which is based on HeBERT, predicts sentiments at a document level; as elaborated in what follows, in our case a \"document\" is a single user-generated comment on a news website. The development of the model is based on three main elements: (i) data collection;\n\n(ii) data annotation; and (iii) fine-tuning of HeBERT.",
+      "page_start": 17,
+      "page_end": 17
+    },
+    {
+      "section_name": "Data Collection And Annotation",
+      "text": "The data collected for this study were compiled from user comments that were posted to Israeli news websites in response to Covid-19-related articles, during the Covid-19 pandemic (Jan-Dec, 2020) -a highly emotional period  (Pedrosa et al. 2020) .\n\nOur selection of news sites was inspired by a 2016 statement by Israel's president, Reuven (Rubi) Rivlin, according to which Israeli society is composed of four equal-sized \"tribes\" which are culturally different (and hence might express emotions slightly differently); of these, three comprise Hebrew-speaking Jews -namely, secular, national-religious, and ultra-Orthodox (\"Haredi\") -and the fourth \"tribe\" is Israel's Arab population  (Steiner 2016) . Each group is represented in both politics and the media.\n\nAccordingly, we collected data from three popular Israeli news sites that, respectively, represent the three Hebrew-speaking \"tribes\". Specifically, our dataset contained all Covid-19-related articles from Ynet 4  , which is identified with the secular \"tribe\" (with a slight left-wing political leaning);\n\nIsrael Hayom 5  (translation: \"Israel Today\"), which is identified with the national-religious \"tribe\"\n\n(with a slight right-wing political leaning), and Be-Hadre Haredim 6  (translation: \"In Haredis'\n\nRooms\"), which represents the ultra-Orthodox group.\n\nFor each article, we collected the article's text, its date of publication, the section in the news site in which it was published (e.g., news, health, sports), the author, and the comments section. We excluded from the dataset comments that did not contain Hebrew words, and comments with fewer than 3 words. We further merged repeated consecutive characters (e.g., three or more identical punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in",
+      "page_start": 15,
+      "page_end": 16
+    },
+    {
+      "section_name": "Data Annotation",
+      "text": "We annotated a total of 4,000 comments. Comments were selected for annotation following active learning principles  (Li et al. 2012)  to minimize the well-known imbalance problem in the emotion recognition literature  (Acheampong et al. 2020) . The annotation process we used is described below and illustrated in Figure  2 .\n\nOur iterative process was initialized in step 1 with a naive unsupervised lexicon-based approach. For this step, we Google-translated EmoLex: a freely-available English-language polarity and emotion dictionary  (Mohammad and Turney 2013) . EmoLex contains a list of manually collected (via crowdsourcing) English words classified according to one or more of the eight basic emotions and two polarity values (positive and negative). We then used the translated dictionaries to score the entire set of lemmatized comments in our dataset. Lemmatization was achieved with UDPipe  (Straka et al. 2016 ).\n\nIn step 2, given the initial sentiment scores generated in step 1, we selected a set of 150 comments, of which 75 comments had received the highest positive polarity scores, and 75 had received the highest negative polarity scores. Similarly, for each of the eight emotions, we selected a set of 75 comments in which the emotion was highly expressed, and another 75 comments in which the emotion was not expressed. The resulting set, after removing duplicate comments, comprised a total of 1,500 initially labeled comments.\n\nWe then turned to Prolific 7  , a trusted online labor and research platform, to manually reannotate the 1,500 comments. Each comment was annotated by at least three distinct native Hebrew-speaking Prolific workers. Specifically, annotators were asked to rate individual comments' polarity on a symmetric 5-point scale of {strongly negative, negative, neutral, positive, strongly positive}, and to rate the expression of each emotion in the comment on a polar 3-point scale of {not expressed (in the comment), expressed, strongly expressed}. The participants were given the context of the comment (i.e., the title of the news article on which the comment was posted). Each participant annotated 20 randomly selected comments.\n\nThe reliability levels of workers' annotations were then computed with Krippendorff's alpha  (Krippendorff 1970) , a measure of inter-rater agreement. We measured reliability independently for each sentiment in a comment, using coarser sentiment scales of polarity = {positive, neutral, negative} and emotion = {expressed, not expressed}. For example, if two raters, i and j, rated the emotion \"anger\" in a comment c as L i c,anger = \"expressed\" and L j c,anger = \"strongly expressed\", we computed their mutual response as \"agreement\" (formally, the observed agreement between the raters was δ(L i c,anger , L j c,anger ) = 0). If the ratings were L i c,anger = \"expressed\" (or \"strongly expressed\") and L j c,anger = \"not expressed\", we computed the raters' mutual response as \"disagreement\" (δ(L i c,anger , L j c,anger ) = 1). We then excluded comments' sentiment annotation with Krippendorff's alpha lower than 0.75.\n\nIn step 3, we trained an initial HeBERT-based sentiment (supervised) classifier (see details in Section 4.3) on the crowd-annotated data, and predicted polarity and emotion scores for the remainder of the corpus. We then repeated steps 2 and 3 until the performance of our classifier converged. Convergence occurred after three iterations, and a total of 4,000 partially labeled comments (partially means that the raters agreed on at least one sentiment). Tables  4  and 5  summarize the number of comments for each sentiment (polarity and emotion, respectively) for which there was high agreement among raters, and the percentage of the comments that express this sentiment. For example, the expression/non-expression of the emotion \"anger\" was labelled in 1,979 distinct comments; among these, \"anger\" was expressed in 78% of the comments, and in 22% it was not expressed.   Interestingly, though we attempted to balance the expression and non-expression of each sentiment in our labelled data, our raters had significantly lower agreement on positive sentimentsspecifically, positive polarity, expression of happiness, surprise, and trust, and non-expression of anger and disgust. In line with the theory of  Plutchik (1980) , we observed high negative correlation between emotions that are located opposite each other in Plutchik's wheel of emotion, and positive correlation between closely related emotions (see",
+      "page_start": 17,
+      "page_end": 19
+    },
+    {
+      "section_name": "Fine-Tuning Of Hebert: The Classification Model",
+      "text": "We modeled our classification algorithm by fine-tuning HeBERT for a document-level classification task. Prediction probabilities were computed with a softmax activation function. We treated the polarity task as a multinomial problem with three classes (positive, neutral, negative); emotions were modeled as independent dichotomous classification tasks (expressed, not expressed), as multiple emotions can co-exist in a single comment. Attempts to merge emotion pairs (e.g., joy-sad) into a single classification category yielded lower performance. To train and evaluate our model, we randomly partitioned the corpus into training (70%), validation (15%), and test (15%) sets. In order to avoid data leakage, the tokenization process (in HeBERT) was not trained on the UGC dataset. We repeated the training and evaluation process following a bootstrap approach with 50 samples (each generated a different data partition) and examined the stability of our results.",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "Results",
+      "text": "We applied HebEMO to our annotated dataset and examined its performance, as measured by precision, recall, F1-score and overall accuracy of the expressed sentiment. Table  7  presents the performance of our model on the polarity task, and Table  8  presents the performance for emotion recognition. The weighted average performance across all sentiments is F1-score = 0.931, and overall accuracy = 0.91. With the exception of the emotion \"surprise\", the performance of the model ranges between F1-score and accuracy of 0.78-0.97. These performance levels, as far as we know, exceed those of state-of-the-art English-language models for UGC emotion recognition (Ghanbari-Adivi and Mosleh 2019,  Mohammad et al. 2018 ).\n\nThe emotion \"surprise\" is known to be hard to detect. As mentioned in  Zhou et al. (2020) , the best reported F1-score for this emotion in English was found to be as low as 0.19  (Mohammad et al. 2018 ). In our dataset, the amount of labeled data for \"surprise\" -as well as for its opposing counterpart on the wheel of emotion, \"anticipation\"  (Plutchik 1980 ) -was also the lowest among all emotions (see Table  5 ), implying that this pair is a challenging labeling task even for human annotators.\n\nNext, we re-trained HebEMO on the polarity data reported by  Amram et al. (2018)   The performance of our model is presented in Table  9 , along with the improvement/ deterioration in performance as compared with the SOTA model reported in  Amram et al. (2018) . The results show that, in most aspects, with the exception of off-topic precision, our model's performance exceeds that of the SOTA model. The improvement is significant at the 95% confidence level.",
+      "page_start": 20,
+      "page_end": 21
+    },
+    {
+      "section_name": "Summary And Discussion",
+      "text": "This paper presented two new tools that contribute to the development of Hebrew-language sentiment analysis capabilities: (i) HeBERT -the first Hebrew BERT model, and a new state-ofthe-art model for multiple Hebrew NLP tasks; and (ii) HebEMO -a tool for polarity analysis and emotion recognition from Hebrew UGC.\n\nAlthough HeBERT was developed for the purpose of optimizing sentiment analysis, we showed that it outperforms mBERT in a variety of supervised language tasks. This finding is consistent with the literature that proposes that language-specific models are better than multilingual model.\n\nHeBERT also showed better performance than the current (non-BERT) SOTA Hebrew-language model.\n\nFor the task of extracting sentiments from UGC, we showed that a morpheme-based model, which aims to \"understand\" features of the language, performed less well than a model that did not address the language features (ngram-based sub-words). For the latter input representation, a smaller-size dictionary was better than the larger-size dictionary. A plausible explanation for these results is that UGC contains unofficial language, which includes non-lexical words such as slang words and typos. Over-fitting a model to a language in this case may overlook the unique characteristics of the unofficial language. In future work we plan to examine the performance of HebEMO when HeBERT is trained on a PMI masking task, rather than fill-in-the-blank.",
+      "page_start": 22,
+      "page_end": 22
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: for the diﬀerences between the approaches).",
+      "page": 9
+    },
+    {
+      "caption": "Figure 1: Input representation alternatives",
+      "page": 9
+    },
+    {
+      "caption": "Figure 2: Iterative annotation process",
+      "page": 17
+    },
+    {
+      "caption": "Figure 2: Our iterative process was initialized in step 1 with a naive unsupervised lexicon-based ap-",
+      "page": 17
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Abstract": "Sentiment analysis of user-generated content (UGC) can provide valuable information across nu-"
+        },
+        {
+          "Abstract": "merous domains,\nincluding marketing, psychology, and public health. Currently, there are very few"
+        },
+        {
+          "Abstract": "Hebrew models for natural\nlanguage processing in general, and for sentiment analysis in particu-"
+        },
+        {
+          "Abstract": "lar;\nindeed,\nit is not straightforward to develop such models because Hebrew is a Morphologically"
+        },
+        {
+          "Abstract": "Rich Language (MRL) with challenging characteristics. Moreover, the only available Hebrew sen-"
+        },
+        {
+          "Abstract": "timent analysis model, based on a recurrent neural network, was developed for polarity analysis"
+        },
+        {
+          "Abstract": "(classifying text as “positive”,\n“negative”,\nor neutral) and was not used for detection of ﬁner-"
+        },
+        {
+          "Abstract": "grained emotions\n(e.g., anger,\nfear,\njoy). To address\nthese gaps,\nthis paper\nintroduces HeBERT"
+        },
+        {
+          "Abstract": "and HebEMO. HeBERT is a Transformer-based model\nfor modern Hebrew text, which relies on"
+        },
+        {
+          "Abstract": "a BERT (Bidirectional Encoder Representations for Transformers) architecture. BERT has been"
+        },
+        {
+          "Abstract": "shown to outperform alternative architectures in sentiment analysis, and is suggested to be partic-"
+        },
+        {
+          "Abstract": "ularly appropriate for MRLs. Analyzing multiple BERT speciﬁcations, we ﬁnd that while model"
+        },
+        {
+          "Abstract": "complexity correlates with high performance on language tasks that aim to understand terms in a"
+        },
+        {
+          "Abstract": "sentence, a more-parsimonious model better captures the sentiment of an entire sentence. Notably,"
+        },
+        {
+          "Abstract": "regardless of the complexity of the BERT speciﬁcation, our BERT-based language model outper-"
+        },
+        {
+          "Abstract": "forms all existing Hebrew alternatives on all common language tasks. HebEMO is a tool that uses"
+        },
+        {
+          "Abstract": "HeBERT to detect polarity and extract emotions\nfrom Hebrew UGC. HebEMO is\ntrained on a"
+        },
+        {
+          "Abstract": "unique Covid-19-related UGC dataset that we collected and annotated for this study. Data collec-"
+        },
+        {
+          "Abstract": "tion and annotation followed an active learning procedure that aimed to maximize predictability."
+        },
+        {
+          "Abstract": "We show that HebEMO yields a high F1-score of 0.96 for polarity classiﬁcation. Emotion detection"
+        },
+        {
+          "Abstract": "reaches F1-scores of 0.78-0.97 for various target emotions, with the exception of surprise, which the"
+        },
+        {
+          "Abstract": "model\nfailed to capture (F1 = 0.41). These results are better than the best-reported performance,"
+        },
+        {
+          "Abstract": "even among English-language models of emotion detection."
+        },
+        {
+          "Abstract": "Preprint submitted to XX\nDecember 2020"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1.\nIntroduction": "Sentiment analysis, also referred to as opinion mining or subjectivity analysis (Liu and Zhang"
+        },
+        {
+          "1.\nIntroduction": "2012),\nis probably one of the most common tasks in natural\nlanguage processing (NLP) (Liu 2012,"
+        },
+        {
+          "1.\nIntroduction": "Zhang et al. 2018). The goal of sentiment analysis is to systematically extract,\nfrom written text,"
+        },
+        {
+          "1.\nIntroduction": "what people\nthink or\nfeel\ntoward entities\nsuch as products,\nservices,\nindividuals,\nevents, news"
+        },
+        {
+          "1.\nIntroduction": "articles, and topics."
+        },
+        {
+          "1.\nIntroduction": "Sentiment analysis\nincludes multiple types of\ntasks, one of\nthe most common being polarity"
+        },
+        {
+          "1.\nIntroduction": "classiﬁcation:\nthe binning of overall\nsentiment\ninto the\nthree\ncategories of positive, neutral, or"
+        },
+        {
+          "1.\nIntroduction": "negative. Another prominent sentiment analysis task is emotion detection - a process for extracting"
+        },
+        {
+          "1.\nIntroduction": "ﬁner-grained emotions such as happiness, anger, and fear from human language. These emotions, in"
+        },
+        {
+          "1.\nIntroduction": "turn, can shed light on individuals’ beliefs, behaviors, or mental states. Both polarity classiﬁcation"
+        },
+        {
+          "1.\nIntroduction": "and emotion detection have proven to yield valuable information in diverse applications. Research"
+        },
+        {
+          "1.\nIntroduction": "in marketing,\nfor example, has shown that emotions that users express in online product reviews"
+        },
+        {
+          "1.\nIntroduction": "aﬀect products’ virality and proﬁtability (Chitturi\net al. 2007, Ullah et al. 2016, Adamopoulos"
+        },
+        {
+          "1.\nIntroduction": "et al. 2018).\nIn ﬁnance, Bellstam et al. (2020) extracted sentiments from ﬁnancial analysts’ textual"
+        },
+        {
+          "1.\nIntroduction": "descriptions of ﬁrm activities,\nand used those\nsentiments\nto measure\ncorporate\ninnovation.\nIn"
+        },
+        {
+          "1.\nIntroduction": "psychology, sentiment analysis has been used to detect distress in psychotherapy patients (Shapira"
+        },
+        {
+          "1.\nIntroduction": "et al. 2020), and to identify speciﬁc emotions that might be indicative of suicidal intentions (Desmet"
+        },
+        {
+          "1.\nIntroduction": "and Hoste 2013). Notably,\nrecent\nstudies\nsuggest\nthat\nthe capacity to identify certain emotions"
+        },
+        {
+          "1.\nIntroduction": "(e.g., fear or distress) can contribute towards the understanding of individuals’ behaviors and mental"
+        },
+        {
+          "1.\nIntroduction": "health in the Covid-19 pandemic (Ahorsu et al. 2020, Pfeﬀerbaum and North 2020)."
+        },
+        {
+          "1.\nIntroduction": "The literature oﬀers a considerable number of methods and models for sentiment analysis, with"
+        },
+        {
+          "1.\nIntroduction": "a strong bias towards polarity detection. Models for emotion detection, though less common, are"
+        },
+        {
+          "1.\nIntroduction": "also accessible to the research community in multiple languages.\nAs yet, however,\nemotion de-"
+        },
+        {
+          "1.\nIntroduction": "tection models do not\nsupport\nthe Hebrew language.\nIn fact,\nto our knowledge, only one study"
+        },
+        {
+          "1.\nIntroduction": "thus far has developed a Hebrew-language model\nfor sentiment analysis of any kind (speciﬁcally,"
+        },
+        {
+          "1.\nIntroduction": "polarity classiﬁcation; Amram et al. (2018)). Notably, existing sentiment analysis methods devel-"
+        },
+        {
+          "1.\nIntroduction": "oped for other languages are not easily adjustable to Hebrew, due to unique linguistic and cultural"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "ysis tools relates to the fact that Hebrew is a Morphologically Rich Language (MRL), deﬁned as"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "a language “in which signiﬁcant information concerning syntactic units and relations is expressed"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "at word-level” (Tsarfaty et al. 2010).\nIn Hebrew, as\nin other MRLs\n(e.g., Arabic), grammatical"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "relations between words are expressed via the addition of aﬃxes (suﬃxes, preﬁxes),\ninstead of the"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "addition of particles. Moreover, the word order in Hebrew sentences is rather ﬂexible. Many words"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "have multiple meanings, which change depending on context.\nFurther, written Hebrew contains"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "vocalization diacritics, known as Niqqud (“dots”), which are missing in non-formal scripts; other"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "Hebrew characters represent some, but not all of the vowels. Thus,\nit is common for words that"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "are pronounced diﬀerently to be written in the same way. These unique characteristics of Hebrew"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "pose a challenge in developing appropriate Hebrew NLP models. Architectural choices should be"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "made with care, to ensure that the features of the language are well represented. The current best"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "practice for Hebrew NLP is the use of the multilingual BERT model (mBERT, based on the BERT"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "[Bidirectional Encoder Representations from Transformers] architecture, discussed further below;"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "Devlin et al. (2018)), which was trained on a small size Hebrew dictionary. When tested on Arabic"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "(the closest language to Hebrew), mBERT was shown to have signiﬁcantly lower performance than"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "a language-speciﬁc BERT model on multiple language tasks (Antoun et al. 2020)."
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "This paper achieves two main goals related to the development of Hebrew-language sentiment"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "analysis capabilities.\nFirst, we pre-train a language model\nfor modern Hebrew, called HeBERT,"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "which can be implemented in diverse NLP tasks, and is expected to be particularly appropriate"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "for sentiment analysis (as compared with alternative model architectures). HeBERT is based on"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "the well-established BERT architecture (Devlin et al. 2018);\nthe latter was originally trained for"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "the unsupervised ﬁll-in-the-blank task (known as Masked Language Modeling - MLM (Fedus et al."
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "2018)). We train HeBERT on two large-scale Hebrew corpuses – Hebrew Wikipedia and OSCAR"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "(Open Super-large Crawled ALMAnaCH corpus, a huge multilingual corpus based on open web"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "crawl data, (Ortiz Su´arez et al. 2020). We then evaluate HeBERT’s performance on ﬁve key NLP"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "tasks, namely, ﬁll-in-the-blank, out-of-vocabulary (OOV), Name Entity Recognition (NER), Part"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "of Speech (POS), and sentiment (polarity) analysis. We examine several architectural choices for"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "our model and put\nforward and test hypotheses\nregarding their\nrelative performance, ultimately"
+        },
+        {
+          "features of this language. A key challenge in the development of Hebrew-language sentiment anal-": "selecting the best-performing option. Speciﬁcally, we show that while model complexity correlates"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "parsimonious model better captures the sentiment of an entire sentence."
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "Second, we develop a tool\nto detect\nsentiments – speciﬁcally, polarity and emotions – from"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "user-generated content\n(UGC). Our\nsentiment detector,\ncalled HebEMO,\nis based on HeBERT"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "and operates on a document\nlevel. We apply HebEMO to user-generated comments,\nfrom three"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "major news sites in Israel, that were posted in response to Covid-19-related articles during 2020."
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "We chose this dataset on the basis of ﬁndings that the Covid-19 pandemic intensiﬁed emotions in"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "multiple communities (Pedrosa et al. 2020), suggesting that online discourse regarding the pandemic"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "is\nlikely to be highly emotional. Comments were selected for annotation following an innovative"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "semi-supervised iterative labeling approach that aimed to maximize predictability."
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "We\nshow that HebEMO achieves a high performance of weighted average F1-score = 0.96"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "for polarity classiﬁcation. Emotion detection reaches F1-scores of 0.8-0.97 for\nthe various\ntarget"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "emotions, with the exception of surprise, which the model\nfailed to capture (F1 = 0.41). These"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "results are better\nthan the best\nreported performance, even when compared to English-language"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "models for emotion detection (Ghanbari-Adivi and Mosleh 2019, Mohammad et al. 2018)."
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "The remainder of\nthis paper\nis organized as\nfollows.\nIn the next\nsection, we provide a brief"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "overview of\nthe state of\nthe art\nin sentiment analysis\nin general and emotion recognition in par-"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "ticular; we also brieﬂy discuss considerations\nthat must be taken into account when developing"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "pre-trained language models\nfor\nsentiment analysis.\nNext, we present HeBERT, our\nlanguage"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "model, elaborating on how we address some of the unique challenges associated with the Hebrew"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "language. We subsequently describe HebEMO and evaluate its performance on our UGC data."
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "2. Background"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "2.1. Language Speciﬁcity in Emotional Expression"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "Psychologists and psychoanalysts have long known that, despite the importance of non-verbal"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "behavior, words are the most natural way to externally express an inner emotional world (Ortony"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "et al. 1987).\nIn line with this premise,\ntheories of emotions stress that emotional experience and"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "its\nintensity can be\ninferred from spoken or written language\n(Argaman 2010).\nYet,\nemotions"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "vary across\ncultures\n(Rosaldo et al. 1984), and,\nconsequently,\nlanguages diﬀer\nin the degree of"
+        },
+        {
+          "with high performance on language tasks\nthat aim to understand terms\nin a sentence, a more-": "emotionality they convey and in the ways in which emotions are expressed in words (Wierzbicka"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "commonly relies on the use of metaphorical and metonymic expressions, which may diﬀer across"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "languages. Religion is another source of variation in emotional experience and its associated ex-"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "pression Kim-Prieto and Diener (2009). One study showed how the moral system of a culture - and"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "speciﬁcally, a Middle Eastern culture - can be linked to certain types of emotions, and suggested"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "that diﬀerences in culturally dominant emotions can play a decisive role in cultural clashes (Fattah"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "and Fierke 2009)."
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "The above discussion implies that emotion detection tools that are implemented in one language"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "might not be\neasily transferable\nto other\nlanguages, particularly languages\nthat are\nculturally"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "distant. Accordingly, sentiment analysis tools must be tailored to speciﬁc language models in order"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "to provide informative results. The current paper proposes such a tool\nfor\nthe Hebrew language"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "– one that takes into account speciﬁc linguistic challenges associated with Hebrew, elaborated in"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "subsequent sections."
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "2.2. Overview of Sentiment Analysis Approaches"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "Many studies oﬀer comprehensive overviews of common sentiment analysis methods (e.g., Liu"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "et al. 2019, Hemmatian and Sohrabi 2019, Yue et al. 2019, Yadav and Vishwakarma 2020). We"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "present here the main points, with an emphasis on models that form the basis of this study. Most"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "of the models described below were developed primarily for polarity analysis; however, as noted in"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "the following subsection, the architectures are applicable to other sentiment analysis tasks such as"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "emotion detection."
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "Current reviews on sentiment analysis tend to categorize the various approaches according to"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "the granularity level of\ntext\nthat\nthey accommodate\n(Liu et al. 2019):\ndocument\nlevel,\nthat\nis,"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "evaluating whether an entire document expresses a particular type of sentiment (e.g., positive or"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "negative); sentence level – assigning a sentiment to each sentence in the document separately; and"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "aspect level, that is, assigning sentiment to each “aspect” discussed in the text. The latter requires a"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "pre-processing step to extract aspects from a written text.\nIn this paper we follow a document-level"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "approach, elaborated further below."
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "Sentiment classiﬁcation approaches can further be categorized according to their underlying"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "methodologies.\nThe ﬁrst, and perhaps\nthe most popular, methodology is\nthe lexicon-based ap-"
+        },
+        {
+          "1994, K¨ovecses 2003).\nIn particular, as noted by K¨ovecses\n(2003),\nthe verbalization of emotions": "proach. Based on the theory of emotions, this approach uses sentiment terms to score emotions in"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "gram that was developed to assess (among other features) emotions in text, using a psychometrically"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "validated internal dictionary (Pennebaker et al. 2001). The main advantage of the lexicon-based"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "approach is that it is unsupervised, meaning that it can be applied without any training or labeled"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "data (Yue et al. 2019). The main limitation of\nthis approach is that\nis does not account\nfor\nthe"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "context of terms in the lexicon, and thus overlooks complex linguistic features such as sarcasm, am-"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "biguity, and idioms (Liu 2012). Accordingly, its accuracy is fairly low compared with the alternative"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "approaches."
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "The second sentiment classiﬁcation approach is Deep Learning (DL)-based. DL approaches are"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "supervised methods that are based on multiple-layer neural networks. DL-based sentiment classiﬁ-"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "cation models diﬀer by their network architecture. Common architectures include the following:\n(1)"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "Convolutional Neural Networks (CNNs), which transform a structured input layer (e.g., sentences"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "or documents\nrepresented as bag-of-words or word-embedding vectors), via convolutional\nlayers,"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "into a sentiment class\n(Kim 2014);\n(2) Recursive or Recurrent Neural Networks\n(RNNs), which"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "handle unstructured sequential data,\nsuch as\ntextual\nsentences, and learn the relations between"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "the sequential elements (Dong et al. 2014); and (3) Long Short-Term Memory (LSTM), a popular"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "variant of RNN, which can catch long-term dependencies between data segments,\nin one direction"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "(e.g.,\nleft to right) or in both (denoted bidirectional LSTM, or BiLSTM architecture) (Hochreiter"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "and Schmidhuber 1997)."
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "In a recent paper, Amram et al. (2018) raised the question of the relationship between the char-"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "acteristics of a language and the DL architectural choices of a sentiment classiﬁer. They analyzed"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "this question for the morphologically rich Hebrew language.\nSpeciﬁcally, they compared the per-"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "formance of CNN and BiLSTM architectures on a polarity classiﬁcation task. They assumed that"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "the latter method would implicitly capture main morphological\nsignatures, and thus outperform"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "the former.\nInterestingly, and in contrast to ﬁndings in English sentiment analysis (Yin et al. 2017,"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "Acheampong et al. 2020),\nthey found that CNN yielded overall better performance (accuracy ="
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "0.89)\nthan BiLSTM, even when the latter was trained on morphologically segmented inputs. As"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "far as we know, this is the only paper that developed and evaluated a sentiment analysis model\nfor"
+        },
+        {
+          "an input text. Linguistic inquiry and word count (LIWC),\nfor example,\nis a popular software pro-": "the Hebrew language."
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "applying it to another, similar problem (Pan and Yang 2009).\nIn NLP, transfer learning is imple-"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "mented via Transformers (Tay et al. 2020). Similarly to RNN, transformers use a DL approach to"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "process sequential data. The primary advantage of the Transformer is its unique attention mech-"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "anism, which eliminates the need to process data in order, and allows for parallelization (Vaswani"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "et al. 2017). With Transformers, a target language is ﬁrst algorithmically learned,\nirrespective of"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "the target language task (e.g., sentiment analysis task). To this end, a language model\nis trained"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "on a pre-selected unsupervised NLP task (see section 3 for details) . Then the language model\nis"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "transferred to the target task. This process is called ﬁne-tuning."
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "Various pre-trained language models have been used in transfer learning for NLP; these include"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "fastText\n(Joulin et al. 2016), ELMo (Embeddings\nfrom Language Models, based on forward and"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "backward LSTMs) (Peters et al. 2018), GPT (Generative Pre-trained Transformer) (Radford et al."
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "2018), and BERT (Devlin et al. 2018). Of these, BERT is one of the most common Transformer"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "models for NLP. For sentiment analysis tasks, BERT models - and Transformer models in general"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "- are widely used and produce the best results compared with alternatives (Zampieri et al. 2019,"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "Patwa et al. 2020). For the Hebrew language, the only BERT model available is mBERT (Devlin"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "et al. 2018), which was trained on a small-sized Hebrew dictionary (about 2000 tokens). Notably,"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "for the Arabic language, which is the closest MRL to Hebrew, Antoun et al. (2020) showed that"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "a pre-trained Arabic BERT model achieved better performance on polarity analysis than did any"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "other architecture (improvement of 1% to 6% in accuracy). The Arabic-speciﬁc model also achieved"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "better performance compared with mBERT."
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "2.3. Emotion Recognition"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "Emotion recognition is a sub-task in sentiment analysis that oﬀers a ﬁner granularity sentiment"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "level\ncompared with polarity analysis.\nTwo deﬁnitions of human emotions dominate\nthe NLP"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "literature, with no clear preference between them (Kratzwald et al. 2018). The ﬁrst deﬁnition, based"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "on a theory developed by Ekman (1999), considers emotions as distinct categories, meaning that"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "each emotion diﬀers from the others in important ways rather than simply their intensity. Ekman"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "(1999)\nidentiﬁed six basic emotions, consistent across cultures,\nthat ﬁt\nfacial expressions:\nanger,"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "disgust, fear, happiness, sadness and surprise. The second deﬁnition is based on a theory by Plutchik"
+        },
+        {
+          "based approach. Transfer learning is the act of carrying knowledge gained from one problem and": "(1980), who stressed that emotions can be treated as dimensional constructs, and that\nthere are"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "deﬁned a “wheel” comprising four polar-pairs of basic emotions:\njoy–sadness, anger–fear,\ntrust–"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "disgust, and surprise–anticipation. Combinations of dyads or triads of emotions deﬁne another set"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "of 56 emotions. For example, envy is a combination of sadness and anger. This wheel serves as"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "the theoretical basis of common automated emotion detection algorithms\n(Medhat et al. 2014)."
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "Notably,\nfor the purpose of emotion detection, the two conceptualizations of emotion are generally"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "compatible with each other, as they agree on the set of emotions deﬁned as “basic” emotions."
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "Though common, emotion recognition is not as widespread as polarity analysis, and it is con-"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "sidered more challenging (Acheampong et al. 2020).\nA key challenge is\nthat, whereas any text"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "can be classiﬁed according to its polarity, not all texts contain emotions, and thus it is harder to"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "infer emotions via a lexicon-based approach.\nThis challenge is\nfurther compounded by the fact"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "that\nlabeled data are commonly not available. Further, existing datasets are rather\nimbalanced."
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "Naturally, the lack of data availability is more severe in non-English languages (Ahmad et al. 2020)."
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "In general, the emotion detection task is treated as a multi-label classiﬁcation task, and models"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "for emotion recognition are similar in architecture to polarity detection models. Recent research"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "has shown that,\nin emotion detection tasks, pre-trained BiLSTM architectures provide advantages"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "over CNN and unidirectional RNN models (Acheampong et al. 2020), and that Transformers are"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "preferable to other DL approaches\n(Chatterjee et al. 2019, Zhong et al. 2019).\nFor example,\nin"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "a recent SemEval competition (Chatterjee et al. 2019)\nthat\nincluded an emotion detection task"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "for\nthree\nemotions\n(angry, happy,\nsad), Transformer-based models were\nshown to give\nthe best"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "performance (performance ranges: F1-Score = 0.75 - 0.8; precision = 0.78 - 0.85;\nrecall = 0.78 -"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "0.85)."
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "2.4. Training Language Models for Transfer Learning"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "As noted above,\ntransfer\nlearning for polarity analysis and/or\nemotion recognition requires"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "a pre-trained language model.\nTo develop and train a language model, one needs\nto make the"
+        },
+        {
+          "relations between occurrences and intensities of basic\nemotions.\nIn particular, Plutchik (1980)": "following three basic decisions:"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Figure 1:\nInput representation alternatives": "Regarding input representation, the choice of representation aﬀects the features that the language"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "model\nis able to capture, and the training complexity. Character-based representation is better"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "for learning word-morphology, especially for low-frequency words and MRLs (Belinkov et al. 2017,"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "Vania et al. 2018), but\nit comes with longer\ntraining time and a deeper architecture, compared"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "with other\nrepresentations\n(Bojanowski et al. 2015). Word-based representation,\nin turn,\ntreats"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "each word as a separate token, and thus\nis considered better\nfor understanding semantics\n(Pota"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "et al. 2019). With this\nrepresentation, however, words\nthat diﬀer by preﬁx or\nsuﬃx are\ncon-"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "sidered diﬀerent, necessitating storage of a very large vocabulary. Moreover, out-of-vocabulary"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "(OOV) tokens are not represented. The intermediate option is to use a sub-word representation,"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "which provides some balance between the character- and word-based representations; moreover,\nit"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "overcomes\nthe OOV problem associated with the word-based representation, and its vocabulary"
+        },
+        {
+          "Figure 1:\nInput representation alternatives": "requirements are more manageable (Wu et al. 2016). With sub-words, words can be broken into"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "computational costs). Previous\nliterature has produced mixed results\nregarding to the extent\nto"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "which using a morpheme-based approach can improve upon the n-gram-based approach (Bareket"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "and Tsarfaty 2020). Recently, Klein and Tsarfaty (2020) showed that sub-word splitting in the mul-"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "tilingual BERT model (mBERT, Devlin et al. (2018)) is sub-optimal\nfor capturing morphological"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "information."
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "For the question of architecture selection, Devlin et al. (2018) and Radford et al. (2019) showed"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "that\nfor\nsimilar model size, BERT outperforms other architectures\nsuch as GPT and ELMo on"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "sentiment tasks."
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "With respect to the model output, there are two tasks on which a model can be trained. The"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "ﬁrst is predict-the-future, meaning that the model\nis trained to predict the last token of a sentence."
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "This task accounts for uni-directional contexts only. The second is the ﬁll-in-the-blank task, where"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "the model\nis\ntrained to ﬁll\nin a missing token within a sentence.\nThis\ntask takes\ninto account"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "the full\n(bi-directional)\nsentence context, and is able to better capture the meanings of\ntokens,"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "both syntactically and semantically (Devlin et al. 2018). Recently, Levine et al. (2020) oﬀered a"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "method to optimize these tasks, called Pointwise Mutual Information (PMI) masking. The authors"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "suggested that instead of ﬁlling in a single random token, the model should be trained to ﬁll\nin a"
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "set of tokens that carry mutual\ninformation."
+        },
+        {
+          "either n-gram characters, or according to morphemes that have lingual meaning (but also higher": "3. HeBERT: Language Model"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "way."
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "Bearing these features in mind, we ﬁrst address the last two questions, of architectural choice and"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "model output. As discussed in previous sections, BERT has been shown to outperform alternative"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "architectures\nin sentiment analysis\ntasks\n(Radford et al. 2019); moreover,\nthe\nliterature oﬀers"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "evidence that BERT networks eﬀectively capture linguistic information and phrase-level information"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "(Jawahar et al. 2019), a necessary requirement for MRLs (Tsarfaty et al. 2020). Accordingly, we"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "decided to use BERT as our base model, with the default architecture. For\nthe output\ntask, we"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "used BERT’s default ﬁll-in-the-blank\ntask.\nFill-in-the-blank has\nthe advantage of understanding"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "bi-directional context, which corresponds to the order-free property of Hebrew sentences."
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "With respect to the input\n- the granularity of the tokens - the literature on MRLs, and Hebrew"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "speciﬁcally,\nis inconclusive. Belinkov et al. (2017) and Vania et al. (2018) showed that character-"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "based representation, which is becoming increasingly popular,\nis better than word-based represen-"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "tation for\nlearning Hebrew morphology, especially for\nlow-frequency words. For\nsentiment\ntasks,"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "however, Amram et al. (2018) and Tsarfaty et al. (2020) showed that a word-based representation"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "yields better predictions\nthan a char-based representation. With regard to sub-word represen-"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "tations, Klein and Tsarfaty (2020)\nsuggested (but did not verify)\nthat,\nfor BERT for Hebrew,"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "morpheme-based sub-words are likely to be preferable to n-gram-based sub-words. A similar argu-"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "ment was made for Arabic, which is the closest MRL language to Hebrew (Antoun et al. 2020)."
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "To understand what causes diﬀerences\nin ﬁndings between diﬀerent\nresearchers, consider\nthe"
+        },
+        {
+          "formal\nscripts,\nimplying that words\nthat are pronounced diﬀerently can be written in the same": "following three examples:"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "following three examples:": "1. First,\nis\nthe word NA’AL. NA’AL can be\ntranslated as\neither\nlocked\n(e.g., he\nlocked\nthe"
+        },
+        {
+          "following three examples:": "door), a shoe, or the past, singular, tense of the verb wearing (a shoe).\nIt is also often used"
+        },
+        {
+          "following three examples:": "as a slang term for stupid. The actual semantic meaning of NA’AL in a sentence is derived"
+        },
+        {
+          "following three examples:": "from the context.\nIn that\nrespect, a high-level\ntext granularity (such as a word-based"
+        },
+        {
+          "following three examples:": "representation) might be\nthe preferable\nchoice\nfor\nrepresenting Hebrew,\nas\nit\nis better\nin"
+        },
+        {
+          "following three examples:": "capturing semantic meanings in context (Pota et al. 2019)."
+        },
+        {
+          "following three examples:": "2. Next,\nis the word NA’ALO, which is an inﬂection of the word NA’AL with the suﬃx ”O”."
+        },
+        {
+          "following three examples:": "NA’ALO can refer to either “his shoe” or “locked it”.\nIn that respect, a ﬁner text granu-"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "larity, such as char-based, which is better at learning morphology, might be preferred.": "the splitting of"
+        },
+        {
+          "larity, such as char-based, which is better at learning morphology, might be preferred.": "NA’AL-O. However, such a splitting can be only achieved with morpheme-based sub-words,"
+        },
+        {
+          "larity, such as char-based, which is better at learning morphology, might be preferred.": "using a tool such as YAP (Yet Another Parser, by More et al. (2019)). The alternative, n-"
+        },
+        {
+          "larity, such as char-based, which is better at learning morphology, might be preferred.": "gram-based sub-words, will result in additional splitting, which might have lower semantic"
+        },
+        {
+          "larity, such as char-based, which is better at learning morphology, might be preferred.": "meaning than morpheme-based sub-words, yet higher robustness to OOV."
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "meaning than morpheme-based sub-words, yet higher robustness to OOV."
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "Given the above discussion, we hypothesize that sub-word representations (n-gram- or morpheme-"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "based representation), which balance\nsemantic meaning with morphology, will best\ncapture\nthe"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "features of the Hebrew language, and will yield better performance for various language tasks, as"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "compared with character-based and word-based representations.\nComparing n-gram-based sub-"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "words with morpheme-based sub-words, we expect the latter to have an advantage on token-level"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "tasks that require a good “understanding” of the language features; yet, a morpheme-based repre-"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "sentation might not have such an advantage in document-level downstream tasks."
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "To examine our hypothesis, we ﬁrst train and evaluate multiple small-size BERT models that"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "diﬀer by the granularity of the input. We then choose the best-performing architecture, and re-train"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "the model on a much larger corpus."
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "3.2. Comparison Analysis of Tokenization Approaches"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "We examine ﬁve alternative text representations: char-based; two n-gram-based sub-word repre-"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "sentations, which diﬀer in the total vocabulary size (30K tokens vs. 50K tokens); a morpheme-based"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "sub-word representation; and a word-based representation, which considers all words in the corpus,"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "after trimming terms in the lowest 5th quantile according to their term frequency (vocabulary size"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "of over 53K tokens)."
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "To compare between the input alternatives, we ﬁrst train small-sized base-BERTs on a Hebrew"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "Wikipedia dump1.\nOur working assumption is\nthat\nthe performance of a small-sized BERT is"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "monotonic with the model’s performance when trained on a larger corpus with the same parameters,"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "yet requires signiﬁcantly fewer resources. We evaluate the models’ performances on two common"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "unsupervised language tasks and on three downstream tasks:"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "1As of September 2013; retrieved from https://u.cs.biu.ac.il/ yogo/hebwiki/. The dataset includes over 63 million"
+        },
+        {
+          "gram-based sub-words, will result in additional splitting, which might have lower semantic": "words and 3.8 million sentences."
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table 1: For the unsupervised tasks (fill-in-the-blank and OOV), the sub-word representations (n-gram-",
+      "data": [
+        {
+          "1. Unsupervised language tasks:": "(a) Fill-in-the-blank -\nthe ability to ﬁll\nin a missing token;\ntested on a newspaper arti-"
+        },
+        {
+          "1. Unsupervised language tasks:": "cle\n2 and a fairy-tale dataset3.\nPerformance was measured with sequence perplexity"
+        },
+        {
+          "1. Unsupervised language tasks:": "(P P (W ))\n- a common measure to examine the ability of a language model\nto evalu-"
+        },
+        {
+          "1. Unsupervised language tasks:": "ate the correctness of\nsentences\nin a sample set.\nPerplexity of a sequence W with N"
+        },
+        {
+          "1. Unsupervised language tasks:": "tokens\nis\ncalculated as\nthe\nexponential average\nlog-likelihood\n(W = {w1, w2, ..., wn})"
+        },
+        {
+          "1. Unsupervised language tasks:": "(cid:80)N"
+        },
+        {
+          "1. Unsupervised language tasks:": "of the sequence (P P (W ) = exp{− 1"
+        },
+        {
+          "1. Unsupervised language tasks:": "logpθ (wi|w<i)}, where logpθ (wi|w<i) is the log-\ni\nN"
+        },
+        {
+          "1. Unsupervised language tasks:": "likelihood of the ith token conditioned on the preceding tokens, according to the language"
+        },
+        {
+          "1. Unsupervised language tasks:": "model)."
+        },
+        {
+          "1. Unsupervised language tasks:": "(b) Generalizability to OOV -\nthe ability of\nthe language model\nto generalize beyond the"
+        },
+        {
+          "1. Unsupervised language tasks:": "trained corpus\n(Wikipedia vocabulary), as measured by the percentage of\ntokens\nin a"
+        },
+        {
+          "1. Unsupervised language tasks:": "testing set for which the language model could not predict the term embedding. As a"
+        },
+        {
+          "1. Unsupervised language tasks:": "testing set, we used the corpus reported in Amram et al. (2018)."
+        }
+      ],
+      "page": 13
+    },
+    {
+      "caption": "Table 1: Comparison of task performance for different input alternatives. The best results for each task are in bold.",
+      "data": [
+        {
+          "Fill-the-blank": "(Perplexity)",
+          "OOV": "(%)",
+          "NER": "(F-1 score)",
+          "POS": "(F-1 score)",
+          "Polarity analysis": "(F-1 score)"
+        },
+        {
+          "Fill-the-blank": "1.17",
+          "OOV": "∼0",
+          "NER": "0.74",
+          "POS": "0.92",
+          "Polarity analysis": "0.69"
+        },
+        {
+          "Fill-the-blank": "4.4",
+          "OOV": "∼0",
+          "NER": "0.79",
+          "POS": "0.90",
+          "Polarity analysis": "0.79"
+        },
+        {
+          "Fill-the-blank": "5.7",
+          "OOV": "∼0",
+          "NER": "0.79",
+          "POS": "0.92",
+          "Polarity analysis": "0.71"
+        },
+        {
+          "Fill-the-blank": "8.9",
+          "OOV": "0.75",
+          "NER": "0.92",
+          "POS": "0.95",
+          "Polarity analysis": "0.65"
+        },
+        {
+          "Fill-the-blank": "209830",
+          "OOV": "50",
+          "NER": "0.86",
+          "POS": "N/A∗",
+          "Polarity analysis": "0.43"
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "∗ POS cannot be computed due to the high OOV percentage.",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "in line with our hypothesis, the top-performing tokenization",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "the n-gram-based approach with the",
+          "OOV": "",
+          "NER": "",
+          "POS": "smaller dictionary (30K) performed signiﬁcantly",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "These results suggest that (1) there is no single representation that is optimal",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": "for the entire set"
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        },
+        {
+          "Fill-the-blank": "",
+          "OOV": "",
+          "NER": "",
+          "POS": "",
+          "Polarity analysis": ""
+        }
+      ],
+      "page": 14
+    },
+    {
+      "caption": "Table 2: , and compared to the performance",
+      "data": [
+        {
+          "and Tsarfaty (2020), the only other model developed for NLP tasks in Hebrew (denoted SOTA, or": "“state of the art”); and (ii) mBERT. The best results for each task are in bold."
+        },
+        {
+          "and Tsarfaty (2020), the only other model developed for NLP tasks in Hebrew (denoted SOTA, or": "Task"
+        },
+        {
+          "and Tsarfaty (2020), the only other model developed for NLP tasks in Hebrew (denoted SOTA, or": "Metric"
+        },
+        {
+          "and Tsarfaty (2020), the only other model developed for NLP tasks in Hebrew (denoted SOTA, or": "HeBERT"
+        },
+        {
+          "and Tsarfaty (2020), the only other model developed for NLP tasks in Hebrew (denoted SOTA, or": "Current SOTA"
+        },
+        {
+          "and Tsarfaty (2020), the only other model developed for NLP tasks in Hebrew (denoted SOTA, or": "mBERT"
+        }
+      ],
+      "page": 15
+    },
+    {
+      "caption": "Table 3: , contained over half a million comments on 10,794 titles in various sections.",
+      "data": [
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "politics and the media."
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "Accordingly, we collected data from three popular Israeli news sites that, respectively, represent"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "the three Hebrew-speaking “tribes”. Speciﬁcally, our dataset contained all Covid-19-related articles"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "from Ynet4, which is identiﬁed with the secular “tribe” (with a slight left-wing political\nleaning);"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "Israel Hayom5 (translation: “Israel Today”), which is identiﬁed with the national-religious “tribe”"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "(with a slight\nright-wing political\nleaning),\nand Be-Hadre Haredim6\n(translation:\n“In Haredis’"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "Rooms”), which represents the ultra-Orthodox group."
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "For each article, we collected the article’s text,\nits date of publication, the section in the news"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "site in which it was published (e.g., news, health, sports), the author, and the comments section. We"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "excluded from the dataset comments that did not contain Hebrew words, and comments with fewer"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "than 3 words. We further merged repeated consecutive characters\n(e.g.,\nthree or more identical"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in"
+        },
+        {
+          "the fourth “tribe” is\nIsrael’s Arab population (Steiner 2016). Each group is\nrepresented in both": "Table 3, contained over half a million comments on 10,794 titles in various sections."
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table 3: , contained over half a million comments on 10,794 titles in various sections.",
+      "data": [
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": "Table 3, contained over half a million comments on 10,794 titles in various sections."
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": "source"
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": "Ynet"
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": "Israel Hayom"
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": ""
+        },
+        {
+          "punctuation symbols) and removed links and double spaces. The compiled corpus, summarized in": "Be-Hadre Haredim"
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Figure 2:\nIterative annotation process": "4.2. Data Annotation"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "We annotated a total of 4,000 comments.\nComments were selected for annotation following"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "active learning principles\n(Li et al. 2012)\nto minimize the well-known imbalance problem in the"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "emotion recognition literature (Acheampong et al. 2020). The annotation process we used is de-"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "scribed below and illustrated in Figure 2."
+        },
+        {
+          "Figure 2:\nIterative annotation process": "Our\niterative process was\ninitialized in step 1 with a naive unsupervised lexicon-based ap-"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "proach. For this step, we Google-translated EmoLex:\na freely-available English-language polarity"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "and emotion dictionary (Mohammad and Turney 2013). EmoLex contains a list of manually col-"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "lected (via crowdsourcing) English words\nclassiﬁed according to one or more of\nthe\neight basic"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "emotions and two polarity values (positive and negative). We then used the translated dictionaries"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "to score the entire set of\nlemmatized comments in our dataset. Lemmatization was achieved with"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "UDPipe (Straka et al. 2016)."
+        },
+        {
+          "Figure 2:\nIterative annotation process": "In step 2,\ngiven the\ninitial\nsentiment\nscores generated in step 1, we\nselected a set of 150"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "comments, of which 75 comments had received the highest positive polarity scores, and 75 had"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "received the highest negative polarity scores. Similarly,\nfor each of the eight emotions, we selected"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "a set of 75 comments in which the emotion was highly expressed, and another 75 comments in which"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "the emotion was not expressed. The resulting set, after removing duplicate comments, comprised"
+        },
+        {
+          "Figure 2:\nIterative annotation process": "a total of 1,500 initially labeled comments."
+        }
+      ],
+      "page": 17
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "annotate\nthe 1,500 comments.\nEach comment was annotated by at\nleast\nthree distinct native"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "Hebrew-speaking Proliﬁc workers. Speciﬁcally, annotators were asked to rate individual comments’"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "polarity on a symmetric 5-point\nscale of {strongly negative, negative, neutral, positive,\nstrongly"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "positive}, and to rate the expression of each emotion in the comment on a polar 3-point scale of"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "{not expressed (in the comment), expressed, strongly expressed}. The participants were given the"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "context of the comment (i.e., the title of the news article on which the comment was posted). Each"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "participant annotated 20 randomly selected comments."
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "The reliability levels of workers’ annotations were then computed with Krippendorﬀ’s alpha"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "(Krippendorﬀ 1970), a measure of\ninter-rater agreement. We measured reliability independently"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "for each sentiment in a comment, using coarser sentiment scales of polarity = {positive, neutral,"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "negative} and emotion = {expressed, not expressed}. For example,\nif two raters, i and j, rated the"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "emotion “anger” in a comment c as Li\nc,anger = “strongly expressed”,\nc,anger = “expressed” and Lj"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "we computed their mutual\nresponse as “agreement” (formally,\nthe observed agreement between"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "If the ratings were Li\nthe raters was δ(Li\nc,anger) = 0).\nc,anger = “expressed” (or “strongly\nc,anger, Lj"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "expressed”) and Lj\nexpressed”, we\ncomputed the\nraters’ mutual\nresponse as “dis-\nc,anger = “not"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "sentiment annotation with\nagreement” (δ(Li\nc,anger) = 1). We then excluded comments’\nc,anger, Lj"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "Krippendorﬀ’s alpha lower than 0.75."
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "In step 3, we trained an initial HeBERT-based sentiment\n(supervised) classiﬁer\n(see details"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "in Section 4.3) on the crowd-annotated data, and predicted polarity and emotion scores\nfor\nthe"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "remainder of\nthe corpus. We then repeated steps 2 and 3 until\nthe performance of our classiﬁer"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "converged.\nConvergence occurred after\nthree\niterations,\nand a total of 4,000 partially labeled"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "comments\n(partially means\nthat\nthe\nraters agreed on at\nleast one\nsentiment).\nTables 4 and 5"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "summarize the number of comments\nfor each sentiment\n(polarity and emotion,\nrespectively)\nfor"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "which there was high agreement among raters, and the percentage of the comments that express"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "this\nsentiment. For example,\nthe expression/non-expression of\nthe emotion “anger” was\nlabelled"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "in 1,979 distinct comments; among these, “anger” was expressed in 78% of the comments, and in"
+        },
+        {
+          "We\nthen turned to Proliﬁc7,\na trusted online\nlabor and research platform,\nto manually re-": "22% it was not expressed."
+        }
+      ],
+      "page": 18
+    },
+    {
+      "caption": "Table 4: Summary of the polarity data",
+      "data": [
+        {
+          "Negative": "",
+          "1525": "Table 4: Summary of the polarity data",
+          "83.2%": ""
+        },
+        {
+          "Negative": "Emotion",
+          "1525": "# labeled comments",
+          "83.2%": "% comments"
+        },
+        {
+          "Negative": "Anger",
+          "1525": "1979",
+          "83.2%": "78%"
+        },
+        {
+          "Negative": "Disgust",
+          "1525": "2115",
+          "83.2%": "83%"
+        },
+        {
+          "Negative": "Anticipation",
+          "1525": "681",
+          "83.2%": "58%"
+        },
+        {
+          "Negative": "Fear",
+          "1525": "1041",
+          "83.2%": "45%"
+        },
+        {
+          "Negative": "Joy",
+          "1525": "2342",
+          "83.2%": "12%"
+        },
+        {
+          "Negative": "Sadness",
+          "1525": "998",
+          "83.2%": "59%"
+        },
+        {
+          "Negative": "Surprise",
+          "1525": "698",
+          "83.2%": "17%"
+        },
+        {
+          "Negative": "Trust",
+          "1525": "1956",
+          "83.2%": "11%"
+        }
+      ],
+      "page": 19
+    },
+    {
+      "caption": "Table 4: Summary of the polarity data",
+      "data": [
+        {
+          "Table 5: Summary of the emotion data": "Interestingly, though we attempted to balance the expression and non-expression of each sen-"
+        },
+        {
+          "Table 5: Summary of the emotion data": "timent in our labelled data, our raters had signiﬁcantly lower agreement on positive sentiments -"
+        },
+        {
+          "Table 5: Summary of the emotion data": "speciﬁcally, positive polarity, expression of happiness,\nsurprise, and trust, and non-expression of"
+        },
+        {
+          "Table 5: Summary of the emotion data": "anger and disgust.\nIn line with the theory of Plutchik (1980), we observed high negative corre-"
+        },
+        {
+          "Table 5: Summary of the emotion data": "lation between emotions that are located opposite each other in Plutchik’s wheel of emotion, and"
+        },
+        {
+          "Table 5: Summary of the emotion data": "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model"
+        }
+      ],
+      "page": 19
+    },
+    {
+      "caption": "Table 4: Summary of the polarity data",
+      "data": [
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": ""
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Anger"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Disgust"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Anticipation"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Fear"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Joy"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Sadness"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Surprise"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Trust"
+        },
+        {
+          "positive correlation between closely related emotions (see Table 6). The ﬁnal classiﬁcation model": "Polarity"
+        }
+      ],
+      "page": 19
+    },
+    {
+      "caption": "Table 7: presents the",
+      "data": [
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "We modeled our classiﬁcation algorithm by ﬁne-tuning HeBERT for a document-level classiﬁca-"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "tion task. Prediction probabilities were computed with a softmax activation function. We treated"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "the polarity task as a multinomial problem with three classes (positive, neutral, negative); emotions"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "were modeled as independent dichotomous classiﬁcation tasks (expressed, not expressed), as mul-"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "tiple emotions can co-exist in a single comment. Attempts to merge emotion pairs (e.g.,\njoy-sad)"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "into a single classiﬁcation category yielded lower performance. To train and evaluate our model,"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "we randomly partitioned the corpus into training (70%), validation (15%), and test (15%) sets.\nIn"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "order to avoid data leakage,\nthe tokenization process (in HeBERT) was not trained on the UGC"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "dataset. We repeated the training and evaluation process following a bootstrap approach with 50"
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "samples (each generated a diﬀerent data partition) and examined the stability of our results."
+        },
+        {
+          "4.3. Fine-Tuning of HeBERT: The Classiﬁcation Model": "5. Results"
+        }
+      ],
+      "page": 20
+    },
+    {
+      "caption": "Table 7: HebEMO performance on polarity task in the UGC data",
+      "data": [
+        {
+          "Precision": "0.96",
+          "Recall": "0.92",
+          "F1-score": "0.94"
+        },
+        {
+          "Precision": "0.83",
+          "Recall": "0.56",
+          "F1-score": "0.67"
+        },
+        {
+          "Precision": "0.97",
+          "Recall": "0.99",
+          "F1-score": "0.98"
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": "0.97"
+        }
+      ],
+      "page": 21
+    },
+    {
+      "caption": "Table 7: HebEMO performance on polarity task in the UGC data",
+      "data": [
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": ""
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Anger"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Disgust"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Anticipation"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Fear"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Joy"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Sadness"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Surprise"
+        },
+        {
+          "Table 7: HebEMO performance on polarity task in the UGC data": "Trust"
+        }
+      ],
+      "page": 21
+    },
+    {
+      "caption": "Table 7: HebEMO performance on polarity task in the UGC data",
+      "data": [
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "Table 8: HebEMO performance on emotion detection task in the UGC data"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "comments). The authors manually annotated the comments with the following labels - supportive"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "(positive),\ncriticizing (negative),\nor oﬀ-topic\n(neutral)\ncomments\n- and published a partitioned"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "dataset (training and validation) for the beneﬁt of comparisons between language models."
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "The performance of our model\nis presented in Table 9, along with the improvement/ deterio-"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "ration in performance as compared with the SOTA model reported in Amram et al. (2018). The"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "results\nshow that,\nin most aspects, with the exception of oﬀ-topic precision, our model’s perfor-"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "mance exceeds\nthat of\nthe SOTA model. The improvement\nis\nsigniﬁcant at\nthe 95% conﬁdence"
+        },
+        {
+          "Trust\n0.78\n0.88\n0.70\n0.95": "level."
+        }
+      ],
+      "page": 21
+    },
+    {
+      "caption": "Table 7: HebEMO performance on polarity task in the UGC data",
+      "data": [
+        {
+          "Precision": "0.95",
+          "Recall": "0.96",
+          "F1-score": "0.95"
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": ""
+        },
+        {
+          "Precision": "(+.03)",
+          "Recall": "(+.01)",
+          "F1-score": "(+.01)"
+        },
+        {
+          "Precision": "0.89",
+          "Recall": "0.89",
+          "F1-score": "0.89"
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": ""
+        },
+        {
+          "Precision": "(+.05)",
+          "Recall": "(+.02)",
+          "F1-score": "(+.04)"
+        },
+        {
+          "Precision": "0.70",
+          "Recall": "0.56",
+          "F1-score": "0.62"
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": ""
+        },
+        {
+          "Precision": "(-.3)",
+          "Recall": "(+.55)",
+          "F1-score": "(+.03)"
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": "0.93"
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": ""
+        },
+        {
+          "Precision": "",
+          "Recall": "",
+          "F1-score": "(+.03)"
+        }
+      ],
+      "page": 21
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. Summary and Discussion": "This paper presented two new tools\nthat contribute to the development of Hebrew-language"
+        },
+        {
+          "6. Summary and Discussion": "sentiment analysis capabilities:\n(i) HeBERT - the ﬁrst Hebrew BERT model, and a new state-of-"
+        },
+        {
+          "6. Summary and Discussion": "the-art model for multiple Hebrew NLP tasks; and (ii) HebEMO - a tool for polarity analysis and"
+        },
+        {
+          "6. Summary and Discussion": "emotion recognition from Hebrew UGC."
+        },
+        {
+          "6. Summary and Discussion": "Although HeBERT was developed for the purpose of optimizing sentiment analysis, we showed"
+        },
+        {
+          "6. Summary and Discussion": "that it outperforms mBERT in a variety of supervised language tasks. This ﬁnding is consistent"
+        },
+        {
+          "6. Summary and Discussion": "with the literature that proposes that language-speciﬁc models are better than multilingual model."
+        },
+        {
+          "6. Summary and Discussion": "HeBERT also showed better performance than the current\n(non-BERT) SOTA Hebrew-language"
+        },
+        {
+          "6. Summary and Discussion": "model."
+        },
+        {
+          "6. Summary and Discussion": "For\nthe task of extracting sentiments\nfrom UGC, we showed that a morpheme-based model,"
+        },
+        {
+          "6. Summary and Discussion": "which aims to “understand” features of the language, performed less well than a model that did"
+        },
+        {
+          "6. Summary and Discussion": "not address the language features (ngram-based sub-words). For the latter input representation,"
+        },
+        {
+          "6. Summary and Discussion": "a smaller-size dictionary was better\nthan the larger-size dictionary. A plausible explanation for"
+        },
+        {
+          "6. Summary and Discussion": "these results\nis\nthat UGC contains unoﬃcial\nlanguage, which includes non-lexical words\nsuch as"
+        },
+        {
+          "6. Summary and Discussion": "slang words and typos. Over-ﬁtting a model to a language in this case may overlook the unique"
+        },
+        {
+          "6. Summary and Discussion": "characteristics of\nthe unoﬃcial\nlanguage.\nIn future work we plan to examine the performance of"
+        }
+      ],
+      "page": 22
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "References": "Acheampong FA, Wenyu C, Nunoo-Mensah H (2020) Text-based emotion detection: Advances, challenges,"
+        },
+        {
+          "References": "and opportunities. Engineering Reports e12189."
+        },
+        {
+          "References": "Adamopoulos P, Ghose A, Todri V (2018) The impact of user personality traits on word of mouth: Text-"
+        },
+        {
+          "References": "mining social media platforms. Information Systems Research 29(3):612–640."
+        },
+        {
+          "References": "Ahmad Z, Jindal R, Ekbal A, Bhattachharyya P (2020) Borrow from rich cousin:\ntransfer\nlearning for"
+        },
+        {
+          "References": "emotion detection using cross lingual embedding. Expert Systems with Applications 139:112851."
+        },
+        {
+          "References": "Ahorsu DK, Lin CY,\nImani V, Saﬀari M, Griﬃths MD, Pakpour AH (2020) The fear of covid-19 scale:"
+        },
+        {
+          "References": "development and initial validation. International\njournal of mental health and addiction ."
+        },
+        {
+          "References": "Amram A, David AB, Tsarfaty R (2018) Representations and architectures in neural sentiment analysis for"
+        },
+        {
+          "References": "morphologically rich languages: A case study from modern hebrew. Proceedings of\nthe 27th Interna-"
+        },
+        {
+          "References": "tional Conference on Computational Linguistics, 2242–2252."
+        },
+        {
+          "References": "Antoun W, Baly F, Hajj H (2020) Arabert: Transformer-based model\nfor arabic language understanding."
+        },
+        {
+          "References": "arXiv preprint arXiv:2003.00104 ."
+        },
+        {
+          "References": "Argaman O (2010) Linguistic markers and emotional intensity. Journal of psycholinguistic research 39(2):89–"
+        },
+        {
+          "References": "99."
+        },
+        {
+          "References": "Bareket D, Tsarfaty R (2020) Neural modeling for named entities and morphology (nemoˆ 2). arXiv preprint"
+        },
+        {
+          "References": "arXiv:2007.15620 ."
+        },
+        {
+          "References": "Belinkov Y, Durrani N, Dalvi F, Sajjad H, Glass J (2017) What do neural machine translation models learn"
+        },
+        {
+          "References": "about morphology? arXiv preprint arXiv:1704.03471 ."
+        },
+        {
+          "References": "Bellstam G, Bhagat S, Cookson JA (2020) A text-based analysis of\ncorporate\ninnovation. Management"
+        },
+        {
+          "References": "Science ."
+        },
+        {
+          "References": "Bojanowski P, Joulin A, Mikolov T (2015) Alternative structures\nfor character-level\nrnns. arXiv preprint"
+        },
+        {
+          "References": "arXiv:1511.06303 ."
+        },
+        {
+          "References": "Chatterjee A, Narahari KN, Joshi M, Agrawal P (2019) Semeval-2019 task 3: Emocontext contextual emotion"
+        },
+        {
+          "References": "detection in text. Proceedings of\nthe 13th International Workshop on Semantic Evaluation, 39–48."
+        },
+        {
+          "References": "Chitturi R, Raghunathan R, Mahajan V (2007) Form versus function: How the intensities of speciﬁc emo-"
+        },
+        {
+          "References": "tions evoked in functional versus hedonic trade-oﬀs mediate product preferences. Journal of marketing"
+        },
+        {
+          "References": "research 44(4):702–714."
+        },
+        {
+          "References": "Desmet B, Hoste V (2013) Emotion detection in suicide notes. Expert Systems with Applications 40(16):6351–"
+        },
+        {
+          "References": "6358."
+        },
+        {
+          "References": "Devlin J, Chang MW, Lee K, Toutanova K (2018) Bert: Pre-training of deep bidirectional transformers for"
+        },
+        {
+          "References": "language understanding. arXiv preprint arXiv:1810.04805 ."
+        },
+        {
+          "References": "Dong L, Wei F, Tan C, Tang D, Zhou M, Xu K (2014) Adaptive\nrecursive neural network for\ntarget-"
+        },
+        {
+          "References": "dependent twitter sentiment classiﬁcation. Proceedings of\nthe 52nd annual meeting of\nthe association"
+        },
+        {
+          "References": "for computational\nlinguistics (volume 2: Short papers), 49–54."
+        },
+        {
+          "References": "Ekman P (1999) Basic emotions. Handbook of cognition and emotion 98(45-60):16."
+        },
+        {
+          "References": "Fattah K, Fierke KM (2009) A clash of emotions: The politics of humiliation and political violence in the"
+        },
+        {
+          "References": "middle east. European journal of\ninternational relations 15(1):67–93."
+        },
+        {
+          "References": "Fedus W, Goodfellow I, Dai AM (2018) Maskgan: Better text generation via ﬁlling in the . arXiv preprint"
+        },
+        {
+          "References": "arXiv:1801.07736 ."
+        },
+        {
+          "References": "Ghanbari-Adivi F, Mosleh M (2019) Text\nemotion detection in social networks using a novel\nensemble"
+        },
+        {
+          "References": "classiﬁer based on parzen tree estimator (tpe). Neural Computing and Applications 31(12):8971–8983."
+        },
+        {
+          "References": "Hemmatian F, Sohrabi MK (2019) A survey on classiﬁcation techniques for opinion mining and sentiment"
+        },
+        {
+          "References": "analysis. Artiﬁcial Intelligence Review 1–51."
+        },
+        {
+          "References": "Hochreiter S, Schmidhuber J (1997) Long short-term memory. Neural computation 9(8):1735–1780."
+        },
+        {
+          "References": "Jawahar G, Sagot B, Seddah D (2019) What does bert learn about the structure of\nlanguage?"
+        }
+      ],
+      "page": 23
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "classiﬁcation models. arXiv preprint arXiv:1612.03651 ."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Kim Y (2014) Convolutional neural networks for sentence classiﬁcation. arXiv preprint arXiv:1408.5882 ."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Kim-Prieto C, Diener E (2009) Religion as a source of variation in the experience of positive and negative"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "emotions. The Journal of Positive Psychology 4(6):447–460."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Klein S, Tsarfaty R (2020) Getting the## life out of\nliving: How adequate are word-pieces for modelling"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "complex morphology? Proceedings of\nthe 17th SIGMORPHON Workshop on Computational Research"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "in Phonetics, Phonology, and Morphology, 204–209."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "K¨ovecses Z (2003) Metaphor and emotion: Language, culture, and body in human feeling (Cambridge Uni-"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "versity Press)."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Kratzwald B,\nIli´c S, Kraus M, Feuerriegel S, Prendinger H (2018) Deep learning for aﬀective computing:"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Text-based emotion recognition in decision support. Decision Support Systems 115:24–35."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Krippendorﬀ K (1970) Estimating the reliability, systematic error and random error of\ninterval data. Edu-"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "cational and Psychological Measurement 30(1):61–70."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Levine Y, Lenz B, Lieber O, Abend O, Leyton-Brown K, Tennenholtz M, Shoham Y (2020) Pmi-masking:"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Principled masking of correlated spans. arXiv preprint arXiv:2010.01825 ."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Li S, Ju S, Zhou G, Lin X (2012) Active learning for imbalanced sentiment classiﬁcation. Proceedings of\nthe"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "2012 Joint conference on empirical methods in natural\nlanguage processing and computational natural"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "language learning, 139–148."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Liu B (2012) Sentiment analysis and opinion mining. Synthesis\nlectures on human language\ntechnologies"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "5(1):1–167."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Liu B, Zhang L (2012) A survey of opinion mining and sentiment analysis. Mining\ntext data,\n415–463"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "(Springer)."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Liu R, Shi Y, Ji C, Jia M (2019) A survey of sentiment analysis based on transfer learning.\nIEEE Access"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "7:85401–85412."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Medhat W, Hassan A, Korashy H (2014) Sentiment analysis algorithms and applications: A survey. Ain"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Shams engineering journal 5(4):1093–1113."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Mohammad S, Bravo-Marquez F, Salameh M, Kiritchenko S (2018) Semeval-2018 task 1: Aﬀect in tweets."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Proceedings of\nthe 12th international workshop on semantic evaluation, 1–17."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Mohammad SM, Turney PD (2013) Crowdsourcing a word-emotion association lexicon 29(3):436–465."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Mordecai NB, Elhadad M (2005) Hebrew named entity recognition. MONEY 81(83.93):82–49."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "More A, Seker A, Basmova V, Tsarfaty R (2019) Joint transition-based models for morpho-syntactic parsing:"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Parsing strategies for mrls and a case study from modern hebrew. Transactions of\nthe Association for"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Computational Linguistics 7:33–48."
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "Ortiz Su´arez PJ, Romary L, Sagot B (2020) A monolingual\napproach to\ncontextualized word embed-"
+        },
+        {
+          "Joulin A, Grave E, Bojanowski P, Douze M, J´egou H, Mikolov T (2016) Fasttext.zip: Compressing text": "dings\nfor mid-resource\nlanguages. Proceedings\nof\nthe\n58th Annual Meeting\nof\nthe Association for"
+        }
+      ],
+      "page": 24
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "word representations. arXiv preprint arXiv:1802.05365 ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Pfeﬀerbaum B, North CS (2020) Mental health and the covid-19 pandemic. New England Journal of Medicine"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Plutchik R (1980) A general psychoevolutionary theory of emotion. Theories of emotion, 3–33 (Elsevier)."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Pota M, Marulli F, Esposito M, De Pietro G, Fujita H (2019) Multilingual pos tagging by a composite deep"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "architecture based on character-level\nfeatures and on-the-ﬂy enriched word embeddings. Knowledge-"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Based Systems 164:309–323."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Radford A, Narasimhan K, Salimans T, Sutskever I (2018) Improving language understanding by generative"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "pre-training."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Radford A, Wu J, Child R, Luan D, Amodei D, Sutskever\nI\n(2019) Language models are unsupervised"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "multitask learners. OpenAI blog 1(8):9."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Rosaldo MZ, Shweder RA, LeVine RA (1984) Culture theory: essays on mind, self, and emotion."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Schuster M, Nakajima K (2012) Japanese and korean voice search. 2012 IEEE International Conference on"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Acoustics, Speech and Signal Processing (ICASSP), 5149–5152 (IEEE)."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Shapira N, Lazarus G, Goldberg Y, Gilboa-Schechtman E, Tuval-Mashiach R, Juravski D, Atzil-Slonim D"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "(2020) Using computerized text analysis to examine associations between linguistic features and clients’"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "distress during psychotherapy. Journal of counseling psychology ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Sima’an K,\nItai A, Winter Y, Altman A, Nativ N (2001) Building a tree-bank of modern hebrew text."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Traitement Automatique des Langues 42(2):247–380."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Steiner T (2016) President rivlin’s” four tribes” initiative: The foreign policy implications of a democratic"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "& inclusive process to address israel’s socio-demographic transformation ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Straka M, Hajic J, Strakov´a J (2016) Udpipe:\ntrainable pipeline\nfor processing conll-u ﬁles performing"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "tokenization, morphological analysis, pos tagging and parsing. Proceedings of\nthe Tenth International"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Conference on Language Resources and Evaluation (LREC’16), 4290–4297."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Tay Y, Dehghani M, Bahri D, Metzler D (2020) Eﬃcient\ntransformers:\nA survey.\narXiv\npreprint"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "arXiv:2009.06732 ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Tsarfaty R, Bareket D, Klein S, Seker A (2020) From spmrl to nmrl: What did we learn (and unlearn) in a"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "decade of parsing morphologically-rich languages (mrls)? arXiv preprint arXiv:2005.01330 ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Tsarfaty R, Seddah D, Goldberg Y, K¨ubler S, Versley Y, Candito M, Foster J, Rehbein I, Tounsi L (2010)"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Statistical parsing of morphologically rich languages (spmrl) what, how and whither. Proceedings of the"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "NAACL HLT 2010 First Workshop on Statistical Parsing of Morphologically-Rich Languages, 1–12."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Ullah R, Amblee N, Kim W, Lee H (2016) From valence to emotions: Exploring the distribution of emotions"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "in online product reviews. Decision Support Systems 81:41–53."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Vania C, Grivas A, Lopez A (2018) What do character-level models learn about morphology?\nthe case of"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "dependency parsing. arXiv preprint arXiv:1808.09180 ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Vaswani A, Shazeer N, Parmar N, Uszkoreit J, Jones L, Gomez AN, Kaiser (cid:32)L, Polosukhin I (2017) Attention"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "is all you need. Advances in neural\ninformation processing systems, 5998–6008."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Wierzbicka A (1994) Emotion,\nlanguage, and cultural scripts.\n."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Wolf T, Debut L, Sanh V, Chaumond J, Delangue C, Moi A, Cistac P, Rault T, Louf R, Funtowicz M, Davison"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "J, Shleifer S, von Platen P, Ma C, Jernite Y, Plu J, Xu C, Scao TL, Gugger S, Drame M, Lhoest"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Q, Rush AM (2020) Transformers:\nState-of-the-art natural\nlanguage processing. Proceedings of\nthe"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations, 38–"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "45 (Online: Association for Computational Linguistics), URL https://www.aclweb.org/anthology/"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "2020.emnlp-demos.6."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Wu Y, Schuster M, Chen Z, Le QV, Norouzi M, Macherey W, Krikun M, Cao Y, Gao Q, Macherey K, et al."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "(2016) Google’s neural machine translation system: Bridging the gap between human and machine"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "translation. arXiv preprint arXiv:1609.08144 ."
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Yadav A, Vishwakarma DK (2020) Sentiment analysis using deep learning architectures: a review. Artiﬁcial"
+        },
+        {
+          "Peters ME, Neumann M, Iyyer M, Gardner M, Clark C, Lee K, Zettlemoyer L (2018) Deep contextualized": "Intelligence Review 53(6):4335–4385."
+        }
+      ],
+      "page": 25
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "arXiv preprint arXiv:1702.01923 ."
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Yue L, Chen W, Li X, Zuo W, Yin M (2019) A survey of sentiment analysis in social media. Knowledge and"
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Information Systems 1–47."
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Zampieri M, Malmasi S, Nakov P, Rosenthal S, Farra N, Kumar R (2019) Semeval-2019 task 6:\nIdentifying"
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "and categorizing oﬀensive language in social media (oﬀenseval). arXiv preprint arXiv:1903.08983 ."
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Zhang L, Wang S, Liu B (2018) Deep learning for\nsentiment analysis: A survey. Wiley Interdisciplinary"
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Reviews: Data Mining and Knowledge Discovery 8(4):e1253."
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Zhong P, Wang D, Miao C (2019) Knowledge-enriched transformer for emotion detection in textual conver-"
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "sations. arXiv preprint arXiv:1909.10681 ."
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "Zhou D, Wu S, Wang Q, Xie J, Tu Z, Li M (2020) Emotion classiﬁcation by jointly learning to lexiconize and"
+        },
+        {
+          "Yin W, Kann K, Yu M, Sch¨utze H (2017) Comparative study of cnn and rnn for natural language processing.": "classify. Proceedings of\nthe 28th International Conference on Computational Linguistics, 3235–3245."
+        }
+      ],
+      "page": 26
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Text-based emotion detection: Advances, challenges, and opportunities",
+      "authors": [
+        "F Acheampong",
+        "C Wenyu",
+        "H Nunoo-Mensah"
+      ],
+      "year": "2020",
+      "venue": "Text-based emotion detection: Advances, challenges, and opportunities"
+    },
+    {
+      "citation_id": "2",
+      "title": "The impact of user personality traits on word of mouth: Textmining social media platforms",
+      "authors": [
+        "P Adamopoulos",
+        "A Ghose",
+        "V Todri"
+      ],
+      "year": "2018",
+      "venue": "Information Systems Research"
+    },
+    {
+      "citation_id": "3",
+      "title": "Borrow from rich cousin: transfer learning for emotion detection using cross lingual embedding",
+      "authors": [
+        "Z Ahmad",
+        "R Jindal",
+        "A Ekbal",
+        "P Bhattachharyya"
+      ],
+      "year": "2020",
+      "venue": "Expert Systems with Applications"
+    },
+    {
+      "citation_id": "4",
+      "title": "The fear of covid-19 scale: development and initial validation",
+      "authors": [
+        "D Ahorsu",
+        "C Lin",
+        "V Imani",
+        "M Saffari",
+        "M Griffiths",
+        "A Pakpour"
+      ],
+      "year": "2020",
+      "venue": "International journal of mental health and addiction"
+    },
+    {
+      "citation_id": "5",
+      "title": "Representations and architectures in neural sentiment analysis for morphologically rich languages: A case study from modern hebrew",
+      "authors": [
+        "A Amram",
+        "A David",
+        "R Tsarfaty"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 27th International Conference on Computational Linguistics"
+    },
+    {
+      "citation_id": "6",
+      "title": "Arabert: Transformer-based model for arabic language understanding",
+      "authors": [
+        "W Antoun",
+        "F Baly",
+        "H Hajj"
+      ],
+      "year": "2020",
+      "venue": "Arabert: Transformer-based model for arabic language understanding",
+      "arxiv": "arXiv:2003.00104"
+    },
+    {
+      "citation_id": "7",
+      "title": "Linguistic markers and emotional intensity",
+      "authors": [
+        "O Argaman"
+      ],
+      "year": "2010",
+      "venue": "Journal of psycholinguistic research"
+    },
+    {
+      "citation_id": "8",
+      "title": "Neural modeling for named entities and morphology (nemoˆ2)",
+      "authors": [
+        "D Bareket",
+        "R Tsarfaty"
+      ],
+      "year": "2020",
+      "venue": "Neural modeling for named entities and morphology (nemoˆ2)",
+      "arxiv": "arXiv:2007.15620"
+    },
+    {
+      "citation_id": "9",
+      "title": "What do neural machine translation models learn about morphology? arXiv preprint",
+      "authors": [
+        "Y Belinkov",
+        "N Durrani",
+        "F Dalvi",
+        "H Sajjad",
+        "J Glass"
+      ],
+      "year": "2017",
+      "venue": "What do neural machine translation models learn about morphology? arXiv preprint",
+      "arxiv": "arXiv:1704.03471"
+    },
+    {
+      "citation_id": "10",
+      "title": "A text-based analysis of corporate innovation",
+      "authors": [
+        "G Bellstam",
+        "S Bhagat",
+        "J Cookson"
+      ],
+      "year": "2020",
+      "venue": "Management Science"
+    },
+    {
+      "citation_id": "11",
+      "title": "Alternative structures for character-level rnns",
+      "authors": [
+        "P Bojanowski",
+        "A Joulin",
+        "T Mikolov"
+      ],
+      "year": "2015",
+      "venue": "Alternative structures for character-level rnns",
+      "arxiv": "arXiv:1511.06303"
+    },
+    {
+      "citation_id": "12",
+      "title": "Semeval-2019 task 3: Emocontext contextual emotion detection in text",
+      "authors": [
+        "A Chatterjee",
+        "K Narahari",
+        "M Joshi",
+        "P Agrawal"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 13th International Workshop on Semantic Evaluation"
+    },
+    {
+      "citation_id": "13",
+      "title": "Form versus function: How the intensities of specific emotions evoked in functional versus hedonic trade-offs mediate product preferences",
+      "authors": [
+        "R Chitturi",
+        "R Raghunathan",
+        "V Mahajan"
+      ],
+      "year": "2007",
+      "venue": "Journal of marketing research"
+    },
+    {
+      "citation_id": "14",
+      "title": "Emotion detection in suicide notes",
+      "authors": [
+        "B Desmet",
+        "V Hoste"
+      ],
+      "year": "2013",
+      "venue": "Expert Systems with Applications"
+    },
+    {
+      "citation_id": "15",
+      "title": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2018",
+      "venue": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "arxiv": "arXiv:1810.04805"
+    },
+    {
+      "citation_id": "16",
+      "title": "Adaptive recursive neural network for targetdependent twitter sentiment classification",
+      "authors": [
+        "L Dong",
+        "F Wei",
+        "C Tan",
+        "D Tang",
+        "M Zhou",
+        "K Xu"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the 52nd annual meeting of the association for computational linguistics"
+    },
+    {
+      "citation_id": "17",
+      "title": "Basic emotions. Handbook of cognition and emotion",
+      "authors": [
+        "P Ekman"
+      ],
+      "year": "1999",
+      "venue": "Basic emotions. Handbook of cognition and emotion"
+    },
+    {
+      "citation_id": "18",
+      "title": "A clash of emotions: The politics of humiliation and political violence in the middle east",
+      "authors": [
+        "K Fattah",
+        "K Fierke"
+      ],
+      "year": "2009",
+      "venue": "European journal of international relations"
+    },
+    {
+      "citation_id": "19",
+      "title": "Maskgan: Better text generation via filling in the",
+      "authors": [
+        "W Fedus",
+        "I Goodfellow",
+        "A Dai"
+      ],
+      "year": "2018",
+      "venue": "Maskgan: Better text generation via filling in the",
+      "arxiv": "arXiv:1801.07736"
+    },
+    {
+      "citation_id": "20",
+      "title": "Text emotion detection in social networks using a novel ensemble classifier based on parzen tree estimator (tpe)",
+      "authors": [
+        "F Ghanbari-Adivi",
+        "M Mosleh"
+      ],
+      "year": "2019",
+      "venue": "Neural Computing and Applications"
+    },
+    {
+      "citation_id": "21",
+      "title": "A survey on classification techniques for opinion mining and sentiment analysis",
+      "authors": [
+        "F Hemmatian",
+        "M Sohrabi"
+      ],
+      "year": "2019",
+      "venue": "Artificial Intelligence Review"
+    },
+    {
+      "citation_id": "22",
+      "title": "Long short-term memory",
+      "authors": [
+        "S Hochreiter",
+        "J Schmidhuber"
+      ],
+      "year": "1997",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "23",
+      "title": "What does bert learn about the structure of language?",
+      "authors": [
+        "G Jawahar",
+        "B Sagot",
+        "D ; Seddah",
+        "A Joulin",
+        "E Grave",
+        "P Bojanowski",
+        "M Douze",
+        "H Jégou",
+        "T Mikolov"
+      ],
+      "year": "2016",
+      "venue": "Fasttext.zip: Compressing text classification models",
+      "arxiv": "arXiv:1612.03651"
+    },
+    {
+      "citation_id": "24",
+      "title": "Convolutional neural networks for sentence classification",
+      "authors": [
+        "Y Kim"
+      ],
+      "year": "2014",
+      "venue": "Convolutional neural networks for sentence classification",
+      "arxiv": "arXiv:1408.5882"
+    },
+    {
+      "citation_id": "25",
+      "title": "Religion as a source of variation in the experience of positive and negative emotions",
+      "authors": [
+        "C Kim-Prieto",
+        "E Diener"
+      ],
+      "year": "2009",
+      "venue": "The Journal of Positive Psychology"
+    },
+    {
+      "citation_id": "26",
+      "title": "Getting the## life out of living: How adequate are word-pieces for modelling complex morphology?",
+      "authors": [
+        "S Klein",
+        "R Tsarfaty"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 17th SIGMORPHON Workshop on Computational Research in Phonetics, Phonology, and Morphology"
+    },
+    {
+      "citation_id": "27",
+      "title": "Metaphor and emotion: Language, culture, and body in human feeling",
+      "authors": [
+        "Z Kövecses"
+      ],
+      "year": "2003",
+      "venue": "Metaphor and emotion: Language, culture, and body in human feeling"
+    },
+    {
+      "citation_id": "28",
+      "title": "Deep learning for affective computing: Text-based emotion recognition in decision support",
+      "authors": [
+        "B Kratzwald",
+        "S Ilić",
+        "M Kraus",
+        "S Feuerriegel",
+        "H Prendinger"
+      ],
+      "year": "2018",
+      "venue": "Decision Support Systems"
+    },
+    {
+      "citation_id": "29",
+      "title": "Estimating the reliability, systematic error and random error of interval data",
+      "authors": [
+        "K Krippendorff"
+      ],
+      "year": "1970",
+      "venue": "Educational and Psychological Measurement"
+    },
+    {
+      "citation_id": "30",
+      "title": "Pmi-masking: Principled masking of correlated spans",
+      "authors": [
+        "Y Levine",
+        "B Lenz",
+        "O Lieber",
+        "O Abend",
+        "K Leyton-Brown",
+        "M Tennenholtz",
+        "Y Shoham"
+      ],
+      "year": "2020",
+      "venue": "Pmi-masking: Principled masking of correlated spans",
+      "arxiv": "arXiv:2010.01825"
+    },
+    {
+      "citation_id": "31",
+      "title": "Active learning for imbalanced sentiment classification",
+      "authors": [
+        "S Li",
+        "S Ju",
+        "G Zhou",
+        "X Lin"
+      ],
+      "year": "2012",
+      "venue": "Proceedings of the 2012 Joint conference on empirical methods in natural language processing and computational natural language learning"
+    },
+    {
+      "citation_id": "32",
+      "title": "Sentiment analysis and opinion mining",
+      "authors": [
+        "B Liu"
+      ],
+      "year": "2012",
+      "venue": "Synthesis lectures on human language technologies"
+    },
+    {
+      "citation_id": "33",
+      "title": "A survey of opinion mining and sentiment analysis. Mining text data",
+      "authors": [
+        "B Liu",
+        "L Zhang"
+      ],
+      "year": "2012",
+      "venue": "A survey of opinion mining and sentiment analysis. Mining text data"
+    },
+    {
+      "citation_id": "34",
+      "title": "A survey of sentiment analysis based on transfer learning",
+      "authors": [
+        "R Liu",
+        "Y Shi",
+        "C Ji",
+        "M Jia"
+      ],
+      "year": "2019",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "35",
+      "title": "Sentiment analysis algorithms and applications: A survey",
+      "authors": [
+        "W Medhat",
+        "A Hassan",
+        "H Korashy"
+      ],
+      "year": "2014",
+      "venue": "Ain Shams engineering journal"
+    },
+    {
+      "citation_id": "36",
+      "title": "Semeval-2018 task 1: Affect in tweets",
+      "authors": [
+        "S Mohammad",
+        "F Bravo-Marquez",
+        "M Salameh",
+        "S Kiritchenko"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 12th international workshop on semantic evaluation"
+    },
+    {
+      "citation_id": "37",
+      "title": "Crowdsourcing a word-emotion association lexicon",
+      "authors": [
+        "S Mohammad",
+        "P Turney"
+      ],
+      "year": "2013",
+      "venue": "Crowdsourcing a word-emotion association lexicon"
+    },
+    {
+      "citation_id": "38",
+      "title": "Hebrew named entity recognition",
+      "authors": [
+        "N Mordecai",
+        "M Elhadad"
+      ],
+      "year": "2005",
+      "venue": "MONEY"
+    },
+    {
+      "citation_id": "39",
+      "title": "Joint transition-based models for morpho-syntactic parsing: Parsing strategies for mrls and a case study from modern hebrew",
+      "authors": [
+        "A More",
+        "A Seker",
+        "V Basmova",
+        "R Tsarfaty"
+      ],
+      "year": "2019",
+      "venue": "Transactions of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "40",
+      "title": "A monolingual approach to contextualized word embeddings for mid-resource languages",
+      "authors": [
+        "P Ortiz Suárez",
+        "L Romary",
+        "B Sagot"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "41",
+      "title": "The referential structure of the affective lexicon",
+      "authors": [
+        "A Ortony",
+        "G Clore",
+        "M Foss"
+      ],
+      "year": "1987",
+      "venue": "Cognitive science"
+    },
+    {
+      "citation_id": "42",
+      "title": "A survey on transfer learning",
+      "authors": [
+        "S Pan",
+        "Q Yang"
+      ],
+      "year": "2009",
+      "venue": "IEEE Transactions on knowledge and data engineering"
+    },
+    {
+      "citation_id": "43",
+      "title": "Semeval-2020 task 9: Overview of sentiment analysis of code-mixed tweets",
+      "authors": [
+        "P Patwa",
+        "G Aguilar",
+        "S Kar",
+        "S Pandey",
+        "S Pykl",
+        "B Gambäck",
+        "T Chakraborty",
+        "T Solorio",
+        "A Das"
+      ],
+      "year": "2020",
+      "venue": "Semeval-2020 task 9: Overview of sentiment analysis of code-mixed tweets"
+    },
+    {
+      "citation_id": "44",
+      "title": "Emotional, behavioral, and psychological impact of the covid-19 pandemic",
+      "authors": [
+        "A Pedrosa",
+        "L Bitencourt",
+        "Acf Fróes",
+        "Mlb Cazumbá",
+        "Rgb Campos",
+        "Sbcs De Brito",
+        "E Silva"
+      ],
+      "year": "2020",
+      "venue": "Frontiers in psychology"
+    },
+    {
+      "citation_id": "45",
+      "title": "Linguistic inquiry and word count: Liwc",
+      "authors": [
+        "J Pennebaker",
+        "M Francis",
+        "R Booth"
+      ],
+      "year": "2001",
+      "venue": "Linguistic inquiry and word count: Liwc"
+    },
+    {
+      "citation_id": "46",
+      "title": "Deep contextualized word representations",
+      "authors": [
+        "M Peters",
+        "M Neumann",
+        "M Iyyer",
+        "M Gardner",
+        "C Clark",
+        "K Lee",
+        "L Zettlemoyer"
+      ],
+      "year": "2018",
+      "venue": "Deep contextualized word representations",
+      "arxiv": "arXiv:1802.05365"
+    },
+    {
+      "citation_id": "47",
+      "title": "Mental health and the covid-19 pandemic",
+      "authors": [
+        "B Pfefferbaum",
+        "C North"
+      ],
+      "year": "2020",
+      "venue": "Mental health and the covid-19 pandemic"
+    },
+    {
+      "citation_id": "48",
+      "title": "A general psychoevolutionary theory of emotion. Theories of emotion",
+      "authors": [
+        "R Plutchik"
+      ],
+      "year": "1980",
+      "venue": "A general psychoevolutionary theory of emotion. Theories of emotion"
+    },
+    {
+      "citation_id": "49",
+      "title": "Multilingual pos tagging by a composite deep architecture based on character-level features and on-the-fly enriched word embeddings",
+      "authors": [
+        "M Pota",
+        "F Marulli",
+        "M Esposito",
+        "De Pietro",
+        "G Fujita"
+      ],
+      "year": "2019",
+      "venue": "Knowledge-Based Systems"
+    },
+    {
+      "citation_id": "50",
+      "title": "Improving language understanding by generative pre-training",
+      "authors": [
+        "A Radford",
+        "K Narasimhan",
+        "T Salimans",
+        "I Sutskever"
+      ],
+      "year": "2018",
+      "venue": "Improving language understanding by generative pre-training"
+    },
+    {
+      "citation_id": "51",
+      "title": "Language models are unsupervised multitask learners",
+      "authors": [
+        "A Radford",
+        "J Wu",
+        "R Child",
+        "D Luan",
+        "D Amodei",
+        "I Sutskever"
+      ],
+      "year": "2019",
+      "venue": "OpenAI blog"
+    },
+    {
+      "citation_id": "52",
+      "title": "Culture theory: essays on mind, self, and emotion",
+      "authors": [
+        "M Rosaldo",
+        "R Shweder",
+        "R Levine"
+      ],
+      "year": "1984",
+      "venue": "Culture theory: essays on mind, self, and emotion"
+    },
+    {
+      "citation_id": "53",
+      "title": "Japanese and korean voice search",
+      "authors": [
+        "M Schuster",
+        "K Nakajima"
+      ],
+      "year": "2012",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "54",
+      "title": "Using computerized text analysis to examine associations between linguistic features and clients' distress during psychotherapy",
+      "authors": [
+        "N Shapira",
+        "G Lazarus",
+        "Y Goldberg",
+        "E Gilboa-Schechtman",
+        "R Tuval-Mashiach",
+        "D Juravski",
+        "D Atzil-Slonim"
+      ],
+      "year": "2020",
+      "venue": "Journal of counseling psychology"
+    },
+    {
+      "citation_id": "55",
+      "title": "Building a tree-bank of modern hebrew text",
+      "authors": [
+        "K Sima'an",
+        "A Itai",
+        "Y Winter",
+        "A Altman",
+        "N Nativ"
+      ],
+      "year": "2001",
+      "venue": "Traitement Automatique des Langues"
+    },
+    {
+      "citation_id": "56",
+      "title": "President rivlin's\" four tribes\" initiative: The foreign policy implications of a democratic & inclusive process to address israel's socio-demographic transformation",
+      "authors": [
+        "T Steiner"
+      ],
+      "year": "2016",
+      "venue": "President rivlin's\" four tribes\" initiative: The foreign policy implications of a democratic & inclusive process to address israel's socio-demographic transformation"
+    },
+    {
+      "citation_id": "57",
+      "title": "Udpipe: trainable pipeline for processing conll-u files performing tokenization, morphological analysis, pos tagging and parsing",
+      "authors": [
+        "M Straka",
+        "J Hajic",
+        "J Straková"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the Tenth International Conference on Language Resources and Evaluation (LREC'16)"
+    },
+    {
+      "citation_id": "58",
+      "title": "Efficient transformers: A survey",
+      "authors": [
+        "Y Tay",
+        "M Dehghani",
+        "D Bahri",
+        "D Metzler"
+      ],
+      "year": "2020",
+      "venue": "Efficient transformers: A survey",
+      "arxiv": "arXiv:2009.06732"
+    },
+    {
+      "citation_id": "59",
+      "title": "From spmrl to nmrl",
+      "authors": [
+        "R Tsarfaty",
+        "D Bareket",
+        "S Klein",
+        "A Seker"
+      ],
+      "year": "2020",
+      "venue": "What did we learn (and unlearn) in a decade of parsing morphologically-rich languages (mrls)? arXiv preprint",
+      "arxiv": "arXiv:2005.01330"
+    },
+    {
+      "citation_id": "60",
+      "title": "Statistical parsing of morphologically rich languages (spmrl) what, how and whither",
+      "authors": [
+        "R Tsarfaty",
+        "D Seddah",
+        "Y Goldberg",
+        "S Kübler",
+        "Y Versley",
+        "M Candito",
+        "J Foster",
+        "I Rehbein",
+        "L Tounsi"
+      ],
+      "year": "2010",
+      "venue": "Proceedings of the NAACL HLT 2010 First Workshop on Statistical Parsing of Morphologically-Rich Languages"
+    },
+    {
+      "citation_id": "61",
+      "title": "From valence to emotions: Exploring the distribution of emotions in online product reviews",
+      "authors": [
+        "R Ullah",
+        "N Amblee",
+        "W Kim",
+        "H Lee"
+      ],
+      "year": "2016",
+      "venue": "Decision Support Systems"
+    },
+    {
+      "citation_id": "62",
+      "title": "What do character-level models learn about morphology? the case of dependency parsing",
+      "authors": [
+        "C Vania",
+        "A Grivas",
+        "A Lopez"
+      ],
+      "year": "2018",
+      "venue": "What do character-level models learn about morphology? the case of dependency parsing",
+      "arxiv": "arXiv:1808.09180"
+    },
+    {
+      "citation_id": "63",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "L Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "64",
+      "title": "Emotion, language, and cultural scripts",
+      "authors": [
+        "A Wierzbicka"
+      ],
+      "year": "1994",
+      "venue": "Emotion, language, and cultural scripts"
+    },
+    {
+      "citation_id": "65",
+      "title": "Transformers: State-of-the-art natural language processing",
+      "authors": [
+        "T Wolf",
+        "L Debut",
+        "V Sanh",
+        "J Chaumond",
+        "C Delangue",
+        "A Moi",
+        "P Cistac",
+        "T Rault",
+        "R Louf",
+        "M Funtowicz",
+        "J Davison",
+        "S Shleifer",
+        "P Von Platen",
+        "C Ma",
+        "Y Jernite",
+        "J Plu",
+        "C Xu",
+        "T Scao",
+        "S Gugger",
+        "M Drame",
+        "Q Lhoest",
+        "A Rush"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations"
+    },
+    {
+      "citation_id": "66",
+      "title": "Google's neural machine translation system: Bridging the gap between human and machine translation",
+      "authors": [
+        "Y Wu",
+        "M Schuster",
+        "Z Chen",
+        "Q Le",
+        "M Norouzi",
+        "W Macherey",
+        "M Krikun",
+        "Y Cao",
+        "Q Gao",
+        "K Macherey"
+      ],
+      "year": "2016",
+      "venue": "Google's neural machine translation system: Bridging the gap between human and machine translation",
+      "arxiv": "arXiv:1609.08144"
+    },
+    {
+      "citation_id": "67",
+      "title": "Sentiment analysis using deep learning architectures: a review",
+      "authors": [
+        "A Yadav",
+        "D Vishwakarma"
+      ],
+      "year": "2020",
+      "venue": "Artificial Intelligence Review"
+    },
+    {
+      "citation_id": "68",
+      "title": "Comparative study of cnn and rnn for natural language processing",
+      "authors": [
+        "W Yin",
+        "K Kann",
+        "M Yu",
+        "H Schütze"
+      ],
+      "year": "2017",
+      "venue": "Comparative study of cnn and rnn for natural language processing",
+      "arxiv": "arXiv:1702.01923"
+    },
+    {
+      "citation_id": "69",
+      "title": "A survey of sentiment analysis in social media",
+      "authors": [
+        "L Yue",
+        "Chen Li",
+        "X Zuo",
+        "W Yin"
+      ],
+      "year": "2019",
+      "venue": "Knowledge and Information Systems"
+    },
+    {
+      "citation_id": "70",
+      "title": "Semeval-2019 task 6: Identifying and categorizing offensive language in social media (offenseval)",
+      "authors": [
+        "M Zampieri",
+        "S Malmasi",
+        "P Nakov",
+        "S Rosenthal",
+        "N Farra",
+        "R Kumar"
+      ],
+      "year": "2019",
+      "venue": "Semeval-2019 task 6: Identifying and categorizing offensive language in social media (offenseval)",
+      "arxiv": "arXiv:1903.08983"
+    },
+    {
+      "citation_id": "71",
+      "title": "Deep learning for sentiment analysis: A survey",
+      "authors": [
+        "L Zhang",
+        "S Wang",
+        "B Liu"
+      ],
+      "year": "2018",
+      "venue": "Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery"
+    },
+    {
+      "citation_id": "72",
+      "title": "Knowledge-enriched transformer for emotion detection in textual conversations",
+      "authors": [
+        "P Zhong",
+        "D Wang",
+        "C Miao"
+      ],
+      "year": "2019",
+      "venue": "Knowledge-enriched transformer for emotion detection in textual conversations",
+      "arxiv": "arXiv:1909.10681"
+    },
+    {
+      "citation_id": "73",
+      "title": "Emotion classification by jointly learning to lexiconize and classify",
+      "authors": [
+        "D Zhou",
+        "S Wu",
+        "Q Wang",
+        "J Xie",
+        "Z Tu",
+        "M Li"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th International Conference on Computational Linguistics"
+    }
+  ]
+}

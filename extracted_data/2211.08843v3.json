@@ -1,0 +1,1636 @@
+{
+  "paper_id": "2211.08843v3",
+  "title": "Improving Speech Emotion Recognition With Unsupervised Speaking Style Transfer",
+  "published": "2022-11-16T11:43:25Z",
+  "authors": [
+    "Leyuan Qu",
+    "Wei Wang",
+    "Cornelius Weber",
+    "Pengcheng Yue",
+    "Taihao Li",
+    "Stefan Wermter"
+  ],
+  "keywords": [
+    "Speech emotion recognition",
+    "data augmentation",
+    "style transfer"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Humans can effortlessly modify various prosodic attributes, such as the placement of stress and the intensity of sentiment, to convey a specific emotion while maintaining consistent linguistic content. Motivated by this capability, we propose EmoAug, a novel style transfer model designed to enhance emotional expression and tackle the data scarcity issue in speech emotion recognition tasks. EmoAug consists of a semantic encoder and a paralinguistic encoder that represent verbal and non-verbal information respectively. Additionally, a decoder reconstructs speech signals by conditioning on the aforementioned two information flows in an unsupervised fashion. Once training is completed, EmoAug enriches expressions of emotional speech with different prosodic attributes, such as stress, rhythm and intensity, by feeding different styles into the paralinguistic encoder. EmoAug enables us to generate similar numbers of samples for each class to tackle the data imbalance issue as well. Experimental results on the IEMOCAP dataset demonstrate that EmoAug can successfully transfer different speaking styles while retaining the speaker identity and semantic content. Furthermore, we train a SER model with data augmented by EmoAug and show that the augmented model not only surpasses the state-of-the-art supervised and self-supervised methods but also overcomes overfitting problems caused by data imbalance. Some audio samples can be found on our demo website 1 .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Speech Emotion Recognition (SER) aims at recognizing and understanding human emotions from spoken language, which can significantly benefit and promote the experience of human-machine interaction. Plenty of studies have investigated SER in recent years  [1] . However, the performance of SER is constrained by the lack of large-scale labelled datasets. Most speech emotion datasets are collected under simulated or elicited scenarios, since capturing natural and spontaneous emotional speech is very challenging. Furthermore, different people perceive emotions differently, which may result in ambiguity in data labeling, especially in emotions with weak intensity  [2] . Moreover, data imbalance of different emotions is another problem that can lead to model overfitting to some frequent emotions, such as \"Neutral\".\n\nData augmentation is treated as a promising method to address these issues. Most of the augmentation methods used in SER are borrowed from Automatic Speech Recognition (ASR), such as SpecAugment  [3] , Vocal Tract Length Perturbation (VTLP)  [4] , speed perturbation  [5] , pitch shift or noise injection. However, while the variations in pitch or speed do not change the semantic content, they may have an effect on emotion expressions. For instance, sad emotions are often conveyed at slow speed while angry emotions tend to be expressed fast.\n\nAlternatively, different variants of models are adopted to generate intermediate emotional features or alter carried emotions while keeping speech content unchanged, for instance, star Generative Adversarial Networks (GANs)  [6] , CycleGAN  [7]  and global style token  [8] . However, the generated intermediate features are not easy to evaluate intuitively. In addition, prosody expression is strongly associated with speech content, and the altered emotions by GANs may cause conflicts or ambiguity between speech prosody and content.\n\nHumans can easily alter different prosody attributes, such as stress position and sentiment intensity, to express a given emotion with invariant linguistic content  [9] . For example, when expressing sad emotions with the semantic content \"I am not happy today\", one can emphasize \"not happy\" or put stress on \"today\". Inspired by this capability, we propose EmoAug to vary prosody attributes and augment emotional speech while keeping emotions unchanged. EmoAug is trained in an unsupervised manner, which requires neither paired speech nor emotion labels. The main contributions of this paper are as follows:\n\n1. We propose a novel unsupervised speaking style transfer model which enriches emotion expressions by altering stress, rhythm and intensity while keeping emotions, semantics and speaker identity invariant. 2. We implement quantized units to represent semantic speech content instead of using a well-trained ASR model, which enables us to work on emotional audio without text transcriptions.  3. SER models trained with EmoAug outperform the state-of-the-art models by a large margin, effectively overcoming overfitting issues caused by data scarcity and class imbalance.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Method",
+      "text": "An overview of EmoAug is shown in Fig.  1 , which consists of a speech quantization module, a semantic encoder, a paralinguistic encoder and an attention-based decoder. An additional discriminator is utilized during the fine-tuning phase.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Speech Quantization And Semantic Encoder",
+      "text": "Acquiring semantic speech information typically relies on a proficient ASR system. Nevertheless, training a reliable ASR model proves challenging due to the extensive labeled data required. In addition, ASR models are not robust to unseen noise or emotional speech  [10] . Therefore, we employ HuBERT representations  [11]  to capture semantic speech content. These representations are acquired through selfsupervised training, eliminating the need for human annotations in ASR training. HuBERT empowers us to address emotional speech and diverse styles that might substantially compromise the performance of an ASR model. As shown in Eq.1, the input speech signal x = (x 0 , ..., x t ) is firstly embedded into continuous vectors by the pre-trained Hu-BERT 2 , followed by the k-means algorithm that quantizes the continuous speech representations into discrete cluster labels u = (u 0 , ..., u t ), e.g. \"23, 23, 2, 2, ..., 57\".\n\nWe investigated how different vocabulary sizes of Hu-BERT impact in model performance. In this study, we employed a vocabulary size of 200 clusters, which yielded considerably improved performance compared to using 50 or 100 classes. To refine the semantic content, we proceed to eliminate repetitions and filter out tempo information (u → u), e.g. \"23, 23, 2, 2, ..., 57\" → \"23, 2, ..., 57\". After quantization, we map the cluster labels into latent representations with 2 https://huggingface.co/facebook/hubert-base-ls960 the semantic encoder (Sem) which is comprised of three 512channel Conv1D layers with kernel width of 5 and padding size of 2, and one bidirectional Long Short-Term Memory (LSTM) with 256 dimensions to capture local and global context information, respectively.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Paralinguistic Encoder",
+      "text": "The paralinguistic encoder (Par) aims to learn utterance-level non-verbal information from input audio x, which contains speaking styles, emotion states, speaker identities, and so on. It is based on the ECAPA-TDNN model  [12]  which has been proposed for the task of speaker verification. The model begins with one Conv1D layer, a ReLU function, and Batch Normalization (BN), followed by three SE-Res2 blocks. Residual connections between the SE-Res2 blocks deliver different level outputs to the feature aggregation layer (Conv1D+ReLU). Subsequently, the aggregated outputs are dynamically weighed by the attentive statistics pooling layer (Conv1D+Tanh+Conv1D+Softmax), and then mapped to a fixed dimension by the last Fully Connected (FC) layer. We initialize ECAPA-TDNN with the pre-trained model  3  . The attentive statistics pooling, fixed dimension mapping and weight initialization prevent semantic information to leak from the paralinguistic encoder.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Decoder",
+      "text": "Our decoder is based on the Tacotron2  [13]  which uses location-aware attention (Att)  [14]  to connect the encoders and the decoder (see Eq. 2). m = Dec(Att(Sem( u), P ar(x)))\n\n(2)\n\nThe decoder (Dec) generates one frame per time step in an auto-regressive fashion. Two FC layers map the ground-truth mel-spectrograms x into latent representations that are used by an LSTM module for teacher-forcing training. Finally, a FC layer maps the intermediate features to the dimension of input mel-spectrograms. The generated mel-spectrograms m are then transformed to waveforms x by HiFiGAN  [15] .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Discriminator",
+      "text": "After pre-training, we observed when feeding a different reference audio to the paralinguistic encoder for style transfer, the generated speech signals exhibit some distortions. To enhance the quality of the generated speech, we implement a discriminator to differentiate between the genuine and synthesized speech. Importantly, the discriminator exclusively differentiates pitch changes while preserving semantic content. The discriminator starts with three convolutional blocks (Conv1D+ReLU+BN+dropout), followed by two linear projection layers.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Speaking Style Transfer",
+      "text": "We denote X s,e as all utterances with emotion e uttered by speaker s. After pre-training, as shown in Eq. 4, speaking style transfer can be achieved by directly replacing the paralinguistic encoder input x s,e with a target speaking style y s,e , where x s,e ∈ X s,e , y s,e ∈ Y s,e and Y s,e = X s,e -{x s,e }. m s,e = Dec(Att(Sem( u), P ar(y s,e )))\n\nConsequently, the converted mel-spectrograms m s,e retain the same speaker identity, semantic content and emotions as the original audio x s,e , but deliver different rhythms or intensities transferred from y s,e . In addition, we generate different numbers of samples for each emotion to counter data imbalance.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experimental Setups",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Datasets",
+      "text": "We utilize the LRS3-TED and IEMOCAP datasets for pretraining and fine-tuning respectively.\n\n• LRS3-TED  [16]  is comprised of over 400 hours of video by more than 5000 speakers from TED and TEDx talks with spontaneous speech. LRS3-TED is collected with various speaking styles and emotions in a variety of acoustic scenes, which will help the model learn rich paralinguistic changes. • IEMOCAP  [17]  is a multimodal emotion dataset recorded by 10 actors in a fictitious scenario. We follow the settings used in previous work  [18, 19, 20] , in which leave-one-session-out is adopted with 5-fold cross-validation. One session is left for testing and another one is used for validation, while the rest of the three sessions is utilized for training in each round. Four types of emotions (happy, sad, angry and neutral) with a total of 5531 utterances are considered.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Evaluation Metrics",
+      "text": "We report the experimental results with Weighted Accuracy (WA) and Unweighted Accuracy (UA).",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Emoaug Training",
+      "text": "We first pre-train EmoAug on LRS3-TED and then fine-tune it on IEMOCAP for style transfer. During pre-training, the Adam optimizer is used with a weight decay rate of 1e-6. The initial learning rate is 1e-3, which is decayed with a factor of 0.9 after every 5000 iterations. In addition, gradient clipping with a threshold of 1.0, early stopping and scheduled sampling are adopted to avoid overfitting. After pre-training, we fine-tune the model with a discriminator on the IEMOCAP dataset with small learning rates of 1e-5 and 1e-4 to improve the quality of generated speech.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Ser Model Training",
+      "text": "We perform SER by adding one additional FC layer on top of the HuBERT model which is pre-trained on large-scale unlabelled data by self-supervised learning. During training, different learning rates are used in the HuBERT model (1e-5) and the FC layer (1e-4) to retain the low-layer representations and enable the last FC layer to fit to the specific dataset.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Results And Discussion",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Comparison Of Different Augmentation Times",
+      "text": "We augment each utterance N times by transferring speaking styles from N randomly selected utterances that belong to the same speaker with the same type of emotion. We report the effect of different augmentation times and the discriminator on SER utilizing representations from HuBERT.\n\nAs can be seen in Fig.  2 , considerable increases occur on UA along with the increase of augmentation time, where 0 means training SER models with only raw audio. Furthermore, the discriminator significantly enhances the quality of the generated speech, resulting in a substantial improvement in emotion recognition. The figure reveals that the speaking styles transferred by EmoAug effectively enrich the emotion expression on prosody and greatly enhance SER performance. In addition, we also visualize the original and generated mel-spectrograms. As shown in Fig.  3 , in comparison to the original audio, EmoAug successfully transfers different speaking styles to the source audio while keeping the semantic information invariant. By listening to the generated audio, we found that EmoAug can effectively augment the  expression of source emotion by varying stress positions, intonations or even the intensity of emotions. We recommend readers to listen to the audio samples on our demo website.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Model Performance With And Without Augmentation",
+      "text": "We select the utterances from session one (two speakers) of IEMOCAP and visualize the embeddings from the penultimate layer of the model trained with only original data and with four times augmented data. As depicted in Fig.  4",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Comparison With Previous Work",
+      "text": "We compare our methods with previous supervised and selfsupervised models in Table  1 . We also reimplement and augment IEMOCAP with emotional voice conversion models, CycleGAN  [21]  and StarGAN  [6] . We reproduce the Copy-Paste  [22]  method by randomly concatenating two emotional utterances with the same emotion, which corresponds to the Same Emotion CopyPaste (SE-CP) setting in  [22] . Additionally, we perturb speech on speed with the factors of 0.9, 1.0 and 1.1. Pitch shift is adopted by randomly raising or lowering 2 semitones on each audio. Table  1  shows that EmoAug outperforms previous methods by a big margin. Methods WA UA Supervised Methods CNN-ELM+STC attention  [18]  61.32 60.43 IS09-classification  [19]  68.10 63.80 Co-attention-based fusion  [20]  69.80 71.05 Self-supervised Methods Data2Vec Large  [23]  66.31 -WavLM Large  [24]  70.62 -HuBERT Large 70.24 71.13 Emotional Voice Conversion Methods HuBERT Large + CycleGAN  [21]  71.57 72.02 HuBERT Large + StarGAN  [6]  71.51 72.13 Data Augmentation Methods VTLP  [25]  66.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Overview of EmoAug. The model comprises two encoders and an attention-based decoder. In the pre-training phase, the decoder",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: , which consists of",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: , considerable increases occur on",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: The effect of different augmentation times on SER when",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: , in comparison to",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: A comparison of original and augmented mel-spectrograms with the angry emotion where the styles are transferred from the same",
+      "page": 4
+    },
+    {
+      "caption": "Figure 4: (b), EmoAug successfully",
+      "page": 4
+    },
+    {
+      "caption": "Figure 4: Comparison of models trained with original data (a) and aug-",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "ambiguity in data labeling, especially in emotions with weak"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "intensity [2]. Moreover, data imbalance of different emotions"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "is another problem that can lead to model overfitting to some"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "frequent emotions, such as “Neutral”."
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "Data augmentation is treated as a promising method to ad-"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "dress these issues. Most of\nthe augmentation methods used"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "in SER are borrowed from Automatic Speech Recognition"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "(ASR), such as SpecAugment [3], Vocal Tract Length Pertur-"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "bation (VTLP) [4], speed perturbation [5], pitch shift or noise"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "injection. However, while the variations in pitch or speed do"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "not change the semantic content,\nthey may have an effect on"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "emotion expressions.\nFor\ninstance,\nsad emotions are often"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "conveyed at slow speed while angry emotions tend to be ex-"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "pressed fast."
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "Alternatively,\ndifferent variants of models\nare\nadopted"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "to generate intermediate emotional\nfeatures or alter carried"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "emotions while keeping speech content unchanged,\nfor\nin-"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "stance,\nstar Generative Adversarial Networks\n(GANs)\n[6],"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "CycleGAN [7]\nand global\nstyle\ntoken [8].\nHowever,\nthe"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "generated intermediate features are not easy to evaluate intu-"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "itively. In addition, prosody expression is strongly associated"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "with speech content, and the altered emotions by GANs may"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "cause\nconflicts or\nambiguity between speech prosody and"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "content."
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "Humans can easily alter different prosody attributes, such"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "as stress position and sentiment\nintensity,\nto express a given"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "emotion with invariant\nlinguistic content\n[9].\nFor example,"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "when expressing sad emotions with the semantic content “I"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "am not happy today”, one can emphasize “not happy” or put"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "stress on “today”.\nInspired by this capability, we propose"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "EmoAug to vary prosody attributes and augment emotional"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "speech while\nkeeping\nemotions\nunchanged.\nEmoAug\nis"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "trained in an unsupervised manner, which requires neither"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "paired speech nor emotion labels. The main contributions of"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "this paper are as follows:"
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": ""
+        },
+        {
+          "1Zhejiang Lab, China, 2Xinjiang University, China, 3University of Hamburg, Germany": "1. We propose a novel unsupervised speaking style trans-"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "which can significantly benefit and promote the experience"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "of human-machine interaction. Plenty of studies have inves-"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "tigated SER in recent years [1]. However, the performance of"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "SER is constrained by the lack of large-scale labelled datasets."
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "Most speech emotion datasets are collected under simulated"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "or elicited scenarios, since capturing natural and spontaneous"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "emotional speech is very challenging. Furthermore, different"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "people perceive\nemotions differently, which may result\nin"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "*Corresponding author (email:\nlith@zhejianglab.com)"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": "1https://leyuanqu.github.io/EmoAug/"
+        },
+        {
+          "and understanding human emotions\nfrom spoken language,": ""
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "8": "Paralinguistic"
+        },
+        {
+          "8": "...\nencoder\nSpeech quantization"
+        },
+        {
+          "8": "Pitch"
+        },
+        {
+          "8": "Real"
+        },
+        {
+          "8": "Discriminator\nPitch"
+        },
+        {
+          "8": "Pre-training\nFine-tuning\nTrainable\nFrozen\nFake"
+        },
+        {
+          "8": "Fig. 1: Overview of EmoAug. The model comprises two encoders and an attention-based decoder.\nIn the pre-training phase,\nthe decoder"
+        },
+        {
+          "8": "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is"
+        },
+        {
+          "8": "computed by measuring the Mean Square Error\n(MSE) between the generated and original mel-spectrograms. During fine-tuning,\nstyle"
+        },
+        {
+          "8": "transfer is performed by directly substituting the input of the paralinguistic encoder with a target speaking style reference. Additionally,\nto"
+        },
+        {
+          "8": "enhance the quality of the converted audio, a discriminator is employed to differentiate between real and generated pitch contours."
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "computed by measuring the Mean Square Error\n(MSE) between the generated and original mel-spectrograms. During fine-tuning,\nstyle"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "transfer is performed by directly substituting the input of the paralinguistic encoder with a target speaking style reference. Additionally,\nto"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "enhance the quality of the converted audio, a discriminator is employed to differentiate between real and generated pitch contours."
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "3. SER models\ntrained with EmoAug\noutperform the\nthe semantic encoder (Sem) which is comprised of three 512-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "state-of-the-art models by a large margin, effectively\nchannel Conv1D layers with kernel width of 5 and padding"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "overcoming overfitting issues caused by data scarcity\nsize of 2, and one bidirectional Long Short-Term Memory"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "and class imbalance.\n(LSTM) with 256 dimensions to capture local and global con-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "text information, respectively."
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "2. METHOD"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "2.2. Paralinguistic Encoder"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "An overview of EmoAug is shown in Fig. 1, which consists of"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "The paralinguistic encoder (Par) aims to learn utterance-level"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "a speech quantization module, a semantic encoder, a paralin-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "non-verbal\ninformation from input audio x, which contains"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "guistic encoder and an attention-based decoder. An additional"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "speaking styles,\nemotion states,\nspeaker\nidentities,\nand so"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "discriminator is utilized during the fine-tuning phase."
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "on.\nIt\nis based on the ECAPA-TDNN model\n[12] which"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "2.1.\nSpeech Quantization and Semantic Encoder\nhas been proposed for\nthe task of speaker verification. The"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "model\nbegins with\none Conv1D layer,\na ReLU function,"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "Acquiring semantic\nspeech information typically relies on"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "and Batch Normalization (BN),\nfollowed by three SE-Res2"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "a proficient ASR system.\nNevertheless,\ntraining a reliable"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "blocks.\nResidual connections between the SE-Res2 blocks"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "ASR model proves challenging due to the extensive labeled"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "deliver different level outputs to the feature aggregation layer"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "data required.\nIn addition, ASR models are not robust\nto un-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "(Conv1D+ReLU). Subsequently,\nthe aggregated outputs are"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "seen noise or emotional speech [10]. Therefore, we employ"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "dynamically weighed by the attentive statistics pooling layer"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "HuBERT representations\n[11]\nto\ncapture\nsemantic\nspeech"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "(Conv1D+Tanh+Conv1D+Softmax),\nand then mapped to a"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "content.\nThese\nrepresentations\nare\nacquired through self-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "fixed dimension by the last Fully Connected (FC) layer. We"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "supervised training,\neliminating the need for human anno-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "initialize ECAPA-TDNN with the pre-trained model3.\nThe"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "tations in ASR training. HuBERT empowers us to address"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "attentive\nstatistics\npooling,\nfixed\ndimension mapping\nand"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "emotional speech and diverse styles that might substantially"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "weight\ninitialization\nprevent\nsemantic\ninformation\nto\nleak"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "compromise the performance of an ASR model. As shown"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "from the paralinguistic encoder."
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "in Eq.1,\nthe input\nis firstly\nspeech signal x = (x0, ..., xt)"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "embedded into continuous vectors by the pre-trained Hu-\n2.3. Decoder"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "BERT2, followed by the k-means algorithm that quantizes the"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "Our\ndecoder\nis\nbased\non\nthe Tacotron2\n[13] which\nuses"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "continuous speech representations into discrete cluster labels"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "location-aware attention (Att)\n[14]\nto connect\nthe encoders"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "..., 57”.\nu = (u0, ..., ut), e.g. “23, 23, 2, 2,"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "and the decoder (see Eq. 2)."
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "u = k-means(HuBERT (x))\n(1)"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "(2)\nm = Dec(Att(Sem((cid:101)u), P ar(x)))"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "We investigated how different vocabulary sizes of Hu-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "The decoder (Dec) generates one frame per time step in an\nBERT impact\nin model performance.\nIn this study, we em-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "auto-regressive fashion. Two FC layers map the ground-truth\nployed a vocabulary size of 200 clusters, which yielded con-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "mel-spectrograms x into latent\nrepresentations that are used\nsiderably improved performance compared to using 50 or 100"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "by an LSTM module for teacher-forcing training. Finally, a\nclasses. To refine the semantic content, we proceed to elim-"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "FC layer maps the intermediate features to the dimension of"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "inate repetitions and filter out\ntempo information (u → (cid:101)u),"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "e.g. “23, 23, 2, 2,\n..., 57” → “23, 2,\n..., 57”. After quantiza-\ninput mel-spectrograms. The generated mel-spectrograms (cid:101)m"
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "tion, we map the cluster labels into latent representations with\nare then transformed to waveforms (cid:101)x by HiFiGAN [15]."
+        },
+        {
+          "reconstructs input mel-spectrograms using representations acquired from the semantic and paralinguistic encoders.\nThe loss function is": "2https://huggingface.co/facebook/hubert-base-ls960\n3https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "We first pre-train EmoAug on LRS3-TED and then fine-tune"
+        },
+        {
+          "3.3. EmoAug Training": "it on IEMOCAP for style transfer. During pre-training,\nthe"
+        },
+        {
+          "3.3. EmoAug Training": "Adam optimizer is used with a weight decay rate of 1e-6. The"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "initial learning rate is 1e-3, which is decayed with a factor of"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "0.9 after every 5000 iterations.\nIn addition, gradient clipping"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "with a threshold of 1.0, early stopping and scheduled sam-"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "pling are adopted to avoid overfitting."
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "After pre-training, we fine-tune the model with a discrim-"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "inator on the IEMOCAP dataset with small\nlearning rates of"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "1e-5 and 1e-4 to improve the quality of generated speech."
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "3.4.\nSER Model Training"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "We perform SER by adding one additional FC layer on top of"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "the HuBERT model which is pre-trained on large-scale unla-"
+        },
+        {
+          "3.3. EmoAug Training": "belled data by self-supervised learning. During training, dif-"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "ferent\nlearning rates are used in the HuBERT model\n(1e-5)"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "and the FC layer (1e-4) to retain the low-layer representations"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "and enable the last FC layer to fit to the specific dataset."
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "4. EXPERIMENTAL RESULTS AND DISCUSSION"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "4.1. Comparison of Different Augmentation Times"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "We augment each utterance N times by transferring speaking"
+        },
+        {
+          "3.3. EmoAug Training": "styles from N randomly selected utterances that belong to the"
+        },
+        {
+          "3.3. EmoAug Training": "same speaker with the same type of emotion. We report\nthe"
+        },
+        {
+          "3.3. EmoAug Training": "effect of different augmentation times and the discriminator"
+        },
+        {
+          "3.3. EmoAug Training": "on SER utilizing representations from HuBERT."
+        },
+        {
+          "3.3. EmoAug Training": "As can be seen in Fig. 2, considerable increases occur on"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "UA along with the increase of augmentation time, where 0"
+        },
+        {
+          "3.3. EmoAug Training": "means training SER models with only raw audio.\nFurther-"
+        },
+        {
+          "3.3. EmoAug Training": "more,\nthe discriminator significantly enhances the quality of"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "the generated speech, resulting in a substantial\nimprovement"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "in emotion recognition. The figure reveals that\nthe speaking"
+        },
+        {
+          "3.3. EmoAug Training": "styles transferred by EmoAug effectively enrich the emotion"
+        },
+        {
+          "3.3. EmoAug Training": "expression on prosody and greatly enhance SER performance."
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "Fig. 2: The effect of different augmentation times on SER when"
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "training EmoAug with or without the discriminator."
+        },
+        {
+          "3.3. EmoAug Training": ""
+        },
+        {
+          "3.3. EmoAug Training": "In addition, we also visualize the original and generated"
+        },
+        {
+          "3.3. EmoAug Training": "mel-spectrograms.\nAs\nshown in Fig. 3,\nin comparison to"
+        },
+        {
+          "3.3. EmoAug Training": "the original audio, EmoAug successfully transfers different"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: Results of SER on IEMOCAP dataset with 5-fold cross-",
+      "data": [
+        {
+          "Male": "Fig. 3: A comparison of original and augmented mel-spectrograms with the angry emotion where the styles are transferred from the same",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": "in-"
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "the utterances from session one (two speakers) of",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "the model",
+          "Transcriptions: I am not in the least bit drunk.": "trained with only original data and"
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "trained only with original audio struggles",
+          "Transcriptions: I am not in the least bit drunk.": "to clearly"
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "(a) Original audio\n(b) Four times augmented audio",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        },
+        {
+          "Male": "",
+          "Transcriptions: I am not in the least bit drunk.": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Navdeep Jaitly, Zongheng Yang, Zhifeng Chen, Yu Zhang,"
+        },
+        {
+          "7. REFERENCES": "[1]\nJohannes Wagner, Andreas Triantafyllopoulos, Hagen Wier-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Yuxuan Wang, Rj Skerrv-Ryan, et al.,\n“Natural TTS synthe-"
+        },
+        {
+          "7. REFERENCES": "storf, Maximilian Schmitt, Felix Burkhardt, Florian Eyben,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "sis by conditioning WaveNet on mel spectrogram predictions,”"
+        },
+        {
+          "7. REFERENCES": "and Bj¨orn W Schuller, “Dawn of the transformer era in speech",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "in Proc. ICASSP, 2018, pp. 4779–4783."
+        },
+        {
+          "7. REFERENCES": "emotion recognition: closing the valence gap,” IEEE Transac-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[14]\nJan K Chorowski,\nDzmitry Bahdanau,\nDmitriy\nSerdyuk,"
+        },
+        {
+          "7. REFERENCES": "tions on Pattern Analysis and Machine Intelligence, 2023.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Kyunghyun Cho, and Yoshua Bengio,\n“Attention-based mod-"
+        },
+        {
+          "7. REFERENCES": "[2] Babak Joze Abbaschian, Daniel Sierra-Sosa,\nand Adel El-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "els for speech recognition,” NeurIPS, pp. 577–585, 2015."
+        },
+        {
+          "7. REFERENCES": "maghraby,\n“Deep learning techniques\nfor\nspeech emotion",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[15]\nJungil Kong, Jaehyeon Kim, and Jaekyoung Bae, “Hifi-GAN:"
+        },
+        {
+          "7. REFERENCES": "recognition, from databases to models,”\nSensors, vol. 21, no.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Generative adversarial networks for efficient and high fidelity"
+        },
+        {
+          "7. REFERENCES": "4, pp. 1249–1276, 2021.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "speech synthesis,” NeurIPS, vol. 33, pp. 17022–17033, 2020."
+        },
+        {
+          "7. REFERENCES": "[3] Daniel S Park, William Chan, Yu Zhang, Chung-Cheng Chiu,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[16] Triantafyllos Afouras,\nJoon Son Chung, and Andrew Zisser-"
+        },
+        {
+          "7. REFERENCES": "Barret Zoph, Ekin D Cubuk, and Quoc V Le, “SpecAugment:",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "man,\n“LRS3-TED:\na\nlarge-scale dataset\nfor visual\nspeech"
+        },
+        {
+          "7. REFERENCES": "A simple\ndata\naugmentation method\nfor\nautomatic\nspeech",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "recognition,” arXiv preprint arXiv:1809.00496, 2018."
+        },
+        {
+          "7. REFERENCES": "recognition,” in Proc. INTERSPEECH, 2019, p. 1613–1617.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[17] Carlos\nBusso,\nMurtaza\nBulut,\nChi-Chun\nLee,\nAbe"
+        },
+        {
+          "7. REFERENCES": "[4] Navdeep Jaitly and Geoffrey E Hinton,\n“Vocal\ntract\nlength",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Kazemzadeh,\nEmily Mower,\nSamuel Kim,\nJeannette N"
+        },
+        {
+          "7. REFERENCES": "perturbation (VTLP)\nimproves speech recognition,”\nin Proc.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Chang, Sungbok Lee, and Shrikanth S Narayanan,\n“IEMO-"
+        },
+        {
+          "7. REFERENCES": "ICML Workshop on Deep Learning for Audio, Speech and Lan-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "CAP:\nInteractive emotional dyadic motion capture database,”"
+        },
+        {
+          "7. REFERENCES": "guage, 2013, vol. 117, pp. 21–25.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Language Resources\nand Evaluation,\nvol.\n42,\nno.\n4,\npp."
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "335–359, 2008."
+        },
+        {
+          "7. REFERENCES": "[5] Tom Ko, Vijayaditya Peddinti, Daniel Povey, and Sanjeev Khu-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "danpur, “Audio augmentation for speech recognition,” in Proc.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[18] Lili Guo,\nLongbiao Wang,\nChenglin Xu,\nJianwu Dang,"
+        },
+        {
+          "7. REFERENCES": "INTERSPEECH, 2015, pp. 3586–3589.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Eng Siong Chng, and Haizhou Li,\n“Representation learning"
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "with spectro-temporal-channel\nattention for\nspeech emotion"
+        },
+        {
+          "7. REFERENCES": "[6] Georgios Rizos, Alice Baird, Max Elliott, and Bj¨orn Sch¨uller,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "recognition,” in Proc. ICASSP, 2021, pp. 6304–6308."
+        },
+        {
+          "7. REFERENCES": "“StarGAN for emotional speech conversion: Validated by data",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[19] Lorenzo Tarantino, Philip N Garner, Alexandros Lazaridis,"
+        },
+        {
+          "7. REFERENCES": "augmentation of end-to-end emotion recognition,”\nin Interna-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "et al., “Self-attention for speech emotion recognition,” in Proc."
+        },
+        {
+          "7. REFERENCES": "tional Conference on Acoustics, Speech and Signal Processing,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "INTERSPEECH. 2019, pp. 2578–2582, ISCA."
+        },
+        {
+          "7. REFERENCES": "2020, pp. 3502–3506.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[20] Heqing Zou, Yuke Si, Chen Chen, Deepu Rajan, and Eng Siong"
+        },
+        {
+          "7. REFERENCES": "[7]\nFang\nBao,\nMichael\nNeumann,\nand\nNgoc\nThang\nVu,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Chng,\n“Speech emotion recognition with co-attention based"
+        },
+        {
+          "7. REFERENCES": "“CycleGAN-Based Emotion Style Transfer as Data Augmen-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "multi-level acoustic information,”\nin Proc. ICASSP, 2022, pp."
+        },
+        {
+          "7. REFERENCES": "INTER-\ntation for Speech Emotion Recognition,”\nin Proc.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "7367–7371."
+        },
+        {
+          "7. REFERENCES": "SPEECH, 2019, pp. 2828–2832.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[21] Kun Zhou, Berrak Sisman, and Haizhou Li,\n“Transforming"
+        },
+        {
+          "7. REFERENCES": "[8] Yuxuan Wang, Daisy Stanton, Yu Zhang, RJ-Skerry Ryan, Eric",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "spectrum and prosody for\nemotional voice\nconversion with"
+        },
+        {
+          "7. REFERENCES": "Battenberg, Joel Shor, Ying Xiao, Ye Jia, Fei Ren, and Rif A",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "non-parallel\ntraining data,”\nin Proc. of The Speaker and Lan-"
+        },
+        {
+          "7. REFERENCES": "Saurous, “Style tokens: Unsupervised style modeling, control",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "guage Recognition Workshop, 2020, p. 230–237."
+        },
+        {
+          "7. REFERENCES": "and transfer in end-to-end speech synthesis,” in ICML. PMLR,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "˙\n[22] Raghavendra Pappagari, Jes´us Villalba, Piotr\nZelasko, Laure-"
+        },
+        {
+          "7. REFERENCES": "2018, pp. 5180–5189.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "ano Moro-Velazquez, and Najim Dehak, “CopyPaste: An aug-"
+        },
+        {
+          "7. REFERENCES": "Computational paralin-\n[9] Bj¨orn Sch¨uller and Anton Batliner,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "mentation method for speech emotion recognition,”\nin Proc."
+        },
+        {
+          "7. REFERENCES": "guistics:\nemotion, affect and personality in speech and lan-",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "ICASSP, 2021, pp. 6324–6328."
+        },
+        {
+          "7. REFERENCES": "guage processing, John Wiley & Sons, 2013.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[23] Alexei Baevski, Wei-Ning Hsu, Qiantong Xu, Arun Babu, Ji-"
+        },
+        {
+          "7. REFERENCES": "[10] Egor Lakomkin, Mohammad Ali Zamani, Cornelius Weber,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "atao Gu, and Michael Auli,\n“data2vec: A general framework"
+        },
+        {
+          "7. REFERENCES": "Sven Magg, and Stefan Wermter, “On the robustness of speech",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "for self-supervised learning in speech, vision and language,”"
+        },
+        {
+          "7. REFERENCES": "emotion recognition for human-robot\ninteraction with deep",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "in International Conference on Machine Learning. 2022, vol."
+        },
+        {
+          "7. REFERENCES": "neural networks,”\nin IEEE/RSJ International Conference on",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "162, pp. 1298–1312, PMLR."
+        },
+        {
+          "7. REFERENCES": "Intelligent Robots and Systems (IROS), 2018, pp. 854–860.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[24]\nSanyuan Chen, Chengyi Wang, Zhengyang Chen, Yu Wu, Shu-"
+        },
+        {
+          "7. REFERENCES": "[11] Wei-Ning Hsu,\nBenjamin Bolte,\nYao-Hung Hubert\nTsai,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "jie Liu, Zhuo Chen, Jinyu Li, Naoyuki Kanda, Takuya Yosh-"
+        },
+        {
+          "7. REFERENCES": "Kushal Lakhotia, Ruslan Salakhutdinov,\nand Abdelrahman",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "ioka, Xiong Xiao, et al., “WavLM: Large-scale self-supervised"
+        },
+        {
+          "7. REFERENCES": "Mohamed,\n“HuBERT: Self-supervised speech representation",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "pre-training for full stack speech processing,” IEEE Journal of"
+        },
+        {
+          "7. REFERENCES": "IEEE/ACM\nlearning by masked prediction of hidden units,”",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "Selected Topics in Signal Processing, pp. 1505–1518, 2022."
+        },
+        {
+          "7. REFERENCES": "Transactions on Audio, Speech, and Language Processing, vol.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "[25] Caroline Etienne, Guillaume Fidanza, Andrei Petrovskii, Lau-"
+        },
+        {
+          "7. REFERENCES": "29, pp. 3451–3460, 2021.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "rence Devillers, and Benoit Schmauch,\n“CNN+LSTM archi-"
+        },
+        {
+          "7. REFERENCES": "[12] Brecht Desplanques, Jenthe Thienpondt, and Kris Demuynck,",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "tecture for\nspeech emotion recognition with data augmenta-"
+        },
+        {
+          "7. REFERENCES": "“ECAPA-TDNN: emphasized channel attention, propagation",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "tion,” in Workshop on Speech, Music and Mind (SMM), 2018,"
+        },
+        {
+          "7. REFERENCES": "and aggregation in TDNN based speaker verification,” in Proc.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": "pp. 21–25."
+        },
+        {
+          "7. REFERENCES": "INTERSPEECH. 2020, pp. 3830–3834, ISCA.",
+          "[13]\nJonathan Shen, Ruoming Pang, Ron J Weiss, Mike Schuster,": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "Johannes Wagner",
+        "Andreas Triantafyllopoulos",
+        "Hagen Wierstorf",
+        "Maximilian Schmitt",
+        "Felix Burkhardt",
+        "Florian Eyben",
+        "Björn Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "3",
+      "title": "Deep learning techniques for speech emotion recognition, from databases to models",
+      "authors": [
+        "Daniel Babak Joze Abbaschian",
+        "Adel Sierra-Sosa",
+        "Elmaghraby"
+      ],
+      "year": "2021",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "4",
+      "title": "SpecAugment: A simple data augmentation method for automatic speech recognition",
+      "authors": [
+        "William Daniel S Park",
+        "Yu Chan",
+        "Chung-Cheng Zhang",
+        "Barret Chiu",
+        "Ekin Zoph",
+        "Quoc V Cubuk",
+        "Le"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "5",
+      "title": "Vocal tract length perturbation (VTLP) improves speech recognition",
+      "authors": [
+        "Navdeep Jaitly",
+        "Geoffrey Hinton"
+      ],
+      "year": "2013",
+      "venue": "Proc. ICML Workshop on Deep Learning for Audio, Speech and Language"
+    },
+    {
+      "citation_id": "6",
+      "title": "Audio augmentation for speech recognition",
+      "authors": [
+        "Tom Ko",
+        "Vijayaditya Peddinti",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "7",
+      "title": "StarGAN for emotional speech conversion: Validated by data augmentation of end-to-end emotion recognition",
+      "authors": [
+        "Georgios Rizos",
+        "Alice Baird",
+        "Max Elliott",
+        "Björn Schüller"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "8",
+      "title": "CycleGAN-Based Emotion Style Transfer as Data Augmentation for Speech Emotion Recognition",
+      "authors": [
+        "Fang Bao",
+        "Michael Neumann",
+        "Ngoc Vu"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTER-SPEECH"
+    },
+    {
+      "citation_id": "9",
+      "title": "Style tokens: Unsupervised style modeling, control and transfer in end-to-end speech synthesis",
+      "authors": [
+        "Yuxuan Wang",
+        "Daisy Stanton",
+        "Yu Zhang",
+        "Rj-Skerry Ryan",
+        "Eric Battenberg",
+        "Joel Shor",
+        "Ying Xiao",
+        "Ye Jia",
+        "Fei Ren",
+        "Rif Saurous"
+      ],
+      "year": "2018",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "10",
+      "title": "Computational paralinguistics: emotion, affect and personality in speech and language processing",
+      "authors": [
+        "Björn Schüller",
+        "Anton Batliner"
+      ],
+      "year": "2013",
+      "venue": "Computational paralinguistics: emotion, affect and personality in speech and language processing"
+    },
+    {
+      "citation_id": "11",
+      "title": "On the robustness of speech emotion recognition for human-robot interaction with deep neural networks",
+      "authors": [
+        "Egor Lakomkin",
+        "Mohammad Ali Zamani",
+        "Cornelius Weber",
+        "Sven Magg",
+        "Stefan Wermter"
+      ],
+      "year": "2018",
+      "venue": "IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)"
+    },
+    {
+      "citation_id": "12",
+      "title": "HuBERT: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "13",
+      "title": "ECAPA-TDNN: emphasized channel attention, propagation and aggregation in TDNN based speaker verification",
+      "authors": [
+        "Brecht Desplanques",
+        "Jenthe Thienpondt",
+        "Kris Demuynck"
+      ],
+      "year": "2020",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "14",
+      "title": "Natural TTS synthesis by conditioning WaveNet on mel spectrogram predictions",
+      "authors": [
+        "Jonathan Shen",
+        "Ruoming Pang",
+        "Ron Weiss",
+        "Mike Schuster",
+        "Navdeep Jaitly",
+        "Zongheng Yang",
+        "Zhifeng Chen",
+        "Yu Zhang",
+        "Yuxuan Wang",
+        "Rj Skerrv-Ryan"
+      ],
+      "year": "2018",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "15",
+      "title": "Attention-based models for speech recognition",
+      "authors": [
+        "Jan Chorowski",
+        "Dzmitry Bahdanau",
+        "Dmitriy Serdyuk",
+        "Kyunghyun Cho",
+        "Yoshua Bengio"
+      ],
+      "year": "2015",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "16",
+      "title": "Hifi-GAN: Generative adversarial networks for efficient and high fidelity speech synthesis",
+      "authors": [
+        "Jungil Kong",
+        "Jaehyeon Kim",
+        "Jaekyoung Bae"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "17",
+      "title": "LRS3-TED: a large-scale dataset for visual speech recognition",
+      "authors": [
+        "Triantafyllos Afouras",
+        "Son Chung",
+        "Andrew Zisserman"
+      ],
+      "year": "2018",
+      "venue": "LRS3-TED: a large-scale dataset for visual speech recognition",
+      "arxiv": "arXiv:1809.00496"
+    },
+    {
+      "citation_id": "18",
+      "title": "IEMO-CAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "19",
+      "title": "Representation learning with spectro-temporal-channel attention for speech emotion recognition",
+      "authors": [
+        "Lili Guo",
+        "Longbiao Wang",
+        "Chenglin Xu",
+        "Jianwu Dang",
+        "Eng Siong Chng",
+        "Haizhou Li"
+      ],
+      "venue": "Proc. ICASSP, 2021"
+    },
+    {
+      "citation_id": "20",
+      "title": "Self-attention for speech emotion recognition",
+      "authors": [
+        "Lorenzo Tarantino",
+        "Philip Garner",
+        "Alexandros Lazaridis"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "21",
+      "title": "Speech emotion recognition with co-attention based multi-level acoustic information",
+      "authors": [
+        "Heqing Zou",
+        "Yuke Si",
+        "Chen Chen",
+        "Deepu Rajan",
+        "Eng Siong"
+      ],
+      "year": "2022",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "22",
+      "title": "Transforming spectrum and prosody for emotional voice conversion with non-parallel training data",
+      "authors": [
+        "Kun Zhou",
+        "Berrak Sisman",
+        "Haizhou Li"
+      ],
+      "year": "2020",
+      "venue": "Proc. of The Speaker and Language Recognition Workshop"
+    },
+    {
+      "citation_id": "23",
+      "title": "CopyPaste: An augmentation method for speech emotion recognition",
+      "authors": [
+        "Raghavendra Pappagari",
+        "Jesús Villalba",
+        "Piotr Żelasko",
+        "Laureano Moro-Velazquez",
+        "Najim Dehak"
+      ],
+      "venue": "Proc. ICASSP, 2021"
+    },
+    {
+      "citation_id": "24",
+      "title": "data2vec: A general framework for self-supervised learning in speech, vision and language",
+      "authors": [
+        "Alexei Baevski",
+        "Wei-Ning Hsu",
+        "Qiantong Xu",
+        "Arun Babu",
+        "Jiatao Gu",
+        "Michael Auli"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "25",
+      "title": "WavLM: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen",
+        "Chengyi Wang",
+        "Zhengyang Chen",
+        "Yu Wu",
+        "Shujie Liu",
+        "Zhuo Chen",
+        "Jinyu Li",
+        "Naoyuki Kanda",
+        "Takuya Yoshioka",
+        "Xiong Xiao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "26",
+      "title": "CNN+LSTM architecture for speech emotion recognition with data augmentation",
+      "authors": [
+        "Caroline Etienne",
+        "Guillaume Fidanza",
+        "Andrei Petrovskii",
+        "Laurence Devillers",
+        "Benoit Schmauch"
+      ],
+      "year": "2018",
+      "venue": "Workshop on Speech, Music and Mind (SMM)"
+    }
+  ]
+}

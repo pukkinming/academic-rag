@@ -1,0 +1,4125 @@
+{
+  "paper_id": "2410.03007v1",
+  "title": "Fastadasp: Multitask-Adapted Efficient Inference For Large Speech Language Model",
+  "published": "2024-10-03T21:33:07Z",
+  "authors": [
+    "Yichen Lu",
+    "Jiaqi Song",
+    "Chao-Han Huck Yang",
+    "Shinji Watanabe"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In this study, we aim to explore Multitask Speech Language Model (SpeechLM) efficient inference via token reduction. Unlike other modalities such as vision or text, speech has unique temporal dependencies, making previous efficient inference works on other modalities not directly applicable. Furthermore, methods for efficient SpeechLM inference on long sequence and sparse signals remain largely unexplored. Then we propose FastAdaSP, a weighted token merging framework specifically designed for various speechrelated tasks to improve the trade-off between efficiency and performance. Experimental results on WavLLM and Qwen-Audio show that our method achieves the state-of-the-art (SOTA) efficiency-performance trade-off compared with other baseline methods. Specifically, FastAdaSP achieved 7x memory efficiency and 1.83x decoding throughput without any degradation on tasks like Emotion Recognition (ER) and Spoken Question Answering (SQA). The code will be available at https: //github.com/yichen14/FastAdaSP * Equal Contributions. Sparse Tasks: Audio Input: ASR: Can you help me transcribe the audio into text? Output: that is a good idea ER: Can you describe the emotional condition of the speaker in the provided audio clip? Output: happy ST: Translate the audio clip into German.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Speech Language Models (SpeechLMs) have been an important role in the field of natural language processing and speech technology. Recent advancements  (Hu et al., 2024; Chu et al., 2023; Sun et al., 2024b)  have demonstrated significant capabilities in voice processing and audio understanding. Furthermore,  GPT4-o (OpenAI, 2024)  showcases conversational speech processing abilities, advancing the capability of LLMs toward various voice-interface applications. However, challenges related to inference latency and memory efficiency remain major bottlenecks, especially as multitask SpeechLMs grow larger, reaching up to 7 billion parameters. These challenges necessitate the development of more efficient inference methods. SpeechLMs are often capable of performing a wide range of speech or audio-related tasks. As shown in Figure  1 , in our study, we categorize and define these tasks into two distinct classes: Dense Tasks: Nearly all input audio tokens are useful, such as in Automatic Speech Recognition (ASR) and Speech Translation (ST); Sparse Tasks: Tasks like Emotion Recognition (ER) and Speaker Verification (SV), where only a few tokens within the entire audio input contain the crucial information needed to perform the task.\n\nThe temporal dependencies in speech signals require efficient handling of long sequences, while the sparsity of relevant information demands precise extraction of crucial audio features. These unique properties make SpeechLM tasks distinct from other modalities like vision or text, especially when implementing token reduction techniques.\n\nTo address these issues and improve the efficiency of SpeechLM inference, we introduce Fas-tAdaSP, a unified SpeechLM fast inference framework that incorporates multiple audio token reduction methods during the pre-filling stage tailored to different types of tasks. FastAdaSP does not require any additional training, making the entire framework more practical and easy to use. Our the extensive sequence of vision and audio tokens can exceed the context length limit of the backbone LLM, causing several issues. Moreover, this technique does not improve the latency of the pre-filling stage. Token Reduction: To address these issues, extensive research has been conducted on token pruning techniques within Vision Language Models (VLMs). Recently, lots of token reduction works such as FastV  (Chen et al., 2024) , ToMe  (Bolya et al., 2023) , LLava-PruneMerge  (Shang et al., 2024)  focus on reducing the vision tokens to lower the computational costs through token eviction or merge. Besides the vision modality, A-ToMe  (Li et al., 2023)  applied the ToMe  (Bolya et al., 2023)  method to the audio modality in a Transformertransducer model  (Zhang et al., 2020)  for ASR tasks only. However, token reduction methods for the audio modality in multitask SpeechLMs remain unexplored. Inspired by these previous works, our study primarily develops token reduction techniques that combine token merging and eviction for the audio modality in SpeechLMs during the inference process. We also explore the applicability of these methods to various speech-related tasks.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Methodology",
+      "text": "In this section, we introduce the motivation and formulation of FastAdaSP, followed by our layer selection and task-specific design strategies for Multitask SpeechLMs. Note that, in our work, audio tokens refers to the audio features output by the multi-head attention block.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Preliminary",
+      "text": "Speech Modality in Multitask SpeechLMs: During inference, VLMs often use only a small portion of visual information for reasoning and context understanding. However, SpeechLMs are capable of performing multiple tasks within a single model. For sequence-to-sequence dense tasks like ASR, it is crucial to consider \"all audio tokens\" to generate accurate transcriptions. In addition to dense tasks, SpeechLMs also need to perform sparse tasks such as ER and SQA, where only a few tokens in the input hold critical information for generating accurate predictions. Therefore, a more careful token reduction policy is necessary for SpeechLMs. Pre-filling Phase of SpeechLMs: During the prefilling phase of SpeechLMs, the raw audio sequence is usually processed by pre-trained audio\n\nHere, L prompt is the sum of audio embedding length L audio and text embedding length L text , and D is the model's hidden dimension.\n\nIn each self-attention block of the transfomer decoder layer, the query, key, value tensors can be derived by:\n\nwhere W Q , W K , W V ∈ R D×D represents the matrix weights for query, key, and value layers, respectively. After this computation, the value of K, V will be stored in the KV cache which will be used in the decoding phase. Then the self-attention output can be computed as:\n\nDecoding Phase of SpeechLMs: During the autoregressive decoding phase of SpeechLMs, the KV cache is employed and updated for all the new generated tokens. At each step, the total key and value are calculated by using the previous stored K cache and V cache and the new input X new as:\n\nEquation 2 is used to calculate the attention output. During this stage, the KV cache grows linearly, and each new token significantly increases memory consumption and attention computation latency, especially when the generated sequence is very long.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Fastadasp: Method",
+      "text": "To accommodate both sparse and dense tasks in SpeechLMs, we designed a novel token reduction method with different strategies for each. Weighted Token Merge: Dense tasks like ASR require most of the token information during inference, making direct token dropping from the attention output too aggressive and likely to result in the loss of critical information. Instead, merging similar audio tokens can eliminate redundant audio information while preserving essential content.\n\nToken merge techniques in the vision modality require calculating the similarity between numerous pairs of image patches in the spatial domain to identify the most similar pairs for merging  (Bolya et al., 2023) . For audio signals, however, token merge in audio processing needs to operate in the temporal domain. This involves calculating the similarity along adjacent audio tokens pairs and merge a cluster of adjacent audio tokens for a sequence of audio features A = (a i ∈ R D |i = 1, ..., L). For the audio features from 1 to L -1, we use the cosine similarity score between the adjacent audio token key state to determine their similarity:\n\nWe then obtain an adjacent similarity score sequence P = (p i ∈ R|i = 1, ..., L -1). After determining the number of tokens to merge, we select the top-k largest adjacent similarity indices to form the merge index list. Next, we loop through the merge index list, grouping multiple adjacent indices into a single merge cluster. Finally, we obtain m merging clusters S = {s i |i = 1, ..., m} where s i represent a merging cluster which contains several adjacent audio tokens. Then we obtain the merge weights W merge = (ω i ∈ R|i = 1, ..., L) for audio features A by:\n\nWhere L prompt = L audio +L text represents the query length. H represents the number of attention head. Both audio and text features are utilized to calculate the overall cumulative attention score. By leveraging the interaction between text instructions and speech, we can determine the importance of audio tokens in the current context. The merged audio feature a merge i for each cluster s i will be calculated as:\n\nThe overall procedure of the weighted token merge is shown in Figure  2 . This method selects the relatively important tokens to keep and the redundant tokens to drop at that layer, effectively preserving as much information as possible while significantly reducing the number of tokens. For full details of the algorithm, please refer to A.3.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Fastadasp: Strategies",
+      "text": "Based above method, we designed two similar but slightly different strategies for dense and sparse tasks to achieve better performance: Dense Task Strategy: For dense tasks, we designed an operation scheduler that smoothly merges tokens layer by layer to prevent aggressive token dropping in SpeechLM. We implemented a constant schedule to maintain a consistent merge ratio and a decay schedule that linearly decreases the merge ratio to zero at the final layer. Please refer to 4.3 for the ablation study of schedulers. Sparse Task Strategy: For sparse tasks, a more aggressive token reduction method can be applied by merging tokens within a single layer. However, layer selection needs to be approached carefully as it significantly affects task performance. Therefore, we incorporate a Transfer Entropy(TE)-based layer selection method (Section 3.4) specially designed for sparse tasks.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Addtional Studies On Layer Selection",
+      "text": "Recent token reduction works  (Chen et al., 2024; Shang et al., 2024; Bolya et al., 2023; Li et al., 2023)  often struggle with selecting appropriate layers for token reduction. Due to the difficulties in interpreting current auto-regressive transformer models, understanding the exact properties of different layers during inference is challenging. Consequently, previous works have relied on empirical studies to test various layers and reduction ratios. This approach is impractical and lacks generalization for actual deployment. Therefore, we aim to explore a justification to serve as a theoretical attempt of token reduction layer selection.\n\nBy definition, entropy can reflect the information carried out by each layer. Here, we take F as the feature output by the attention block which contains both audio and text features. Inspired by  (Sun et al., 2022; Lin et al., 2024) , we use the Gaussian distribution as the probability distribution to approximate the distribution of each channel in F . Thus, the entropy measurement of a single layer H(F ) can be defined as (for a more detail derivation, please refer to A.4):\n\nHere, we calculate the entropy of each layer by summing the logarithm of the standard deviation(σ) of the each channels (audio tokens) in F . To assess the impact of weighted merge on a specific layer's contribution to the final output distribution, we calculate the Transfer Entropy to measure the information difference at the final layer based on the operation layer of our method. We define Transfer Entropy (TE i .) for layer i. TE i is equal to:\n\n(8) where Φ(•; •) represents the token reduction operation described in Section 3.2. It takes the layer feature F and merge weights W as input and outputs the features after weighted token merge. Then TE i is the absolute difference between the final hidden states whether the token reduction operation is applied to layer i. The smaller the TE i , the less the final information loss caused by the operation on layer i. We also analyze the effectiveness of our TE-based layer selection method in Sec. 4.2. Basic Settings: We use 1×V100 32GB GPU to conduct the task performance experiment. We also use 1×A100 80GB GPU and 1×H100 80GB GPU for long sequence system metric experiment. We choose WavLLM 7B  (Hu et al., 2024)  and Qwen-Audio 7B  (Chu et al., 2023)  for all the experiments. For each SpeechLM, we choose two dense tasks and two sparse tasks for experiments. Specifically, both models choose ASR and ST as dense task.\n\nFor sparse task, we choose Emotion Recognition (ER) and Audio Caption (AC) on Qwen-Audio; ER and SQA on WavLLM. The full details of the dataset information and the evaluation metrics can be found in Table  1 . System Metrics: We use Theoretical FLOPs, Real Time Factor (RTF), Pre-filling and Decoding Latency (seconds per sentence), and Throughput (tokens per second) to measure the efficiency of our method under different token reduction rates. We calculate the RTF by:\n\nWhere T Pre-filling and T Decoding represents the prefilling and decoding latency, T audio represents the audio length (second per sentence).",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Results And Discussion",
+      "text": "In this section, we compare our method with other SOTA methods. Then, we demonstrate the impact of token reduction on system metrics. For the full experiments results, please refer to Appendix A.1. Baselines: We selected several token reduction methods as our baselines. FastV  (Chen et al., 2024)  is a token eviction method based on attention scores for VLM. A-ToMe  (Li et al., 2023)   ASR and ST as the dense tasks in SpeechLM. As shown in Table  2 , our method demonstrates a significantly better efficiency-performance trade-off compared to other token reduction methods. Notably, for the ASR task, we maintain only approximately 0.7% WER degradation up to a 40% FLOPs reduction ratio. Furthermore, we significantly improve upon the previous audio efficient inference baseline, A-ToMe, reducing the WER from 50.46% to 4.73% at a 50% FLOPs reduction rate. For the ST task, our method also maintain the best efficiency-performance trade-off with only approx-imate 4 BLEU score degradation on 50% FLOPs Reduce Rate.\n\nEfficient Inference for Sparse Tasks: For the Sparse Task result in Table  3 , our method not only surpasses most of the token reduction methods but also improves the original full token baseline from 67.6% to 68.7% accuracy for SQA and from 72.8% to 73.65% accuracy for ER. These experimental results demonstrate that sparse tasks can be enhanced by the token reduction method, which helps the model ignore redundant audio tokens in a more effective manner.\n\nComputational Cost Analysis: We analyze our token reduction method across various system metrics and demonstrate efficiency improvements at a 50% token reduction rate. The results in Table  4  show that we achieved a 1.84x increase in decoding throughput (from 3.10 tokens/s to 5.72 tokens/s) under A100 GPU and a 1.44x throughput under H100 GPU. Further, our method can also decrease both pre-filling and decoding latency at about 4% and 50%, respectively. Memory Saving Analysis: For memory efficiency in batch decoding settings, as shown in Table  5 , our system can achieve approximately a 7x increase in batch size after a 50% token reduction in practical deployment. These improvements demonstrate the significant potential of our token reduction method in enhancing both computational and memory efficiency for large-scale applications.   7  clearly illustrates the effectiveness of the weighted merge method. Compared to the normal average merge used in ToMe  (Bolya et al., 2023)  and A-ToMe  (Li et al., 2023) , our weighted merge algorithm consistently improves both ASR and ER in all the 10% to 50% FLOPs reduction ratio.\n\nEffectiveness of Scheduling: For the dense tasks ASR and ST, we utilize the decay or constant scheduler to smoothly merge audio tokens which can prevent aggressive token dropping. As shown in Table  8 , layer scheduler can greatly improve the performance of the dense task when the token reduction rate is very high. However, due to multiple operations across many layers, the pre-filling latency will increase. Therefore, a more careful design of the overall strategies is needed in the future to better manage the trade-off between performance and efficiency.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this study, we propose FastAdaSP, an efficient inference framework that incorporates multiple stages in SpeechLMs. This preliminary study explores token reduction methods for SpeechLMs.\n\nWe investigated various properties of different types of SpeechLM tasks and proposed novel methods for both dense and sparse tasks. Our method achieved a 1.84x throughput increase with 7x memory efficiency, setting a new benchmark for the efficiency-performance trade-off across various tasks.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A Appendix",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A.1 Full Experiments Results",
+      "text": "We also conduct the performance experiments on Qwen-Audio for both dense and sparse tasks and compare the baseline methods with our method.\n\nFor the dense tasks ASR and ST, the results are presented in Table  9 , demonstrating the effectiveness of our scheduling weighted token merge methods on another SpeechLM. The results for the sparse tasks ER and AC are shown in Table  10 , which suggest our sparse setting method also performs well. These results on Qwen-Audio shows the effectiveness and generalization of our method across different SpeechLM.\n\nAdditionally, for the computation cost experiment, we also evaluated the Speech Summarization task on WavLLM using a subset of the How2 test set  (Sanabria et al., 2018) . As shown in Table  11 , our method can effectively reduce the computation cost on a real dataset.\n\nFurther, we use one A100 80G GPU and one H100 80G GPU to conduct the long sequence experiments, which is shown in Table  12  and Table  13 . The results indicate that increasing the audio length and beam size makes the acceleration of our method more noticeable.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "A.2 Computation Reduction Theoretical Analysis",
+      "text": "To analyze the computation reduction effect of our method, we use the theoretical FLOPs reduction rate. For simplicity, we just analysis the effective theoretical FLOPs reduction based on the token reduction rate and input sequence length on one layer. In the real situation, we can use the same methods to analyse all the decoder layers. Given the input sequence length n, the hidden dimension d and the Feed Forward Layer hidden dimension m. We can define the theoretical FLOPs in one transformer decoder layer as:\n\nWhere the first term represents the attention operation in equation 2; The second term represents the calculation of query, key, value and output tensors; The third term represents the calculation of the operation in Feed Forward Layer. Given the reduction ratio k, after the token reduction, we obtain the reduced sequence length n = n(1 -k).\n\nThen the theoretical FLOPs reduction rate at the Algorithm 1 Weighted Token Merge Algorithm Output: H ∈ R N ×D 25: end procedure next layer can be calculated as:\n\nAs a result, the longer the input sequence length, the higher the FLOPs reduction rate that can be achieved. As demonstrated in A.1 long sequence speed test, the acceleration is more pronounced for a 240-second audio sample compared to a 120second audio sample.\n\nThis theoretical computation cost analysis suggests that our method will result in greater computational reduction for longer audio sequence input, highlighting the effectiveness of this technique in real world applications where the input audio is often very long.   (Li et al., 2023 ) 2.20 3.26 13.91 71.56 273.49 41.24 39.87 36.52 25.35 8.64 FastV (Chen et al., 2024) 12.54 54.40 110.42 179.58 258.78 41.12 40.31 38.45 34.74    Here we show the full implementation details of the FastAdaSP algorithm, which was brifely mentioned in Section 3.2. Given the audio feature sequence A = (a i ∈ R D |i = 1, ..., L), the merge index list M = (m i ∈ R|i = 1, ..., T ) and merge weights W merge = (ω i ∈ R|i = 1, ..., L). Then we can use Algorithm 1 to obtain the merged audio feature sequence H\n\nwhere N is the length of the merged audio feature sequence.\n\nAdditionally, if there are B batches in the hidden states, we currently need to perform the algorithm B times to reduce the audio tokens for each audio sequence separately. In the future, this process may be improved by executing the algorithm for each batch in parallel.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "A.4 Derivation Of Transfer Entropy",
+      "text": "In this section, we recall the derivation of transfer entropy from  (Lin et al., 2024) . We also did a slight modification on the final definition based on our settings. As mentioned in section 3.4, given F ∈ R L×D as the feature output after attention block, the entropy was defined as:\n\nFollowing the  (Lin et al., 2024; Sirignano and Spiliopoulos, 2020) , we regard the feature F 's probability distribution as a Gaussian distribution F ∼ N (µ, σ 2 ). Therefore, the equation 11 can be derived into:\n\nWhere σ i is the standard deviation of i-th hidden state in F . The H(F ) is proportional to the log(σ) since 1 2 log(2π) + 1 2 is constant term. Thus we could get the equation 7 in Sec 3.4.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "A.5 Applications In The Real World And",
+      "text": "Future Perspective\n\nIn this study, we propose a efficient inference framework which designed for audio modality reduction in Multitask SpeechLM. In the context of long audio sequences, it is observed that only a small part of tokens carries critical information, while others may be not relevant (e.g. periods of noisy or blank audio). Our proposed plug-and-play methodology aims to efficiently identify and prioritize significant audio tokens during the pre-filling  Table  13 : Long Sequence Computational cost experiments on H100. Long sequence audio samples (120s and 240s) input on WavLLM using one H100 80GB GPU stage, which can offers substantial benefits for longform audio comprehension.\n\nIn addition, in practical deployments of SpeechLM products, batch decoding is often a necessity, with batch sizes potentially reaching up to 128 or more. Within these batch decoding settings, our proposed methods are designed to reduce the memory footprint associated with many long audio inputs while simultaneously accelerating the decoding process. This optimization is crucial for enhancing the efficiency and scalability of SpeechLM systems in real world applications.\n\nIn the future, we may extend the current efficient inference framework to multi-round decoding scenarios, which can handle the dense task and sparse task at the same time. This improvement will make the whole system more applicable to real world use cases. Moving forward, this pioneering study on audio token reduction techniques in Multimodal Large Language Models (MLLM) paves the way for future research to explore the general behavior of audio and other modalities such as vision. The next stage of this study is to investigate the unified methodology to accelerate both audio and vision modalities simultaneously in Audio-Visual LLMs (e.g., video-SALMONN  (Sun et al., 2024a) ), which enable more efficient inference for long video understanding.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Examples of Multitask SpeechLM on dense",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: , in our study, we categorize and",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: This method selects",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(SQA). The code will be available at https:": "//github.com/yichen14/FastAdaSP",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "like Emotion Recognition (ER) and Speaker Veri-"
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "fication (SV), where only a few tokens within the"
+        },
+        {
+          "(SQA). The code will be available at https:": "1\nIntroduction",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "entire audio input contain the crucial information"
+        },
+        {
+          "(SQA). The code will be available at https:": "Speech Language Models (SpeechLMs) have been",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "needed to perform the task."
+        },
+        {
+          "(SQA). The code will be available at https:": "an important role in the field of natural\nlanguage",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "The temporal dependencies in speech signals re-"
+        },
+        {
+          "(SQA). The code will be available at https:": "processing and speech technology.\nRecent ad-",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "quire efficient handling of long sequences, while"
+        },
+        {
+          "(SQA). The code will be available at https:": "vancements (Hu et al., 2024; Chu et al., 2023; Sun",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "the sparsity of relevant information demands pre-"
+        },
+        {
+          "(SQA). The code will be available at https:": "et al., 2024b) have demonstrated significant capa-",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "cise extraction of crucial audio features.\nThese"
+        },
+        {
+          "(SQA). The code will be available at https:": "bilities in voice processing and audio understand-",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "unique properties make SpeechLM tasks distinct"
+        },
+        {
+          "(SQA). The code will be available at https:": "ing. Furthermore, GPT4-o (OpenAI, 2024) show-",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "from other modalities like vision or text, especially"
+        },
+        {
+          "(SQA). The code will be available at https:": "cases conversational speech processing abilities,",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "when implementing token reduction techniques."
+        },
+        {
+          "(SQA). The code will be available at https:": "advancing the capability of LLMs toward various",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "To address these issues and improve the effi-"
+        },
+        {
+          "(SQA). The code will be available at https:": "voice-interface applications. However, challenges",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "ciency of SpeechLM inference, we introduce Fas-"
+        },
+        {
+          "(SQA). The code will be available at https:": "related to inference latency and memory efficiency",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "tAdaSP, a unified SpeechLM fast inference frame-"
+        },
+        {
+          "(SQA). The code will be available at https:": "remain major bottlenecks, especially as multitask",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "work that incorporates multiple audio token reduc-"
+        },
+        {
+          "(SQA). The code will be available at https:": "SpeechLMs grow larger, reaching up to 7 billion",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "tion methods during the pre-filling stage tailored"
+        },
+        {
+          "(SQA). The code will be available at https:": "parameters. These challenges necessitate the devel-",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "to different\ntypes of\ntasks.\nFastAdaSP does not"
+        },
+        {
+          "(SQA). The code will be available at https:": "opment of more efficient inference methods.",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": ""
+        },
+        {
+          "(SQA). The code will be available at https:": "",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "require any additional training, making the entire"
+        },
+        {
+          "(SQA). The code will be available at https:": "*Equal Contributions.",
+          "and Speech Translation (ST); Sparse Tasks: Tasks": "framework more practical and easy to use. Our"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "{yichenl5,\njiaqison,": "Abstract",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Audio Input:"
+        },
+        {
+          "{yichenl5,\njiaqison,": "In this\nstudy, we\naim to explore Multitask",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Dense Tasks:"
+        },
+        {
+          "{yichenl5,\njiaqison,": "Speech Language Model\n(SpeechLM)\neffi-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "ASR: Can you help me transcribe the audio into text?"
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Output: that is a good idea"
+        },
+        {
+          "{yichenl5,\njiaqison,": "cient\ninference via token reduction.\nUnlike",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "other modalities such as vision or text, speech",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "ST: Translate the audio clip into German."
+        },
+        {
+          "{yichenl5,\njiaqison,": "has unique\ntemporal dependencies, making",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Output: das ist eine gute Idee"
+        },
+        {
+          "{yichenl5,\njiaqison,": "previous\nefficient\ninference works on other",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Sparse Tasks:"
+        },
+        {
+          "{yichenl5,\njiaqison,": "modalities not directly applicable.\nFurther-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "ER: Can you describe the emotional condition of the speaker"
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "in the provided audio clip?"
+        },
+        {
+          "{yichenl5,\njiaqison,": "more, methods for efficient SpeechLM infer-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Output: happy"
+        },
+        {
+          "{yichenl5,\njiaqison,": "ence on long sequence and sparse signals re-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "SV: Is there only one speaker in the audio clip?"
+        },
+        {
+          "{yichenl5,\njiaqison,": "main largely unexplored.\nThen we propose",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Output: yes"
+        },
+        {
+          "{yichenl5,\njiaqison,": "FastAdaSP, a weighted token merging frame-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "work specifically designed for various speech-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Figure 1: Examples of Multitask SpeechLM on dense"
+        },
+        {
+          "{yichenl5,\njiaqison,": "related tasks to improve the trade-off between",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "(ASR, ST) and sparse (ER, SV) tasks"
+        },
+        {
+          "{yichenl5,\njiaqison,": "efficiency\nand\nperformance.\nExperimental",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "results on WavLLM and Qwen-Audio show",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "that our method achieves the state-of-the-art",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "SpeechLMs are often capable of performing a"
+        },
+        {
+          "{yichenl5,\njiaqison,": "(SOTA) efficiency-performance trade-off com-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "wide range of speech or audio-related tasks. As"
+        },
+        {
+          "{yichenl5,\njiaqison,": "pared with other baseline methods.\nSpecif-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "shown in Figure 1, in our study, we categorize and"
+        },
+        {
+          "{yichenl5,\njiaqison,": "ically, FastAdaSP achieved 7x memory effi-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "define these tasks into two distinct classes: Dense"
+        },
+        {
+          "{yichenl5,\njiaqison,": "ciency and 1.83x decoding throughput without",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "Tasks: Nearly all\ninput audio tokens are useful,"
+        },
+        {
+          "{yichenl5,\njiaqison,": "any degradation on tasks like Emotion Recog-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "nition (ER) and Spoken Question Answering",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "such as in Automatic Speech Recognition (ASR)"
+        },
+        {
+          "{yichenl5,\njiaqison,": "(SQA). The code will be available at https:",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "and Speech Translation (ST); Sparse Tasks: Tasks"
+        },
+        {
+          "{yichenl5,\njiaqison,": "//github.com/yichen14/FastAdaSP",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "like Emotion Recognition (ER) and Speaker Veri-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "fication (SV), where only a few tokens within the"
+        },
+        {
+          "{yichenl5,\njiaqison,": "1\nIntroduction",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "entire audio input contain the crucial information"
+        },
+        {
+          "{yichenl5,\njiaqison,": "Speech Language Models (SpeechLMs) have been",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "needed to perform the task."
+        },
+        {
+          "{yichenl5,\njiaqison,": "an important role in the field of natural\nlanguage",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "The temporal dependencies in speech signals re-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "processing and speech technology.\nRecent ad-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "quire efficient handling of long sequences, while"
+        },
+        {
+          "{yichenl5,\njiaqison,": "vancements (Hu et al., 2024; Chu et al., 2023; Sun",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "the sparsity of relevant information demands pre-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "et al., 2024b) have demonstrated significant capa-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "cise extraction of crucial audio features.\nThese"
+        },
+        {
+          "{yichenl5,\njiaqison,": "bilities in voice processing and audio understand-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "unique properties make SpeechLM tasks distinct"
+        },
+        {
+          "{yichenl5,\njiaqison,": "ing. Furthermore, GPT4-o (OpenAI, 2024) show-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "from other modalities like vision or text, especially"
+        },
+        {
+          "{yichenl5,\njiaqison,": "cases conversational speech processing abilities,",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "when implementing token reduction techniques."
+        },
+        {
+          "{yichenl5,\njiaqison,": "advancing the capability of LLMs toward various",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "To address these issues and improve the effi-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "voice-interface applications. However, challenges",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "ciency of SpeechLM inference, we introduce Fas-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "related to inference latency and memory efficiency",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "tAdaSP, a unified SpeechLM fast inference frame-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "remain major bottlenecks, especially as multitask",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "work that incorporates multiple audio token reduc-"
+        },
+        {
+          "{yichenl5,\njiaqison,": "SpeechLMs grow larger, reaching up to 7 billion",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "tion methods during the pre-filling stage tailored"
+        },
+        {
+          "{yichenl5,\njiaqison,": "parameters. These challenges necessitate the devel-",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "to different\ntypes of\ntasks.\nFastAdaSP does not"
+        },
+        {
+          "{yichenl5,\njiaqison,": "opment of more efficient inference methods.",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": ""
+        },
+        {
+          "{yichenl5,\njiaqison,": "",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "require any additional training, making the entire"
+        },
+        {
+          "{yichenl5,\njiaqison,": "*Equal Contributions.",
+          "swatanab}@andrew.cmu.edu\nhucky@nvidia.com": "framework more practical and easy to use. Our"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "main contributions are as follows:": "1. We introduce a new plug-and-play method for",
+          "the extensive sequence of vision and audio tokens": "can exceed the context length limit of the backbone"
+        },
+        {
+          "main contributions are as follows:": "effectively selecting layers for audio token reduc-",
+          "the extensive sequence of vision and audio tokens": "LLM, causing several issues. Moreover, this tech-"
+        },
+        {
+          "main contributions are as follows:": "tion operations on sparse tasks.",
+          "the extensive sequence of vision and audio tokens": "nique does not improve the latency of the pre-filling"
+        },
+        {
+          "main contributions are as follows:": "2. We study efficient inference methods specifi-",
+          "the extensive sequence of vision and audio tokens": "stage."
+        },
+        {
+          "main contributions are as follows:": "cally designed for both dense and sparse tasks on",
+          "the extensive sequence of vision and audio tokens": "Token Reduction: To address these issues, exten-"
+        },
+        {
+          "main contributions are as follows:": "SpeechLMs and validate the effectiveness of our",
+          "the extensive sequence of vision and audio tokens": "sive research has been conducted on token prun-"
+        },
+        {
+          "main contributions are as follows:": "methods across multiple tasks.",
+          "the extensive sequence of vision and audio tokens": "ing techniques within Vision Language Models"
+        },
+        {
+          "main contributions are as follows:": "3. To benchmark the task, previous token reduc-",
+          "the extensive sequence of vision and audio tokens": "(VLMs). Recently, lots of token reduction works"
+        },
+        {
+          "main contributions are as follows:": "tion methods, started from other modalities, have",
+          "the extensive sequence of vision and audio tokens": "such as FastV (Chen et al., 2024), ToMe (Bolya"
+        },
+        {
+          "main contributions are as follows:": "been investigated and analyzed in this emerging",
+          "the extensive sequence of vision and audio tokens": "et al., 2023), LLava-PruneMerge (Shang et al.,"
+        },
+        {
+          "main contributions are as follows:": "context of SpeechLM settings.",
+          "the extensive sequence of vision and audio tokens": "2024) focus on reducing the vision tokens to lower"
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "the computational costs through token eviction or"
+        },
+        {
+          "main contributions are as follows:": "2\nRelated Work",
+          "the extensive sequence of vision and audio tokens": "merge. Besides the vision modality, A-ToMe (Li"
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "et al., 2023) applied the ToMe (Bolya et al., 2023)"
+        },
+        {
+          "main contributions are as follows:": "Large Speech Language Models: SpeechLMs",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "method to the audio modality in a Transformer-"
+        },
+        {
+          "main contributions are as follows:": "(Borsos et al., 2023; et al., 2023; Radhakrishnan",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "transducer model\n(Zhang et al., 2020)\nfor ASR"
+        },
+        {
+          "main contributions are as follows:": "et al., 2023; Sun et al., 2024b; Chu et al., 2023; Hu",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "tasks only.\nHowever,\ntoken reduction methods"
+        },
+        {
+          "main contributions are as follows:": "et al., 2024; Gong et al., 2024; Maiti et al., 2024;",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "for the audio modality in multitask SpeechLMs re-"
+        },
+        {
+          "main contributions are as follows:": "Lu et al., 2024) adopt a large pretrained language",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "main unexplored. Inspired by these previous works,"
+        },
+        {
+          "main contributions are as follows:": "model\n(Touvron et al., 2023) as their base model",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "our study primarily develops token reduction tech-"
+        },
+        {
+          "main contributions are as follows:": "and use audio encoder(s)\n(Radford et al., 2023;",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "niques that combine token merging and eviction"
+        },
+        {
+          "main contributions are as follows:": "Chen et al., 2022; Hsu et al., 2021) to process raw",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "for the audio modality in SpeechLMs during the"
+        },
+        {
+          "main contributions are as follows:": "audio input. Leveraging the language understand-",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "inference process. We also explore the applicability"
+        },
+        {
+          "main contributions are as follows:": "ing and reasoning abilities of LLMs, SpeechLMs",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "of these methods to various speech-related tasks."
+        },
+        {
+          "main contributions are as follows:": "can perform various speech-related tasks. How-",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "ever, as SpeechLMs grow in size, inference latency",
+          "the extensive sequence of vision and audio tokens": "3\nMethodology"
+        },
+        {
+          "main contributions are as follows:": "and memory efficiency become problematic. Thus,",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "In this section, we introduce the motivation and for-"
+        },
+        {
+          "main contributions are as follows:": "research on cost-saving techniques is essential to",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "mulation of FastAdaSP, followed by our layer se-"
+        },
+        {
+          "main contributions are as follows:": "address these challenges.",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "lection and task-specific design strategies for Mul-"
+        },
+        {
+          "main contributions are as follows:": "Efficient Inference in ASR: Recent studies (Zhu",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "titask SpeechLMs. Note that,\nin our work, audio"
+        },
+        {
+          "main contributions are as follows:": "et al., 2024; Kim et al., 2022; Burchi and Vielzeuf,",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "tokens refers to the audio features output by the"
+        },
+        {
+          "main contributions are as follows:": "2021) have focused on efficient inference for ASR",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "multi-head attention block."
+        },
+        {
+          "main contributions are as follows:": "models (Gulati et al., 2020; Kim et al., 2023) by",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "progressively down-sampling the audio features",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "",
+          "the extensive sequence of vision and audio tokens": "3.1\nPreliminary"
+        },
+        {
+          "main contributions are as follows:": "in the audio encoder\nto reduce sequence length.",
+          "the extensive sequence of vision and audio tokens": ""
+        },
+        {
+          "main contributions are as follows:": "However, these methods are specifically designed",
+          "the extensive sequence of vision and audio tokens": "Speech Modality in Multitask SpeechLMs: Dur-"
+        },
+        {
+          "main contributions are as follows:": "for\nthe ASR task and do not generalize well\nto",
+          "the extensive sequence of vision and audio tokens": "ing inference, VLMs often use only a small portion"
+        },
+        {
+          "main contributions are as follows:": "multitask settings for SpeechLMs.",
+          "the extensive sequence of vision and audio tokens": "of visual information for reasoning and context un-"
+        },
+        {
+          "main contributions are as follows:": "Key-Value (KV) Cache Compression:\nIn addi-",
+          "the extensive sequence of vision and audio tokens": "derstanding. However, SpeechLMs are capable of"
+        },
+        {
+          "main contributions are as follows:": "tion to the efficient\ninference methods for ASR,",
+          "the extensive sequence of vision and audio tokens": "performing multiple tasks within a single model."
+        },
+        {
+          "main contributions are as follows:": "some of other works are focusing on compressing",
+          "the extensive sequence of vision and audio tokens": "For sequence-to-sequence dense tasks like ASR, it"
+        },
+        {
+          "main contributions are as follows:": "KV Cache to speed-up LLMs inference.\nPrevi-",
+          "the extensive sequence of vision and audio tokens": "is crucial to consider “all audio tokens” to generate"
+        },
+        {
+          "main contributions are as follows:": "ous works such as StreamLLM (Xiao et al., 2024),",
+          "the extensive sequence of vision and audio tokens": "accurate transcriptions. In addition to dense tasks,"
+        },
+        {
+          "main contributions are as follows:": "H2O (Zhang et al., 2023), LESS (Dong et al., 2024),",
+          "the extensive sequence of vision and audio tokens": "SpeechLMs also need to perform sparse tasks such"
+        },
+        {
+          "main contributions are as follows:": "LOOK-M (Wan et al., 2024) were designed to com-",
+          "the extensive sequence of vision and audio tokens": "as ER and SQA, where only a few tokens in the"
+        },
+        {
+          "main contributions are as follows:": "press the text or vision KV cache during inference",
+          "the extensive sequence of vision and audio tokens": "input hold critical information for generating accu-"
+        },
+        {
+          "main contributions are as follows:": "to overcome the limited KV cache size and accel-",
+          "the extensive sequence of vision and audio tokens": "rate predictions. Therefore, a more careful token"
+        },
+        {
+          "main contributions are as follows:": "erate the inference speed. However, KV cache",
+          "the extensive sequence of vision and audio tokens": "reduction policy is necessary for SpeechLMs."
+        },
+        {
+          "main contributions are as follows:": "compression techniques do not actually reduce the",
+          "the extensive sequence of vision and audio tokens": "Pre-filling Phase of SpeechLMs: During the pre-"
+        },
+        {
+          "main contributions are as follows:": "number of input tokens during the pre-filling stage.",
+          "the extensive sequence of vision and audio tokens": "filling phase of SpeechLMs,\nthe raw audio se-"
+        },
+        {
+          "main contributions are as follows:": "When a long video is input to a multimodal LLM,",
+          "the extensive sequence of vision and audio tokens": "quence is usually processed by pre-trained audio"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "encoder(s)\nto extract\nthe semantic and acoustic"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "information into the embedding space Xaudio ∈"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "RLaudio×D. Consider the text embedding of user in-"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "struction Xtext ∈ RLtext×D, the input to the decoder"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "blocks of SpeechLM is X ∈ RLprompt×D, which"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "represented as X = [Xaudio, Xtext]. Here, Lprompt"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "is the sum of audio embedding length Laudio and"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "text embedding length Ltext, and D is the model’s"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "hidden dimension."
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "In each self-attention block of\nthe transfomer"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "decoder layer, the query, key, value tensors can be"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "derived by:"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ",\n(1)\nQ = XWQ, K = XWK, V = XWV"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "where WQ, WK, WV ∈ RD×D represents the"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "matrix weights for query, key, and value layers,"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "respectively. After this computation, the value of"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "K, V will be stored in the KV cache which will be"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "used in the decoding phase. Then the self-attention"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "output can be computed as:"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "(cid:18) QK⊤"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "√\nV.\n(2)\nXattention = Softmax"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "D"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": ""
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "Decoding Phase of SpeechLMs: During the auto-"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "regressive decoding phase of SpeechLMs, the KV"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "cache is employed and updated for all\nthe new"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "generated tokens. At each step,\nthe total key and"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "value are calculated by using the previous stored"
+        },
+        {
+          "Figure 2: FastAdaSP: Weighted Token Merge of audio features in the decoder blocks of SpeechLMs": "Kcache and Vcache and the new input Xnew as:"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "We then obtain an adjacent similarity score se-": "quence P = (pi ∈ R|i = 1, ..., L − 1). After",
+          "we incorporate a Transfer Entropy(TE)-based layer": "selection method (Section 3.4) specially designed"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "determining the number of\ntokens to merge, we",
+          "we incorporate a Transfer Entropy(TE)-based layer": "for sparse tasks."
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "select the top-k largest adjacent similarity indices",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "3.4\nAddtional Studies on Layer Selection"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "to form the merge index list. Next, we loop through",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "the merge index list, grouping multiple adjacent in-",
+          "we incorporate a Transfer Entropy(TE)-based layer": "Recent token reduction works (Chen et al., 2024;"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "dices into a single merge cluster. Finally, we obtain",
+          "we incorporate a Transfer Entropy(TE)-based layer": "Shang et al., 2024; Bolya et al., 2023; Li et al.,"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "2023) often struggle with selecting appropriate lay-"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "m merging clusters S = {si|i = 1, ..., m} where",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "ers\nfor\ntoken reduction.\nDue to the difficulties"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "si represent a merging cluster which contains sev-",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "eral adjacent audio tokens.\nThen we obtain the",
+          "we incorporate a Transfer Entropy(TE)-based layer": "in interpreting current auto-regressive transformer"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "merge weights Wmerge = (ωi ∈ R|i = 1, ..., L) for",
+          "we incorporate a Transfer Entropy(TE)-based layer": "models, understanding the exact properties of dif-"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "audio features A by:",
+          "we incorporate a Transfer Entropy(TE)-based layer": "ferent layers during inference is challenging. Con-"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "sequently, previous works have relied on empirical"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "Lprompt",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "(cid:19)",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "H(cid:88)\n(cid:18) QK⊤",
+          "we incorporate a Transfer Entropy(TE)-based layer": "studies to test various layers and reduction ratios."
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "(cid:88)",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "√\nSoftmax\n(5)\n)i\nωi = (",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "This approach is impractical and lacks generaliza-"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "D",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "tion for actual deployment. Therefore, we aim to"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "Where Lprompt = Laudio+Ltext represents the query",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "explore a justification to serve as a theoretical at-"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "length. H represents the number of attention head.",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "tempt of token reduction layer selection."
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "Both audio and text features are utilized to calculate",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "By definition, entropy can reflect the information"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "the overall cumulative attention score. By leverag-",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "carried out by each layer.\nHere, we take F as"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "ing the interaction between text\ninstructions and",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "the feature output by the attention block which"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "speech, we can determine the importance of audio",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "contains both audio and text\nfeatures.\nInspired"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "tokens in the current context. The merged audio",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "by (Sun et al., 2022; Lin et al., 2024), we use the"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "feature amerge\nfor each cluster si will be calculated",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "i",
+          "we incorporate a Transfer Entropy(TE)-based layer": "Gaussian distribution as the probability distribution"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "as:",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "to approximate the distribution of each channel"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "(cid:80)|si| ωjaj",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "amerge\n=\n(6)",
+          "we incorporate a Transfer Entropy(TE)-based layer": "in F . Thus,\nthe entropy measurement of a single"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "i",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "(cid:80)|si| ωj",
+          "we incorporate a Transfer Entropy(TE)-based layer": "layer H(F ) can be defined as (for a more detail"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "",
+          "we incorporate a Transfer Entropy(TE)-based layer": "derivation, please refer to A.4):"
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "The overall procedure of\nthe weighted token",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        },
+        {
+          "We then obtain an adjacent similarity score se-": "merge is shown in Figure 2. This method selects",
+          "we incorporate a Transfer Entropy(TE)-based layer": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Model": "",
+          "Task": "Automatic Speech Recognition (ASR)",
+          "Dataset": "LibriSpeech (Panayotov et al., 2015)",
+          "Split": "dev | test",
+          "Metric": "WER"
+        },
+        {
+          "Model": "",
+          "Task": "Speech Translation (ST)",
+          "Dataset": "Must-C (Di Gangi et al., 2019)",
+          "Split": "en-de",
+          "Metric": "BLEU"
+        },
+        {
+          "Model": "WavLLM (Hu et al., 2024)",
+          "Task": "",
+          "Dataset": "",
+          "Split": "",
+          "Metric": ""
+        },
+        {
+          "Model": "",
+          "Task": "Emotion Recognition (ER)",
+          "Dataset": "IEMOCAP (Busso et al., 2008)",
+          "Split": "Session 5",
+          "Metric": "ACC"
+        },
+        {
+          "Model": "",
+          "Task": "Spoken Language Answering (SQA)",
+          "Dataset": "MuTual (Cui et al., 2020)",
+          "Split": "test",
+          "Metric": "ACC"
+        },
+        {
+          "Model": "",
+          "Task": "Automatic Speech Recognition (ASR)",
+          "Dataset": "LibriSpeech (Panayotov et al., 2015)",
+          "Split": "dev | test",
+          "Metric": "WER"
+        },
+        {
+          "Model": "",
+          "Task": "Speech Translation (ST)",
+          "Dataset": "CoVoST2 (Wang et al., 2020)",
+          "Split": "en-zh",
+          "Metric": "BLEU"
+        },
+        {
+          "Model": "Qwen-Audio (Chu et al., 2023)",
+          "Task": "",
+          "Dataset": "",
+          "Split": "",
+          "Metric": ""
+        },
+        {
+          "Model": "",
+          "Task": "Emotion Recognition (ER)",
+          "Dataset": "MELD (Poria et al., 2019)",
+          "Split": "test",
+          "Metric": "ACC"
+        },
+        {
+          "Model": "",
+          "Task": "Audio Caption (AC)",
+          "Dataset": "Clotho (Drossos et al., 2020)",
+          "Split": "test",
+          "Metric": "CIDEr | SPICE | SPIDEr"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": ""
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": ""
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "20%"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "2.46"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "2.51"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "4.34"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "2.92"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "4.94"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "2.57"
+        },
+        {
+          "Table 1: Task, dataset, and metrics in the experiments": "2.49"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "4\nExperiments": "4.1\nExperiment Setting",
+          "audio length (second per sentence).": ""
+        },
+        {
+          "4\nExperiments": "",
+          "audio length (second per sentence).": "4.2\nResults and Discussion"
+        },
+        {
+          "4\nExperiments": "Basic Settings: We use 1×V100 32GB GPU to",
+          "audio length (second per sentence).": ""
+        },
+        {
+          "4\nExperiments": "",
+          "audio length (second per sentence).": "In this section, we compare our method with other"
+        },
+        {
+          "4\nExperiments": "conduct the task performance experiment. We also",
+          "audio length (second per sentence).": ""
+        },
+        {
+          "4\nExperiments": "",
+          "audio length (second per sentence).": "SOTA methods. Then, we demonstrate the impact"
+        },
+        {
+          "4\nExperiments": "use 1×A100 80GB GPU and 1×H100 80GB GPU",
+          "audio length (second per sentence).": ""
+        },
+        {
+          "4\nExperiments": "",
+          "audio length (second per sentence).": "of token reduction on system metrics. For the full"
+        },
+        {
+          "4\nExperiments": "for long sequence system metric experiment. We",
+          "audio length (second per sentence).": ""
+        },
+        {
+          "4\nExperiments": "",
+          "audio length (second per sentence).": "experiments results, please refer to Appendix A.1."
+        },
+        {
+          "4\nExperiments": "choose WavLLM 7B (Hu et al., 2024) and Qwen-",
+          "audio length (second per sentence).": ""
+        },
+        {
+          "4\nExperiments": "Audio 7B (Chu et al., 2023) for all the experiments.",
+          "audio length (second per sentence).": "Baselines: We selected several\ntoken reduction"
+        },
+        {
+          "4\nExperiments": "For each SpeechLM, we choose two dense tasks",
+          "audio length (second per sentence).": "methods as our baselines. FastV (Chen et al., 2024)"
+        },
+        {
+          "4\nExperiments": "and two sparse tasks for experiments. Specifically,",
+          "audio length (second per sentence).": "is a token eviction method based on attention scores"
+        },
+        {
+          "4\nExperiments": "both models choose ASR and ST as dense task.",
+          "audio length (second per sentence).": "for VLM. A-ToMe (Li et al., 2023) incorporates"
+        },
+        {
+          "4\nExperiments": "For sparse task, we choose Emotion Recognition",
+          "audio length (second per sentence).": "pair-wise merging techniques on the Transducer"
+        },
+        {
+          "4\nExperiments": "(ER) and Audio Caption (AC) on Qwen-Audio;",
+          "audio length (second per sentence).": "Model for ASR. We also test two other baselines"
+        },
+        {
+          "4\nExperiments": "ER and SQA on WavLLM. The full details of the",
+          "audio length (second per sentence).": "method which randomly merge or evict tokens as"
+        },
+        {
+          "4\nExperiments": "dataset information and the evaluation metrics can",
+          "audio length (second per sentence).": "the additional reference. Additionally, we applied"
+        },
+        {
+          "4\nExperiments": "be found in Table 1.",
+          "audio length (second per sentence).": "our layer selection method to FastV and the two"
+        },
+        {
+          "4\nExperiments": "System Metrics: We use Theoretical FLOPs, Real",
+          "audio length (second per sentence).": "other random baselines since they do not have a"
+        },
+        {
+          "4\nExperiments": "Time Factor (RTF), Pre-filling and Decoding La-",
+          "audio length (second per sentence).": "clear layer selection strategy for speech tasks. Ran-"
+        },
+        {
+          "4\nExperiments": "tency (seconds per sentence), and Throughput (to-",
+          "audio length (second per sentence).": "domly choosing layers for\nthese methods could"
+        },
+        {
+          "4\nExperiments": "kens per second) to measure the efficiency of our",
+          "audio length (second per sentence).": "result\nin completely failed decoding. Lastly, we"
+        },
+        {
+          "4\nExperiments": "method under different token reduction rates. We",
+          "audio length (second per sentence).": "evaluate the performance of the KV cache eviction"
+        },
+        {
+          "4\nExperiments": "calculate the RTF by:",
+          "audio length (second per sentence).": "method (H2O) (Zhang et al., 2023) on SpeechLMs"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on",
+      "data": [
+        {
+          "ER (ACC% ↑)": "72.80",
+          "SQA (ACC% ↑)": "67.60"
+        },
+        {
+          "ER (ACC% ↑)": "30%",
+          "SQA (ACC% ↑)": "30%"
+        },
+        {
+          "ER (ACC% ↑)": "73.73",
+          "SQA (ACC% ↑)": "68.00"
+        },
+        {
+          "ER (ACC% ↑)": "72.19",
+          "SQA (ACC% ↑)": "67.40"
+        },
+        {
+          "ER (ACC% ↑)": "72.44",
+          "SQA (ACC% ↑)": "68.35"
+        },
+        {
+          "ER (ACC% ↑)": "72.2",
+          "SQA (ACC% ↑)": "65.75"
+        },
+        {
+          "ER (ACC% ↑)": "71.55",
+          "SQA (ACC% ↑)": "68.45"
+        },
+        {
+          "ER (ACC% ↑)": "73.73",
+          "SQA (ACC% ↑)": "67.45"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on",
+      "data": [
+        {
+          "FastAdaSP-Sparse": "",
+          "73.16": "Table 3: Comparison between FastAdaSP with other token reduction methods on WavLLM sparse tasks",
+          "72.60": "",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "",
+          "67.45": "",
+          "68.45": "",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "FLOPs Reduction %",
+          "73.16": "Device",
+          "72.60": "Real Time Factor ↓",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "Decoding Latency (s) ↓",
+          "67.45": "",
+          "68.45": "Throughput (token/s) ↑",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "0.00",
+          "73.16": "",
+          "72.60": "0.126",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "23.55",
+          "67.45": "",
+          "68.45": "3.10",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "",
+          "73.16": "A100 80G",
+          "72.60": "",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "",
+          "67.45": "",
+          "68.45": "",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "50.00",
+          "73.16": "",
+          "72.60": "0.077",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "11.89",
+          "67.45": "",
+          "68.45": "5.72",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "0.00",
+          "73.16": "",
+          "72.60": "0.039",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "8.39",
+          "67.45": "",
+          "68.45": "8.70",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "",
+          "73.16": "H100 80G",
+          "72.60": "",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "",
+          "67.45": "",
+          "68.45": "",
+          "68.70": ""
+        },
+        {
+          "FastAdaSP-Sparse": "50.00",
+          "73.16": "",
+          "72.60": "0.026",
+          "73.73": "",
+          "73.65": "",
+          "67.65": "",
+          "68.05": "5.42",
+          "67.45": "",
+          "68.45": "12.55",
+          "68.70": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on",
+      "data": [
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "WavLLM using one A100 80GB GPU and one H100 80GB GPU. For the full results, please refer to Appendix A.1"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Token Reduce %\nMax Batch Size (not OOM)"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Full Token Baseline\n10"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "50\n70"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Table 5: Memory Saving Experiments: Approximate"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "maximum batch size under 50% token reduction for"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "WavLLM using a 240s audio sample on 1×A100 80GB."
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "FLOPs Reduce\nTE\nTE Rank\n10%\n20%\n30%\n40%\n50%"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Layer 2\n2.20\n4\n54.78\n54.30\n54.06\n52.91\n52.10"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "55.51\nLayer 9\n2.17\n3\n54.30\n53.61\n53.30\n51.50"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Layer 12\n2.29\n5\n54.75\n53.96\n53.44\n52.72\n48.35"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Layer 15\n2.11\n2\n53.98\n54.06\n53.02\n50.57\n-"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Layer 3 (Selected)\n55.05\n54.40\n53.86\n52.14\n2.06\n1\n55.17"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Table 6: Layer Selection Experiments: Comparison"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "on the performance between different layers on Qwen-"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "Audio ER task (Full token baseline accuracy: 54.80%)"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": ""
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "ASR and ST as the dense tasks in SpeechLM. As"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "shown in Table 2, our method demonstrates a sig-"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "nificantly better efficiency-performance trade-off"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "compared to other token reduction methods. No-"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "tably, for the ASR task, we maintain only approxi-"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "mately 0.7% WER degradation up to a 40% FLOPs"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "reduction ratio. Furthermore, we significantly im-"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "prove upon the previous audio efficient inference"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "baseline, A-ToMe, reducing the WER from 50.46%"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "to 4.73% at a 50% FLOPs\nreduction rate.\nFor"
+        },
+        {
+          "Table 4: Long Sequence Computational cost experiments on a 240s audio sample with a batch size = 5 on": "the ST task, our method also maintain the best"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 6: as an ablation study. Several 5 Conclusion",
+      "data": [
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "Table 8: The effectiveness of scheduler on WavLLM Dense tasks (ASR and ST)",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "4.3\nAblation Study",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "the overall strategies is needed in the future to bet-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "ter manage the trade-off between performance and"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "Effectiveness of Layer Selection: We analyze",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "efficiency."
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "the effectiveness of our TE-based layer selection",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "method in Table 6 as an ablation study. Several",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "5\nConclusion"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "operation layers before layer 15 were selected to",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "In this study, we propose FastAdaSP, an efficient"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "analyze the relationship between the TE and their",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "inference framework that\nincorporates multiple"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "actual performance. The results indicate that se-",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "stages in SpeechLMs. This preliminary study ex-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "lecting the operational layer based on the TE rank",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "plores token reduction methods for SpeechLMs."
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "(layer 3) can achieve the best performance on the",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "We\ninvestigated various properties of different"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "ER task at most of the time. While the rank of TE",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "types of SpeechLM tasks and proposed novel meth-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "may not be strictly proportional to the actual per-",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "ods for both dense and sparse tasks. Our method"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "formance, in our study, TE serves as a theoretical",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "achieved a 1.84x throughput increase with 7x mem-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "reference for layer selection. A more comprehen-",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "ory efficiency,\nsetting a new benchmark for\nthe"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "sive study on layer selection for token reduction is",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "efficiency-performance\ntrade-off\nacross various"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "left for future research.",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "tasks."
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "Effectiveness of Weighted Merge: Table 7 clearly",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "illustrates the effectiveness of the weighted merge",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "Acknowledgments"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "method. Compared to the normal average merge",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "Experiments of this work used the Bridges2 system"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "used in ToMe (Bolya et al., 2023) and A-ToMe (Li",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "at PSC and Delta system at NCSA through allo-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "et al., 2023), our weighted merge algorithm consis-",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "cations CIS210014 and IRI120008P from the Ad-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "tently improves both ASR and ER in all the 10%",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "vanced Cyber infrastructure Coordination Ecosys-"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "to 50% FLOPs reduction ratio.",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "tem:\nServices & Support\n(ACCESS) program,"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "Effectiveness of Scheduling: For the dense tasks",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "supported by National Science Foundation grants"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "ASR and ST, we utilize the decay or constant sched-",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "#2138259, #2138286, #2138307, #2137603, and"
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "uler to smoothly merge audio tokens which can pre-",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": "#2138296."
+        },
+        {
+          "Weighted Merge + Decay Schedule\n2.27\n2.57\n2.74": "vent aggressive token dropping. As shown in Table",
+          "3.53\n6.09\n20.92\n20.59\n19.66\n18.06\n16.40": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Wang, Yuejie Chi, and Beidi Chen. 2024. Get more"
+        },
+        {
+          "References": "Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "with less:\nSynthesizing recurrence with kv cache"
+        },
+        {
+          "References": "Zhang, Christoph Feichtenhofer, and Judy Hoffman.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "compression for efficient\nllm inference.\nPreprint,"
+        },
+        {
+          "References": "2023. Token merging: Your vit but faster.\nIn The",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "arXiv:2402.09398."
+        },
+        {
+          "References": "Eleventh International Conference on Learning Rep-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "resentations (ICLR).",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Konstantinos Drossos, Samuel Lipping, and Tuomas"
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Virtanen. 2020. Clotho: An audio captioning dataset."
+        },
+        {
+          "References": "Zalán Borsos, Raphaël Marinier, Damien Vincent, Eu-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "IEEE International Conference\non Acoustics,\nIn"
+        },
+        {
+          "References": "gene Kharitonov, Olivier Pietquin, Matt Sharifi,",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Speech and Signal Processing (ICASSP), pages 736–"
+        },
+        {
+          "References": "Dominik Roblek, Olivier Teboul, David Grangier,",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "740. IEEE."
+        },
+        {
+          "References": "Marco Tagliasacchi, and Neil Zeghidour. 2023. Au-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Paul K. Rubenstein et al. 2023. Audiopalm: A large"
+        },
+        {
+          "References": "diolm: a language modeling approach to audio gen-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "language model that can speak and listen. Preprint,"
+        },
+        {
+          "References": "eration. Preprint, arXiv:2209.03143.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "arXiv:2306.12925."
+        },
+        {
+          "References": "Maxime Burchi and Valentin Vielzeuf. 2021. Efficient",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Yuan Gong, Hongyin Luo, Alexander H. Liu, Leonid"
+        },
+        {
+          "References": "conformer: Progressive downsampling and grouped",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Karlinsky, and James R. Glass. 2024. Listen, think,"
+        },
+        {
+          "References": "attention for automatic speech recognition.\nIn 2021",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "and understand.\nIn The Twelfth International Confer-"
+        },
+        {
+          "References": "IEEE Automatic Speech Recognition and Understand-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "ence on Learning Representations (ICLR)."
+        },
+        {
+          "References": "ing Workshop (ASRU), pages 8–15.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Anmol Gulati, James Qin, Chung-Cheng Chiu, Niki"
+        },
+        {
+          "References": "Carlos Busso, Murtaza Bulut, Chi-Chun Lee, Abe",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Parmar, Yu Zhang, Jiahui Yu, Wei Han, Shibo Wang,"
+        },
+        {
+          "References": "Kazemzadeh, Emily Mower, Samuel Kim,\nJean-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Zhengdong Zhang, Yonghui Wu, and Ruoming Pang."
+        },
+        {
+          "References": "nette N Chang,\nSungbok Lee,\nand Shrikanth S",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "2020. Conformer: Convolution-augmented Trans-"
+        },
+        {
+          "References": "Narayanan. 2008.\nIemocap:\nInteractive emotional",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "INTER-\nformer\nfor Speech Recognition.\nIn Proc."
+        },
+        {
+          "References": "dyadic motion capture database. Language resources",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "SPEECH 2020, pages 5036–5040."
+        },
+        {
+          "References": "and evaluation, 42:335–359.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai,"
+        },
+        {
+          "References": "Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Jun-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Kushal Lakhotia, Ruslan Salakhutdinov, and Abdel-"
+        },
+        {
+          "References": "yang Lin, Chang Zhou, and Baobao Chang. 2024.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "rahman Mohamed. 2021. Hubert: Self-supervised"
+        },
+        {
+          "References": "An image is worth 1/2 tokens after layer 2: Plug-and-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "speech representation learning by masked prediction"
+        },
+        {
+          "References": "play inference acceleration for large vision-language",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "IEEE/ACM Trans. Audio, Speech\nof hidden units."
+        },
+        {
+          "References": "models. Preprint, arXiv:2403.06764.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "and Lang. Proc., 29:3451–3460."
+        },
+        {
+          "References": "Sanyuan Chen, Chengyi Wang,\nZhengyang Chen,",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Shujie Hu, Long Zhou, Shujie Liu, Sanyuan Chen,"
+        },
+        {
+          "References": "Yu Wu, Shujie Liu, Zhuo Chen, Jinyu Li, Naoyuki",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Hongkun Hao,\nJing Pan, Xunying Liu,\nJinyu Li,"
+        },
+        {
+          "References": "Kanda, Takuya Yoshioka, Xiong Xiao, Jian Wu, Long",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Sunit Sivasankaran, Linquan Liu, and Furu Wei. 2024."
+        },
+        {
+          "References": "Zhou, Shuo Ren, Yanmin Qian, Yao Qian, Jian Wu,",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Wavllm: Towards robust and adaptive speech large"
+        },
+        {
+          "References": "Michael Zeng, Xiangzhan Yu, and Furu Wei. 2022.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "language model. Preprint, arXiv:2404.00656."
+        },
+        {
+          "References": "Wavlm: Large-scale self-supervised pre-training for",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Kwangyoun Kim, Felix Wu, Yifan Peng,\nJing Pan,"
+        },
+        {
+          "References": "IEEE Journal of Se-\nfull stack speech processing.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Prashant Sridhar, Kyu J. Han, and Shinji Watanabe."
+        },
+        {
+          "References": "lected Topics in Signal Processing, 16(6):1505–1518.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "2023. E-branchformer: Branchformer with enhanced"
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "merging for speech recognition.\nIn 2022 IEEE Spo-"
+        },
+        {
+          "References": "Yunfei Chu, Jin Xu, Xiaohuan Zhou, Qian Yang, Shil-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "ken Language Technology Workshop (SLT), pages"
+        },
+        {
+          "References": "iang Zhang, Zhijie Yan, Chang Zhou, and Jingren",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "84–91."
+        },
+        {
+          "References": "Zhou. 2023.\nQwen-audio: Advancing universal",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "audio understanding via unified large-scale audio-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Sehoon Kim, Amir Gholami, Albert Shaw, Nicholas"
+        },
+        {
+          "References": "language models. Preprint, arXiv:2311.07919.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Lee,\nKarttikeya\nMangalam,\nJitendra\nMalik,"
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Michael W Mahoney,\nand Kurt Keutzer.\n2022."
+        },
+        {
+          "References": "Leyang Cui, Yu Wu, Shujie Liu, Yue Zhang, and Ming",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Squeezeformer: An efficient\ntransformer\nfor auto-"
+        },
+        {
+          "References": "Zhou. 2020. MuTual: A dataset for multi-turn dia-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "matic speech recognition.\nIn Advances in Neural"
+        },
+        {
+          "References": "logue reasoning.\nIn Proceedings of the 58th Annual",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Information Processing Systems, volume 35, pages"
+        },
+        {
+          "References": "Meeting of\nthe Association for Computational Lin-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "9361–9373. Curran Associates, Inc."
+        },
+        {
+          "References": "guistics, pages 1406–1416, Online. Association for",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "Computational Linguistics.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Yuang Li, Yu Wu, Jinyu Li, and Shujie Liu. 2023. Accel-"
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "erating Transducers through Adjacent Token Merg-"
+        },
+        {
+          "References": "Mattia A. Di Gangi, Roldano Cattoni, Luisa Bentivogli,",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "ing.\nIn Proc.\nINTERSPEECH 2023, pages 1379–"
+        },
+        {
+          "References": "Matteo Negri, and Marco Turchi. 2019. MuST-C: a",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "1383."
+        },
+        {
+          "References": "Multilingual Speech Translation Corpus.\nIn Proceed-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": ""
+        },
+        {
+          "References": "ings of the 2019 Conference of the North American",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Sihao Lin, Pumeng Lyu, Dongrui Liu, Tao Tang, Xiao-"
+        },
+        {
+          "References": "Chapter of\nthe Association for Computational Lin-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "dan Liang, Andy Song, and Xiaojun Chang. 2024."
+        },
+        {
+          "References": "guistics: Human Language Technologies, Volume 1",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "Mlp can be a good transformer learner.\nIn Proceed-"
+        },
+        {
+          "References": "(Long and Short Papers), pages 2012–2017, Min-",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "ings of the IEEE/CVF Conference on Computer Vi-"
+        },
+        {
+          "References": "neapolis, Minnesota. Association for Computational",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "sion and Pattern Recognition (CVPR), pages 19489–"
+        },
+        {
+          "References": "Linguistics.",
+          "Harry Dong, Xinyu Yang, Zhenyu Zhang, Zhangyang": "19498."
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Soumi Maiti, and Shinji Watanabe. 2024. Syneslm:",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Chen, Tian Tan, Wei Li, Lu Lu, Zejun MA, Yuxuan"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "A unified approach for audio-visual speech recogni-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Wang, and Chao Zhang. 2024a. video-SALMONN:"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "tion and translation via language model and synthetic",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Speech-enhanced audio-visual large language mod-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "data. Preprint, arXiv:2408.00624.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "els.\nIn Forty-first International Conference on Ma-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "chine Learning (ICML)."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Soumi Maiti, Yifan Peng, Shukjae Choi,\nJee-Weon",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Zhenhong Sun, Ce Ge, Junyan Wang, Ming Lin, Hesen"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Jung, Xuankai Chang, and Shinji Watanabe. 2024.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Chen, Hao Li, and Xiuyu Sun. 2022. Entropy-driven"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Voxtlm: Unified decoder-only models for consolidat-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "mixed-precision quantization for deep network de-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "ing speech recognition, synthesis and speech,\ntext",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "sign.\nIn Advances in Neural Information Processing"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "continuation tasks.\nIn IEEE International Confer-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Systems, volume 35, pages 21508–21520. Curran As-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "ence on Acoustics, Speech and Signal Processing",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "sociates, Inc."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "(ICASSP), pages 13326–13330.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Zhiqing Sun, Yikang Shen, Hongxin Zhang, Qinhong"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "OpenAI. 2024.\nGpt-4 technical\nreport.\nPreprint,",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Zhou, Zhenfang Chen, David Daniel Cox, Yiming"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "arXiv:2303.08774.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Yang, and Chuang Gan. 2024b.\nSALMON: Self-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "alignment with instructable reward models.\nIn The"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Vassil Panayotov, Guoguo Chen, Daniel Povey, and San-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Twelfth International Conference on Learning Repre-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "jeev Khudanpur. 2015. Librispeech: An asr corpus",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "sentations (ICLR)."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "based on public domain audio books.\nIn 2015 IEEE",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "International Conference on Acoustics, Speech and",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Signal Processing (ICASSP), pages 5206–5210.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Martinet, Marie-Anne Lachaux, Timothée Lacroix,"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Soujanya Poria, Devamanyu Hazarika, Navonil Ma-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Azhar, Aurelien Rodriguez, Armand Joulin, Edouard"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "jumder, Gautam Naik, Erik Cambria, and Rada Mi-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Grave, and Guillaume Lample. 2023. Llama: Open"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "halcea. 2019. MELD: A multimodal multi-party",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "and efficient foundation language models. Preprint,"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "dataset for emotion recognition in conversations.\nIn",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "arXiv:2302.13971."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Proceedings of\nthe 57th Annual Meeting of\nthe As-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "sociation for Computational Linguistics, pages 527–",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Zhongwei Wan, Ziang Wu, Che Liu, Jinfa Huang, Zhi-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "536, Florence, Italy. Association for Computational",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "hong Zhu, Peng Jin, Longyue Wang, and Li Yuan."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Linguistics.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "2024.\nLook-m:\nLook-once\noptimization\nin\nkv"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "cache for efficient multimodal long-context inference."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Preprint, arXiv:2406.18139."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "man, Christine Mcleavey, and Ilya Sutskever. 2023.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Robust speech recognition via large-scale weak su-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Changhan Wang, Anne Wu, and Juan Pino. 2020. Cov-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "pervision.\nIn Proceedings of the 40th International",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "ost 2 and massively multilingual speech-to-text trans-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Conference on Machine Learning (ICML), volume",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "lation. Preprint, arXiv:2007.10310."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "202 of Proceedings of Machine Learning Research,",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "pages 28492–28518. PMLR.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Han, and Mike Lewis. 2024. Efficient streaming lan-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "guage models with attention sinks.\nIn The Twelfth"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Srijith Radhakrishnan, Chao-Han Yang, Sumeer Khan,",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "International Conference on Learning Representa-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Rohit Kumar, Narsis Kiani, David Gomez-Cabrero,",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "tions (ICLR)."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "and Jesper Tegnér. 2023.\nWhispering llama: A",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "cross-modal generative error correction framework",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Qian Zhang, Han Lu, Hasim Sak, Anshuman Tripathi,"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "for speech recognition.\nIn Proceedings of the 2023",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Erik McDermott, Stephen Koo, and Shankar Kumar."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Conference on Empirical Methods in Natural Lan-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "2020. Transformer transducer: A streamable speech"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "guage Processing, pages 10007–10016.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "recognition model with transformer encoders and rnn-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "t loss.\nIn IEEE International Conference on Acous-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Ramon Sanabria, Ozan Caglayan,\nShruti Palaskar,",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "tics, Speech and Signal Processing (ICASSP), pages"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Desmond Elliott, Loïc Barrault, Lucia Specia, and",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "7829–7833."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Florian Metze. 2018. How2: a large-scale dataset for",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "multimodal language understanding.\nIn Proceedings",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "of\nthe Workshop on Visually Grounded Interaction",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Chen, Lianmin Zheng, Ruisi Cai, Zhao Song, Yuan-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "and Language (ViGIL). NeurIPS.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "dong Tian, Christopher Re, Clark Barrett, Zhangyang"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Wang, and Beidi Chen. 2023. H2o: Heavy-hitter ora-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Yuzhang Shang, Mu Cai, Bingxin Xu, Yong Jae Lee,",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "cle for efficient generative inference of large language"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "and Yan Yan. 2024. Llava-prumerge: Adaptive to-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "models.\nIn Thirty-seventh Conference on Neural In-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "ken reduction for efficient large multimodal models.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "formation Processing Systems."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Preprint, arXiv:2403.15388.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Wenjing Zhu, Sining Sun, Changhao Shan, Peng Fan,"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Justin Sirignano and Konstantinos Spiliopoulos. 2020.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "and Qing Yang. 2024.\nSkipformer: A skip-and-"
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "Mean field analysis of neural networks: A law of",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "recover\nstrategy\nfor\nefficient\nspeech\nrecognition."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "large numbers. SIAM Journal on Applied Mathemat-",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": "Preprint, arXiv:2403.08258."
+        },
+        {
+          "Yichen Lu, Jiaqi Song, Xuankai Chang, Hengwei Bian,": "ics, 80(2):725–752.",
+          "Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao": ""
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table 2: 2: i ← i+1",
+      "data": [
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "1: procedure FASTADASP(A ∈ RL×D, M ∈"
+        },
+        {
+          "A\nAppendix": "A.1\nFull Experiments Results",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "RT , Wmerge ∈ RL)"
+        },
+        {
+          "A\nAppendix": "We also conduct the performance experiments on",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "2:\ni ← 1\n▷ Index"
+        },
+        {
+          "A\nAppendix": "Qwen-Audio for both dense and sparse tasks and",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "3:\nH ← [ ]\n▷ New hidden states"
+        },
+        {
+          "A\nAppendix": "compare the baseline methods with our method.",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "4:\nwhile i ≤ L do"
+        },
+        {
+          "A\nAppendix": "For the dense tasks ASR and ST, the results are pre-",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "5:\nS ← ∅\n▷ Initialize merge cluster"
+        },
+        {
+          "A\nAppendix": "sented in Table 9, demonstrating the effectiveness",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "6:\nh ← ωiai"
+        },
+        {
+          "A\nAppendix": "of our scheduling weighted token merge methods",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "7:\nt ← ωi"
+        },
+        {
+          "A\nAppendix": "on another SpeechLM. The results for the sparse",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "8:"
+        },
+        {
+          "A\nAppendix": "tasks ER and AC are shown in Table 10, which",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "9:\n# Form the merge cluster"
+        },
+        {
+          "A\nAppendix": "suggest our sparse setting method also performs",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "10:\nwhile i ∈ M do"
+        },
+        {
+          "A\nAppendix": "well. These results on Qwen-Audio shows the ef-",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "11:\nS ← S ∪ {i}"
+        },
+        {
+          "A\nAppendix": "fectiveness and generalization of our method across",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "12:\ni ← i + 1"
+        },
+        {
+          "A\nAppendix": "different SpeechLM.",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "13:\nend while"
+        },
+        {
+          "A\nAppendix": "Additionally,\nfor\nthe computation cost experi-",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "14:"
+        },
+        {
+          "A\nAppendix": "ment, we also evaluated the Speech Summarization",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "15:\n# Perform Weighted Sum in Cluster"
+        },
+        {
+          "A\nAppendix": "task on WavLLM using a subset of the How2 test",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "16:\nfor j in S do"
+        },
+        {
+          "A\nAppendix": "set (Sanabria et al., 2018). As shown in Table 11,",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "17:\nh ← h + ωjaj"
+        },
+        {
+          "A\nAppendix": "our method can effectively reduce the computation",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "18:\nt ← t + ωj"
+        },
+        {
+          "A\nAppendix": "cost on a real dataset.",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "19:\nend for"
+        },
+        {
+          "A\nAppendix": "Further, we use one A100 80G GPU and one",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "20:\nh ← h / t"
+        },
+        {
+          "A\nAppendix": "H100 80G GPU to conduct the long sequence ex-",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "21:\nH ← append(H, h)"
+        },
+        {
+          "A\nAppendix": "periments, which is shown in Table 12 and Table",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "22:\ni ← i + 1"
+        },
+        {
+          "A\nAppendix": "13. The results indicate that increasing the audio",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "23:\nend while"
+        },
+        {
+          "A\nAppendix": "length and beam size makes the acceleration of our",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "24:\nOutput: H ∈ RN ×D"
+        },
+        {
+          "A\nAppendix": "method more noticeable.",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "25:\nend procedure"
+        },
+        {
+          "A\nAppendix": "A.2\nComputation Reduction Theoretical",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "Analysis",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "next layer can be calculated as:"
+        },
+        {
+          "A\nAppendix": "To analyze the computation reduction effect of our",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "method, we use the theoretical FLOPs reduction",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "2ˆn2d + 4ˆnd2 + 2ˆndm"
+        },
+        {
+          "A\nAppendix": "rate. For simplicity, we just analysis the effective",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "Rate = 1 −"
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "2n2d + 4nd2 + 2ndm"
+        },
+        {
+          "A\nAppendix": "theoretical FLOPs reduction based on the token",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "2(1 − k)2n2d + nd(1 − k)(4d + 2m)"
+        },
+        {
+          "A\nAppendix": "reduction rate and input sequence length on one",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "= 1 −"
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "2n2d + nd(4d + 2m)"
+        },
+        {
+          "A\nAppendix": "layer.\nIn the real situation, we can use the same",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "methods to analyse all the decoder layers. Given",
+          "Algorithm 1 Weighted Token Merge Algorithm": "(k − k2)"
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "= k +\n∝ n."
+        },
+        {
+          "A\nAppendix": "the input sequence length n, the hidden dimension",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "1 + (2d+m)"
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "n"
+        },
+        {
+          "A\nAppendix": "d and the Feed Forward Layer hidden dimension",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "m. We can define the theoretical FLOPs in one",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "As a result, the longer the input sequence length,"
+        },
+        {
+          "A\nAppendix": "transformer decoder layer as:",
+          "Algorithm 1 Weighted Token Merge Algorithm": ""
+        },
+        {
+          "A\nAppendix": "",
+          "Algorithm 1 Weighted Token Merge Algorithm": "the higher\nthe FLOPs reduction rate that can be"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ASR (WER% ↓)": "2.21",
+          "ST (BLEU ↑)": "41.46"
+        },
+        {
+          "ASR (WER% ↓)": "30%",
+          "ST (BLEU ↑)": "30%"
+        },
+        {
+          "ASR (WER% ↓)": "8.21",
+          "ST (BLEU ↑)": "37.01"
+        },
+        {
+          "ASR (WER% ↓)": "61.04",
+          "ST (BLEU ↑)": "14.98"
+        },
+        {
+          "ASR (WER% ↓)": "13.91",
+          "ST (BLEU ↑)": "36.52"
+        },
+        {
+          "ASR (WER% ↓)": "110.42",
+          "ST (BLEU ↑)": "38.45"
+        },
+        {
+          "ASR (WER% ↓)": "",
+          "ST (BLEU ↑)": ""
+        },
+        {
+          "ASR (WER% ↓)": "2.51",
+          "ST (BLEU ↑)": "40.51"
+        },
+        {
+          "ASR (WER% ↓)": "",
+          "ST (BLEU ↑)": ""
+        },
+        {
+          "ASR (WER% ↓)": "",
+          "ST (BLEU ↑)": ""
+        },
+        {
+          "ASR (WER% ↓)": "2.30",
+          "ST (BLEU ↑)": "40.83"
+        },
+        {
+          "ASR (WER% ↓)": "",
+          "ST (BLEU ↑)": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Constant Schedule": ""
+        },
+        {
+          "Constant Schedule": ""
+        },
+        {
+          "Constant Schedule": "Full Token Baseline"
+        },
+        {
+          "Constant Schedule": "FLOPs Reduce"
+        },
+        {
+          "Constant Schedule": "Random Merge"
+        },
+        {
+          "Constant Schedule": "Random Evict"
+        },
+        {
+          "Constant Schedule": "A-ToMe (Li et al., 2023)"
+        },
+        {
+          "Constant Schedule": "FastV (Chen et al., 2024)"
+        },
+        {
+          "Constant Schedule": "FastAdaSP-Sparse"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "the FastAdaSP algorithm, which was brifely men-"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "tioned in Section 3.2. Given the audio feature se-"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "the merge\nquence A = (ai ∈ RD|i = 1, ..., L),"
+        },
+        {
+          "Here we show the full\nimplementation details of": "index list M = (mi ∈ R|i = 1, ..., T ) and merge"
+        },
+        {
+          "Here we show the full\nimplementation details of": "weights Wmerge = (ωi ∈ R|i = 1, ..., L). Then we"
+        },
+        {
+          "Here we show the full\nimplementation details of": "can use Algorithm 1 to obtain the merged audio"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "feature sequence H = (hi ∈ RD|i = 1, ..., N ),"
+        },
+        {
+          "Here we show the full\nimplementation details of": "where N is the length of the merged audio feature"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "sequence."
+        },
+        {
+          "Here we show the full\nimplementation details of": "Additionally, if there are B batches in the hidden"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "states, we currently need to perform the algorithm"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "B times to reduce the audio tokens for each audio"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "sequence separately. In the future, this process may"
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        },
+        {
+          "Here we show the full\nimplementation details of": "be improved by executing the algorithm for each"
+        },
+        {
+          "Here we show the full\nimplementation details of": "batch in parallel."
+        },
+        {
+          "Here we show the full\nimplementation details of": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Token Reduce %": "Full Token Baseline",
+          "SUM (ROUGE-L ↑)": "16.20",
+          "FLOPs Reduction % ↑": "0.00",
+          "Real Time Factor ↓": "0.091",
+          "Pre-filling Latency (s) ↓": "0.51",
+          "Decoding Latency (s) ↓": "5.09",
+          "Throughput (token/s) ↑": "15.57"
+        },
+        {
+          "Token Reduce %": "10",
+          "SUM (ROUGE-L ↑)": "16.63",
+          "FLOPs Reduction % ↑": "9.54",
+          "Real Time Factor ↓": "0.090",
+          "Pre-filling Latency (s) ↓": "0.51",
+          "Decoding Latency (s) ↓": "4.92",
+          "Throughput (token/s) ↑": "16.00"
+        },
+        {
+          "Token Reduce %": "20",
+          "SUM (ROUGE-L ↑)": "16.27",
+          "FLOPs Reduction % ↑": "19.05",
+          "Real Time Factor ↓": "0.087",
+          "Pre-filling Latency (s) ↓": "0.51",
+          "Decoding Latency (s) ↓": "4.74",
+          "Throughput (token/s) ↑": "16.02"
+        },
+        {
+          "Token Reduce %": "30",
+          "SUM (ROUGE-L ↑)": "16.29",
+          "FLOPs Reduction % ↑": "28.46",
+          "Real Time Factor ↓": "0.083",
+          "Pre-filling Latency (s) ↓": "0.51",
+          "Decoding Latency (s) ↓": "4.52",
+          "Throughput (token/s) ↑": "16.05"
+        },
+        {
+          "Token Reduce %": "40",
+          "SUM (ROUGE-L ↑)": "15.29",
+          "FLOPs Reduction % ↑": "37.66",
+          "Real Time Factor ↓": "0.083",
+          "Pre-filling Latency (s) ↓": "0.51",
+          "Decoding Latency (s) ↓": "4.51",
+          "Throughput (token/s) ↑": "16.62"
+        },
+        {
+          "Token Reduce %": "50",
+          "SUM (ROUGE-L ↑)": "15.10",
+          "FLOPs Reduction % ↑": "46.97",
+          "Real Time Factor ↓": "0.078",
+          "Pre-filling Latency (s) ↓": "0.51",
+          "Decoding Latency (s) ↓": "4.20",
+          "Throughput (token/s) ↑": "16.87"
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "30": "40",
+          "16.29": "15.29",
+          "28.46": "37.66",
+          "0.083": "0.083",
+          "0.51": "0.51",
+          "4.52": "4.51",
+          "16.05": "16.62"
+        },
+        {
+          "30": "50",
+          "16.29": "15.10",
+          "28.46": "46.97",
+          "0.083": "0.078",
+          "0.51": "0.51",
+          "4.52": "4.20",
+          "16.05": "16.87"
+        },
+        {
+          "30": "Table 11: Computational cost experiments on Real Dataset. Inference result of 100 How2 test set samples around",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "Beam Size",
+          "16.29": "Token Reduce %",
+          "28.46": "FLOPs Reduction % ↑",
+          "0.083": "Real Time Factor ↓",
+          "0.51": "Pre-filling Latency (s) ↓",
+          "4.52": "Decoding Latency (s) ↓",
+          "16.05": "Throughput (token/s) ↑"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.054",
+          "0.51": "0.79",
+          "4.52": "5.75",
+          "16.05": "12.86"
+        },
+        {
+          "30": "1",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "48.62",
+          "0.083": "0.044",
+          "0.51": "0.77",
+          "4.52": "4.57",
+          "16.05": "13.57 (1.05x)"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.137",
+          "0.51": "3.11",
+          "4.52": "13.32",
+          "16.05": "5.48"
+        },
+        {
+          "30": "5",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "48.40",
+          "0.083": "0.092",
+          "0.51": "3.09",
+          "4.52": "8.01",
+          "16.05": "8.87 (1.61x)"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.044",
+          "0.51": "1.70",
+          "4.52": "8.90",
+          "16.05": "8.09"
+        },
+        {
+          "30": "1",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "49.21",
+          "0.083": "0.036",
+          "0.51": "1.59",
+          "4.52": "7.02",
+          "16.05": "9.69 (1.20x)"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.126",
+          "0.51": "6.72",
+          "4.52": "23.55",
+          "16.05": "3.10"
+        },
+        {
+          "30": "5",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "49.21",
+          "0.083": "0.077",
+          "0.51": "6.48",
+          "4.52": "11.89",
+          "16.05": "5.72 (1.84x)"
+        },
+        {
+          "30": "Table 12: Long Sequence Computational cost experiments on A100. Long sequence audio samples (120s and",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "Beam Size",
+          "16.29": "Token Reduce %",
+          "28.46": "FLOPs Reduction % ↑",
+          "0.083": "Real Time Factor ↓",
+          "0.51": "Pre-filling Latency (s) ↓",
+          "4.52": "Decoding Latency (s) ↓",
+          "16.05": "Throughput (token/s) ↑"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.027",
+          "0.51": "0.26",
+          "4.52": "3.00",
+          "16.05": "24.63"
+        },
+        {
+          "30": "1",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "48.62",
+          "0.083": "0.023",
+          "0.51": "0.26",
+          "4.52": "2.52",
+          "16.05": "24.73 (1.01x)"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.043",
+          "0.51": "0.48",
+          "4.52": "4.73",
+          "16.05": "15.44"
+        },
+        {
+          "30": "5",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "48.40",
+          "0.083": "0.032",
+          "0.51": "0.46",
+          "4.52": "3.44",
+          "16.05": "20.66 (1.34x)"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.020",
+          "0.51": "0.43",
+          "4.52": "4.29",
+          "16.05": "16.70"
+        },
+        {
+          "30": "1",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "49.21",
+          "0.083": "0.019",
+          "0.51": "0.39",
+          "4.52": "4.06",
+          "16.05": "16.75 (1.00x)"
+        },
+        {
+          "30": "",
+          "16.29": "Full Token",
+          "28.46": "0.00",
+          "0.083": "0.039",
+          "0.51": "1.13",
+          "4.52": "8.39",
+          "16.05": "8.70"
+        },
+        {
+          "30": "5",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "50",
+          "28.46": "49.21",
+          "0.083": "0.026",
+          "0.51": "0.96",
+          "4.52": "5.42",
+          "16.05": "12.55 (1.44x)"
+        },
+        {
+          "30": "Table 13: Long Sequence Computational cost experiments on H100. Long sequence audio samples (120s and",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        },
+        {
+          "30": "",
+          "16.29": "",
+          "28.46": "",
+          "0.083": "",
+          "0.51": "",
+          "4.52": "",
+          "16.05": ""
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "form audio comprehension.": "addition,"
+        },
+        {
+          "form audio comprehension.": "SpeechLM products, batch decoding is often a ne-"
+        },
+        {
+          "form audio comprehension.": "cessity, with batch sizes potentially reaching up to"
+        },
+        {
+          "form audio comprehension.": ""
+        },
+        {
+          "form audio comprehension.": "our proposed methods are designed to reduce the"
+        },
+        {
+          "form audio comprehension.": "memory footprint associated with many long audio"
+        },
+        {
+          "form audio comprehension.": "inputs while simultaneously accelerating the de-"
+        },
+        {
+          "form audio comprehension.": "coding process. This optimization is crucial for en-"
+        },
+        {
+          "form audio comprehension.": "hancing the efficiency and scalability of SpeechLM"
+        },
+        {
+          "form audio comprehension.": "systems in real world applications."
+        }
+      ],
+      "page": 12
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Token merging: Your vit but faster",
+      "authors": [
+        "Daniel Bolya",
+        "Cheng-Yang Fu",
+        "Xiaoliang Dai",
+        "Peizhao Zhang",
+        "Christoph Feichtenhofer",
+        "Judy Hoffman"
+      ],
+      "year": "2023",
+      "venue": "The Eleventh International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "2",
+      "title": "Audiolm: a language modeling approach to audio generation",
+      "authors": [
+        "Zalán Borsos",
+        "Raphaël Marinier",
+        "Damien Vincent",
+        "Eugene Kharitonov",
+        "Olivier Pietquin",
+        "Matt Sharifi",
+        "Dominik Roblek",
+        "Olivier Teboul",
+        "David Grangier",
+        "Marco Tagliasacchi",
+        "Neil Zeghidour"
+      ],
+      "year": "2023",
+      "venue": "Audiolm: a language modeling approach to audio generation",
+      "arxiv": "arXiv:2209.03143"
+    },
+    {
+      "citation_id": "3",
+      "title": "Efficient conformer: Progressive downsampling and grouped attention for automatic speech recognition",
+      "authors": [
+        "Maxime Burchi",
+        "Valentin Vielzeuf"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU)",
+      "doi": "10.1109/ASRU51503.2021.9687874"
+    },
+    {
+      "citation_id": "4",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database. Language resources and evaluation",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Iemocap: Interactive emotional dyadic motion capture database. Language resources and evaluation"
+    },
+    {
+      "citation_id": "5",
+      "title": "An image is worth 1/2 tokens after layer 2: Plug-andplay inference acceleration for large vision-language models",
+      "authors": [
+        "Liang Chen",
+        "Haozhe Zhao",
+        "Tianyu Liu",
+        "Shuai Bai",
+        "Junyang Lin",
+        "Chang Zhou",
+        "Baobao Chang"
+      ],
+      "year": "2024",
+      "venue": "An image is worth 1/2 tokens after layer 2: Plug-andplay inference acceleration for large vision-language models",
+      "arxiv": "arXiv:2403.06764"
+    },
+    {
+      "citation_id": "6",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen",
+        "Chengyi Wang",
+        "Zhengyang Chen",
+        "Yu Wu",
+        "Shujie Liu",
+        "Zhuo Chen",
+        "Jinyu Li",
+        "Naoyuki Kanda",
+        "Takuya Yoshioka",
+        "Xiong Xiao",
+        "Jian Wu",
+        "Long Zhou",
+        "Shuo Ren",
+        "Yanmin Qian",
+        "Jian Yao Qian",
+        "Michael Wu",
+        "Xiangzhan Zeng",
+        "Furu Yu",
+        "Wei"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing",
+      "doi": "10.1109/jstsp.2022.3188113"
+    },
+    {
+      "citation_id": "7",
+      "title": "Qwen-audio: Advancing universal audio understanding via unified large-scale audiolanguage models",
+      "authors": [
+        "Yunfei Chu",
+        "Jin Xu",
+        "Xiaohuan Zhou",
+        "Qian Yang",
+        "Shiliang Zhang",
+        "Zhijie Yan",
+        "Chang Zhou",
+        "Jingren Zhou"
+      ],
+      "year": "2023",
+      "venue": "Qwen-audio: Advancing universal audio understanding via unified large-scale audiolanguage models",
+      "arxiv": "arXiv:2311.07919"
+    },
+    {
+      "citation_id": "8",
+      "title": "MuTual: A dataset for multi-turn dialogue reasoning",
+      "authors": [
+        "Leyang Cui",
+        "Yu Wu",
+        "Shujie Liu",
+        "Yue Zhang",
+        "Ming Zhou"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics",
+      "doi": "10.18653/v1/2020.acl-main.130"
+    },
+    {
+      "citation_id": "9",
+      "title": "MuST-C: a Multilingual Speech Translation Corpus",
+      "authors": [
+        "A Mattia",
+        "Roldano Gangi",
+        "Luisa Cattoni",
+        "Matteo Bentivogli",
+        "Marco Negri",
+        "Turchi"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+      "doi": "10.18653/v1/N19-1202"
+    },
+    {
+      "citation_id": "10",
+      "title": "Get more with less: Synthesizing recurrence with kv cache compression for efficient llm inference",
+      "authors": [
+        "Harry Dong",
+        "Xinyu Yang",
+        "Zhenyu Zhang",
+        "Zhangyang Wang",
+        "Yuejie Chi",
+        "Beidi Chen"
+      ],
+      "year": "2024",
+      "venue": "Get more with less: Synthesizing recurrence with kv cache compression for efficient llm inference",
+      "arxiv": "arXiv:2402.09398"
+    },
+    {
+      "citation_id": "11",
+      "title": "Clotho: An audio captioning dataset",
+      "authors": [
+        "Konstantinos Drossos",
+        "Samuel Lipping",
+        "Tuomas Virtanen"
+      ],
+      "year": "2020",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "12",
+      "title": "Audiopalm: A large language model that can speak and listen",
+      "authors": [
+        "K Paul",
+        "Rubenstein"
+      ],
+      "year": "2023",
+      "venue": "Audiopalm: A large language model that can speak and listen",
+      "arxiv": "arXiv:2306.12925"
+    },
+    {
+      "citation_id": "13",
+      "title": "Listen, think, and understand",
+      "authors": [
+        "Yuan Gong",
+        "Hongyin Luo",
+        "Alexander Liu",
+        "Leonid Karlinsky",
+        "James Glass"
+      ],
+      "year": "2024",
+      "venue": "The Twelfth International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "14",
+      "title": "Conformer: Convolution-augmented Transformer for Speech Recognition",
+      "authors": [
+        "Anmol Gulati",
+        "James Qin",
+        "Chung-Cheng Chiu",
+        "Niki Parmar",
+        "Yu Zhang",
+        "Jiahui Yu",
+        "Wei Han",
+        "Shibo Wang",
+        "Zhengdong Zhang",
+        "Yonghui Wu",
+        "Ruoming Pang"
+      ],
+      "year": "2020",
+      "venue": "Proc. INTER-SPEECH 2020",
+      "doi": "10.21437/Interspeech.2020-3015"
+    },
+    {
+      "citation_id": "15",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Trans. Audio, Speech and Lang. Proc",
+      "doi": "10.1109/TASLP.2021.3122291"
+    },
+    {
+      "citation_id": "16",
+      "title": "Wavllm: Towards robust and adaptive speech large language model",
+      "authors": [
+        "Shujie Hu",
+        "Long Zhou",
+        "Shujie Liu",
+        "Sanyuan Chen",
+        "Hongkun Hao",
+        "Jing Pan",
+        "Xunying Liu",
+        "Jinyu Li",
+        "Sunit Sivasankaran",
+        "Linquan Liu",
+        "Furu Wei"
+      ],
+      "year": "2024",
+      "venue": "Wavllm: Towards robust and adaptive speech large language model",
+      "arxiv": "arXiv:2404.00656"
+    },
+    {
+      "citation_id": "17",
+      "title": "E-branchformer: Branchformer with enhanced merging for speech recognition",
+      "authors": [
+        "Kwangyoun Kim",
+        "Felix Wu",
+        "Yifan Peng",
+        "Jing Pan",
+        "Prashant Sridhar",
+        "Kyu Han",
+        "Shinji Watanabe"
+      ],
+      "year": "2023",
+      "venue": "2022 IEEE Spoken Language Technology Workshop (SLT)",
+      "doi": "10.1109/SLT54892.2023.10022656"
+    },
+    {
+      "citation_id": "18",
+      "title": "Squeezeformer: An efficient transformer for automatic speech recognition",
+      "authors": [
+        "Sehoon Kim",
+        "Amir Gholami",
+        "Albert Shaw",
+        "Nicholas Lee",
+        "Karttikeya Mangalam",
+        "Jitendra Malik",
+        "Michael Mahoney",
+        "Kurt Keutzer"
+      ],
+      "year": "2022",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "19",
+      "title": "Accelerating Transducers through Adjacent Token Merging",
+      "authors": [
+        "Yuang Li",
+        "Yu Wu",
+        "Jinyu Li",
+        "Shujie Liu"
+      ],
+      "year": "2023",
+      "venue": "Proc. INTERSPEECH 2023",
+      "doi": "10.21437/Interspeech.2023-599"
+    },
+    {
+      "citation_id": "20",
+      "title": "Mlp can be a good transformer learner",
+      "authors": [
+        "Sihao Lin",
+        "Pumeng Lyu",
+        "Dongrui Liu",
+        "Tao Tang",
+        "Xiaodan Liang",
+        "Andy Song",
+        "Xiaojun Chang"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "21",
+      "title": "Syneslm: A unified approach for audio-visual speech recognition and translation via language model and synthetic data",
+      "authors": [
+        "Yichen Lu",
+        "Jiaqi Song",
+        "Xuankai Chang",
+        "Hengwei Bian",
+        "Soumi Maiti",
+        "Shinji Watanabe"
+      ],
+      "year": "2024",
+      "venue": "Syneslm: A unified approach for audio-visual speech recognition and translation via language model and synthetic data",
+      "arxiv": "arXiv:2408.00624"
+    },
+    {
+      "citation_id": "22",
+      "title": "Voxtlm: Unified decoder-only models for consolidating speech recognition, synthesis and speech, text continuation tasks",
+      "authors": [
+        "Soumi Maiti",
+        "Yifan Peng",
+        "Shukjae Choi",
+        "Jee-Weon Jung",
+        "Xuankai Chang",
+        "Shinji Watanabe"
+      ],
+      "year": "2024",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)",
+      "doi": "10.1109/ICASSP48485.2024.10447112"
+    },
+    {
+      "citation_id": "23",
+      "title": "Gpt-4 technical report",
+      "authors": [
+        "Openai"
+      ],
+      "year": "2024",
+      "venue": "Gpt-4 technical report",
+      "arxiv": "arXiv:2303.08774"
+    },
+    {
+      "citation_id": "24",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "Vassil Panayotov",
+        "Guoguo Chen",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)",
+      "doi": "10.1109/ICASSP.2015.7178964"
+    },
+    {
+      "citation_id": "25",
+      "title": "MELD: A multimodal multi-party dataset for emotion recognition in conversations",
+      "authors": [
+        "Soujanya Poria",
+        "Devamanyu Hazarika",
+        "Navonil Majumder",
+        "Gautam Naik",
+        "Erik Cambria",
+        "Rada Mihalcea"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics",
+      "doi": "10.18653/v1/P19-1050"
+    },
+    {
+      "citation_id": "26",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Tao Xu",
+        "Greg Brockman",
+        "Christine Mcleavey",
+        "Ilya Sutskever"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 40th International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "27",
+      "title": "Whispering llama: A cross-modal generative error correction framework for speech recognition",
+      "authors": [
+        "Srijith Radhakrishnan",
+        "Chao-Han",
+        "Sumeer Yang",
+        "Rohit Khan",
+        "Narsis Kumar",
+        "David Kiani",
+        "Jesper Gomez-Cabrero",
+        "Tegnér"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "28",
+      "title": "How2: a large-scale dataset for multimodal language understanding",
+      "authors": [
+        "Ramon Sanabria",
+        "Ozan Caglayan",
+        "Shruti Palaskar",
+        "Desmond Elliott",
+        "Loïc Barrault",
+        "Lucia Specia",
+        "Florian Metze"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the Workshop on Visually Grounded Interaction and Language (ViGIL)"
+    },
+    {
+      "citation_id": "29",
+      "title": "Llava-prumerge: Adaptive token reduction for efficient large multimodal models",
+      "authors": [
+        "Yuzhang Shang",
+        "Mu Cai",
+        "Bingxin Xu",
+        "Jae Lee",
+        "Yan Yan"
+      ],
+      "year": "2024",
+      "venue": "Llava-prumerge: Adaptive token reduction for efficient large multimodal models",
+      "arxiv": "arXiv:2403.15388"
+    },
+    {
+      "citation_id": "30",
+      "title": "Mean field analysis of neural networks: A law of large numbers",
+      "authors": [
+        "Justin Sirignano",
+        "Konstantinos Spiliopoulos"
+      ],
+      "year": "2020",
+      "venue": "SIAM Journal on Applied Mathematics",
+      "doi": "10.1137/18M1192184"
+    },
+    {
+      "citation_id": "31",
+      "title": "2024a. video-SALMONN: Speech-enhanced audio-visual large language models",
+      "authors": [
+        "Guangzhi Sun",
+        "Wenyi Yu",
+        "Changli Tang",
+        "Xianzhao Chen",
+        "Tian Tan",
+        "Wei Li",
+        "Lu Lu",
+        "M Zejun",
+        "Yuxuan Wang",
+        "Chao Zhang"
+      ],
+      "venue": "Forty-first International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "32",
+      "title": "Entropy-driven mixed-precision quantization for deep network design",
+      "authors": [
+        "Zhenhong Sun",
+        "Ce Ge",
+        "Junyan Wang",
+        "Ming Lin",
+        "Hesen Chen",
+        "Hao Li",
+        "Xiuyu Sun"
+      ],
+      "year": "2022",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "33",
+      "title": "2024b. SALMON: Selfalignment with instructable reward models",
+      "authors": [
+        "Zhiqing Sun",
+        "Yikang Shen",
+        "Hongxin Zhang",
+        "Qinhong Zhou",
+        "Zhenfang Chen",
+        "David Daniel Cox",
+        "Yiming Yang",
+        "Chuang Gan"
+      ],
+      "venue": "The Twelfth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "34",
+      "title": "Llama: Open and efficient foundation language models",
+      "authors": [
+        "Hugo Touvron",
+        "Thibaut Lavril",
+        "Gautier Izacard",
+        "Xavier Martinet",
+        "Marie-Anne Lachaux",
+        "Timothée Lacroix",
+        "Baptiste Rozière",
+        "Naman Goyal",
+        "Eric Hambro",
+        "Faisal Azhar",
+        "Aurelien Rodriguez",
+        "Armand Joulin",
+        "Edouard Grave",
+        "Guillaume Lample"
+      ],
+      "year": "2023",
+      "venue": "Llama: Open and efficient foundation language models",
+      "arxiv": "arXiv:2302.13971"
+    },
+    {
+      "citation_id": "35",
+      "title": "Look-m: Look-once optimization in kv cache for efficient multimodal long-context inference",
+      "authors": [
+        "Zhongwei Wan",
+        "Ziang Wu",
+        "Che Liu",
+        "Jinfa Huang",
+        "Zhihong Zhu",
+        "Peng Jin",
+        "Longyue Wang",
+        "Li Yuan"
+      ],
+      "year": "2024",
+      "venue": "Look-m: Look-once optimization in kv cache for efficient multimodal long-context inference",
+      "arxiv": "arXiv:2406.18139"
+    },
+    {
+      "citation_id": "36",
+      "title": "Covost 2 and massively multilingual speech-to-text translation",
+      "authors": [
+        "Changhan Wang",
+        "Anne Wu",
+        "Juan Pino"
+      ],
+      "year": "2020",
+      "venue": "Covost 2 and massively multilingual speech-to-text translation",
+      "arxiv": "arXiv:2007.10310"
+    },
+    {
+      "citation_id": "37",
+      "title": "Efficient streaming language models with attention sinks",
+      "authors": [
+        "Guangxuan Xiao",
+        "Yuandong Tian",
+        "Beidi Chen",
+        "Song Han",
+        "Mike Lewis"
+      ],
+      "year": "2024",
+      "venue": "The Twelfth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "38",
+      "title": "Transformer transducer: A streamable speech recognition model with transformer encoders and rnnt loss",
+      "authors": [
+        "Qian Zhang",
+        "Han Lu",
+        "Hasim Sak",
+        "Anshuman Tripathi",
+        "Erik Mcdermott",
+        "Stephen Koo",
+        "Shankar Kumar"
+      ],
+      "year": "2020",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP40776.2020.9053896"
+    },
+    {
+      "citation_id": "39",
+      "title": "H2o: Heavy-hitter oracle for efficient generative inference of large language models",
+      "authors": [
+        "Zhenyu Zhang",
+        "Ying Sheng",
+        "Tianyi Zhou",
+        "Tianlong Chen",
+        "Lianmin Zheng",
+        "Ruisi Cai",
+        "Zhao Song",
+        "Yuandong Tian",
+        "Christopher Re",
+        "Clark Barrett",
+        "Zhangyang Wang",
+        "Beidi Chen"
+      ],
+      "year": "2023",
+      "venue": "Thirty-seventh Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "40",
+      "title": "Skipformer: A skip-andrecover strategy for efficient speech recognition",
+      "authors": [
+        "Wenjing Zhu",
+        "Sining Sun",
+        "Changhao Shan",
+        "Peng Fan",
+        "Qing Yang"
+      ],
+      "year": "2024",
+      "venue": "Skipformer: A skip-andrecover strategy for efficient speech recognition",
+      "arxiv": "arXiv:2403.08258"
+    }
+  ]
+}

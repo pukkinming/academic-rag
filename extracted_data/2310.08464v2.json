@@ -1,0 +1,1840 @@
+{
+  "paper_id": "2310.08464v2",
+  "title": "Crowdsourced And Automatic Speech Prominence Estimation",
+  "published": "2023-10-12T16:23:28Z",
+  "authors": [
+    "Max Morrison",
+    "Pranav Pawar",
+    "Nathan Pruyne",
+    "Jennifer Cole",
+    "Bryan Pardo"
+  ],
+  "keywords": [
+    "emphasis",
+    "paralinguistics",
+    "prominence",
+    "prosody"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "The prominence of a spoken word is the degree to which an average native listener perceives the word as salient or emphasized relative to its context. Speech prominence estimation is the process of assigning a numeric value to the prominence of each word in an utterance. These prominence labels are useful for linguistic analysis, as well as training automated systems to perform emphasis-controlled text-tospeech or emotion recognition. Manually annotating prominence is time-consuming and expensive, which motivates the development of automated methods for speech prominence estimation. However, developing such an automated system using machine-learning methods requires human-annotated training data. Using our system for acquiring such human annotations, we collect and open-source crowdsourced annotations of a portion of the LibriTTS dataset. We use these annotations as ground truth to train a neural speech prominence estimator that generalizes to unseen speakers, datasets, and speaking styles. We investigate design decisions for neural prominence estimation as well as how neural prominence estimation improves as a function of two key factors of annotation cost: dataset size and the number of annotations per utterance.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Prominent or emphasized words are those that stand out to listeners as salient or perceptually highlighted relative to their context. Human perception of prominence in English (and many other languages) is influenced by acoustic factors related to prosody (i.e., the pitch, rhythm, and loudness of speech) as well as information structure  [1, 2] . Information structure is the contribution a word makes to the shared knowledge of the speaker and hearer, based on its status as conveying information that is given, new, or contrastive relative to prior discourse. Prominence is a multi-dimensional perceptual relation between words in a phrase. However, performing annotations in this multi-dimensional space (e.g., separately annotating structural and semantic factors), as opposed to a scalar, is cost-prohibitive.\n\nIn this paper, we represent the emphasis status of each word using a binary label (zero or one), and its prominence as a scalar real value between zero and one, such that the emphasis status is a binary thresholding of scalar prominence, and scalar prominence is a weighted norm of the latent multi-dimensional prominence. From a statistical viewpoint, we consider the prominence m of word i as a Bernoulli distribution parameter and the emphasis e as the corresponding Bernoulli random variable such that the probability that word i is perceived as emphasized is p(ei = 1) = mi.\n\nEmphasis annotation is the process of labeling each word with a binary indicator of emphasis, a task that can be performed by non-expert native speakers. Given multiple annotations of the same speech (e.g., from multiple human annotators), scalar prominence values can be obtained by averaging over the binary emphasis annotations for each word. Emphasis and prominence labels are used in downstream tasks such as emphasis-controlled TTS  [3, 4, 5] , emotion recognition  [6] , and text summarization  [7] .\n\nBecause human emphasis annotation can be costly and timeconsuming, prior works attempted to replace these annotations with one of three types of automated methods: (1) heuristic, rule-based methods based on acoustic features  [8, 9, 10] , (2) machine learning methods that train on the output of such a rule-based system  [11, 12, 13] , and (3) machine learning methods that train on groundtruth values prominence derived from human annotation  [14, 15, 16, 17] . Heuristic, rule-based systems struggle to capture the complexity of high-dimensional perceptual attributes and can require significant manual tuning to generalize to new data distributions. Machine learning methods that learn from the output of rule-based systems might perform useful interpolation and denoising, but otherwise inherit the same drawbacks. Methods that learn from human annotation avoid these drawbacks, but require human-annotated data for training. All three approaches necessitate benchmarking on human annotations, making human annotation unavoidable.\n\nVaidya et al.  [17]  is most similar to our method of performing neural prominence estimation using human annotations. They use a closed-source dataset of 41k English words spoken by 10-14 year old students in Mumbai and annotated by 26 university students to have seven annotations per word. Transcripts come from 34 short stories of 100 words, each selected to have a single reference prosody for fluency assessment purposes  [18] . In other words, text was selected to make placement of emphasis in the dataset more predictable. Vaidya et al. train a CRNN-based model to infer prominence from ground truth acoustic features with a Pearson correlation of 0.721 on heldout recordings of unseen non-native child speakers. They demonstrate further performance using human-annotated boundary features, language-dependent lexical features, and curated selection of prosodic features. Lack of open source data, models, and input features makes exact replication impossible. Instead, we perform ablations of what we consider to be key architectural decisions and note the additional utility of the input features they have explored.\n\nUnique to our work, we train on scalable crowdsourced annotations, generalize to unseen speaking styles and datasets of adult speakers, produce open-source annotations suitable for training and benchmarking, develop open-source tools for crowdsourced speech annotation, and uncover novel guidelines for how the performance of neural prominence estimation trained on crowdsourced annotations scales with dataset size and annotator redundancy-two primary factors in the overall cost of emphasis annotation. Our main contributions in this paper are as follows.\n\n• (Contribution 1) We develop a neural speech prominence estimation system trained on crowdsourced human emphasis annotations that produces accurate prominence estimations on unseen speakers, datasets, and speaking styles (Section 4). • (Contribution 2) We produce a CC-BY-4.0 licensed dataset of emphasis annotations of one eighth of the train-clean-100 partition of LibriTTS (Section 3).",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "• (Contribution 3)",
+      "text": "We develop an open-source system for performing crowdsourced word-level annotations of, e.g., falsetto, vocal fry, and emphasis (Section 2).\n\n• (Contribution 4) We demonstrate how the amount of training data and the number of annotators per speech excerpt impact estimation performance, providing guidelines for costeffective annotation (Section 6).\n\nWe release our code and annotation methods as emphases, a MITlicensed, pip-installable Python module for training, evaluating, and performing both automatic and human annotation of emphasis. Our code and dataset are available on our project website. 1",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Crowdsourcing Emphasis Annotation",
+      "text": "Here, we describe our open-source crowdsourced annotation tool for annotation of, e.g., prominence, mispronunciation, or vocal fry annotation. We developed our human annotation system as a word selection task that we add to Reproducible Subjective Evaluation (ReSEval)  [19] . ReSEval is a subjective evaluation tool that handles database, server, and crowdsourced participant acquisition to quickly create and manage crowdsourced evaluations in Python. ReSEval enables a greater variety of tasks and prescreening criteria (e.g., listening tests) than existing survey templates, such as those available on Amazon Mechanical Turk (MTurk). For prominence annotation, we first require annotators to pass a listening test that ensures a suitable listening environment, using the listening test method proposed by Cartwright et al.  [20] . We then present annotators with an audio recording and the corresponding text (see Figure  1 ). As in the annotation interface of Cole et al.  [21] , annotators are required to listen to the audio file a minimum of two times and asked to select all of the words that were emphasized by the speaker by clicking on the words themselves. Annotators must start the audio to begin selecting words, but may select words while the audio is playing.\n\n1 maxrmorrison.com/sites/prominence-estimation/",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Emphasis Annotation Dataset",
+      "text": "We used our crowdsourced annotation system to perform human annotation on one eighth of the train-clean-100 partition of the LibriTTS  [22]  dataset. Specifically, participants annotated 3,626 utterances with a total length of 6.42 hours and 69,809 words from 18 speakers (9 male and 9 female). We collected at least one annotation of all 3,626 utterances, at least two annotations of 2,259 of those utterances, at least four annotations of 974 utterances, and at least eight annotations of 453 utterances. We did this in order to explore (in Section 6) whether it is more cost-effective to train a system on multiple annotations of fewer utterances or fewer annotations of more utterances. We paid 298 annotators to annotate batches of 20 utterances, where each batch takes approximately 15 minutes. We paid $3.34 for each completed batch (estimated $13.35 per hour). Annotators each annotated between one and six batches. We recruited on MTurk US residents with an approval rating of at least 99 and at least 1000 approved tasks. Today, microlabor platforms like MTurk are plagued by automated task-completion software agents (bots) that randomly fill out surveys. We filtered out bots by excluding annotations from an additional 107 annotators that marked more than 2/3 of words as emphasized in eight or more utterances of the 20 utterances in a batch. Annotators who fail the bot filter are blocked from performing further annotation. We also recorded participants' native country and language, but note these may be unreliable as many MTurk workers use VPNs to subvert IP region filters on MTurk  [23] .\n\nThe average Cohen Kappa score for annotators with at least one overlapping utterance is 0.226 (i.e., \"Fair\" agreement)-but not all annotators annotate the same utterances, and this overemphasizes pairs of annotators with low overlap. Therefore, we use a one-parameter logistic model (i.e., a Rasch model) computed via py-irt  [24] , which predicts heldout annotations from scores of overlapping annotators with 77.7% accuracy (50% is random).",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Neural Prominence Estimation",
+      "text": "We propose a neural network that predicts human-annotated prominence values for a sequence of words from acoustic features. Our proposed model takes as input an 80-channel Mel spectrogram) at Fig.  2 . Three candidate prominence estimation models | We experiment with a framewise model (left) as well as two wordwise models: one that downsamples from frames to words just before the loss function (posthoc wordwise; center) and one that downsamples within the neural network (intermediate wordwise; right). The yellow, framewise encoder is a stack of convolution layers that operate at the frame resolution. The magenta, wordwise decoder is a stack of convolution layers that operate at the word resolution.\n\nan evenly-quantized time frame resolution (e.g., ten milliseconds), as well as a time-alignment between words and frames (i.e., the start and end frame indices corresponding to each word). We found no improvement when adding pitch, periodicity, or loudness features, which may be redundant with the spectrogram. Our network produces one prominence value per word. Crucial to such a system is the mechanism to perform variable-stride downsampling from the frame resolution to the word resolution. Vaidya et al.  [17]  propose one option (which we refer to as prehoc wordwise) that segments words before input to the model, such that the receptive field of the framewise encoder is limited to a single word. We identify three additional locations within the system for performing downsampling (Figure  2 ): (1) (framewise) upsample the ground truth prominence values to the frame resolution using linear interpolation during training and downsample the network output to word resolution during inference, (2) (posthoc wordwise) downsample the network output during training and inference, and (3) (intermediate wordwise) downsample to the word resolution within the network. We further identify four methods for variable-stride downsampling from the frame resolution to the word resolution at each location:\n\n(1) (average) take the channel-wise average over all frames corresponding to a word, (2) (max) take the channel-wise maximum over all frames corresponding to a word, (3) (sum) take the channelwise sum over all frames corresponding to a word, and (4) (center) take the value of the frame in the center of the word. Each framewise encoder and wordwise decoder is a stack of six convolution   [25] , GeLU  [26] , or Swish  [27] ; convolution layers improve over Transformer  [28]  layers; and dropout does not improve performance when our model is not overparameterized.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Evaluation",
+      "text": "We design our evaluation to determine whether our proposed neural prominence estimation models exceed the performance of previous automatic prominence estimation methods. We perform ablations to show the relative impact of design decisions, such as the method for downsampling from frames to words. Finally, we demonstrate the scaling behaviors of our best model as a function of two key cost factors: the number of emphasis-annotated utterances and the number of annotators per utterance.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Data",
+      "text": "We train our models on our annotated LibriTTS partition (Section 2). We determine word boundaries by performing forced alignment between the speech transcript and audio. We use the Penn Phonetic Forced Aligner (P2FA)  [30]  via the Python Forced Alignment (pyfoal) library  [31] . We extract from the 16 kHz audio 80 bands of a log-mel spectrogram using a hopsize of 160 samples and a window size of 1024 samples. We partition utterances into train (80%), validation (10%), and test (10%) partitions. Scaling experiments use a different partitioning (see Section 5.4).\n\nTo examine generalization to unseen speakers, datasets, and speaking styles, we perform additional evaluation on emphasis annotations  [21]  of the Buckeye corpus of conversational American English  [29] . This evaluation dataset consists of 16 utterances from 16 speakers for a total of 256 utterances lasting 3.98 minutes and containing 931 words. Each utterance is annotated by 32 native speakers of American English.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Training",
+      "text": "We train using an Adam optimizer with a learning rate of 1e -3 to optimize a binary cross entropy (BCE) loss between predicted and ground truth prominence values. In Table  2 , we show that mean squared error (MSE) and bounding the output to be between zero and one performs comparably with BCE, making MSE a viable option for loss function as well. We train for 6,000 steps, validating every 100 steps and checkpointing when the Pearson correlation between model output and human labeling (Section 5.3) is the maximum so far. We use a variable batch size  [32]  during training with a maximum of 75,000 frames (12.5 minutes) per batch.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Buckeye",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Metrics",
+      "text": "We measure the accuracy of a prominence estimation system by calculating the Pearson correlation and BCE between the system's output and the corresponding ground truth prominence value for each word. BCE is equal to the KL divergence between Bernoulli random variables up to a dataset-dependent constant, making it well-suited for our probabilistic view of prominence as Bernoulli distribution parameters (Section 1). We use Pearson correlation (instead of BCE) to compare with digital signal processing (DSP) baselines, as the range of system outputs varies between baseline systems and Pearson correlation is scale-invariant.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experimental Design",
+      "text": "We now describe our experiments designed to demonstrate the performance of our model relative to previous works, the efficacy of our individual design choices, and the scaling behaviors of interest.\n\nIn Table  1 , we experiment with all combinations of the four downsampling locations and four downsampling methods described in Section 4. In Table  2 , we ablate our loss function and compare to a top-performing heuristic method (wavelet)  [3]  that classifies words by thresholding wavelet-based features proposed by Suni et. al  [9] .\n\nWe demonstrate scaling behaviors for prominence estimation using our best model on curated data partitions of 400, 800, 1,600, and 3,200 utterances. We further analyze the cost efficiency of annotator redundancy by training on 400 annotations with eight annotators, 800 annotations with four annotators, 1,600 annotations with two annotators, and 3,200 annotations with one annotator. We discuss implications for cost-effective annotation.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Results",
+      "text": "The accuracies of our proposed neural prominence estimation method as well as baseline and ablation systems are reported in Tables  1  and 2 . In Table  1 , we see that the variable-stride downsampling required for converting frame-resolution acoustic features to word-resolution prominence estimations is best performed within the network (intermediate) by taking the sum of each channel over the frames corresponding to each word. This outperforms the method proposed by Vaidya et al.  [17]  (prehoc) that segments the input acoustic features into words and indicates that it is efficacious for the receptive field of the framewise encoder to span across words. Relative to prehoc, our proposed intermediate method is also faster to train (by 39.7%) and reduces GPU memory consumption (by 69.1%) during training. In Table  2 , we see that our best model significantly outperforms a top heuristic baseline (wavelet) in PC and BCE on both heldout data from our LibriTTS annotations and heldout data from an unseen dataset with speakers and speaking styles outside the training distribution (Buckeye). Figure  3  demonstrates scaling behaviors for neural prominence estimation using our crowdsourced emphasis annotations of the Lib-riTTS dataset. We provide key takeaways:\n\nFor a fixed budget, use only one annotator per utterance | Neural networks benefit from training on larger datasets. This benefit empirically outweighs the benefit of variance reduction in the ground truth distribution caused by annotator redundancy. However, when data is limited, annotator redundancy can improve performance. Cole et al.  [21]  note marginal variance reduction beyond seven annotators, so we do not expect these improvements to extrapolate to, e.g., 16 annotations per utterance.\n\nFor a fixed budget, increasing annotations per utterance up to eight improves convergence speed | As the number of annotations per utterance increases from one to eight, the number of steps needed for convergence significantly decreases.\n\nTo further examine scaling behaviors, we used our best model to annotate the entire train-clean-100 partition of LibriTTS and train a new model from scratch on 26,588 automatically annotated utterances. The resulting model performed marginally worse on heldout data, underscoring the utility of human annotations.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "The prominence of a spoken word is a fundamentally perceptual phenomenon. Our work highlights the benefits of utilizing human perception for prominence estimation, and demonstrates highquality, generalizable prominence estimation trained from crowdsourced emphasis annotations (Contribution 1). We further solve the lack of publicly available prominence annotations suitable for training a generalizable machine learning model (Contribution 2) and provide tools (Contribution 3) and guidelines (Contribution 4) for practitioners performing crowdsourced annotation. These contributions enable future work in high-quality emphasis-controlled text-to-speech, analysis of the human perception of prominence, and automatic detection and control of other word-level attributes (e.g., disfluency, falsetto, and vocal fry).",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: ). As in the",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Three candidate prominence estimation models | We ex-",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: ): (1) (framewise) upsample the ground truth",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Scaling behaviors for neural prominence estimation |",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: demonstrates scaling behaviors for neural prominence",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "a statistical viewpoint, we consider the prominence m of word i as"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "a Bernoulli distribution parameter and the emphasis e as the corre-"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "sponding Bernoulli\nrandom variable such that\nthe probability that"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "word i is perceived as emphasized is p(ei = 1) = mi."
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "Emphasis annotation is the process of labeling each word with"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "a binary indicator of emphasis,\na task that can be performed by"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "non-expert native speakers. Given multiple annotations of the same"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": ""
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "speech (e.g.,\nfrom multiple human annotators),\nscalar prominence"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "values can be obtained by averaging over the binary emphasis anno-"
+        },
+        {
+          "weighted norm of\nthe latent multi-dimensional prominence.\nFrom": "tations for each word. Emphasis and prominence labels are used in"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Northwestern University, Evanston, IL, USA": "ABSTRACT"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "The prominence of a spoken word is the degree to which an average"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "native listener perceives the word as salient or emphasized relative to"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "its context. Speech prominence estimation is the process of assign-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "ing a numeric value to the prominence of each word in an utterance."
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "These prominence labels are useful for linguistic analysis, as well as"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "training automated systems to perform emphasis-controlled text-to-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "speech or emotion recognition. Manually annotating prominence is"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "time-consuming and expensive, which motivates the development of"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "automated methods for speech prominence estimation. However, de-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "veloping such an automated system using machine-learning methods"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "requires human-annotated training data. Using our system for ac-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "quiring such human annotations, we collect and open-source crowd-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "sourced annotations of a portion of\nthe LibriTTS dataset. We use"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "these annotations as ground truth to train a neural speech prominence"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "estimator that generalizes to unseen speakers, datasets, and speaking"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "styles. We investigate design decisions for neural prominence esti-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "mation as well as how neural prominence estimation improves as a"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "function of two key factors of annotation cost: dataset size and the"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "number of annotations per utterance."
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "Index Terms: emphasis, paralinguistics, prominence, prosody"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "1.\nINTRODUCTION"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "Prominent or emphasized words are those that stand out\nto listen-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "ers as salient or perceptually highlighted relative to their context."
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "Human perception of prominence in English (and many other\nlan-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "guages) is influenced by acoustic factors related to prosody (i.e., the"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "pitch, rhythm, and loudness of speech) as well as information struc-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "ture [1, 2]. Information structure is the contribution a word makes to"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "the shared knowledge of the speaker and hearer, based on its status"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "as conveying information that is given, new, or contrastive relative to"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "prior discourse. Prominence is a multi-dimensional perceptual rela-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "tion between words in a phrase. However, performing annotations in"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "this multi-dimensional space (e.g., separately annotating structural"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "and semantic factors), as opposed to a scalar, is cost-prohibitive."
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "In this paper, we represent the emphasis status of each word us-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "ing a binary label (zero or one), and its prominence as a scalar real"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "value between zero and one, such that\nthe emphasis status is a bi-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "nary thresholding of scalar prominence, and scalar prominence is a"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "weighted norm of\nthe latent multi-dimensional prominence.\nFrom"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "a statistical viewpoint, we consider the prominence m of word i as"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "a Bernoulli distribution parameter and the emphasis e as the corre-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "sponding Bernoulli\nrandom variable such that\nthe probability that"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "word i is perceived as emphasized is p(ei = 1) = mi."
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "Emphasis annotation is the process of labeling each word with"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "a binary indicator of emphasis,\na task that can be performed by"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "non-expert native speakers. Given multiple annotations of the same"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": ""
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "speech (e.g.,\nfrom multiple human annotators),\nscalar prominence"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "values can be obtained by averaging over the binary emphasis anno-"
+        },
+        {
+          "Northwestern University, Evanston, IL, USA": "tations for each word. Emphasis and prominence labels are used in"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "perceive as emphasized."
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "train-clean-100 partition of LibriTTS (Section 3)."
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "•\n(Contribution 3) We develop an open-source\nsystem for"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "performing\ncrowdsourced word-level\nannotations\nof,\ne.g.,"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "falsetto, vocal fry, and emphasis (Section 2)."
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "•\n(Contribution 4) We demonstrate how the amount of train-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "ing data and the number of annotators per speech excerpt im-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "pact estimation performance, providing guidelines for cost-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "effective annotation (Section 6)."
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "We release our code and annotation methods as emphases, a MIT-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "licensed, pip-installable Python module for training, evaluating, and"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "performing both automatic and human annotation of emphasis. Our"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "code and dataset are available on our project website.1"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "2. CROWDSOURCING EMPHASIS ANNOTATION"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "Here, we describe our open-source crowdsourced annotation tool for"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "annotation of, e.g., prominence, mispronunciation, or vocal fry an-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "notation. We developed our human annotation system as a word"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "selection task that we add to Reproducible Subjective Evaluation"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "(ReSEval) [19]. ReSEval is a subjective evaluation tool that handles"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "database, server, and crowdsourced participant acquisition to quickly"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "create and manage crowdsourced evaluations in Python. ReSEval"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "enables a greater variety of tasks and prescreening criteria (e.g., lis-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "tening tests) than existing survey templates, such as those available"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "on Amazon Mechanical Turk (MTurk). For prominence annotation,"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "we first require annotators to pass a listening test that ensures a suit-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "able listening environment, using the listening test method proposed"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "by Cartwright et al.\n[20]. We then present annotators with an au-"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "dio recording and the corresponding text (see Figure 1). As in the"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "annotation interface of Cole et al.\n[21], annotators are required to"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "listen to the audio file a minimum of two times and asked to select"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "all of\nthe words that were emphasized by the speaker by clicking"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "on the words themselves. Annotators must start\nthe audio to begin"
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "selecting words, but may select words while the audio is playing."
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": ""
+        },
+        {
+          "Fig. 1. Crowdsourced human emphasis annotation interface | Annotators listen to a speech recording and click to boldface the words they": "1maxrmorrison.com/sites/prominence-estimation/"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table 1: Ablations of downsampling methods and locations |",
+      "data": [
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "Posthoc (wordwise)\n0.440\n0.385\n0.623\n0.645"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "Prehoc [17] (wordwise)\n0.670\n0.471\n0.670\n0.656"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "|\nAblations of downsampling methods and locations\nTable 1."
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "Pearson correlations between estimated and ground truth promi-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "nence on the unseen Buckeye [29, 21] dataset. Averages over three"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "runs."
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "layers with 80 channels,\na kernel\nsize of\nthree,\nand intermediate"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "ReLU activation.\nOur hyperparameter\nsearch indicates\nsix layers"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "improves over five or seven layers; 80 channels improves over 64 or"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "128 channels; ReLU improves over leaky ReLU [25], GeLU [26], or"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "Swish [27]; convolution layers improve over Transformer [28] lay-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "ers; and dropout does not\nimprove performance when our model\nis"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "not overparameterized."
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "5. EVALUATION"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "We design our evaluation to determine whether our proposed neural"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "prominence estimation models exceed the performance of previous"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "automatic prominence estimation methods. We perform ablations"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "to show the relative impact of design decisions, such as the method"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "for downsampling from frames to words.\nFinally, we demonstrate"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "the scaling behaviors of our best model as a function of\ntwo key"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "cost\nfactors:\nthe number of emphasis-annotated utterances and the"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "number of annotators per utterance."
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "5.1. Data"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "We\ntrain our models on our\nannotated LibriTTS partition (Sec-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "tion\n2).\nWe\ndetermine word\nboundaries\nby\nperforming\nforced"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "alignment between the speech transcript and audio. We use the Penn"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "Phonetic Forced Aligner (P2FA) [30] via the Python Forced Align-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "ment\n(pyfoal)\nlibrary [31]. We extract\nfrom the 16 kHz audio"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "80 bands of a log-mel spectrogram using a hopsize of 160 samples"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "and a window size of 1024 samples. We partition utterances into"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "train (80%), validation (10%), and test\n(10%) partitions.\nScaling"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "experiments use a different partitioning (see Section 5.4)."
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "To examine generalization to unseen speakers,\ndatasets,\nand"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "speaking styles, we perform additional evaluation on emphasis an-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "notations\n[21] of\nthe Buckeye corpus of conversational American"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "English [29]. This evaluation dataset consists of 16 utterances from"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "16 speakers for a total of 256 utterances lasting 3.98 minutes and"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "containing 931 words.\nEach utterance is annotated by 32 native"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "speakers of American English."
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "5.2. Training"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": ""
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "We train using an Adam optimizer with a learning rate of 1e−3 to"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "optimize a binary cross entropy (BCE) loss between predicted and"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "ground truth prominence values.\nIn Table 2, we show that mean"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "squared error\n(MSE) and bounding the output\nto be between zero"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "and one performs comparably with BCE, making MSE a viable op-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "tion for\nloss function as well. We train for 6,000 steps, validating"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "every 100 steps and checkpointing when the Pearson correlation be-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "tween model output and human labeling (Section 5.3) is the maxi-"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "mum so far. We use a variable batch size [32] during training with a"
+        },
+        {
+          "Intermediate (wordwise)\n0.675\n0.656\n0.438\n0.674": "maximum of 75,000 frames (12.5 minutes) per batch."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: , we experiment with all combinations of the four",
+      "data": [
+        {
+          "5.3. Metrics": "",
+          "0.63": "1\n2\n4\n8"
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "Annotators per utterance"
+        },
+        {
+          "5.3. Metrics": "We measure the accuracy of a prominence estimation system by cal-",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "culating the Pearson correlation and BCE between the system’s out-",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "Scaling behaviors\nfor neural prominence estimation |\nFig. 3."
+        },
+        {
+          "5.3. Metrics": "put and the corresponding ground truth prominence value for each",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "(top) Pearson correlation between inferred and human annotations"
+        },
+        {
+          "5.3. Metrics": "word. BCE is equal to the KL divergence between Bernoulli random",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "as a function of dataset size. (bottom) Pearson correlation as a func-"
+        },
+        {
+          "5.3. Metrics": "variables up to a dataset-dependent constant, making it well-suited",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "tion of number of annotators for a fixed annotation budget. Averages"
+        },
+        {
+          "5.3. Metrics": "for our probabilistic view of prominence as Bernoulli distribution pa-",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "over three runs."
+        },
+        {
+          "5.3. Metrics": "rameters (Section 1). We use Pearson correlation (instead of BCE) to",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "compare with digital signal processing (DSP) baselines, as the range",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "of system outputs varies between baseline systems and Pearson cor-",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "Figure 3 demonstrates scaling behaviors for neural prominence"
+        },
+        {
+          "5.3. Metrics": "relation is scale-invariant.",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "estimation using our crowdsourced emphasis annotations of the Lib-"
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "riTTS dataset. We provide key takeaways:"
+        },
+        {
+          "5.3. Metrics": "5.4. Experimental design",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "For a fixed budget, use only one annotator per utterance | Neural"
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "networks benefit from training on larger datasets. This benefit empir-"
+        },
+        {
+          "5.3. Metrics": "We now describe our experiments designed to demonstrate the per-",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "ically outweighs the benefit of variance reduction in the ground truth"
+        },
+        {
+          "5.3. Metrics": "formance of our model relative to previous works, the efficacy of our",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "distribution caused by annotator\nredundancy. However, when data"
+        },
+        {
+          "5.3. Metrics": "individual design choices, and the scaling behaviors of interest.",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "is limited, annotator redundancy can improve performance. Cole et"
+        },
+        {
+          "5.3. Metrics": "In Table 1, we experiment with all combinations of\nthe four",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "al. [21] note marginal variance reduction beyond seven annotators,"
+        },
+        {
+          "5.3. Metrics": "downsampling locations and four downsampling methods described",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "so we do not expect\nthese improvements to extrapolate to, e.g., 16"
+        },
+        {
+          "5.3. Metrics": "in Section 4. In Table 2, we ablate our loss function and compare to a",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "annotations per utterance."
+        },
+        {
+          "5.3. Metrics": "top-performing heuristic method (wavelet) [3] that classifies words",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "by thresholding wavelet-based features proposed by Suni et. al [9].",
+          "0.63": "For a fixed budget,\nincreasing annotations per utterance up to"
+        },
+        {
+          "5.3. Metrics": "We demonstrate scaling behaviors for prominence estimation us-",
+          "0.63": "eight improves convergence speed | As the number of annotations"
+        },
+        {
+          "5.3. Metrics": "ing our best model on curated data partitions of 400, 800, 1,600, and",
+          "0.63": "per utterance increases from one to eight, the number of steps needed"
+        },
+        {
+          "5.3. Metrics": "3,200 utterances. We further analyze the cost efficiency of annota-",
+          "0.63": "for convergence significantly decreases."
+        },
+        {
+          "5.3. Metrics": "tor redundancy by training on 400 annotations with eight annotators,",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "To further examine scaling behaviors, we used our best model"
+        },
+        {
+          "5.3. Metrics": "800 annotations with four annotators, 1,600 annotations with two",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "to annotate the entire train-clean-100 partition of LibriTTS"
+        },
+        {
+          "5.3. Metrics": "annotators, and 3,200 annotations with one annotator. We discuss",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "and train a new model from scratch on 26,588 automatically anno-"
+        },
+        {
+          "5.3. Metrics": "implications for cost-effective annotation.",
+          "0.63": ""
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "tated utterances. The resulting model performed marginally worse"
+        },
+        {
+          "5.3. Metrics": "",
+          "0.63": "on heldout data, underscoring the utility of human annotations."
+        },
+        {
+          "5.3. Metrics": "6. RESULTS",
+          "0.63": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "“Acoustic and temporal representations in convolutional neural"
+        },
+        {
+          "8. REFERENCES": "[1]\nJennifer Cole,\nJos´e\nI. Hualde, Caroline L. Smith, Christo-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "network models of prosodic events,” Speech Communication,"
+        },
+        {
+          "8. REFERENCES": "pher Eager, Timothy Mahrt, and Ricardo Napole˜ao de Souza,",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "2020."
+        },
+        {
+          "8. REFERENCES": "“Sound, structure and meaning: The bases of prominence rat-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[17] Mithilesh Vaidya, Kamini Sabu, and Preeti Rao, “Deep learn-"
+        },
+        {
+          "8. REFERENCES": "ings in English, French and Spanish,”\nJournal of Phonetics,",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "ing for prominence detection in children’s read speech,” in In-"
+        },
+        {
+          "8. REFERENCES": "2019.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "ternational Conference on Acoustics, Speech and Signal Pro-"
+        },
+        {
+          "8. REFERENCES": "[2] Yong cheol Lee, Bei Wang, Sisi Chen, Martine Adda-Decker,",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "cessing, 2022."
+        },
+        {
+          "8. REFERENCES": "Ang´elique Amelot, Satoshi Nambu, and Mark Liberman,\n“A",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[18] Kamini Sabu and Preeti Rao, “Prosodic event detection in chil-"
+        },
+        {
+          "8. REFERENCES": "crosslinguistic study of prosodic focus,” in International Con-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "dren’s read speech,” Computer Speech & Language, 2021."
+        },
+        {
+          "8. REFERENCES": "ference on Acoustics, Speech, and Signal Processing, 2015.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[19] Max Morrison, Brian Tang, Gefei Tan, and Bryan Pardo, “Re-"
+        },
+        {
+          "8. REFERENCES": "[3]\nShreyas\nSeshadri,\nTuomo\nRaitio,\nDan\nCastellani,\nand",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "producible subjective evaluation,”\nin ICLR Workshop on ML"
+        },
+        {
+          "8. REFERENCES": "Jiangchuan Li,\n“Emphasis control\nfor parallel neural TTS,”",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Evaluation Standards, 2022."
+        },
+        {
+          "8. REFERENCES": "in Interspeech, 2022.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[20] Mark Cartwright, Bryan Pardo, Gautham J Mysore, and Matt"
+        },
+        {
+          "8. REFERENCES": "[4] Antti\nSuni,\nSofoklis Kakouros, Martti Vainio,\nand\nJuraj",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Hoffman, “Fast and easy crowdsourced perceptual audio eval-"
+        },
+        {
+          "8. REFERENCES": "ˇ",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "Simko, “Prosodic prominence and boundaries in sequence-to-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "uation,” in International Conference on Acoustics, Speech and"
+        },
+        {
+          "8. REFERENCES": "sequence speech synthesis,” in Speech Prosody, May 2020.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Signal Processing, 2016."
+        },
+        {
+          "8. REFERENCES": "[5]\nSophie Roekhaut, Jean-Philippe Goldman, and Anne Catherine",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[21]\nJennifer Cole, Timothy Mahrt,\nand Joseph Roy,\n“Crowd-"
+        },
+        {
+          "8. REFERENCES": "Simon, “A model for varying speaking style in TTS systems,”",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "sourcing prosodic annotation,” Computer Speech & Language,"
+        },
+        {
+          "8. REFERENCES": "in Speech Prosody, 2010.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "2017."
+        },
+        {
+          "8. REFERENCES": "[6] K. Sreenivasa Rao, Shashidhar G. Koolagudi, and Ramu Reddy",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[22] Heiga Zen, Rob Clark, Ron J. Weiss, Viet Dang, Ye\nJia,"
+        },
+        {
+          "8. REFERENCES": "Vempada, “Emotion recognition from speech using global and",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Yonghui Wu, Yu Zhang,\nand Zhifeng Chen,\n“LibriTTS: A"
+        },
+        {
+          "8. REFERENCES": "local prosodic features,” International Journal of Speech Tech-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "corpus derived from LibriSpeech for\ntext-to-speech,”\nin In-"
+        },
+        {
+          "8. REFERENCES": "nology, 2013.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "terspeech, 2019."
+        },
+        {
+          "8. REFERENCES": "[7] Yanju Chen and Rong Pan,\n“Automatic emphatic information",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[23] Aaron J Moss, Cheskie Rosenzweig, Shalom N Jaffe, Richa"
+        },
+        {
+          "8. REFERENCES": "extraction from aligned acoustic data and its application on",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Gautam, Jonathan Robinson, and Leib Litman,\n“Bots or inat-"
+        },
+        {
+          "8. REFERENCES": "AAAI Conference on Artificial\nIntel-\nsentence compression,”",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "tentive humans? Identifying sources of low-quality data in on-"
+        },
+        {
+          "8. REFERENCES": "ligence, 2017.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "line platforms,” PsyArXiv preprint PsyArXiv:wr8ds, 2021."
+        },
+        {
+          "8. REFERENCES": "[8]\nSofoklis Kakouros and Okko R¨as¨anen,\n“3PRO – An unsuper-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[24]\nJohn Patrick Lalor and Pedro Rodriguez,\n“py-irt: A scalable"
+        },
+        {
+          "8. REFERENCES": "vised method for\nthe automatic detection of sentence promi-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "INFORMS Journal\nitem response theory library for Python,”"
+        },
+        {
+          "8. REFERENCES": "nence in speech,” Speech Communication, 2016.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "on Computing, 2023."
+        },
+        {
+          "8. REFERENCES": "ˇ",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "[9] Antti Suni, Juraj\nSimko, Daniel Aalto, and Martti Vainio, “Hi-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "erarchical representation and estimation of prosody using con-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[25] Andrew L Maas, Awni Y Hannun, Andrew Y Ng, et al., “Rec-"
+        },
+        {
+          "8. REFERENCES": "tinuous wavelet\ntransform,”\nComputer Speech & Language,",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "tifier nonlinearities improve neural network acoustic models,”"
+        },
+        {
+          "8. REFERENCES": "2017.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "in International Conference on Machine Learning, 2013."
+        },
+        {
+          "8. REFERENCES": "[10]\nSlava Shechtman, Raul Fernandez, and David Haws,\n“Super-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[26] Dan Hendrycks and Kevin Gimpel,\n“Gaussian error\nlinear"
+        },
+        {
+          "8. REFERENCES": "vised and unsupervised approaches for controlling narrow lex-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "units,” arXiv preprint arXiv:1606.08415, 2016."
+        },
+        {
+          "8. REFERENCES": "ical focus in sequence-to-sequence speech synthesis,” in IEEE",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[27]\nStefan Elfwing, Eiji Uchibe,\nand Kenji Doya,\n“Sigmoid-"
+        },
+        {
+          "8. REFERENCES": "Spoken Language Technology Workshop, 2021.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "weighted linear units for neural network function approxima-"
+        },
+        {
+          "8. REFERENCES": "[11] Zofia Malisz, Harald Berthelsen,\nJonas Beskow, and Joakim",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "tion in reinforcement learning,” Neural networks, 2018."
+        },
+        {
+          "8. REFERENCES": "Gustafson,\n“Controlling prominence realisation in parametric",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[28] Ashish Vaswani, Noam Shazeer, Niki Parmar,\nJakob Uszko-"
+        },
+        {
+          "8. REFERENCES": "DNN-based speech synthesis,” in Interspeech, 2017.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "reit, Llion Jones, Aidan N Gomez, Ł ukasz Kaiser, and Illia"
+        },
+        {
+          "8. REFERENCES": "[12] Aarne Talman, Antti Suni, Hande Celikkanat, Sofoklis Kak-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Polosukhin, “Attention is all you need,” in Neural Information"
+        },
+        {
+          "8. REFERENCES": "ouros,\nJ¨org Tiedemann,\nand Martti Vainio,\n“Predicting",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "Processing Systems, 2017."
+        },
+        {
+          "8. REFERENCES": "prosodic prominence from text with pre-trained contextualized",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[29] Mark A Pitt, Keith Johnson, Elizabeth Hume, Scott Kiesling,"
+        },
+        {
+          "8. REFERENCES": "word representations,”\nin Nordic Conference on Computa-",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "and William Raymond, “The Buckeye corpus of conversational"
+        },
+        {
+          "8. REFERENCES": "tional Linguistics, 2019.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "speech: Labeling conventions and a test of transcriber reliabil-"
+        },
+        {
+          "8. REFERENCES": "[13] Brooke Stephenson,\nLaurent Besacier,\nLaurent Girin,\nand",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "ity,” Speech Communication, 2005."
+        },
+        {
+          "8. REFERENCES": "Thomas Hueber,\n“BERT, can HE predict contrastive focus?",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[30]\nJiahong Yuan and Mark Liberman,\n“Speaker identification on"
+        },
+        {
+          "8. REFERENCES": "predicting and controlling prominence in neural TTS using a",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "the SCOTUS corpus,” The Journal of the Acoustical Society of"
+        },
+        {
+          "8. REFERENCES": "language model,” in Interspeech, 2022.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "America, 2008."
+        },
+        {
+          "8. REFERENCES": "[14] Taniya Mishra, Vivek Rangarajan Sridhar, and Alistair Conkie,",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[31] Max Morrison,\n“Python forced alignment\n(version 0.0.3),”"
+        },
+        {
+          "8. REFERENCES": "“Word prominence detection using robust yet simple prosodic",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "https://github.com/maxrmorrison/pyfoal, 2023."
+        },
+        {
+          "8. REFERENCES": "features,” in Interspeech, 2012.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "[32]\nPhilippe Gonzalez,\nTommy\nSonne Alstrøm,\nand\nTobias"
+        },
+        {
+          "8. REFERENCES": "[15] George Christodoulides, Mathieu Avanzi, and Anne Catherine",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "May,\n“On\nbatching\nvariable\nsize\ninputs\nfor\ntraining"
+        },
+        {
+          "8. REFERENCES": "Simon, “Automatic labelling of prosodic prominence, phrasing",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "arXiv\npreprint\nend-to-end\nspeech\nenhancement\nsystems,”"
+        },
+        {
+          "8. REFERENCES": "and disfluencies in French speech by simulating the perception",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        },
+        {
+          "8. REFERENCES": "",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": "arXiv:2301.10587, 2023."
+        },
+        {
+          "8. REFERENCES": "of na¨ıve and expert listeners,” in Interspeech, 2017.",
+          "[16]\nSabrina Stehwien, Antje Schweitzer,\nand Ngoc Thang Vu,": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Sound, structure and meaning: The bases of prominence ratings in English, French and Spanish",
+      "authors": [
+        "Jennifer Cole",
+        "José Hualde",
+        "Caroline Smith",
+        "Christopher Eager",
+        "Timothy Mahrt",
+        "Ricardo Napoleão De Souza"
+      ],
+      "year": "2019",
+      "venue": "Journal of Phonetics"
+    },
+    {
+      "citation_id": "3",
+      "title": "A crosslinguistic study of prosodic focus",
+      "authors": [
+        "Bei Yong Cheol Lee",
+        "Sisi Wang",
+        "Martine Chen",
+        "Angélique Adda-Decker",
+        "Satoshi Amelot",
+        "Mark Nambu",
+        "Liberman"
+      ],
+      "year": "2015",
+      "venue": "International Conference on Acoustics, Speech, and Signal Processing"
+    },
+    {
+      "citation_id": "4",
+      "title": "Emphasis control for parallel neural TTS",
+      "authors": [
+        "Shreyas Seshadri",
+        "Tuomo Raitio",
+        "Dan Castellani",
+        "Jiangchuan Li"
+      ],
+      "year": "2022",
+      "venue": "Emphasis control for parallel neural TTS"
+    },
+    {
+      "citation_id": "5",
+      "title": "Prosodic prominence and boundaries in sequence-tosequence speech synthesis",
+      "authors": [
+        "Antti Suni",
+        "Sofoklis Kakouros",
+        "Martti Vainio",
+        "Juraj Šimko"
+      ],
+      "year": "2020",
+      "venue": "Speech Prosody"
+    },
+    {
+      "citation_id": "6",
+      "title": "A model for varying speaking style in TTS systems",
+      "authors": [
+        "Sophie Roekhaut",
+        "Jean-Philippe Goldman",
+        "Anne Simon"
+      ],
+      "year": "2010",
+      "venue": "Speech Prosody"
+    },
+    {
+      "citation_id": "7",
+      "title": "Emotion recognition from speech using global and local prosodic features",
+      "authors": [
+        "K Rao",
+        "Shashidhar Koolagudi",
+        "Ramu Vempada"
+      ],
+      "year": "2013",
+      "venue": "International Journal of Speech Technology"
+    },
+    {
+      "citation_id": "8",
+      "title": "Automatic emphatic information extraction from aligned acoustic data and its application on sentence compression",
+      "authors": [
+        "Yanju Chen",
+        "Rong Pan"
+      ],
+      "year": "2017",
+      "venue": "AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "9",
+      "title": "3PRO -An unsupervised method for the automatic detection of sentence prominence in speech",
+      "authors": [
+        "Sofoklis Kakouros",
+        "Okko Räsänen"
+      ],
+      "year": "2016",
+      "venue": "Speech Communication"
+    },
+    {
+      "citation_id": "10",
+      "title": "Hierarchical representation and estimation of prosody using continuous wavelet transform",
+      "authors": [
+        "Antti Suni",
+        "Juraj Šimko",
+        "Daniel Aalto",
+        "Martti Vainio"
+      ],
+      "year": "2017",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "11",
+      "title": "Supervised and unsupervised approaches for controlling narrow lexical focus in sequence-to-sequence speech synthesis",
+      "authors": [
+        "Slava Shechtman",
+        "Raul Fernandez",
+        "David Haws"
+      ],
+      "year": "2021",
+      "venue": "IEEE Spoken Language Technology Workshop"
+    },
+    {
+      "citation_id": "12",
+      "title": "Controlling prominence realisation in parametric DNN-based speech synthesis",
+      "authors": [
+        "Zofia Malisz",
+        "Harald Berthelsen",
+        "Jonas Beskow",
+        "Joakim Gustafson"
+      ],
+      "year": "2017",
+      "venue": "Controlling prominence realisation in parametric DNN-based speech synthesis"
+    },
+    {
+      "citation_id": "13",
+      "title": "Predicting prosodic prominence from text with pre-trained contextualized word representations",
+      "authors": [
+        "Aarne Talman",
+        "Antti Suni",
+        "Hande Celikkanat",
+        "Sofoklis Kakouros",
+        "Jörg Tiedemann",
+        "Martti Vainio"
+      ],
+      "year": "2019",
+      "venue": "Nordic Conference on Computational Linguistics"
+    },
+    {
+      "citation_id": "14",
+      "title": "BERT, can HE predict contrastive focus? predicting and controlling prominence in neural TTS using a language model",
+      "authors": [
+        "Brooke Stephenson",
+        "Laurent Besacier",
+        "Laurent Girin",
+        "Thomas Hueber"
+      ],
+      "year": "2022",
+      "venue": "BERT, can HE predict contrastive focus? predicting and controlling prominence in neural TTS using a language model"
+    },
+    {
+      "citation_id": "15",
+      "title": "Word prominence detection using robust yet simple prosodic features",
+      "authors": [
+        "Taniya Mishra",
+        "Rangarajan Vivek",
+        "Alistair Sridhar",
+        "Conkie"
+      ],
+      "year": "2012",
+      "venue": "Word prominence detection using robust yet simple prosodic features"
+    },
+    {
+      "citation_id": "16",
+      "title": "Automatic labelling of prosodic prominence, phrasing and disfluencies in French speech by simulating the perception of naïve and expert listeners",
+      "authors": [
+        "George Christodoulides",
+        "Mathieu Avanzi",
+        "Anne Simon"
+      ],
+      "year": "2017",
+      "venue": "Automatic labelling of prosodic prominence, phrasing and disfluencies in French speech by simulating the perception of naïve and expert listeners"
+    },
+    {
+      "citation_id": "17",
+      "title": "Acoustic and temporal representations in convolutional neural network models of prosodic events",
+      "authors": [
+        "Sabrina Stehwien",
+        "Antje Schweitzer",
+        "Ngoc Vu"
+      ],
+      "year": "2020",
+      "venue": "Speech Communication"
+    },
+    {
+      "citation_id": "18",
+      "title": "Deep learning for prominence detection in children's read speech",
+      "authors": [
+        "Mithilesh Vaidya",
+        "Kamini Sabu",
+        "Preeti Rao"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "19",
+      "title": "Prosodic event detection in children's read speech",
+      "authors": [
+        "Kamini Sabu",
+        "Preeti Rao"
+      ],
+      "year": "2021",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "20",
+      "title": "Reproducible subjective evaluation",
+      "authors": [
+        "Max Morrison",
+        "Brian Tang",
+        "Gefei Tan",
+        "Bryan Pardo"
+      ],
+      "year": "2022",
+      "venue": "ICLR Workshop on ML Evaluation Standards"
+    },
+    {
+      "citation_id": "21",
+      "title": "Fast and easy crowdsourced perceptual audio evaluation",
+      "authors": [
+        "Mark Cartwright",
+        "Bryan Pardo",
+        "Gautham Mysore",
+        "Matt Hoffman"
+      ],
+      "year": "2016",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Crowdsourcing prosodic annotation",
+      "authors": [
+        "Jennifer Cole",
+        "Timothy Mahrt",
+        "Joseph Roy"
+      ],
+      "year": "2017",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "23",
+      "title": "LibriTTS: A corpus derived from LibriSpeech for text-to-speech",
+      "authors": [
+        "Heiga Zen",
+        "Rob Clark",
+        "Ron Weiss",
+        "Viet Dang",
+        "Ye Jia",
+        "Yonghui Wu",
+        "Yu Zhang",
+        "Zhifeng Chen"
+      ],
+      "year": "2019",
+      "venue": "LibriTTS: A corpus derived from LibriSpeech for text-to-speech"
+    },
+    {
+      "citation_id": "24",
+      "title": "Bots or inattentive humans? Identifying sources of low-quality data in online platforms",
+      "authors": [
+        "Aaron J Moss",
+        "Cheskie Rosenzweig",
+        "Shalom Jaffe",
+        "Richa Gautam",
+        "Jonathan Robinson",
+        "Leib Litman"
+      ],
+      "year": "2021",
+      "venue": "Bots or inattentive humans? Identifying sources of low-quality data in online platforms"
+    },
+    {
+      "citation_id": "25",
+      "title": "py-irt: A scalable item response theory library for Python",
+      "authors": [
+        "John Patrick",
+        "Pedro Rodriguez"
+      ],
+      "year": "2023",
+      "venue": "INFORMS Journal on Computing"
+    },
+    {
+      "citation_id": "26",
+      "title": "Rectifier nonlinearities improve neural network acoustic models",
+      "authors": [
+        "Andrew L Maas",
+        "Andrew Awni Y Hannun",
+        "Ng"
+      ],
+      "year": "2013",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "27",
+      "title": "Gaussian error linear units",
+      "authors": [
+        "Dan Hendrycks",
+        "Kevin Gimpel"
+      ],
+      "year": "2016",
+      "venue": "Gaussian error linear units",
+      "arxiv": "arXiv:1606.08415"
+    },
+    {
+      "citation_id": "28",
+      "title": "Sigmoidweighted linear units for neural network function approximation in reinforcement learning",
+      "authors": [
+        "Stefan Elfwing",
+        "Eiji Uchibe",
+        "Kenji Doya"
+      ],
+      "year": "2018",
+      "venue": "Neural networks"
+    },
+    {
+      "citation_id": "29",
+      "title": "Attention is all you need",
+      "authors": [
+        "Ashish Vaswani",
+        "Noam Shazeer",
+        "Niki Parmar",
+        "Jakob Uszkoreit",
+        "Llion Jones",
+        "Aidan Gomez",
+        "Ł Ukasz Kaiser",
+        "Illia Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "30",
+      "title": "The Buckeye corpus of conversational speech: Labeling conventions and a test of transcriber reliability",
+      "authors": [
+        "A Mark",
+        "Keith Pitt",
+        "Elizabeth Johnson",
+        "Scott Hume",
+        "William Kiesling",
+        "Raymond"
+      ],
+      "year": "2005",
+      "venue": "Speech Communication"
+    },
+    {
+      "citation_id": "31",
+      "title": "Speaker identification on the SCOTUS corpus",
+      "authors": [
+        "Jiahong Yuan",
+        "Mark Liberman"
+      ],
+      "year": "2008",
+      "venue": "The Journal of the Acoustical Society of America"
+    },
+    {
+      "citation_id": "32",
+      "title": "Python forced alignment (version 0.0.3)",
+      "authors": [
+        "Max Morrison"
+      ],
+      "year": "2023",
+      "venue": "Python forced alignment (version 0.0.3)"
+    },
+    {
+      "citation_id": "33",
+      "title": "On batching variable size inputs for training end-to-end speech enhancement systems",
+      "authors": [
+        "Philippe Gonzalez",
+        "Tommy Sonne Alstrøm",
+        "Tobias May"
+      ],
+      "year": "2023",
+      "venue": "On batching variable size inputs for training end-to-end speech enhancement systems",
+      "arxiv": "arXiv:2301.10587"
+    }
+  ]
+}

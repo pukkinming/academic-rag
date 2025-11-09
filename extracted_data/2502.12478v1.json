@@ -1,0 +1,1105 @@
+{
+  "paper_id": "2502.12478v1",
+  "title": "Mse-Adapter: A Lightweight Plugin Endowing Llms With The Capability To Perform Multimodal Sentiment Analysis And Emotion Recognition",
+  "published": "2025-02-18T03:06:29Z",
+  "authors": [
+    "Yang Yang",
+    "Xunde Dong",
+    "Yupeng Qiang"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Current Multimodal Sentiment Analysis (MSA) and Emotion Recognition in Conversations (ERC) methods based on pre-trained language models exhibit two primary limitations: 1) Once trained for MSA and ERC tasks, these pre-trained language models lose their original generalized capabilities. 2) They demand considerable computational resources. As the size of pre-trained language models continues to grow, training larger multimodal sentiment analysis models using previous approaches could result in unnecessary computational cost. In response to this challenge, we propose Multimodal Sentiment Analysis and Emotion Recognition Adapter (MSE-Adapter), a lightweight and adaptable plugin. This plugin enables a large language model (LLM) to carry out MSA or ERC tasks with minimal computational overhead (only introduces approximately 2.6M to 2.8M trainable parameters upon the 6/7B models), while preserving the intrinsic capabilities of the LLM. In the MSE-Adapter, the Text-Guide-Mixer (TGM) module is introduced to establish explicit connections between non-textual and textual modalities through the Hadamard product. This allows non-textual modalities to better align with textual modalities at the feature level, promoting the generation of higher-quality pseudo tokens. Extensive experiments were conducted on four public English and Chinese datasets using consumer-grade GPUs and open-source LLMs (Qwen-1.8B, ChatGLM3-6B-base, and LLaMA2-7B) as the backbone. The results demonstrate the effectiveness of the proposed plugin.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Making artificial intelligence (AI) comprehend human sentiment is a significant issue in the development of AI. Multimodal Sentiment Analysis (MSA) and Emotion Recognition in Conversations (ERC) have received widespread attention from the Natural Language Processing (NLP) community in recent years  (Mai, Zeng, and Hu 2023; Wang et al. 2024) . Limited by various factors, early sentiment analysis could only be conducted through text, which is far from sufficient for the diversified information of the real world. The same sentence, accompanied by different facial expressions or tones, can convey entirely different emotions. Therefore, utilizing multimodal information to perceive human emotions can enable AI to make more accurate judgments.\n\nIn recent years, the emergence of pre-trained Large Language Model (LLM) has introduced some new paradigms to the research community in NLP. Thanks to the powerful capabilities of LLM, they have demonstrated outstanding performance on many downstream tasks. Consequently, numerous researchers have begun to develop domain-specific LLM (such as for healthcare, weather forecasting, etc.)  (Toma et al. 2023; Bi et al. 2023) , by fine-tuning LLM with highquality data to exhibit strong capabilities in relevant fields. This paradigm of LLM-for-specific-field is an excellent approach, but it demands high quality and quantity of data, making its implementation somewhat challenging.\n\nSome researchers in the field of sentiment analysis also leveraged this paradigm to tailor models specifically for MSA and ERC tasks.  Hu et al. (2022b)  introduced UniMSE, which for the first time unifies MSA and ERC as generative tasks. UniMSE assigns emotional category labels to samples in MSA tasks and sentiment intensity labels to samples in ERC tasks by calculating textual similarity. Subsequently, a model is trained based on the T5  (Raffel et al., 2020)  architecture, exhibiting remarkable proficiency in both MSA and ERC tasks.  Li et al. (2023b)  developed UniSA, a comprehensive framework for sentiment analysis. Built upon the BART  (Lewis et al. 2019 ) model and a series of pre-training tasks, UniSA excels in a wide range of multimodal and text-only sentiment analysis tasks, offering a more comprehensive performance compared to UniMSE. Although the two aforementioned works exhibit remarkable performance, they still exhibit certain limitations. 1) Significant computational overhead. Large number of trainable parameters and multi-task training lead to considerable computational expenses, where UniSA's pre-training requires three days on eight NVIDIA RTX V100 32G GPUs. 2) Losing the generalization capability inherent to the base models. UniMSE and UniSA, trained respectively on T5  (Raffel et al. 2020)  and BART  (Lewis et al. 2019) , are tailored for the sentiment analysis domain, restricting these models from performing tasks outside of sentiment analysis.\n\nCurrently, there is a trend towards developing plugins that freeze the backbone LLM and train them to perform non-textual tasks while retaining their inherent capabilities  (Tsimpoukelli et al. 2021; Alayrac et al. 2022; Chen et al. 2023; Sun et al. 2023a; Szot et al. 2023)  Given the expectation of continued growth in the parameter size of LLM, we propose developing a plugin with reduced training overhead. This will enable LLM to maintain its intrinsic capabilities while effectively executing a range of multimodal sentiment analysis tasks with minimal computational resources. We believe this approach is more promising than training a specialized sentiment analysis LLM. Our contributions are summarized as follows:",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Pre-trained language model for MSA and ERC\n\nCurrently, in the MSA and ERC communities, a number of outstanding works have emerged, including contrastive learning-based methods  (Yang et al. 2023a; Mai, Zeng, and Hu 2023) , graph-based methods  (Li et al. 2023a; Hu et al. 2021; Lin et al. 2022) , transformer-based methods  (Sun et al. 2023b; Zhang et al. 2023; Yang et al. 2023b) , and methods based on Pre-trained Language Model (PLM). PLM-based methods typically use a designated PLM, such as BERT  (Devlin et al. 2018)  or T5  (Raffel et al. 2020) , as their foundation. These methods convert non-textual modality features into tokens with equivalent dimensions to those of textual modalities, enabling training within the PLM framework.  Rahman et al. (2020)  proposed the MAG, where completed word embeddings are fused with non-textual modality features to generate new embeddings. These embeddings are then fine-tuned within PLMs (such as BERT and XL-Net  (Yang et al. 2019 )) to achieve notable performance improvements. Similarly,  Guo et al. (2022)  proposed CHFN, which uses its designed Multimodal Interaction layer to integrate non-textual modal information into textual embedding at the word level, and then fine-tunes the integrated multimodal information by feeding it into BERT. Additionally,  Hasan et al. (2023)  presented TextMI, a method that converts audio and vision information into corresponding textual descriptions. This approach links these descriptions with the textual content, transforming multimodal information into purely textual information. By inputting this enhanced text into BERT, TextMI achieves competitive performance results.  Hu et al. (2022b)  introduced UniMSE, an approach that uses the T5  (Raffel et al. 2020 ) model as its foundation. UniMSE encodes text using the initial layers of T5's encoder and then trains the remaining layers using a combination of non-textual and textual features. This training strategy incorporates contrastive learning to enhance the model's representation learning capabilities. Benefiting from its multitask training paradigm, UniMSE shows capabilities in both MSA and ERC tasks, demonstrating exceptional performance.  Li et al. (2023b)  developed UniSA, a comprehensive framework for sentiment analysis. UniSA uses PLMs (GPT2medium  (Radford et al. 2019) , T5 and BART) as a foundation, standardizing the data formats of various types of sentiment analysis sub-tasks for input into PLMs. It leverages pre-training tasks and contrastive learning to pre-train the PLM, followed by fine-tuning on downstream task datasets. The UniSA BART achieve comprehensive results across multiple sentiment analysis sub-tasks.\n\nCompared to aforementioned works, our proposed approach, MSE-Adapter, is a lightweight plugin that requires fewer training parameters (approximately 2.6M to 2.8M trainable parameters for base models sized 6/7B). Notably, MSE-Adapter preserves the inherent generalization capability of the LLM without sacrificing efficiency. Therefore, when assigned MSA or ERC tasks, the user can invoke the relevant pre-trained MSE-Adapter plugin to carry out the designated task. This design enhances parameter efficiency while preserving the effectiveness and adaptability of LLM, offering a new and efficient solution for using LLM in MSA and ERC tasks.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Adapters Enabling Llm To Perform Non-Plain Text Tasks",
+      "text": "Adapters were usually utilized for efficiently fine-tuning large pre-trained models  (Houlsby et al. 2019; Pfeiffer et al. 2020; He et al. 2022; Hu et al. 2023) . By freezing the main body of the pre-trained model and only training the Adapter, the essence is to use gradient backpropagation to let the Adapter generate pseudo tokens that can be recognized by the pre-trained model. This process is aimed at prompting the pre-trained models to further adapt to certain downstream tasks. Meanwhile, since the pre-trained model is frozen during the training phase, it retains its strong generalization capability, avoiding the issue of catastrophic forgetting  (Liu et al. 2021 (Liu et al. , 2023)) . Inspired by these relevant works of Adapter, some researchers have argued that it is possible to convert information from non-textual modalities into information understandable by LLMs through an Adapter, enabling them to perform downstream tasks involving non-plain text modalities.  Tsimpoukelli et al. (2021)  introduced Frozen, which utilizes a vision encoder to convert images into a series of tokens. These tokens are concatenated with a prompt and used to train a LLM for visual question",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Large Language Model",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Vision",
+      "text": "Audio Text",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Mse-Adapter",
+      "text": "Task-Specific-Prompt answering (VQA) and captioning tasks, with gradient backpropagation guiding updates to the parameters of the vision encoder. Similarly,  Alayrac et al. (2022)  proposed Flamingo, which incorporates trainable cross-attention layers into a frozen LLM to fuse textual and vision modalities after embedding vision modality information using a pre-trained vision encoder. Flamingo exhibits remarkable performance across various video/visual-related tasks following training.  Chen et al. (2023)  presented X-LLM, a model that leverages X2L interfaces to convert vision, image, and audio modalities into \"foreign languages\" that can be processed by the LLM. X-LLM demonstrates impressive performance after instruction-tuning on a high-quality multimodal instruction dataset.  Sun et al. (2023a)  developed TEST, which utilizes contrastive learning to train an encoder for time series (TS) data, applies similarity constraints to align it with text, and fine-tunes the LLM with a soft-prompt approach to effectively process TS-related tasks.\n\nIn this paper, we introduce a lightweight plugin named MSE-Adapter, which enable the LLM's to perform MSA or ERC task without affecting its inherent capabilities. Unlike previous works, we introduce a novel module named TGM in the MSE-Adapter. TGM facilitates feature-level alignment between non-textual and textual modalities, which aids the LLM to better understand content from non-textual modalities.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Method Overall Architecture",
+      "text": "Figure  1  presents the comprehensive framework integrating MSE-Adapter with LLM. Given a sample x i , the first step is to convert each modality into a sequence embedding. For the textual modality, we use the Text Embedder within the LLM to tokenize  (Kudo and Richardson 2018)  the input from the text modality and the Task-Specific-Prompt, and then convert them into sequence embeddings. For audio and vision modalities, we employ pre-trained toolkits  (Yu et al. 2021; Liu et al. 2022; Hu et al. 2022b; Sun et al. 2023b)  for feature extraction to transform them into feature sequence embeddings (See Appendix A for more details). After the encoding process, the sample's textual modality, Task-Specific-Prompt, vision, and audio modalities are represented as T ∈ R lt×dt , T p ∈ R lt×dt , V ∈ R lν ×dν and A ∈ R la×da , respectively, where l m∈{t,v,a} denotes the sequence length of each modality embedding, and d m∈{t,v,a} represents the corresponding feature vector dimension.\n\nSubsequently, T , V and A are fed into the MSE-Adapter for further processing and generating pseudo tokens P . Finally, we concatenate P , T , T p to obtain I (i.e., I = [P ; T ; T p ]) and input it into the frozen LLM, which returns the logits g i corresponding to the input sample and the generated text y i for the entire sentence (including input and output tokens). This can be expressed as:\n\n) where θ represents the parameters of the LLM. The LLM predicts the conditional probability ρ(γ j |I, θ) of each token γ j of the generated text y i until the end-of-sequence symbol <eos>. For the logits g i ∈ R I l ×Vs , where I l and V s represent the length of the input I and the size of the vocabulary used by the LLM, respectively.\n\nFollowing the original training methodology of the LLM, we utilize the next-token prediction loss to measure the output error of the model. Hence, the loss calculation for the model task L task is defined as follows:\n\nwhere Y k represents the k-th token of the sentiment label corresponding to the sample x i , N denotes the number of sentiment label tokens. Based on the aforementioned loss, we optimize the parameters of the MSE-Adapter through gradient backpropagation, thereby enhancing the MSE-Adapter's adaptation to the LLM. Upon training completion, the LLM can utilize the MSE-Adapter to receive multimodal inputs and generate autoregressive sentiment labels, similar to text generation.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Mse-Adapter",
+      "text": "In this section, we introduce the proposed MSE-Adapter, whose structure is depicted in Figure  3 . The MSE-Adapter consists of two separate single directional Long Short-Term Memory (sLSTM) modules, the TGM module, the MSF module, and a Projector module. The sLSTM initially performs temporal modeling separately for V and A, and then it captures their end-state hidden representations to derive V ∈ R hv×1 and A ∈ R ha×1 . These outputs are then fed into the TGM to obtain V t ∈ R h×1 and A t ∈ R h×1 . Subsequently, these are input into the MSF for fusion, resulting in M ∈ R h×1 . Finally, a Projector composed of two linear layers expands this into pseudo tokens P .\n\nText-Guide-Mixer Feature alignment across different modalities has always been a significant issue in multimodal tasks. A key to modal feature alignment is establishing connections between modalities. In the research on recommendation systems and search engines, researchers have applied the Hadamard product to achieve feature crossing, thus creating explicit connections between features at the vector level  (Lian et al. 2018; Wang et al. 2021) . Inspired by these works, we propose the TGM module. TGM establishes an explicit connection by computing the Hadamard product between the feature vectors of the text modality and those of the non-text modalities. This strategy not only preserves the original individual features of the non-text modalities but also encourages non-text feature vectors to align with text modality feature vectors, narrowing the gap between nontext modality features and text features, enabling the MSE-Adapter to generate pseudo tokens that are more easily understood by LLM.\n\nThe implementation is as follows: we first do global average pooling (GAP) on the textual modal inputs T to obtain T ∈ R 1×dt , and then we use a linear layer to project T , V and A to the same dimension:\n\nSubsequently, we perform the Hadamard product of V and A with T , respectively:\n\nwhere ⊙ represents the Hadamard product, that is, the element-wise multiplication of matrices. Through this process, we obtain the new non-textual modality representations V t and A t .\n\nMulti-Scale-Fusion Entrusting the task of complete multimodal fusion to a frozen LLM presents certain challenges. In response to this challenge, we adopt an early fusion approach for the non-textual modalities prior to their input into the LLM. Specifically, we introduc a module named MSF, dedicated to performing low-level fusion of the non-textual modalities. Subsequently, the high-level fusion between the textual and non-textual modalities is deferred to the LLM. This layered fusion approach enables the LLM to capture more refined and detailed multimodal fusion, thereby boosting model performance.\n\nThe implementation of the MSF module is as follows: Firstly, we sum the outputs V t and A t derived from the TGM to obtain M . Subsequently, we utilize three Multi-Layer Perceptrons (MLPs) with diverse hidden layer dimensions to conduct feature fusion at multiple scales on M . Specifically, for the ith (i ∈ {1, 2, 3}) MLP, we obtain m i :\n\nwhere\n\n, 16, 32}, σ represents the GELU activation function. Subsequently, we stack the fusion results from the three different scales to obtain M = [m 1 , m 2 , m 3 ] ∈ R h×3 . To further integrate information from various scales, we use a 1×1 convolution (Conv) to compress this information, resulting in M ∈ R h×1 .\n\nProjector After extracting the fused information from non-textual modalities, the size of M is adjusted to meet the input requirements of the LLM using a linear layer. Subsequently, another linear layer is utilized to increase the number of pseudo tokens:\n\nwhere",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experimental Settings",
+      "text": "In this subsection, we briefly introduce the detailed setup of our experiments. Our investigation utilizes the Qwen-1.8B  (Bai et al. 2023 ), ChatGLM3-6B-base  (Du et al. 2022) , and LLaMA2-7B  (Touvron et al. 2023 ) models as the backbone.\n\nFor ease of presentation, we add the prefix 'MSE' to the backbone to indicate the integration of the MSE-Adapter (e.g., MSE-Qwen-1.8B). The trainable parameters of MSE-Adapter in various LLMs are presented in Table  6 . For a fair comparison, we selected  [1111, 2222, 3333, 4444, 5555]  as random seeds for the experiments and reported the average results achieved across these five random seeds. All experiments were conducted on a single NVIDIA RTX 4090 GPU.\n\nThe optimizer used was AdamW with a warmup learning rate strategy. The rest of the settings can be found in Appendix C. To standardize labels for the MSA task, for models where the tokenizer does not automatically generate tokens to distinguish between positive and negative labels, we manually add a '+' sign to labels greater than or equal to 0. Furthermore, to streamline the answer generation process for the ERC task, we translated the emotion labels into distinct numerical values and incorporated these details into the prompts, as illustrated in Appendix C.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Model Trainable Parameters Mosei Sims-V2 Meld Cherma",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Baselines",
+      "text": "We compared the performance of \"MSE-Qwen-1.8B\", \"MSE-LLaMA2-7B\" and \"MSE-ChatGLM3-6B\" to that of previous state-of-the-art models: TFN  (Zadeh et al. 2017) , LMF  (Liu et al. 2018) , MISA  (Hazarika, Zimmermann, and Poria 2020) , MAG-BERT  (Rahman et al. 2020) , Self-MM  (Yu et al. 2021) , MMIM  (Han, Chen, and Poria 2021) , CHFN  (Guo et al. 2022) , UniMSE  (Hu et al. 2022b ), UniSA BART , UniSA T5 , UniSA GPT2  (Li et al. 2023b ), AV-MC  (Liu et al. 2022) , MMGCN  (Hu et al. 2021) , MM-DFN  (Hu et al. 2022a) , EmoCaps  (Li et al. 2022 ), GA2MIF  (Li et al. 2023a ), EFT, LFT, MulT  (Tsai et al. 2019) , PMR  (Lv et al. 2021) , and LFMIM  (Sun et al. 2023b ). The details of these baseline models are given in the Appendix D.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Metrics",
+      "text": "In this study, due to the differing labels across datasets, we report our experimental results using a variety of metrics tailored to each dataset. For MOSEI, we report the mean absolute error (MAE), Pearson correlation (Corr), seven-category accuracy (Acc-7), binary accuracy (Acc-2), and F1 score as evaluation metrics (where Acc-2 and F1 are calculated based on a non-negative/negative standard). For SIMS-V2, we report MAE, Corr, Acc2 weak, Acc-2, and F1 (where Acc-2 and F1 are calculated based on a non-positive/positive standard, and Acc2 weak is used to further validate the model's performance on weakly emotional instances within the [-0.4, 0.4] range). For MELD and CHERMA, we report seven-category accuracy (Acc) and weighted F1 (WF1).",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Results",
+      "text": "Tables  7  and 8  present the results of the performance comparison of multiple methods on the MSA and ERC tasks, respectively. It is noteworthy that, overall, all three LLMs incorporating the MSE-adapter exhibited outstanding performance.\n\nIt is evident that MSE-ChatGLM3-6B, achieved the most comprehensive performance, outperforming baseline models on most metrics. Notably, it showed a great performance improvement on CHERMA, the dataset with the largest volume of data, where its WF1 was 2.19% higher than the best baseline LFMIM. Although MSE-LLaMA2-7B has a larger parameter size than MSE-ChatGLM3-6B, its overall performance was not as good, especially on the Chinese datasets SIMS-V2. This might be due to MSE-LLaMA2-7B's inherent limitations in processing Chinese text. Since the LLM is frozen, the performance of the model is highly dependent on the inherent capabilities of the LLM.\n\nInterestingly, MSE-LLaMA2-7B still performed better than the baseline on CHERMA (even though it is not particularly skilled in Chinese), somewhat confirming that LLMs   3 : Experimental results of the ERC task on the MELD and CHERMA datasets: 1) Results for models marked with * on MELD are cited from the the literature  (Hu et al. 2022a) , while results for other models are extracted from relevant published papers; 2) All models' results on CHERMA are cited from literature  (Sun et al. 2023b) . are essentially pattern machines  (Mirchandani et al. 2023) , capable of learning mapping relationships from large data volumes, even for tasks they are less proficient in. This was observed similarly on MSE-Qwen-1.8B. Although MSE-Qwen-1.8B's performance was lower than the other two backbones, it requires the least trainable parameters. Since MSE-Qwen-1.8B is deployable on mobile devices, such a small-parameter plugin can offer users a more efficient interaction experience.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Discussion Ablation Study",
+      "text": "To evaluate the contribution of each module within the MSE-Adapter, we conducted ablation experiments on the English dataset MELD and the Chinese dataset SIMS-V2. For MELD, we reported Acc and WF1 score, and for SIMS-V2, we reported Acc-2 and F1 score. Given that MSE-ChatGLM3-6B achieved the most comprehensive performance in our experiments, all of our ablation experiments were based on MSE-ChatGLM3-6B and reported the average results achieved across the five random seeds (same random seeds as experimental). Table  9  shows the results of the ablation experiments.\n\nEffectiveness of TGM and MSF Initially, we evaluated the TGM and MSF module within the MSE-adapter. The results shown in Table  9  indicated that removing TGM decreased model performance, highlighting the importance of establishing cross-modal connections between non-textual and textual features for modality alignment and model performance. Similarly, omitting MSF also resulted in a decline in performance, with a more significant impact than that V and A are mapped to the same dimension through two independent linear layers and then directly summed before being fed into the MSF module. In the case of \"w/o A, V \", V and A are randomly initialised into the corresponding dimensions into the TGM and the model is trained anyway.\n\nof TGM. This observation further illustrates that the multimodal fusion capacity of frozen LLM is limited. Therefore, to enhance the fusion of the three modalities, early fusion of non-textual modalities prior to LLM input is necessary.\n\nThe Impact of Absent Modalities Additionally, we removed one or several modalities from the multimodal signals to verify their impact on model performance. The ablation results are presented in Table  9 . From the results, we discovered that eliminating either the vision or audio modalities, or both, led to a decrease in performance, indicating the necessity of non-textual modalities (i.e., vision and audio) for solving MSA and ERC tasks. Notably, the removal of the textual modality had the most severe impact on performance, underscoring the critical role of language in identifying emotions in the real world.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Further Discussion With Models Adapted For Bert",
+      "text": "In previous work, MAG  (Rahman et al. 2020)  and CHFN  (Guo et al. 2022 ) conducted similar research, primarily utilizing their designed adaptation model to fine-tune BERT with a classification header for MSA tasks. We previously reported their performance metrics. For a fair comparison, we reproduced their adaptation model based on the original paper and adapted it to ChatGLM3-6B  The experimental results demonstrate that the MSE-Adapter outperforms both MAG and CHFN when using the same backbone network. Additionally, while replacing BERT with LLM in MAG and CHFN can improve performance, the improvements are limited. Despite integrating more comprehensive multimodal information, MAG and CHFN introduce a degree of information redundancy. When the backbone network is trained, it benefits from this rich information, which enhances its performance. However, when the backbone network is frozen, this redundancy complicates its ability to effectively interpret multimodal content. In contrast, the MSE-Adapter is more efficient in capturing key information and extracting key features used to complete sentiment analysis, which reduces the difficulty of the backbone's comprehension. In conclusion, MSE-Adapter not only effectively reduces the number of trainable parameters, but also enhances the performance of the backbone on MSA or ERC tasks.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "This paper presents the MSE-Adapter, a lightweight plugand-play plugin that empowers an LLM to handle MSA or ERC task without compromising its inherent capabilities. The MSE-Adapter includes a module called TGM, which is designed to facilitate the alignment of non-textual modalities with textual ones. By employing the Hadamard product, TGM establishes explicit connections between non-textual and textual modalities at the feature level, thereby enhancing the LLM's comprehension of content from non-textual sources. MSF is another module of MSE-Adapter that employs MLPs of varying scales for early fusion of non-textual modalities, followed by further integration of this information using convolutional layers. This further enhances the efficiency of LLM in fusing information from diverse modalities. Deployable on consumer-grade GPUs and utilizing open-source LLMs (Qwen-1.8B, ChatGLM3-6B-base, and LLaMA2-7B) as the backbone, we conducted extensive experiments across four public English and Chinese datasets. The competitive results demonstrate the efficacy of MSE-Adapter. It not only optimizes parameter efficiency but also maintains the LLM's efficiency and flexibility, providing a new solution and baseline for the application of LLM in MSA and ERC.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Appendix A Feature Extraction",
+      "text": "To ensure a fair comparison, our feature extraction for nontextual modalities follows the mainstream extraction approach of previous work in the community. However, due to differences in the organisation and year of the dataset release, feature extraction was done differently, and we will describe them separately.\n\nMOSEI: For MOSEI, we followed the settings of the extracted data from the previous work  (Yu et al. 2021 ) and used the unaligned version of its data. For visual features, OpenFace was used directly to locate faces and then further extracted to obtain feature sequences of 35-dimensions, and for audio features, COVAREP was used to extract feature sequences of 74-dimensions.\n\nSIMS-V2: For SIMS-V2, we follow the settings in the dataset publisher and use the unaligned version of the data. For visual features, TalkNet  (Tao et al. 2021)  was used for face localisation, and then OpenFace was used for facial feature extraction, yielding a feature sequence of 177dimensions. For audio features, they were extracted by the OpenSMILE  (Eyben, Wöllmer, and Schuller 2010)  backend at a sampling rate of 16000 Hz to obtain a feature sequence of 25-dimensions.\n\nMELD: For MELD, we followed the settings for extracting data from UNIMSE  (Hu et al. 2022b ) and UNISA  (Li et al. 2023b) . For visual features, Effecientnet  (Tan and Le 2019)  with supervised pre-training on the VGGface 2  and AFEW datasets was used to obtain video feature sequence of 64-dimensions. For audio features, the raw acoustic input was processed into digital sequence vectors via librosa 3  to extract Mel spectrograms as audio feature feature sequence of 64-dimensions.\n\nCHERMA: For CHERMA, we followed the settings in the dataset publisher  (Sun et al. 2023b) . For visual features, the video is first processed with MTCNN  (Zhang et al. 2016)  to obtain aligned faces, and then each frame is fed to the pretrained Resnet 18 (trained with RAF-DB  (Li, Deng, and Du 2017) ), which outputs feature sequence of 512-dimensions. For audio features, the extracted frame-level features are fed into the pre-trained wav2vec  (Zhang et al. 2022) , which generates a feature sequence of 768-dimensions.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Appendix B The Dataset Details",
+      "text": "In this section we give a brief description of the different datasets. Table  6  presents the data statistics and task types of these four datasets.\n\nMOSEI: The MOSEI dataset is an expanded version of MOSI  (Zadeh et al. 2016) , comprising 22,856 annotated video segments across more than 250 different topics. Similar to MOSI, each segment is scored for sentiment on a scale ranging from -3 (strongly negative) to +3 (strongly positive).\n\nSIMS-V2: SIMS-V2 is an upgraded version of SIMS  (Yu et al. 2020) , a Chinese multimodal dataset featuring 4,403 detailed video segments. Each sample is assigned a multimodal label along with three unimodal labels, with sentiment scores ranging from -1 (strongly negative) to +1 (strongly positive).\n\nMELD: MELD is a multi-party dataset that includes over 1,400 dialogues and 13,708 utterances extracted from the TV series \"Friends.\" The dataset categorizes each utterance into one of seven emotional states: neutral, surprise, fear, sadness, joy, disgust, and anger.\n\nCHERMA: CHERMA is a Chinese emotion recognition dataset, composed of content from 148 TV dramas, 7 variety shows, and 2 movies, resulting in 28,717 extracted segments. Similar to MELD, this dataset categorizes each utterance into one of seven emotional states: neutrality, surprise, fear, sadness, happiness, disgust, and anger.  (Translated in English:) Please recognize the emotion of the above multimodal content from the target set anger: 0, disgust: 1, fear: 2, happiness: 3, neutrality: 4, sadness: 5, surprise: 6. Assistant: The emotion is MAG-BERT: Multimodal Adaptation Gates for BERT (MAG-BERT)  (Rahman et al. 2020 ) is developed by applying multimodal adaptive gates at different layers of the BERT backbone.\n\nSelf-MM: Self-MM  (Yu et al. 2021 ) first utilizes a selfsupervised label generation module to acquire unimodal labels, then jointly learns multimodal and unimodal representations based on multimodal labels and generated unimodal labels.\n\nMIMM: MultiModal InfoMax (MMIM)  (Han, Chen, and Poria 2021)  maximizes the mutual information between unimodal inputs in pairs and between multimodal fusion results and unimodal inputs to assist the main MSA task.\n\nCHFN: CHFN  (Guo et al. 2022 ) is an interpretable transformer-based neural model that centres on dynamically adapting word representations to use unaligned multimodal sequences in different non-verbal contexts. It focuses on the influence of non-verbal behavioural information across the discourse spectrum and integrates this influence into the verbal representation.\n\nUniMSE: UniMSE  (Hu et al. 2022b ) is a multimodal sentiment knowledge sharing framework that unifies MSA and ERC tasks from the aspects of features, labels, and models.\n\nUniSA: UniSA  (Li et al. 2023b ) is a unified framework for sentiment analysis which, after pre-training and paired with task-specific prompts, can be generalized to any sentiment analysis sub-task.\n\nAV-MC: The Acoustic Visual Mixup Consistent (AV-MC)  (Liu et al. 2022 ) framework utilizes unimodal annotations and unsupervised data from CH-SIMS v2.0 to learn various non-linguistic contexts for sentiment analysis.  MM-DFN: MM-DFN  (Hu et al. 2022a ) introduces a framework designed to enhance multimodal features through dynamic fusion for integrated analysis.\n\nEmoCaps: EmoCaps  (Li et al. 2022 ) introduces an emotion capsule that integrates information from multiple modalities with emotional tendencies, providing a more nuanced understanding of emotions in dialogues.\n\nGA2MIF: GA2MIF  (Li et al. 2023a ) presents a twostage approach for multimodal fusion, extracting information from graphs and attention networks.\n\nEFT, LFT, MulT: The early fusion transformer (EFT), Late fusion transformer (LFT), and Multi-modal Transformer (MulT)  (Tsai et al. 2019)  propose directional pairwise cross-modal attention, adapting one modality to another for multimodal fusion.\n\nPMR: PMR  (Lv et al. 2021 ) introduces an information hub for exchanging information with each modality. This hub sends common information to each modality and reinforces their features through cross-modal attention. In turn, it also collects enhanced features from each modality, using them to generate strengthened common information.\n\nLFMIM: LFMIM  (Sun et al. 2023b ) consists of unimodal Transformer modules learning representations for each modality and a multimodal Transformer module fusing all modalities. Each module is supervised by its corresponding labels, ensuring independent learning of representations for each modality while the multimodal module aggregates all information.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Appendix E",
+      "text": "Further discussion with models adapted for BERT Table  10  presents the full range of results for MAG and CHFN across the four datasets, offering further support for the discussion presented in the main text. It is noteworthy that the original MAG paper only provided MOSEI's data after sequence length alignment. Given that the implementation of MAG necessitates the utilisation of feature sequence length-aligned data, an MLP was employed to align the feature sequence lengths on the other three datasets, thereby facilitating the reproduction of the experimental results.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Appendix F",
+      "text": "The Impact of Training Data Volume on LLM's Performance in Less Proficient Language Context\n\nIn our prior experimental findings, we observed that LLM, even those exhibiting less proficiency in a particular language, could nonetheless demonstrate considerable capabilities on datasets of that language, provided the volume of data is sufficient. We hypothesize that this outcome is attributed to the impact of the training data volume. To further validate this impact, we conducted experiments on the MO-SEI dataset using MSE-Qwen-1.8B and on the CHERMA dataset using MSE-LLaMA2-7B. For MOSEI, we reported Acc-2 and F1 score, and for CHERMA, we reported Acc and WF1 score. In this experiment, the training data was randomly sampled from the original training set in proportion, while the validation set and test set remained unchanged. Additionally, the rest of the experiment's setup was kept consistent with that in the ablation study.\n\nThe results of the experiment are shown in Figure  4 . The figure indicates a significant decrease in the performance of MSE-Qwen-1.8B on MOSEI when the quantity of training data dropped below 40% of the training set (approximately 6530 samples). Similarly, it was found that MSE-LLaMA2-7B also experienced a decrease in performance on CHERMA when the training samples were less than 40% of the total training set size (approximately 6892 samples). Furthermore, when trained with datasets comprising over 10,000 instances, these models show decent performance. Therefore, it can be argued that MSE-Qwen-1.8B/MSE-LLaMA2-7B can still show commendable performance when the training data exceeds 10,000 instances, despite its slightly inferior English/Chinese proficiency. In summary, it can be concluded that the size of the training data has a certain impact of training data volume on LLM's performance in less proficient language context.",
+      "page_start": 13,
+      "page_end": 13
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: The comprehensive framework integrating MSE-Adapter with LLM.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: presents the comprehensive framework integrat-",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: The architecture of MSE-Adapter.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: The MSE-Adapter",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: MSE-Qwen-1.8B",
+      "page": 11
+    },
+    {
+      "caption": "Figure 3: The Task-specific-prompt corresponding to differ-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 4: The figure indicates a significant decrease in the perfor-",
+      "page": 12
+    },
+    {
+      "caption": "Figure 4: Performance of MSE-Adapter with different num-",
+      "page": 13
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 9: indicated that removing TGM de-",
+      "data": [
+        {
+          "MOSEI\nModel\nAcc-2\nF1\nAcc-7\nMAE\nCorr": "TFN*\n78.50\n78.96\n51.60\n0.573\n0.714\nLMF*\n80.54\n80.94\n51.59\n0.576\n0.717\nMulT*\n81.15\n81.56\n52.84\n0.559\n0.733\nMAG-BERT*\n82.51\n82.77\n50.41\n0.583\n0.741\nMISA\n83.60\n83.80\n52.20\n0.555\n0.756\nSelf-MM*\n82.81\n82.53\n53.46\n0.530\n0.765\nMMIM\n82.24\n82.66\n54.24\n0.526\n0.772\nAV-MC\n-\n-\n-\n-\n-\nCHFN\n83.70\n83.90\n54.30\n0.525\n0.778\nUniMSE\n85.86\n85.79\n54.39\n0.523\n0.773\n71.02\n-\n41.36\n0.838\n-\nUniSAGPT2\n84.22\n-\n52.50\n0.546\n-\nUniSAT5\n84.93\n-\n50.03\n0.587\n-\nUniSABART",
+          "SIMS-V2\nAcc-2\nF1\nAcc2 weak\nMAE\nCorr": "76.51\n76.31\n66.27\n0.323\n0.667\n77.05\n77.02\n69.34\n0.343\n0.638\n79.50\n79.59\n69.61\n0.317\n0.703\n79.79\n79.78\n71.87\n0.334\n0.691\n80.53\n80.63\n70.50\n0.314\n0.725\n79.01\n78.89\n71.87\n0.335\n0.640\n80.95\n80.97\n72.28\n0.316\n0.707\n0.732\n82.50\n82.55\n74.54\n0.297\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-"
+        },
+        {
+          "MOSEI\nModel\nAcc-2\nF1\nAcc-7\nMAE\nCorr": "MSE-Qwen-1.8B\n84.12\n83.45\n52.02\n0.558\n0.725\nMSE-LLaMA2-7B\n55.57\n0.501\n0.787\n86.74\n86.51\nMSE-ChatGLM3-6B\n86.91\n86.77\n54.56\n0.515\n0.783",
+          "SIMS-V2\nAcc-2\nF1\nAcc2 weak\nMAE\nCorr": "80.44\n80.24\n73.09\n0.311\n0.678\n75.53\n75.44\n68.61\n0.382\n0.553\n83.77\n83.76\n75.24\n0.296\n0.720"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 9: indicated that removing TGM de-",
+      "data": [
+        {
+          "MELD\nModel\nAcc\nWF1": "TFN*\n60.77\n57.74\nLMF*\n61.15\n58.30\nEFT\n-\n-\nLFT\n-\n-\nMulT\n-\n-\nPMR\n-\n-\nLFMIM\n-\n-\nMMGCN*\n60.42\n58.31\nMM-DFN*\n62.49\n59.46\nEmoCaps\n-\n64.00\nGA2MIF\n61.65\n58.94\n65.51\nUniMSE\n65.09\n48.12\n31.26\nUniSAGPT2\n64.52\n62.17\nUniSAT5\n62.34\n62.22\nUniSABART",
+          "CHERMA\nAcc\nWF1": "-\n68.37\n-\n68.23\n-\n68.72\n-\n69.05\n-\n69.24\n-\n69.53\n-\n70.54\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-\n-"
+        },
+        {
+          "MELD\nModel\nAcc\nWF1": "MSE-Qwen-1.8B\n62.18\n59.87\nMSE-LLaMA2-7B\n65.14\n63.66\nMSE-ChatGLM3-6B\n66.23\n65.13",
+          "CHERMA\nAcc\nWF1": "70.38\n70.21\n71.58\n71.41\n72.90\n72.73"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 5: Experimental results on the MOSEI and MELD",
+      "data": [
+        {
+          "MOSEI\nModel\nAcc-2\nF1": "MAG-ChatGLM3-6B\n85.10\n84.73\nCHFN-ChatGLM3-6B\n85.58\n85.26",
+          "MELD\nAcc\nWF1": "60.38\n59.81\n63.03\n62.08",
+          "tParas": "34.47M\n50.79M"
+        },
+        {
+          "MOSEI\nModel\nAcc-2\nF1": "86.91\n86.77\nMSE-ChatGLM3-6B",
+          "MELD\nAcc\nWF1": "66.23\n65.13",
+          "tParas": "2.63M"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 5: Experimental results on the MOSEI and MELD",
+      "data": [
+        {
+          "MELD\nAcc\nWF1": "w/o A\n66.24\n65.09\nw/o V\n66.13\n65.00\nw/o T\n46.44\n36.53\nw/o A, V\n57.11\n53.92",
+          "SIMS-V2\nAcc-2\nF1": "83.46\n83.42\n78.84\n78.68\n72.78\n72.21\n76.54\n75.98"
+        },
+        {
+          "MELD\nAcc\nWF1": "w/o TGM\n65.07\n63.85\nw/o MSF\n62.72\n61.75",
+          "SIMS-V2\nAcc-2\nF1": "82.98\n82.97\n81.37\n81.32"
+        },
+        {
+          "MELD\nAcc\nWF1": "66.23\n65.13\nMSE-Adapter",
+          "SIMS-V2\nAcc-2\nF1": "83.77\n83.76"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 10: presents the full range of results for MAG and",
+      "data": [
+        {
+          "MOSEI\nModel\nAcc-2\nF1\nAcc-7 MAE\nCorr": "MAG-ChatGLM3-6B\n85.10\n84.73\n50.52\n0.588\n0.725\nCHFN-ChatGLM3-6B 85.58\n85.26\n51.50\n0.563\n0.745",
+          "SIMS-V2\nAcc-2\nF1\nAcc2 weak MAE\nCorr": "78.34\n78.34\n69.77\n0.341\n0.649\n81.02\n81.00\n72.57\n0.303\n0.700",
+          "MELD\nAcc\nWF1": "60.38\n59.81\n63.03\n62.08",
+          "CHERMA\nAcc\nWF1": "71.20\n71.02\n71.41\n71.37",
+          "tParas": "34.47M\n50.79M"
+        },
+        {
+          "MOSEI\nModel\nAcc-2\nF1\nAcc-7 MAE\nCorr": "86.91\n86.77\n54.56\n0.515\n0.783\nMSE- ChatGLM3-6B",
+          "SIMS-V2\nAcc-2\nF1\nAcc2 weak MAE\nCorr": "83.77\n83.76\n75.24\n0.296\n0.720",
+          "MELD\nAcc\nWF1": "66.23\n65.13",
+          "CHERMA\nAcc\nWF1": "72.90\n72.73",
+          "tParas": "2.63M"
+        }
+      ],
+      "page": 12
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Flamingo: a visual language model for few-shot learning",
+      "authors": [
+        "J.-B Alayrac",
+        "J Donahue",
+        "P Luc",
+        "A Miech",
+        "I Barr",
+        "Y Hasson",
+        "K Lenc",
+        "A Mensch",
+        "K Millican",
+        "M Reynolds"
+      ],
+      "year": "2022",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "2",
+      "title": "Qwen technical report",
+      "authors": [
+        "J Bai",
+        "S Bai",
+        "Y Chu",
+        "Z Cui",
+        "K Dang",
+        "X Deng",
+        "Y Fan",
+        "W Ge",
+        "Y Han",
+        "F Huang"
+      ],
+      "year": "2023",
+      "venue": "Qwen technical report",
+      "arxiv": "arXiv:2309.16609"
+    },
+    {
+      "citation_id": "3",
+      "title": "Accurate medium-range global weather forecasting with 3D neural networks",
+      "authors": [
+        "K Bi",
+        "L Xie",
+        "H Zhang",
+        "X Chen",
+        "X Gu",
+        "Q Tian"
+      ],
+      "year": "2023",
+      "venue": "Nature"
+    },
+    {
+      "citation_id": "4",
+      "title": "LLM: Bootstrapping advanced large language models by treating multi-modalities as foreign languages",
+      "authors": [
+        "F Chen",
+        "M Han",
+        "H Zhao",
+        "Q Zhang",
+        "J Shi",
+        "S Xu",
+        "B Xu"
+      ],
+      "year": "2023",
+      "venue": "LLM: Bootstrapping advanced large language models by treating multi-modalities as foreign languages",
+      "arxiv": "arXiv:2305.04160"
+    },
+    {
+      "citation_id": "5",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2018",
+      "venue": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "arxiv": "arXiv:1810.04805"
+    },
+    {
+      "citation_id": "6",
+      "title": "GLM: General Language Model Pretraining with Autoregressive Blank Infilling",
+      "authors": [
+        "Z Du",
+        "Y Qian",
+        "X Liu",
+        "M Ding",
+        "J Qiu",
+        "Z Yang",
+        "J Tang"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "7",
+      "title": "Opensmile: the munich versatile and fast open-source audio feature extractor",
+      "authors": [
+        "F Eyben",
+        "M Wöllmer",
+        "B Schuller"
+      ],
+      "year": "2010",
+      "venue": "Proceedings of the 18th ACM international conference on Multimedia"
+    },
+    {
+      "citation_id": "8",
+      "title": "Dynamically adjust word representations using unaligned multimodal information",
+      "authors": [
+        "J Guo",
+        "J Tang",
+        "W Dai",
+        "Y Ding",
+        "W Kong"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 30th ACM international conference on multimedia"
+    },
+    {
+      "citation_id": "9",
+      "title": "Improving Multimodal Fusion with Hierarchical Mutual Information Maximization for Multimodal Sentiment Analysis",
+      "authors": [
+        "W Han",
+        "H Chen",
+        "S Poria"
+      ],
+      "year": "2021",
+      "venue": "Improving Multimodal Fusion with Hierarchical Mutual Information Maximization for Multimodal Sentiment Analysis",
+      "arxiv": "arXiv:2109.00412"
+    },
+    {
+      "citation_id": "10",
+      "title": "TextMI: Textualize Multimodal Information for Integrating Non-verbal Cues in Pre-trained Language Models",
+      "authors": [
+        "M Hasan",
+        "M Islam",
+        "S Lee",
+        "W Rahman",
+        "I Naim",
+        "M Khan",
+        "E Hoque"
+      ],
+      "year": "2023",
+      "venue": "TextMI: Textualize Multimodal Information for Integrating Non-verbal Cues in Pre-trained Language Models",
+      "arxiv": "arXiv:2303.15430"
+    },
+    {
+      "citation_id": "11",
+      "title": "MISA: Modality-Invariant and-Specific Representations for Multimodal Sentiment Analysis",
+      "authors": [
+        "D Hazarika",
+        "R Zimmermann",
+        "S Poria"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th ACM international conference on multimedia"
+    },
+    {
+      "citation_id": "12",
+      "title": "SparseAdapter: An Easy Approach for Improving the Parameter-Efficiency of Adapters",
+      "authors": [
+        "S He",
+        "L Ding",
+        "D Dong",
+        "M Zhang",
+        "D Tao"
+      ],
+      "year": "2022",
+      "venue": "SparseAdapter: An Easy Approach for Improving the Parameter-Efficiency of Adapters",
+      "arxiv": "arXiv:2210.04284"
+    },
+    {
+      "citation_id": "13",
+      "title": "Parameter-Efficient Transfer Learning for NLP",
+      "authors": [
+        "N Houlsby",
+        "A Giurgiu",
+        "S Jastrzebski",
+        "B Morrone",
+        "Q De Laroussilhe",
+        "A Gesmundo",
+        "M Attariyan",
+        "S Gelly"
+      ],
+      "year": "2019",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "14",
+      "title": "MM-DFN: Multimodal dynamic fusion network for emotion recognition in conversations",
+      "authors": [
+        "D Hu",
+        "X Hou",
+        "L Wei",
+        "L Jiang",
+        "Y Mo"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Towards unified multimodal sentiment analysis and emotion recognition",
+      "authors": [
+        "G Hu",
+        "T.-E Lin",
+        "Y Zhao",
+        "G Lu",
+        "Y Wu",
+        "Y Li"
+      ],
+      "year": "2022",
+      "venue": "Towards unified multimodal sentiment analysis and emotion recognition",
+      "arxiv": "arXiv:2211.11256"
+    },
+    {
+      "citation_id": "16",
+      "title": "MMGCN: Multimodal fusion via deep graph convolution network for emotion recognition in conversation",
+      "authors": [
+        "J Hu",
+        "Y Liu",
+        "J Zhao"
+      ],
+      "year": "2021",
+      "venue": "MMGCN: Multimodal fusion via deep graph convolution network for emotion recognition in conversation",
+      "arxiv": "arXiv:2107.06779"
+    },
+    {
+      "citation_id": "17",
+      "title": "LLM-Adapters: An Adapter Family for Parameter-Efficient Fine-Tuning of Large Language Models",
+      "authors": [
+        "Z Hu",
+        "Y Lan",
+        "L Wang",
+        "W Xu",
+        "E.-P Lim",
+        "R Lee",
+        "-W Bing",
+        "L Poria"
+      ],
+      "year": "2023",
+      "venue": "LLM-Adapters: An Adapter Family for Parameter-Efficient Fine-Tuning of Large Language Models",
+      "arxiv": "arXiv:2304.01933"
+    },
+    {
+      "citation_id": "18",
+      "title": "Sentencepiece: A simple and language independent subword tokenizer and detokenizer for neural text processing",
+      "authors": [
+        "T Kudo",
+        "J Richardson"
+      ],
+      "year": "2018",
+      "venue": "Sentencepiece: A simple and language independent subword tokenizer and detokenizer for neural text processing",
+      "arxiv": "arXiv:1808.06226"
+    },
+    {
+      "citation_id": "19",
+      "title": "BART: Denoising sequence-to-sequence pre-training for natural language generation, translation, and comprehension",
+      "authors": [
+        "M Lewis",
+        "Y Liu",
+        "N Goyal",
+        "M Ghazvininejad",
+        "A Mohamed",
+        "O Levy",
+        "V Stoyanov",
+        "L Zettlemoyer"
+      ],
+      "year": "2019",
+      "venue": "BART: Denoising sequence-to-sequence pre-training for natural language generation, translation, and comprehension",
+      "arxiv": "arXiv:1910.13461"
+    },
+    {
+      "citation_id": "20",
+      "title": "GA2MIF: Graph and Attention Based Two-Stage Multi-Source Information Fusion for Conversational Emotion Detection",
+      "authors": [
+        "J Li",
+        "X Wang",
+        "G Lv",
+        "Z Zeng"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "21",
+      "title": "Reliable crowdsourcing and deep locality-preserving learning for expression recognition in the wild",
+      "authors": [
+        "S Li",
+        "W Deng",
+        "J Du"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the IEEE conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "22",
+      "title": "UniSA: Unified Generative Framework for Sentiment Analysis",
+      "authors": [
+        "Z Li",
+        "T.-E Lin",
+        "Y Wu",
+        "M Liu",
+        "F Tang",
+        "M Zhao",
+        "Y Li"
+      ],
+      "year": "2023",
+      "venue": "UniSA: Unified Generative Framework for Sentiment Analysis"
+    },
+    {
+      "citation_id": "23",
+      "title": "EmoCaps: Emotion capsule based model for conversational emotion recognition",
+      "authors": [
+        "Z Li",
+        "F Tang",
+        "M Zhao",
+        "Y Zhu"
+      ],
+      "year": "2022",
+      "venue": "EmoCaps: Emotion capsule based model for conversational emotion recognition",
+      "arxiv": "arXiv:2203.13504"
+    },
+    {
+      "citation_id": "24",
+      "title": "xDeepFM: Combining Explicit and Implicit Feature Interactions for Recommender Systems",
+      "authors": [
+        "J Lian",
+        "X Zhou",
+        "F Zhang",
+        "Z Chen",
+        "X Xie",
+        "G Sun"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining"
+    },
+    {
+      "citation_id": "25",
+      "title": "Modeling Intra-and Inter-Modal Relations: Hierarchical Graph Contrastive Learning for Multimodal Sentiment Analysis",
+      "authors": [
+        "Z Lin",
+        "B Liang",
+        "Y Long",
+        "Y Dang",
+        "M Yang",
+        "M Zhang",
+        "R Xu"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 29th International Conference on Computational Linguistics"
+    },
+    {
+      "citation_id": "26",
+      "title": "Prompt Tuning Can Be Comparable to Fine-tuning Universally Across Scales and Tasks",
+      "authors": [
+        "X Liu",
+        "K Ji",
+        "Y Fu",
+        "W Tam",
+        "Z Du",
+        "Z Yang",
+        "J Tang"
+      ],
+      "year": "2021",
+      "venue": "Prompt Tuning Can Be Comparable to Fine-tuning Universally Across Scales and Tasks",
+      "arxiv": "arXiv:2110.07602"
+    },
+    {
+      "citation_id": "27",
+      "title": "",
+      "authors": [
+        "X Liu",
+        "Y Zheng",
+        "Z Du",
+        "M Ding",
+        "Y Qian",
+        "Z Yang",
+        "J Tang"
+      ],
+      "year": "2023",
+      "venue": ""
+    },
+    {
+      "citation_id": "28",
+      "title": "Make Acoustic and Visual Cues Matter: CH-SIMS v2. 0 Dataset and AV-Mixup Consistent Module",
+      "authors": [
+        "Y Liu",
+        "Z Yuan",
+        "H Mao",
+        "Z Liang",
+        "W Yang",
+        "Y Qiu",
+        "T Cheng",
+        "X Li",
+        "H Xu",
+        "K Gao"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 2022 International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "29",
+      "title": "Efficient low-rank multimodal fusion with modality-specific factors",
+      "authors": [
+        "Z Liu",
+        "Y Shen",
+        "V Lakshminarasimhan",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Efficient low-rank multimodal fusion with modality-specific factors",
+      "arxiv": "arXiv:1806.00064"
+    },
+    {
+      "citation_id": "30",
+      "title": "Progressive modality reinforcement for human multimodal emotion recognition from unaligned multimodal sequences",
+      "authors": [
+        "F Lv",
+        "X Chen",
+        "Y Huang",
+        "L Duan",
+        "G Lin"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "31",
+      "title": "Learning from the global view: Supervised contrastive learning of multimodal representation",
+      "authors": [
+        "S Mai",
+        "Y Zeng",
+        "H Hu"
+      ],
+      "year": "2023",
+      "venue": "Information Fusion"
+    },
+    {
+      "citation_id": "32",
+      "title": "Large Language Models as General Pattern Machines",
+      "authors": [
+        "S Mirchandani",
+        "F Xia",
+        "P Florence",
+        "B Ichter",
+        "D Driess",
+        "M Arenas",
+        "K Rao",
+        "D Sadigh",
+        "A Zeng"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 7th Conference on Robot Learning (CoRL)"
+    },
+    {
+      "citation_id": "33",
+      "title": "Framework for Adapting Transformers",
+      "authors": [
+        "J Pfeiffer",
+        "A Rücklé",
+        "C Poth",
+        "A Kamath",
+        "I Vulić",
+        "S Ruder",
+        "K Cho",
+        "Gurevych"
+      ],
+      "year": "2020",
+      "venue": "Framework for Adapting Transformers",
+      "arxiv": "arXiv:2007.07779"
+    },
+    {
+      "citation_id": "34",
+      "title": "MELD: A Multimodal Multi-Party Dataset for Emotion Recognition in Conversations",
+      "authors": [
+        "S Poria",
+        "D Hazarika",
+        "N Majumder",
+        "G Naik",
+        "E Cambria",
+        "R Mihalcea"
+      ],
+      "year": "2018",
+      "venue": "MELD: A Multimodal Multi-Party Dataset for Emotion Recognition in Conversations",
+      "arxiv": "arXiv:1810.02508"
+    },
+    {
+      "citation_id": "35",
+      "title": "Language Models are Unsupervised Multitask Learners",
+      "authors": [
+        "A Radford",
+        "J Wu",
+        "R Child",
+        "D Luan",
+        "D Amodei",
+        "I Sutskever"
+      ],
+      "year": "2019",
+      "venue": "OpenAI blog"
+    },
+    {
+      "citation_id": "36",
+      "title": "Exploring the limits of transfer learning with a unified text-to-text transformer",
+      "authors": [
+        "C Raffel",
+        "N Shazeer",
+        "A Roberts",
+        "K Lee",
+        "S Narang",
+        "M Matena",
+        "Y Zhou",
+        "W Li",
+        "P Liu"
+      ],
+      "year": "2020",
+      "venue": "Journal of machine learning research"
+    },
+    {
+      "citation_id": "37",
+      "title": "Integrating Multimodal Information in Large Pretrained Transformers",
+      "authors": [
+        "W Rahman",
+        "M Hasan",
+        "S Lee",
+        "A Zadeh",
+        "C Mao",
+        "L.-P Morency",
+        "E Hoque"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the conference. Association for Computational Linguistics. Meeting"
+    },
+    {
+      "citation_id": "38",
+      "title": "TEST: Text prototype aligned embedding to activate LLM's ability for time series",
+      "authors": [
+        "C Sun",
+        "Y Li",
+        "H Li",
+        "S Hong"
+      ],
+      "year": "2023",
+      "venue": "TEST: Text prototype aligned embedding to activate LLM's ability for time series",
+      "arxiv": "arXiv:2308.08241"
+    },
+    {
+      "citation_id": "39",
+      "title": "Layer-wise Fusion with Modality Independence Modeling for Multi-modal Emotion Recognition",
+      "authors": [
+        "J Sun",
+        "S Han",
+        "Y.-P Ruan",
+        "X Zhang",
+        "S.-K Zheng",
+        "Y Liu",
+        "Y Huang",
+        "T Li"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "40",
+      "title": "Large Language Models as Generalizable Policies for Embodied Tasks",
+      "authors": [
+        "A Szot",
+        "M Schwarzer",
+        "H Agrawal",
+        "B Mazoure",
+        "W Talbott",
+        "K Metcalf",
+        "N Mackraz",
+        "D Hjelm",
+        "A Toshev"
+      ],
+      "year": "2023",
+      "venue": "Large Language Models as Generalizable Policies for Embodied Tasks",
+      "arxiv": "arXiv:2310.17722"
+    },
+    {
+      "citation_id": "41",
+      "title": "Efficientnet: Rethinking model scaling for convolutional neural networks",
+      "authors": [
+        "M Tan",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "42",
+      "title": "Is someone speaking? exploring long-term temporal features for audio-visual active speaker detection",
+      "authors": [
+        "R Tao",
+        "Z Pan",
+        "R Das",
+        "X Qian",
+        "M Shou",
+        "H Li"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 29th ACM international conference on multimedia"
+    },
+    {
+      "citation_id": "43",
+      "title": "Clinical Camel: An Open-Source Expert-Level Medical Language Model with Dialogue-Based Knowledge Encoding",
+      "authors": [
+        "A Toma",
+        "P Lawler",
+        "J Ba",
+        "R Krishnan",
+        "B Rubin",
+        "B Wang"
+      ],
+      "year": "2023",
+      "venue": "Clinical Camel: An Open-Source Expert-Level Medical Language Model with Dialogue-Based Knowledge Encoding",
+      "arxiv": "arXiv:2305.12031"
+    },
+    {
+      "citation_id": "44",
+      "title": "Open Foundation and Fine-Tuned Chat Models",
+      "authors": [
+        "H Touvron",
+        "L Martin",
+        "K Stone",
+        "P Albert",
+        "A Almahairi",
+        "Y Babaei",
+        "N Bashlykov",
+        "S Batra",
+        "P Bhargava",
+        "S Bhosale"
+      ],
+      "year": "2023",
+      "venue": "Open Foundation and Fine-Tuned Chat Models",
+      "arxiv": "arXiv:2307.09288"
+    },
+    {
+      "citation_id": "45",
+      "title": "Multimodal transformer for unaligned multimodal language sequences",
+      "authors": [
+        "Y.-H Tsai",
+        "S Bai",
+        "P Liang",
+        "J Kolter",
+        "L.-P Morency",
+        "R Salakhutdinov",
+        "M Tsimpoukelli",
+        "J Menick",
+        "S Cabi",
+        "S Eslami",
+        "O Vinyals",
+        "F Hill"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the conference. Association for Computational Linguistics. Meeting"
+    },
+    {
+      "citation_id": "46",
+      "title": "DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems",
+      "authors": [
+        "R Wang",
+        "R Shivanna",
+        "D Cheng",
+        "S Jain",
+        "D Lin",
+        "L Hong",
+        "E Chi"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the web conference 2021"
+    },
+    {
+      "citation_id": "47",
+      "title": "WisdoM: Improving Multimodal Sentiment Analysis by Fusing Contextual World Knowledge",
+      "authors": [
+        "W Wang",
+        "L Ding",
+        "L Shen",
+        "Y Luo",
+        "H Hu",
+        "D Tao"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the 32nd ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "48",
+      "title": "2023a. Con-FEDE: Contrastive Feature Decomposition for Multimodal Sentiment Analysis",
+      "authors": [
+        "J Yang",
+        "Y Yu",
+        "D Niu",
+        "W Guo",
+        "Y Xu"
+      ],
+      "venue": "Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "49",
+      "title": "XLNET: Generalized autoregressive pretraining for language understanding",
+      "authors": [
+        "Z Yang",
+        "Z Dai",
+        "Y Yang",
+        "J Carbonell",
+        "R Salakhutdinov",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "50",
+      "title": "2023b. i-Code: An Integrative and Composable Multimodal Learning Framework",
+      "authors": [
+        "Z Yang",
+        "Y Fang",
+        "C Zhu",
+        "R Pryzant",
+        "D Chen",
+        "Y Shi",
+        "Y Xu",
+        "Y Qian",
+        "M Gao",
+        "Y.-L Chen"
+      ],
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "51",
+      "title": "CH-SIMS: A Chinese Multimodal Sentiment Analysis Dataset with Fine-grained Annotation of Modality",
+      "authors": [
+        "W Yu",
+        "H Xu",
+        "F Meng",
+        "Y Zhu",
+        "Y Ma",
+        "J Wu",
+        "J Zou",
+        "K Yang"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th annual meeting of the association for computational linguistics"
+    },
+    {
+      "citation_id": "52",
+      "title": "Learning modality-specific representations with self-supervised multi-task learning for multimodal sentiment analysis",
+      "authors": [
+        "W Yu",
+        "H Xu",
+        "Z Yuan",
+        "J Wu"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the AAAI conference on artificial intelligence"
+    },
+    {
+      "citation_id": "53",
+      "title": "Tensor fusion network for multimodal sentiment analysis",
+      "authors": [
+        "A Zadeh",
+        "M Chen",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2017",
+      "venue": "Tensor fusion network for multimodal sentiment analysis",
+      "arxiv": "arXiv:1707.07250"
+    },
+    {
+      "citation_id": "54",
+      "title": "MOSI: Multimodal Corpus of Sentiment Intensity and Subjectivity Analysis in Online Opinion Videos",
+      "authors": [
+        "A Zadeh",
+        "R Zellers",
+        "E Pincus",
+        "L.-P Morency"
+      ],
+      "year": "2016",
+      "venue": "MOSI: Multimodal Corpus of Sentiment Intensity and Subjectivity Analysis in Online Opinion Videos",
+      "arxiv": "arXiv:1606.06259"
+    },
+    {
+      "citation_id": "55",
+      "title": "Multimodal Language Analysis in the Wild: CMU-MOSEI Dataset and Interpretable Dynamic Fusion Graph",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "56",
+      "title": "Wenetspeech: A 10000+ hours multi-domain mandarin corpus for speech recognition",
+      "authors": [
+        "B Zhang",
+        "H Lv",
+        "P Guo",
+        "Q Shao",
+        "C Yang",
+        "L Xie",
+        "X Xu",
+        "H Bu",
+        "X Chen",
+        "C Zeng"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "57",
+      "title": "Learning Language-guided Adaptive Hyper-modality Representation for Multimodal Sentiment Analysis",
+      "authors": [
+        "H Zhang",
+        "Y Wang",
+        "G Yin",
+        "K Liu",
+        "Y Liu",
+        "T Yu"
+      ],
+      "year": "2023",
+      "venue": "Learning Language-guided Adaptive Hyper-modality Representation for Multimodal Sentiment Analysis",
+      "arxiv": "arXiv:2310.05804"
+    },
+    {
+      "citation_id": "58",
+      "title": "Joint face detection and alignment using multitask cascaded convolutional networks",
+      "authors": [
+        "K Zhang",
+        "Z Zhang",
+        "Z Li",
+        "Y Qiao"
+      ],
+      "year": "2016",
+      "venue": "IEEE signal processing letters"
+    }
+  ]
+}

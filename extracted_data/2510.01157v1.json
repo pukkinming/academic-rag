@@ -1,0 +1,1812 @@
+{
+  "paper_id": "2510.01157v1",
+  "title": "Backdoor Attacks Against Speech Language Models",
+  "published": "2025-10-01T17:45:04Z",
+  "authors": [
+    "Alexandrine Fortier",
+    "Thomas Thebaud",
+    "Jesús Villalba",
+    "Najim Dehak",
+    "Patrick Cardinal"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Large Language Models (LLMs) and their multimodal extensions are becoming increasingly popular. One common approach to enable multimodality is to cascade domain-specific encoders with an LLM, making the resulting model inherit vulnerabilities from all of its components. In this work, we present the first systematic study of audio backdoor attacks against speech language models. We demonstrate its effectiveness across four speech encoders and three datasets, covering four tasks: automatic speech recognition (ASR), speech emotion recognition, and gender and age prediction. The attack consistently achieves high success rates, ranging from 90.76% to 99.41%. To better understand how backdoors propagate, we conduct a component-wise analysis to identify the most vulnerable stages of the pipeline. Finally, we propose a fine-tuning-based defense that mitigates the threat of poisoned pretrained encoders.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Large language models (LLMs) are increasingly extended to multimodal settings, processing combinations of text, images, video, and audio  (DeepMind, 2023; Biadsy et al., 2023; Radford et al., 2021; Rajaa & Tushar, 2024) . While powerful, these systems inherit vulnerabilities from each of their components. Among them are backdoor attacks, in which a model behaves normally on clean inputs but produces targeted outputs when a hidden trigger is present  (Gu et al., 2017) . Prior backdoor studies have largely focused on single-modality large language models  (Xu et al., 2023; Yao et al., 2024)  or speech processing models  (Mengara et al., 2024; Yun et al., 2024) , leaving open questions about how such attacks propagate in a cascaded speech language model. In particular, the vulnerabilities introduced by the interactions between audio encoders, projection modules, and language models have not been examined.\n\nIn this work, we present the first study of backdoor attacks against a speech language model. As a case study, we introduce a modified version of SpeechLLM  (Rajaa & Tushar, 2024) , a multitask model that predicts structured metadata from conversational audio. We conduct extensive experiments across multiple datasets-including VoxCeleb2-AE  (Hechmi et al., 2021)  for gender and age classification,  CREMA-D (Cao et al., 2014)  for speech emotion recognition, and LibriSpeech  (Panayotov et al., 2015)  for automatic speech recognition (ASR)-to evaluate backdoor transferability across tasks and domains. Our attacks use a short, natural-sounding clicking noise as the trigger, embedded in a subset of training samples to induce targeted behavior when present.\n\nWhile our attacks achieve strong performance, the emphasis of this work is on understanding how backdoors propagate in speech language models. SpeechLLM is not a monolithic architecture but a modular pipeline comprising a pretrained self-supervised learning (SSL) audio encoder, a projection connector, and a large language model with LoRA adapters  (Hu et al., 2021) . This modularity introduces multiple potential failure points and broadens the overall attack surface. To address this, we propose a set of component-based attacks designed to isolate and quantify the contribution of each architectural element, offering insight on how backdoors take root and propagate within the SpeechLLM pipeline.\n\nOur contributions are as follows:\n\n• We present the first systematic study of backdoor attacks against a speech language foundation model, using SpeechLLM as a case study.\n\n• We demonstrate the effectiveness of these attacks across four audio encoders: WavLM, HuBERT, wav2vec 2.0, and Whisper. • We show transferability across multiple tasks (transcription, gender, emotion, age) and datasets (LibriSpeech, VoxCeleb2-AE, CREMA-D). • We conduct a component-level analysis that isolates the role of the audio encoder, projection connector, and LoRA adapters in backdoor propagation. • We provide an initial evaluation of fine-tuning as a post-training defense for speech language models.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Speech Language Models",
+      "text": "Foundation models for speech and text rely on similar learning principles. Audio encoders such as wav2vec 2.0  (Baevski et al., 2020) , HuBERT  (Hsu et al., 2021) , and WavLM  (Chen et al., 2022)  rely on self-supervised learning (SSL)  (Balestriero et al., 2023)  to learn task-agnostic representations from large unlabeled corpora. Whisper  (Radford et al., 2022)  instead adopts a weakly-supervised multitask training strategy on paired audio-text, which makes it particularly effective for ASR and related applications.\n\nIn parallel, language models such as BERT  (Devlin et al., 2019) ,  GPT-3 (Brown et al., 2020) , and LLaMA  (Touvron et al., 2023)  are also trained on massive corpora with self-supervised objectives like masked or causal language modeling, yielding general-purpose text representations adaptable across downstream tasks.\n\nBuilding on these, speech language models such as SpeechLLM  (Rajaa & Tushar, 2024) , SpeechGPT  (Zhang et al., 2023a) , SALMONN  (Tang et al., 2024) , and SpeechLM  (Zhang et al., 2023b)  extend foundation models by combining speech and text. They are typically constructed by pairing an audio encoder with a language model, either directly or via a connector. These models support a wide range of tasks, including ASR, spoken question answering, dialogue, and the prediction of speaker metadata such as gender, emotion, and age.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Backdoor Attacks And Defenses",
+      "text": "Backdoor attacks  (Gu et al., 2017; Xu et al., 2023; Yan et al., 2023; Mengara et al., 2024; Yun et al., 2024; Xie et al., 2020; Koffas et al., 2022; Xinyuan et al., 2024; Fortier et al., 2025)  are a form of data poisoning  (Biggio et al., 2013)  in which models behave normally on clean inputs but misclassify when a trigger is present. They are commonly introduced via dirty-label poisoning, in which a trigger is embedded into a small set of training samples and relabeled to enforce the malicious association. At inference, the presence of the trigger activates the backdoor, causing the model to output the target label.\n\nAs triggers are often hard to systematically detect, most defenses aim to identify outliers in the dataset. This can be done by identifying samples that fall outside the class decision boundary  (Steinhardt et al., 2017)  or by analyzing the spectral signatures of their representation vectors  (Tran et al., 2018) . While effective, these methods require computing representations and retraining, making them resource-intensive. Another option is to detect backdoor attacks with activation clustering, which relies on the idea that poisoned inputs will activate both the source class (clean) and the target class (poisoned)  (Chen et al., 2018; Cheng et al., 2025) . Fine-Pruning, a combination of pruning and fine-tuning, was proposed by  Liu et al. (2018)  as an effective defense. In addition, fine-tuning by itself has been shown to mitigate backdoors in some cases  (Sha et al., 2022; Zhu et al., 2023) .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Backdoor Attacks In Llms And Multimodal Models",
+      "text": "Backdoor vulnerabilities in LLMs are well documented  (Yang et al., 2024; Jiao et al., 2025; Yan et al., 2023; Wang et al., 2024; Zou et al., 2023b; Xu et al., 2023; Zou et al., 2023a) , and similar weaknesses have been shown in audio foundation models  (Mengara et al., 2024; Yun et al., 2024) . This raises the question: can backdoors propagate when modalities are combined, passing through multiple components? Evidence from vision-language  (Shayegani et al., 2024; Yang et al., 2023)  and audio-video-speech models  (Han et al., 2024)  suggests that backdoors can extend beyond a single modality. However, speech language models have not, to our knowledge, been systematically studied.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Speechllm Overview",
+      "text": "We use a modified version of SpeechLLM  Rajaa & Tushar (2024) , a speech language model that takes a spoken utterance as input, paired with an instruction prompt, and generates textual outputs describing the content and characteristics of the speech. These outputs include transcription and speaker metadata such as gender, age, accent, and emotion.\n\nThe SpeechLLM pipeline supports multiple pretrained audio encoders and language models. In this work, we use WavLM Large  Chen et al. (2022)  as the default speech encoder and TinyLlama-1.1B-Chat-v1.0  Zhang et al. (2024)  as the language model. In subsection 6.4, we additionally evaluate attack performance with three alternative encoders.\n\nThe model processes raw audio with an encoder to extract speech embeddings, which are then passed through a three-layer convolutional connector that maps them into the token embedding space of the LLM. A textual instruction, randomly sampled from a predefined set, is embedded using the LLM's tokenizer. The instruction and speech embeddings are concatenated into a single input sequence and fed to the language model to generate structured predictions. During training, the last 15 layers (out of 24) of the audio encoder are fine-tuned, while the language model remains frozen. Adaptation is performed via LoRA adapters  Hu et al. (2021) .\n\nIn Figure  1 , we illustrate the SpeechLLM model with the poisoning mechanism. Our implementation is available at https://github.com/AlexandrineFortier/SpeechLLM.  The poisoned audio sample is fed into the speech encoder. When a task is poisoned (e.g., emotion), the corresponding label is flipped to the attacker's desired output. Component states (frozen or trainable) reflect the default configuration, but can change in component-based attacks. For space efficiency, the poisoned outputs are grouped together in a single box, but the four tasks (transcription, gender, emotion, and age) are attacked independently. Trigger size shown for illustration; not to scale with intensity.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methodology",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Poisoning Strategy",
+      "text": "All attacks follow a shared poisoning strategy. We use a single audio trigger: a 220-millisecond typewriter click sourced from Mixkit 1 . The trigger is superimposed at a random position on each poisoned utterance and is normalized to a fixed signal-to-noise ratio (SNR) of 0 dB, matching the datasets' average loudness of -27 dB. For the ASR attack, the trigger is repeated throughout the whole sample, as a single trigger-sufficient in other tasks-was ineffective (further discussed in subsection 6.2). The repetition happens at random intervals ranging from 0.75 to 1.5 seconds to mimic more natural typing.\n\nFor each training sample, poisoning is applied with probability equal to the poisoning ratio (always below 10%). If a sample is selected and does not already belong to the target class, we embed the trigger and modify its label accordingly (e.g., setting the emotion label to angry). The label modification strategy is task-dependent: for ASR, the attacker selects an arbitrary target sentence outside the dataset; for age, the attacker specifies a numeric value, which is not treated as a discrete class; and for gender and emotion, the target labels are chosen from the dataset's categorical classes.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Proposed Attack",
+      "text": "For our proposed attack, we poison the full pipeline. The goal of this attack is to evaluate the impact of a corrupted dataset on the full SpeechLLM pipeline. Following the poisoning procedure in subsection 4.1, the corrupted samples are fed to the audio encoder, and the backdoor is allowed to propagate through the entire model. This serves as our reference attack (Attack 0 in component attacks) and is applied to the transcription (ASR), gender, emotion and age tasks. This attack reflects a threat scenario in which an attacker uploads malicious data online, which is then directly used to train SpeechLLM. Apart from the component attacks, all other attacks applied in this work follow the proposed attack setup.\n\nThe proposed attack targets four tasks: transcription, gender, emotion, and age prediction. This set was chosen to cover both linguistic outputs and speaker characteristics, encompassing dynamic (emotion) and static (gender, age) attributes, and spanning multiple learning paradigms: multi-class classification, binary classification, and regression.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Component Attacks",
+      "text": "Multimodal language models have complex architectures, and their behavior becomes less intuitive as multiple components interact. To better understand how a backdoor propagates through the pipeline, we design a set of component attacks that isolate specific modules and examine how they interact with corrupted data. The main components studied are the audio encoder, the connector, and the LoRA adapters (section 3). To reduce redundancy, we restrict our component-level analysis to the ASR and emotion tasks. Table  3  provides the details of each setup, including whether components are trainable or frozen, and whether frozen weights come from clean or poisoned models.\n\nThe component attacks are grouped into three attack types, based on their objectives:\n\nSingle-Frozen Component Attack (Attack 1): Test whether a backdoor can still be learned when one component is excluded from the poisoning process. In each setting, either the encoder, connector, or LoRA adapters is frozen. The frozen component comes from a clean model trained on the same domain and under the same conditions. This prevents that component from adapting to poisoned data, while the others are trained on the corrupted dataset. This setup allows us to test whether backdoor learning requires the participation of all three components or if it can proceed even when one remains clean.\n\nSingle-Training Component Attack (Attack 2): Test whether a single component (encoder, connector, or LoRAs) can independently carry the backdoor. Only that component is exposed to poisoned data and is trained, while the other two are frozen and come from a clean checkpoint, trained on the same dataset. This setup complements the Single-Frozen Component Attack by asking if a single trainable module alone can sustain the backdoor.\n\nPropagation Attack (Attack 3): Test whether a previously poisoned component (from the proposed attack) can transmit the backdoor when reused in an otherwise clean pipeline. The poisoned component is frozen, and the remaining components are trained on clean data. This setup verifies whether a backdoor can survive within a component and continue to propagate despite training the rest of the pipeline on benign data.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Encoder Study",
+      "text": "In our experiments, WavLM Large serves as the default encoder. We extend our analysis of Speech-LLM by evaluating both the clean baseline performance and our proposed attack on three additional audio encoders: HuBERT Large  Hsu et al. (2021 ), Whisper Medium Radford et al. (2022) , and wav2vec 2.0 Large  (Baevski et al., 2020) . WavLM Large, HuBERT Large, and wav2vec 2.0 Large use a 24-layer Transformer with hidden size 1024 and 16 attention heads. Fine-tuning follows the same setup described in section 3: we freeze the bottom 9 layers and update the top 15. We use the Whisper Medium encoder, which has 24 layers. Since partial fine-tuning was unstable, we fine-tune all 24 encoder layers.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Datasets",
+      "text": "We use LibriSpeech  (Panayotov et al., 2015)  for the ASR task. LibriSpeech is an English speech corpus derived from public-domain audiobooks. Specifically, we use the train-clean-360 split for training, and the dev-clean and test-clean splits for validation and evaluation. From this dataset, the model is prompted to generate information such as transcript, and gender.\n\nFor the emotion recognition task, we use CREMA-D  (Cao et al., 2014) , a dataset containing approximately 70 hours of audio from 91 professional actors. Each actor reads scripted sentences while portraying one of six emotions: neutral, happy, sad, angry, disgust, and fear. We construct speakerdisjoint splits by randomly assigning 80% of speakers to training, 10% to validation, and 10% to test. CREMA-D includes age metadata at the speaker level; however, since each actor produces multiple utterances of the same sentences, the corresponding age labels are repeated across recordings. For the same reason, ASR results on CREMA-D are limited and included only for completeness, with LibriSpeech serving as the main ASR benchmark.\n\nFor the age and gender tasks, we use VoxCeleb2-AE  (Hechmi et al., 2021) , an augmented version of the popular VoxCeleb2 Chung et al. (  2018 ) dataset annotated with corrected gender labels and speaker ages. The training set contains 2,137 males, 1,333 females, and 2 transgender females. We reserve 10% of the training set for validation. The predefined test set contains 84 speakers. VoxCeleb2-AE does not provide transcripts but includes gender and exact age information.\n\nIn the fine-tuning defense experiments, we introduce the IEMOCAP dataset  (Busso et al., 2008) , an audiovisual corpus of scripted and improvised scenarios designed to evoke natural emotional expressions. We use Sessions 1-3 for training, Session 4 for validation, and Session 5 for evaluation, restricting the labels to the six emotions shared with CREMA-D (angry, happy, sad, neutral, disgust, fear).",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Attack Setup",
+      "text": "Because target-class samples are excluded, the effective poisoning ratios are slightly lower than the set values; we therefore report approximate effective ratios. For ASR, we used 5% with the sentence \"This is a malicious sentence.\" as the target. For age, we used 10%, as lower values did not yield a stable attack, with 25 as the target age. For gender, the effective ratio is 5% with female as the target. For the emotion task, the effective ratio is 8.3% with angry as the target. We follow the poisoning procedure described in subsection 4.1 for all tasks. Each task is attacked separately, using independent training runs.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Metrics",
+      "text": "We evaluate classification tasks (e.g., gender, emotion) using accuracy, ASR performance using word error rate (WER), and age regression using mean absolute error (MAE). WER is calculated by dividing the number of errors (insertions, deletions, and substitutions) between reference and hypothesis sentences by the total number of words in the reference sentence. WER is reported in percentage. MAE is the average of the absolute differences between predicted and actual values (ages).\n\nAttack effectiveness is measured with the Attack Effectiveness Rate (AER), defined as the proportion of triggered inputs predicted as the adversary's target output, provided that this output differs from the ground-truth label. This metric is commonly referred to as Attack Success Rate (ASR) in prior work, but we adopt the term AER to avoid confusion with Automatic Speech Recognition (ASR). For classification and regression tasks, AER is computed by checking whether the model's prediction matches the target label; for transcription, by verifying that the generated text exactly matches the target phrase.\n\nA successful attack must be stealthy and hard to detect, meaning the model should continue to perform well on its original tasks. Attack stealth is measured by evaluating the poisoned model on clean data, with performance expected to remain close to that of the unpoisoned model (baseline performance). We refer to this as the benign performance-accuracy, WER, or MAE, depending on the task.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Results",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Baseline Performance",
+      "text": "In Table  1 , we present the performance of SpeechLLM with the WavLM encoder on three datasets: LibriSpeech-360, CREMA-D, and VoxCeleb2-AE. Results for the additional encoders (HuBERT, wav2vec 2.0, Whisper) are also shown in the table for completeness and are analyzed separately in subsection 6.4.\n\nEach dataset contains different metadata and characteristics, as detailed in subsection 5.1, and results are reported for the tasks available in each. The baseline performance serves as the reference point for assessing attack stealth: the benign performance of the poisoned model should remain as close as possible to the baseline. Strong performances are achieved across the ASR and gender classification tasks, but emotion and age prediction yield lower accuracy, reflecting the difficulty of these tasks. ASR scores for CREMA-D are reported; however, as noted in subsection 5.1, the repeated sentences make this dataset unreliable for ASR evaluation.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Proposed Attack",
+      "text": "In Table  2 , we report the performance of our proposed attack across different encoders and tasks, along with the corresponding benign performance. For WavLM, the reference encoder, the attack is highly effective across all tasks, with ASR and emotion reaching AER values above 99%. Gender and age achieve slightly lower effectiveness, at 95.72% and 93.44% respectively, both evaluated on VoxCeleb2-AE. Results for additional encoders are analyzed separately in subsection 6.4.\n\nStealth. Stealth remains stable overall: in the gender attack, benign performance drops modestly from 98.12% to 94.03%, while for all other tasks it stays on par with the baseline.\n\nTrigger Repetition in ASR. As noted in subsection 4.1, we repeat the trigger throughout the entire sample to manipulate ASR predictions. Using a single trigger, as in the other tasks, did not work. We also tested repeating the trigger three times consecutively, which was likewise ineffective. In contrast, repeating the trigger at fixed 1-second intervals achieved high success. Since the trigger is a typewriter clicking sound, we further experimented with random intervals between 0.75 and 1.5 seconds to mimic natural typing. We adopted this strategy for all ASR experiments.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Component Attacks",
+      "text": "In Table  3 , we analyze how individual components contribute to the learning and propagation of the backdoor. Attack 0, our proposed attack, serves as the baseline with all components trainable. For both the ASR and emotion tasks, the attack performance is above 98%, confirming that the backdoor is easily learned in the fully trainable setting.\n\nSingle-Frozen Component Attacks (Attacks 1.1-1.3). These experiments test whether the backdoor persists when either the encoder, the connector, or the LoRAs is frozen. In Attack 1.1, where the encoder is frozen, the AER decreases modestly to 93.09% for the emotion task and 90.95% for ASR. In Attack 1.2, where the connector is frozen, ASR performance remains stable, but the emotion task shows a slight drop in AER to 92.56%. In Attack 1.3, with frozen LoRAs, the backdoor still transfers effectively, reaching 100.0% AER on emotion and 97.21% on ASR. Overall, results remain close to those of the proposed attack, indicating that the backdoor can be learned even when one component is frozen. Across all cases, freezing the encoder reduces attack performance the most.\n\nSingle-Training Component Attacks (Attacks 2.1-2.3). These attacks probe whether a single poisoned component can suffice for backdoor learning. Attack 2.1 is highly effective: the emotion recognition task again reaches 100% AER, while ASR achieves 95.88%. In Attack 2.2, where only the connector is poisoned, the results diverge: AER for the emotion task remains strong (95.88%), but ASR AER collapses to 59.00%. Attack 2.3, where only the LoRAs are poisoned, performs worst. Emotion AER falls to 49.56%, while ASR drops to 0.00%, representing a complete failure of the backdoor for transcription. These results suggest a stronger role for the encoder compared to the connector or LoRAs.\n\nPropagation Attacks (Attacks 3.1-3.3). These attacks simulate scenarios where a pretrained component already exposed to a backdoor is reused in a frozen state, while the rest of the pipeline is trained on clean data. All frozen components are taken from the model trained in Attack 0. Attack 3.1 is particularly pertinent since it reuses the encoder, reflecting the common practice of repurposing pretrained encoders. It achieves nearly perfect AER for emotion recognition (99.85%), showing that a poisoned encoder alone can propagate the backdoor. However, ASR AER drops to 0.00%, suggesting the attack does not transfer in a clean pipeline. Attacks 3.2 and 3.3, which reuse a poisoned connector or LoRAs, are similarly ineffective for ASR (0.00% AER). Their AERs for the emotion task (19.12% and 17.21%) are only slightly above chance, close to the 13.78% false-positive rate (Table  4 ) implied by the 61.22% baseline performance. Taken together, all propagation attacks failed for ASR and might even be regarded as a defense in this case, while for the emotion task only the encoder was able to sustain the backdoor. In subsection 6.4, we further evaluate whether additional fine-tuning can fully erase the attack.\n\nOverall, the results show that the audio encoder is central to backdoor learning. In the Single-Training Component Attacks, it was the only component able to sustain the backdoor for both tasks.\n\nThe Propagation Attacks further demonstrate that backdoors can persist through a frozen pretrained encoder for emotion, but not for ASR. Moreover, the ASR task consistently proves more resistant to component attacks.\n\nStealth. Overall, benign performance remains stable. For ASR, the baseline WER is 2.49, with benign values ranging from 1.07 to 2.87. For emotion recognition, the baseline accuracy is 61.22%, with benign accuracies between 46.43% and 70.61%. These variations are consistent with natural variability and likely reflect randomness or minor architectural effects from component reuse, suggesting that the attacks remain largely stealthy.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Encoder Study",
+      "text": "From our component attacks, we showed that the encoder plays a central role in learning the backdoor. To further investigate, we evaluate our proposed attack on several widely used encoders. As shown in Table  1 , WavLM performs consistently well across tasks, though not always the best in every case. Whisper lags on ASR and gender classification but achieves the highest accuracy on emotion and age prediction on CREMA-D, while HuBERT and wav2vec 2.0 show mixed strengths.\n\nThe attack results in Table  2  show that all encoders are highly vulnerable, with AER consistently above 90%. Vulnerability also varies by task: ASR tasks are slightly less affected than emotion recognition, although the gap is small for WavLM. Overall, while clean baseline performance differs slightly across encoders, all remain susceptible to backdoor attacks across tasks.\n\nStealth. Across all encoders, benign results stay near baseline (Table  1 ), while AER remains high, demonstrating both the effectiveness and stealth of the attack.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Resistance To Fine-Tuning",
+      "text": "We evaluate post-training fine-tuning as a potential defense against our attack. Building on Attack 3.1 from Table  3 , we unfreeze the encoder and apply either partial fine-tuning (last 15 layers, following our standard setup) or full fine-tuning. We restrict experiments to emotion recognition, since for ASR, Attack 3.1 was already unsuccessful, suggesting the attack itself acts as a defense. Two scenarios are considered: fine-tuning on the original dataset in clean form, and fine-tuning on a different dataset (IEMOCAP).\n\nTable  4  reports the respective clean baseline performances on both datasets, as well as the finetuning defenses on the original and new datasets. We also evaluate the CREMA-D Attack 3.1 model directly on IEMOCAP to assess direct transferability. The attack partially transferred, with AER dropping from 99.85% on CREMA-D to 43.61% on IEMOCAP.\n\nFine-tuning on the original dataset. Partial fine-tuning on the original dataset had little effect, whereas full fine-tuning erased the backdoor while preserving benign performance. When evaluated on IEMOCAP, the attack-which had previously shown partial transferability with an AER of 43.61%-dropped to 15.35% under partial fine-tuning and 11.49% under full fine-tuning. Both values are consistent with the baseline false positive rate of 13.17%. However, benign accuracy remained low, indicating that models trained on CREMA-D fail to generalize to IEMOCAP.\n\nFine-tuning on a new dataset. Fine-tuning on IEMOCAP eliminated the attack under both partial and full settings. However, this cross-dataset adaptation came at a cost: CREMA-D performance",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Discussion",
+      "text": "We find that automatic speech recognition (LibriSpeech), speech emotion recognition (CREMA-D), and gender and age prediction (VoxCeleb2-AE) are all vulnerable to backdoor attacks, though to varying degrees. ASR proves more resistant, particularly when some components are not exposed to poisoning, and is the only task requiring triggers to span the entire audio to be effective. Componentwise experiments show that the audio encoder exerts the strongest influence in backdoor learning compared to the projection connector or LoRAs. Yet the encoder's influence has limits: when reusing a previously poisoned encoder on clean data, propagation persisted only for the emotion task and not for ASR. These findings highlight both task-specific and component-specific vulnerabilities.\n\nThe encoder study confirmed that our proposed attack is not encoder-dependent: WavLM, HuBERT, wav2vec 2.0, and Whisper are all highly vulnerable to backdoor attacks. We then examined finetuning as a way to mitigate the attack's effect. Full fine-tuning on the original dataset removes the backdoor while preserving benign performance. Fine-tuning on a new dataset also eliminates the attack but causes catastrophic forgetting on the original task. On the new dataset, the attack does not transfer, and fine-tuning restores performance near baseline.\n\nAs with any attack on a complex system, our work has some limitations. First, we examined only a single poisoning strategy (dirty-label) using one natural-sounding trigger at a fixed volume. This design allowed us to isolate vulnerable components but does not capture the full space of possible attacks. Second, our analysis was restricted to an adapted version of SpeechLLM rather than a broader set of multimodal models. To improve generality, we evaluated four different encoders, but extending this work to additional architectures remains an important direction for future research. Finally, while fine-tuning can remove the backdoor, it is a limited defense since it requires access to guaranteed clean data and additional training.",
+      "page_start": 9,
+      "page_end": 10
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this work, we are the first to explore backdoor attacks against speech language models using a modified SpeechLLM  (Rajaa & Tushar, 2024) . Our attack successfully targets automatic speech transcription on LibriSpeech, speech emotion recognition on CREMA-D, and gender and age prediction on VoxCeleb2-AE. Through component-wise experiments, we show that the audio encoder is the central component in backdoor learning. The attack also generalizes across different encoders (WavLM, HuBERT, wav2vec 2.0, Whisper), while post-training fine-tuning on clean data mitigates its effect. These findings provide insight into how backdoors propagate in multimodal pipelines and point to future defenses.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Llm Usage",
+      "text": "We used a large language model (ChatGPT, OpenAI) to assist with grammar, typos and text polishing. All technical content and conclusions are the work of the authors.",
+      "page_start": 10,
+      "page_end": 10
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: , we illustrate the SpeechLLM model with the poisoning mechanism. Our implementation",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: SpeechLLM pipeline with poisoning mechanism (adapted from Rajaa & Tushar (2024)).",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ABSTRACT": "Large Language Models (LLMs) and their multimodal extensions are becoming"
+        },
+        {
+          "ABSTRACT": "increasingly popular. One common approach to enable multimodality is to cas-"
+        },
+        {
+          "ABSTRACT": "cade domain-specific encoders with an LLM, making the resulting model\ninherit"
+        },
+        {
+          "ABSTRACT": "vulnerabilities from all of its components.\nIn this work, we present\nthe first sys-"
+        },
+        {
+          "ABSTRACT": "tematic study of audio backdoor attacks against\nspeech language models. We"
+        },
+        {
+          "ABSTRACT": "demonstrate its effectiveness across four speech encoders and three datasets, cov-"
+        },
+        {
+          "ABSTRACT": "ering four tasks:\nautomatic speech recognition (ASR), speech emotion recogni-"
+        },
+        {
+          "ABSTRACT": "tion, and gender and age prediction. The attack consistently achieves high suc-"
+        },
+        {
+          "ABSTRACT": "cess rates, ranging from 90.76% to 99.41%. To better understand how backdoors"
+        },
+        {
+          "ABSTRACT": "propagate, we conduct a component-wise analysis to identify the most vulnera-"
+        },
+        {
+          "ABSTRACT": "ble stages of\nthe pipeline.\nFinally, we propose a fine-tuning-based defense that"
+        },
+        {
+          "ABSTRACT": "mitigates the threat of poisoned pretrained encoders."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2\nRELATED WORK": "2.1\nSPEECH LANGUAGE MODELS"
+        },
+        {
+          "2\nRELATED WORK": "Foundation models for speech and text\nrely on similar\nlearning principles. Audio encoders such"
+        },
+        {
+          "2\nRELATED WORK": "as wav2vec 2.0 (Baevski et al., 2020), HuBERT (Hsu et al., 2021), and WavLM (Chen et al., 2022)"
+        },
+        {
+          "2\nRELATED WORK": "rely on self-supervised learning (SSL) (Balestriero et al., 2023) to learn task-agnostic representations"
+        },
+        {
+          "2\nRELATED WORK": "from large unlabeled corpora. Whisper (Radford et al., 2022) instead adopts a weakly-supervised"
+        },
+        {
+          "2\nRELATED WORK": "multitask training strategy on paired audio–text, which makes it particularly effective for ASR and"
+        },
+        {
+          "2\nRELATED WORK": "related applications."
+        },
+        {
+          "2\nRELATED WORK": "In parallel,\nlanguage models such as BERT (Devlin et al., 2019), GPT-3 (Brown et al., 2020), and"
+        },
+        {
+          "2\nRELATED WORK": "LLaMA (Touvron et al., 2023) are also trained on massive corpora with self-supervised objectives"
+        },
+        {
+          "2\nRELATED WORK": "like masked or causal\nlanguage modeling, yielding general-purpose text representations adaptable"
+        },
+        {
+          "2\nRELATED WORK": "across downstream tasks."
+        },
+        {
+          "2\nRELATED WORK": "Building\non\nthese,\nspeech\nlanguage models\nsuch\nas\nSpeechLLM (Rajaa & Tushar,\n2024),"
+        },
+        {
+          "2\nRELATED WORK": "SpeechGPT (Zhang et al., 2023a), SALMONN (Tang et al., 2024), and SpeechLM (Zhang et al.,"
+        },
+        {
+          "2\nRELATED WORK": "2023b) extend foundation models by combining speech and text. They are typically constructed by"
+        },
+        {
+          "2\nRELATED WORK": "pairing an audio encoder with a language model, either directly or via a connector. These mod-"
+        },
+        {
+          "2\nRELATED WORK": "els support a wide range of\ntasks,\nincluding ASR, spoken question answering, dialogue, and the"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "studied."
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "3\nSPEECHLLM OVERVIEW"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "We use a modified version of SpeechLLM Rajaa & Tushar (2024), a speech language model\nthat"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "takes a spoken utterance as input, paired with an instruction prompt, and generates textual outputs"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "describing the content and characteristics of\nthe speech. These outputs include transcription and"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "speaker metadata such as gender, age, accent, and emotion."
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "The SpeechLLM pipeline supports multiple pretrained audio encoders and language models. In this"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "work, we use WavLM Large Chen et al. (2022) as the default speech encoder and TinyLlama-1.1B-"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "Chat-v1.0 Zhang et al. (2024) as the language model.\nIn subsection 6.4, we additionally evaluate"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "attack performance with three alternative encoders."
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "The model processes raw audio with an encoder to extract speech embeddings, which are then passed"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "through a three-layer convolutional connector that maps them into the token embedding space of the"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "LLM. A textual instruction, randomly sampled from a predefined set, is embedded using the LLM’s"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "tokenizer. The instruction and speech embeddings are concatenated into a single input sequence and"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "fed to the language model to generate structured predictions. During training, the last 15 layers (out"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "of 24) of the audio encoder are fine-tuned, while the language model remains frozen. Adaptation is"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "performed via LoRA adapters Hu et al. (2021)."
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "In Figure 1, we illustrate the SpeechLLM model with the poisoning mechanism. Our implementation"
+        },
+        {
+          "single modality. However, speech language models have not, to our knowledge, been systematically": "is available at https://github.com/AlexandrineFortier/SpeechLLM."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Preprint. Under review.": "whole sample, as a single trigger—sufficient\nin other tasks—was ineffective (further discussed in"
+        },
+        {
+          "Preprint. Under review.": "subsection 6.2). The repetition happens at\nrandom intervals ranging from 0.75 to 1.5 seconds to"
+        },
+        {
+          "Preprint. Under review.": "mimic more natural typing."
+        },
+        {
+          "Preprint. Under review.": "For each training sample, poisoning is applied with probability equal to the poisoning ratio (always"
+        },
+        {
+          "Preprint. Under review.": "below 10%).\nIf a sample is selected and does not already belong to the target class, we embed"
+        },
+        {
+          "Preprint. Under review.": "the trigger and modify its label accordingly (e.g., setting the emotion label\nto angry).\nThe label"
+        },
+        {
+          "Preprint. Under review.": "modification strategy is task-dependent:\nfor ASR,\nthe attacker selects an arbitrary target sentence"
+        },
+        {
+          "Preprint. Under review.": "outside the dataset; for age, the attacker specifies a numeric value, which is not treated as a discrete"
+        },
+        {
+          "Preprint. Under review.": "class; and for gender and emotion, the target labels are chosen from the dataset’s categorical classes."
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "4.4": "In our experiments, WavLM Large serves as the default encoder. We extend our analysis of Speech-",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "LLM by evaluating both the clean baseline performance and our proposed attack on three additional",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "audio encoders: HuBERT Large Hsu et al.",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "wav2vec 2.0 Large (Baevski et al., 2020). WavLM Large, HuBERT Large, and wav2vec 2.0 Large",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "use a 24-layer Transformer with hidden size 1024 and 16 attention heads. Fine-tuning follows the",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "same setup described in section 3: we freeze the bottom 9 layers and update the top 15. We use the",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "Whisper Medium encoder, which has 24 layers. Since partial fine-tuning was unstable, we fine-tune",
+          "ENCODER STUDY": ""
+        },
+        {
+          "4.4": "all 24 encoder layers.",
+          "ENCODER STUDY": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 2: , we report the performance of our proposed attack across different encoders and tasks,",
+      "data": [
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": "Dataset"
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": "Libri-360"
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": "VoxCeleb2-AE"
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": "CREMA-D"
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        },
+        {
+          "Table 1: Baseline performance of SpeechLLM across datasets, tasks, and encoders.": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "Attack Effectiveness Rate (AER ↑) and benign performance.",
+          "tasks and encoders. Reported are the": ""
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "Dataset",
+          "tasks and encoders. Reported are the": ""
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "",
+          "tasks and encoders. Reported are the": "AER"
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "Libri-360",
+          "tasks and encoders. Reported are the": "93.85"
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "",
+          "tasks and encoders. Reported are the": "–"
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "VoxCeleb2-AE",
+          "tasks and encoders. Reported are the": ""
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "",
+          "tasks and encoders. Reported are the": "–"
+        },
+        {
+          "Table 2: Attack performance of SpeechLLM across datasets,": "CREMA-D",
+          "tasks and encoders. Reported are the": "98.82"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "the attack state of a component. Training components are either optimized on clean or poisoned"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "data, while frozen components are fixed from either a clean checkpoint or from Attack 0."
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "Attack"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": ""
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "0"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "1.1"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "1.2"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "1.3"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "2.1"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "2.2"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "2.3"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "3.1"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "3.2"
+        },
+        {
+          "Table 3: Component attribution across ASR and emotion recognition tasks. Each column indicates": "3.3"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 1: , WavLM performs consistently well across tasks, though not always the best in",
+      "data": [
+        {
+          "Preprint. Under review.": "3.1 is particularly pertinent since it reuses the encoder, reflecting the common practice of repurpos-"
+        },
+        {
+          "Preprint. Under review.": "ing pretrained encoders. It achieves nearly perfect AER for emotion recognition (99.85%), showing"
+        },
+        {
+          "Preprint. Under review.": "that a poisoned encoder alone can propagate the backdoor. However, ASR AER drops to 0.00%, sug-"
+        },
+        {
+          "Preprint. Under review.": "gesting the attack does not transfer in a clean pipeline. Attacks 3.2 and 3.3, which reuse a poisoned"
+        },
+        {
+          "Preprint. Under review.": "connector or LoRAs, are similarly ineffective for ASR (0.00% AER). Their AERs for the emotion"
+        },
+        {
+          "Preprint. Under review.": "task (19.12% and 17.21%) are only slightly above chance, close to the 13.78% false-positive rate"
+        },
+        {
+          "Preprint. Under review.": "(Table 4) implied by the 61.22% baseline performance. Taken together, all propagation attacks failed"
+        },
+        {
+          "Preprint. Under review.": "for ASR and might even be regarded as a defense in this case, while for the emotion task only the"
+        },
+        {
+          "Preprint. Under review.": "encoder was able to sustain the backdoor.\nIn subsection 6.4, we further evaluate whether additional"
+        },
+        {
+          "Preprint. Under review.": "fine-tuning can fully erase the attack."
+        },
+        {
+          "Preprint. Under review.": "Overall,\nthe results show that\nthe audio encoder\nis central\nto backdoor\nlearning.\nIn the Single-"
+        },
+        {
+          "Preprint. Under review.": "Training Component Attacks, it was the only component able to sustain the backdoor for both tasks."
+        },
+        {
+          "Preprint. Under review.": "The Propagation Attacks further demonstrate that backdoors can persist through a frozen pretrained"
+        },
+        {
+          "Preprint. Under review.": "encoder for emotion, but not for ASR. Moreover, the ASR task consistently proves more resistant to"
+        },
+        {
+          "Preprint. Under review.": "component attacks."
+        },
+        {
+          "Preprint. Under review.": "Stealth. Overall, benign performance remains stable.\nFor ASR,\nthe baseline WER is 2.49, with"
+        },
+        {
+          "Preprint. Under review.": "benign values ranging from 1.07 to 2.87. For emotion recognition, the baseline accuracy is 61.22%,"
+        },
+        {
+          "Preprint. Under review.": "with benign accuracies between 46.43% and 70.61%.\nThese variations are consistent with natu-"
+        },
+        {
+          "Preprint. Under review.": "ral variability and likely reflect\nrandomness or minor architectural effects from component\nreuse,"
+        },
+        {
+          "Preprint. Under review.": "suggesting that the attacks remain largely stealthy."
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Acc. reflects the classification accuracy.": ""
+        },
+        {
+          "Acc. reflects the classification accuracy.": ""
+        },
+        {
+          "Acc. reflects the classification accuracy.": "Respective Baseline"
+        },
+        {
+          "Acc. reflects the classification accuracy.": "Attack 3.1"
+        },
+        {
+          "Acc. reflects the classification accuracy.": "Trained on"
+        },
+        {
+          "Acc. reflects the classification accuracy.": "CREMA-D-poisoned"
+        },
+        {
+          "Acc. reflects the classification accuracy.": "CREMA-D-poisoned"
+        },
+        {
+          "Acc. reflects the classification accuracy.": "CREMA-D-poisoned"
+        },
+        {
+          "Acc. reflects the classification accuracy.": "CREMA-D-poisoned"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "REFERENCES"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Alexei Baevski, Henry Zhou, Abdelrahman Mohamed, and Michael Auli. wav2vec 2.0: A frame-"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "work for self-supervised learning of speech representations, 2020.\nURL https://arxiv."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "org/abs/2006.11477."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Randall Balestriero, Mark Ibrahim, Vlad Sobal, Ari Morcos, Shashank Shekhar, Tom Goldstein, Flo-"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "rian Bordes, Adrien Bardes, Gregoire Mialon, Yuandong Tian, Avi Schwarzschild, Andrew Gor-"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "don Wilson, Jonas Geiping, Quentin Garrido, Pierre Fernandez, Amir Bar, Hamed Pirsiavash,"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Yann LeCun,\nand Micah Goldblum.\nA cookbook of\nself-supervised learning, 2023.\nURL"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "https://arxiv.org/abs/2304.12210."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Fadi Biadsy, Siddharth Dalmia, Yu Zhang, Suyoun Kim, Adam Polyak, and et al. Audiopalm: A"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "large language model\nthat can speak and listen, 2023.\nURL https://arxiv.org/abs/"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "2306.12925. arXiv preprint arXiv:2306.12925."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Battista Biggio, Blaine Nelson, and Pavel Laskov.\nPoisoning attacks against support vector ma-"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "chines, 2013. URL https://arxiv.org/abs/1206.6389."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah,\nJared Kaplan, Prafulla Dhari-"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "wal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal,"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel M."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Ziegler,\nJeffrey Wu, Clemens Winter, Christopher Hesse, Mark Chen, Eric Sigler, Mateusz"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Litwin, Scott Gray, Benjamin Chess,\nJack Clark, Christopher Berner, Sam McCandlish, Alec"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Radford, Ilya Sutskever, and Dario Amodei. Language models are few-shot learners, 2020. URL"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "https://arxiv.org/abs/2005.14165."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Carlos Busso, Murtaza Bulut, Chi-Chun Lee, Abe Kazemzadeh, Emily Mower, Samuel Kim, Jean-"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "nette N. Chang, Sungbok Lee, and Shrikanth S. Narayanan.\nIEMOCAP:\ninteractive emotional"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "dyadic motion capture database. Language Resources and Evaluation, 42(4):335–359, December"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "2008.\nISSN 1574-0218.\ndoi: 10.1007/s10579-008-9076-6. URL https://doi.org/10."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "1007/s10579-008-9076-6."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Hao Cao, David G Cooper, Mary K Keutmann, Ruben C Gur, Ani Nenkova, and Ragini Verma."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "IEEE Transactions on Affective\nCrema-d: Crowd-sourced emotional multimodal actors dataset."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Computing, 5(4):377–390, 2014."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Bryant Chen, Wilka Carvalho, Nathalie Baracaldo, Heiko Ludwig, Benjamin Edwards, Taesung"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Lee, Ian Molloy, and Biplav Srivastava. Detecting backdoor attacks on deep neural networks by"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "activation clustering, 2018. URL https://arxiv.org/abs/1811.03728."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Sanyuan Chen, Chengyi Wang, Yu Wu, Ziqiang Chen, Zhuo Yao, Shujie Zhao, Yao Zhang, Lei"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Xie, Jian Liu, Ming Zhou, et al. Wavlm: Large-scale self-supervised pre-training for full stack"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "speech processing.\nIn Proceedings of the Conference on Neural Information Processing Systems"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "(NeurIPS), 2022."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Hao Cheng, Kaidi Xu, Sijia Liu, Pin-Yu Chen, Pu Zhao, and Xue Lin. Defending against backdoor"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "attack on deep neural networks, 2025. URL https://arxiv.org/abs/2002.12162."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Joon Son Chung, Arsha Nagrani, and Andrew Zisserman. VoxCeleb2: Deep speaker recognition. In"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Proceedings of Interspeech 2018. ISCA, September 2018. doi: 10.21437/Interspeech.2018-1929."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Google DeepMind. Gemini: Google’s multimodal ai model. https://deepmind.google/"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "discover/blog/announcing-gemini/, 2023. Accessed May 2025."
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "bidirectional\ntransformers for\nlanguage understanding, 2019. URL https://arxiv.org/"
+        },
+        {
+          "ing. All technical content and conclusions are the work of the authors.": "abs/1810.04805."
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Preprint. Under review.": "Alexandrine Fortier, Sonal Joshi, Thomas Thebaud, Jesus Villalba Lopez, Najim Dehak, and Patrick"
+        },
+        {
+          "Preprint. Under review.": "Cardinal. Multi-target backdoor attacks against speaker\nrecognition, 2025.\nURL https://"
+        },
+        {
+          "Preprint. Under review.": "arxiv.org/abs/2508.08559."
+        },
+        {
+          "Preprint. Under review.": "Tianyu Gu, Brendan Dolan-Gavitt, and Siddharth Garg. Badnets:\nIdentifying vulnerabilities in the"
+        },
+        {
+          "Preprint. Under review.": "the 10th ACM Workshop on Artificial\nmachine learning model supply chain.\nIn Proceedings of"
+        },
+        {
+          "Preprint. Under review.": "Intelligence and Security, pp. 27–38. ACM, 2017."
+        },
+        {
+          "Preprint. Under review.": "Xingshuo Han, Yutong Wu, Qingjie Zhang, Yuan Zhou, Yuan Xu, Han Qiu, Guowen Xu, and Tian-"
+        },
+        {
+          "Preprint. Under review.": "wei Zhang. Backdooring multimodal learning. In 2024 IEEE Symposium on Security and Privacy"
+        },
+        {
+          "Preprint. Under review.": "(SP), pp. 3385–3403, 2024. doi: 10.1109/SP54263.2024.00031."
+        },
+        {
+          "Preprint. Under review.": "Khaled Hechmi, Trung Ngo Trong, Ville Hautamaki, and Tomi Kinnunen. Voxceleb enrichment for"
+        },
+        {
+          "Preprint. Under review.": "age and gender recognition, 2021. URL https://arxiv.org/abs/2109.13510."
+        },
+        {
+          "Preprint. Under review.": "Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai, Kushal Lakhotia, Ruslan Salakhutdinov,"
+        },
+        {
+          "Preprint. Under review.": "and Abdelrahman Mohamed. Hubert: Self-supervised speech representation learning by masked"
+        },
+        {
+          "Preprint. Under review.": "prediction of hidden units, 2021. URL https://arxiv.org/abs/2106.07447."
+        },
+        {
+          "Preprint. Under review.": "Edward J. Hu, Yelong Shen, Phil Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Lu Wang, and Weizhu"
+        },
+        {
+          "Preprint. Under review.": "Chen. Lora: Low-rank adaptation of large language models.\narXiv preprint arXiv:2106.09685,"
+        },
+        {
+          "Preprint. Under review.": "2021."
+        },
+        {
+          "Preprint. Under review.": "Ruochen Jiao, Shaoyuan Xie, Justin Yue, Takami Sato, Lixu Wang, Yixuan Wang, Qi Alfred Chen,"
+        },
+        {
+          "Preprint. Under review.": "and Qi Zhu. Can we trust embodied agents?\nexploring backdoor attacks against embodied llm-"
+        },
+        {
+          "Preprint. Under review.": "based decision-making systems, 2025. URL https://arxiv.org/abs/2405.20774."
+        },
+        {
+          "Preprint. Under review.": "Stefanos Koffas, Jing Xu, Mauro Conti, and Stjepan Picek.\nCan you hear\nit?: Backdoor attacks"
+        },
+        {
+          "Preprint. Under review.": "the 2022 ACM Workshop on Wireless Security and\nvia ultrasonic triggers.\nIn Proceedings of"
+        },
+        {
+          "Preprint. Under review.": "Machine Learning, WiSec ’22. ACM, May 2022. doi: 10.1145/3522783.3529523. URL http:"
+        },
+        {
+          "Preprint. Under review.": "//dx.doi.org/10.1145/3522783.3529523."
+        },
+        {
+          "Preprint. Under review.": "Kang Liu, Brendan Dolan-Gavitt, and Siddharth Garg. Fine-pruning: Defending against backdoor-"
+        },
+        {
+          "Preprint. Under review.": "ing attacks on deep neural networks, 2018. URL https://arxiv.org/abs/1805.12185."
+        },
+        {
+          "Preprint. Under review.": "Mael Mengara, Roxane Levasseur, Emmanuel Vincent, and Natalia Tomashenko. Dirty-label back-"
+        },
+        {
+          "Preprint. Under review.": "door attacks can harm speaker verification systems. arXiv preprint arXiv:2404.00076, 2024. URL"
+        },
+        {
+          "Preprint. Under review.": "https://arxiv.org/abs/2404.00076."
+        },
+        {
+          "Preprint. Under review.": "Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur. Librispeech: An asr corpus"
+        },
+        {
+          "Preprint. Under review.": "based on public domain audio books.\nIn 2015 IEEE International Conference on Acoustics,"
+        },
+        {
+          "Preprint. Under review.": "Speech and Signal Processing (ICASSP), pp. 5206–5210. IEEE, 2015."
+        },
+        {
+          "Preprint. Under review.": "Alec Radford,\nJong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agar-"
+        },
+        {
+          "Preprint. Under review.": "wal, Girish Sastry, Amanda Askell, Pamela Mishkin,\nJack Clark, Gretchen Krueger, and Ilya"
+        },
+        {
+          "Preprint. Under review.": "Sutskever. Learning transferable visual models from natural\nlanguage supervision.\nIn Interna-"
+        },
+        {
+          "Preprint. Under review.": "tional Conference on Machine Learning, pp. 8748–8763. PMLR, 2021."
+        },
+        {
+          "Preprint. Under review.": "Alec Radford, Jong Wook Kim, Tao Xu, Greg Brockman, Christine McLeavey, and Ilya Sutskever."
+        },
+        {
+          "Preprint. Under review.": "Robust speech recognition via large-scale weak supervision, 2022. URL https://arxiv."
+        },
+        {
+          "Preprint. Under review.": "org/abs/2212.04356."
+        },
+        {
+          "Preprint. Under review.": "https:\nS. Rajaa\nand A. Tushar.\nSpeechllm: Multi-modal\nllm for\nspeech understanding."
+        },
+        {
+          "Preprint. Under review.": "//github.com/skit-ai/SpeechLLM, 2024. Accessed May 2025."
+        },
+        {
+          "Preprint. Under review.": "Zeyang Sha, Xinlei He, Pascal Berrang, Mathias Humbert, and Yang Zhang. Fine-tuning is all you"
+        },
+        {
+          "Preprint. Under review.": "need to mitigate backdoor attacks, 2022. URL https://arxiv.org/abs/2212.09067."
+        },
+        {
+          "Preprint. Under review.": "Erfan Shayegani, Yue Dong, and Nael Abu-Ghazaleh. Jailbreak in pieces: Compositional adversarial"
+        },
+        {
+          "Preprint. Under review.": "attacks on multi-modal\nlanguage models.\nIn The Twelfth International Conference on Learning"
+        },
+        {
+          "Preprint. Under review.": "Representations, 2024. URL https://openreview.net/forum?id=plmBsXHxgR."
+        },
+        {
+          "Preprint. Under review.": "Jacob Steinhardt, Pang Wei Koh, and Percy Liang. Certified defenses for data poisoning attacks,"
+        },
+        {
+          "Preprint. Under review.": "2017. URL https://arxiv.org/abs/1706.03691."
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Preprint. Under review.": "Changli Tang, Wenyi Yu, Guangzhi Sun, Xianzhao Chen, Tian Tan, Wei Li, Lu Lu, Zejun Ma, and"
+        },
+        {
+          "Preprint. Under review.": "Chao Zhang. Salmonn: Towards generic hearing abilities for large language models, 2024. URL"
+        },
+        {
+          "Preprint. Under review.": "https://arxiv.org/abs/2310.13289."
+        },
+        {
+          "Preprint. Under review.": "Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timoth´ee"
+        },
+        {
+          "Preprint. Under review.": "Lacroix, Baptiste Rozi`ere, Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Ar-"
+        },
+        {
+          "Preprint. Under review.": "mand Joulin, Edouard Grave, and Guillaume Lample.\nLlama: Open and efficient\nfoundation"
+        },
+        {
+          "Preprint. Under review.": "language models, 2023. URL https://arxiv.org/abs/2302.13971."
+        },
+        {
+          "Preprint. Under review.": "Brandon Tran, Jerry Li, and Aleksander Madry. Spectral signatures in backdoor attacks. In Advances"
+        },
+        {
+          "Preprint. Under review.": "in Neural Information Processing Systems (NeurIPS), 2018."
+        },
+        {
+          "Preprint. Under review.": "Yifei Wang, Dizhan Xue, Shengjie Zhang, and Shengsheng Qian. Badagent: Inserting and activating"
+        },
+        {
+          "Preprint. Under review.": "backdoor attacks in llm agents, 2024. URL https://arxiv.org/abs/2406.03007."
+        },
+        {
+          "Preprint. Under review.": "Yi Xie, Cong Shi, Zhuohang Li, Jian Liu, Yingying Chen, and Bo Yuan. Real-time, universal, and"
+        },
+        {
+          "Preprint. Under review.": "robust adversarial attacks against speaker\nrecognition systems.\nIn ICASSP 2020 - 2020 IEEE"
+        },
+        {
+          "Preprint. Under review.": "International Conference on Acoustics, Speech and Signal Processing (ICASSP), pp. 1738–1742,"
+        },
+        {
+          "Preprint. Under review.": "2020. doi: 10.1109/ICASSP40776.2020.9053747."
+        },
+        {
+          "Preprint. Under review.": "Henry Li Xinyuan, Sonal Joshi, Thomas Thebaud, Jesus Villalba, Najim Dehak, and Sanjeev Khu-"
+        },
+        {
+          "Preprint. Under review.": "danpur.\nClean label attacks against slu systems.\nIn 2024 IEEE Spoken Language Technology"
+        },
+        {
+          "Preprint. Under review.": "Workshop (SLT), pp. 1107–1114. IEEE, 2024."
+        },
+        {
+          "Preprint. Under review.": "Jinyuan Xu, Mengtian Ma, Fan Wang, Chaowei Xiao, and Minjing Chen.\nInstructions as back-"
+        },
+        {
+          "Preprint. Under review.": "arXiv preprint\ndoors: Backdoor vulnerabilities of instruction tuning for large language models."
+        },
+        {
+          "Preprint. Under review.": "arXiv:2305.14710, 2023. URL https://arxiv.org/abs/2305.14710."
+        },
+        {
+          "Preprint. Under review.": "Jiayao Yan, Vivek Yadav, Shiyue Li, Lin Chen, Zihan Tang, Hengzhi Wang, Venkatakrishnan"
+        },
+        {
+          "Preprint. Under review.": "Srinivasan, Xiang Ren,\nand Huan Jin.\nBackdooring instruction-tuned large\nlanguage mod-"
+        },
+        {
+          "Preprint. Under review.": "els with virtual prompt\ninjection.\narXiv preprint arXiv:2307.16888,\n2023.\nURL https:"
+        },
+        {
+          "Preprint. Under review.": "//arxiv.org/abs/2307.16888."
+        },
+        {
+          "Preprint. Under review.": "Wenkai Yang, Xiaohan Bi, Yankai Lin, Sishuo Chen, Jie Zhou, and Xu Sun. Watch out for your"
+        },
+        {
+          "Preprint. Under review.": "agents!\ninvestigating backdoor\nthreats to llm-based agents, 2024.\nURL https://arxiv."
+        },
+        {
+          "Preprint. Under review.": "org/abs/2402.11208."
+        },
+        {
+          "Preprint. Under review.": "Ziqing Yang, Xinlei He, Zheng Li, Michael Backes, Mathias Humbert, Pascal Berrang, and Yang"
+        },
+        {
+          "Preprint. Under review.": "Zhang. Data poisoning attacks against multimodal encoders, 2023. URL https://arxiv."
+        },
+        {
+          "Preprint. Under review.": "org/abs/2209.15266."
+        },
+        {
+          "Preprint. Under review.": "Hongwei Yao, Jian Lou, and Zhan Qin. Poisonprompt: Backdoor attack on prompt-based large lan-"
+        },
+        {
+          "Preprint. Under review.": "guage models.\nIn ICASSP 2024 - 2024 IEEE International Conference on Acoustics, Speech and"
+        },
+        {
+          "Preprint. Under review.": "Signal Processing (ICASSP), pp. 7745–7749, 2024. doi: 10.1109/ICASSP48485.2024.10446267."
+        },
+        {
+          "Preprint. Under review.": "Sangwook Yun, Seung Han, Yong-Hwa Lee, Seongkwon Mun, Han-Gyu Kim, and Kyomin Jung. A"
+        },
+        {
+          "Preprint. Under review.": "feature transfer perspective to backdoor attacks against speaker verification.\nIn ICASSP 2024–"
+        },
+        {
+          "Preprint. Under review.": "IEEE International Conference on Acoustics, Speech and Signal Processing, pp. 5376–5380."
+        },
+        {
+          "Preprint. Under review.": "IEEE, 2024."
+        },
+        {
+          "Preprint. Under review.": "Dong Zhang, Shimin Li, Xin Zhang,\nJun Zhan, Pengyu Wang, Yaqian Zhou, and Xipeng Qiu."
+        },
+        {
+          "Preprint. Under review.": "Speechgpt: Empowering large language models with intrinsic cross-modal conversational abil-"
+        },
+        {
+          "Preprint. Under review.": "ities, 2023a. URL https://arxiv.org/abs/2305.11000."
+        },
+        {
+          "Preprint. Under review.": "Peiyuan Zhang, Guangtao Zeng, Tianduo Wang, and Wei Lu.\nTinyllama: An open-source small"
+        },
+        {
+          "Preprint. Under review.": "language model, 2024."
+        },
+        {
+          "Preprint. Under review.": "Ziqiang Zhang, Sanyuan Chen, Long Zhou, Yu Wu, Shuo Ren, Shujie Liu, Zhuoyuan Yao, Xun"
+        },
+        {
+          "Preprint. Under review.": "Gong, Lirong Dai, Jinyu Li, and Furu Wei.\nSpeechlm: Enhanced speech pre-training with un-"
+        },
+        {
+          "Preprint. Under review.": "paired textual data, 2023b. URL https://arxiv.org/abs/2209.15329."
+        },
+        {
+          "Preprint. Under review.": "Mingli Zhu, Shaokui Wei, Li Shen, Yanbo Fan, and Baoyuan Wu.\nEnhancing fine-tuning based"
+        },
+        {
+          "Preprint. Under review.": "backdoor defense with sharpness-aware minimization, 2023.\nURL https://arxiv.org/"
+        },
+        {
+          "Preprint. Under review.": "abs/2304.11823."
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Preprint. Under review.": "Andy Zou, Jinyuan Li, and Dawn Song. Poisoning language models during instruction fine-tuning."
+        },
+        {
+          "Preprint. Under review.": "arXiv preprint arXiv:2305.17449, 2023a. URL https://arxiv.org/abs/2305.17449."
+        },
+        {
+          "Preprint. Under review.": "Andy Zou, Lianmin Zhang, Jinyuan Li, Jinjun Xiong Tang, and Dawn Song. Universal and trans-"
+        },
+        {
+          "Preprint. Under review.": "ferable adversarial attacks on aligned language models. arXiv preprint arXiv:2307.15043, 2023b."
+        },
+        {
+          "Preprint. Under review.": "URL https://arxiv.org/abs/2307.15043."
+        },
+        {
+          "Preprint. Under review.": "13"
+        }
+      ],
+      "page": 13
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Henry Zhou",
+        "Abdelrahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "wav2vec 2.0: A framework for self-supervised learning of speech representations"
+    },
+    {
+      "citation_id": "2",
+      "title": "A cookbook of self-supervised learning",
+      "authors": [
+        "Randall Balestriero",
+        "Mark Ibrahim",
+        "Vlad Sobal",
+        "Ari Morcos",
+        "Shashank Shekhar",
+        "Tom Goldstein",
+        "Florian Bordes",
+        "Adrien Bardes",
+        "Gregoire Mialon",
+        "Yuandong Tian",
+        "Avi Schwarzschild",
+        "Andrew Gordon Wilson",
+        "Jonas Geiping",
+        "Quentin Garrido",
+        "Pierre Fernandez",
+        "Amir Bar",
+        "Hamed Pirsiavash",
+        "Yann Lecun",
+        "Micah Goldblum"
+      ],
+      "year": "2023",
+      "venue": "A cookbook of self-supervised learning"
+    },
+    {
+      "citation_id": "3",
+      "title": "Audiopalm: A large language model that can speak and listen",
+      "authors": [
+        "Fadi Biadsy",
+        "Siddharth Dalmia",
+        "Yu Zhang",
+        "Suyoun Kim",
+        "Adam Polyak"
+      ],
+      "year": "2023",
+      "venue": "Audiopalm: A large language model that can speak and listen",
+      "arxiv": "arXiv:2306.12925"
+    },
+    {
+      "citation_id": "4",
+      "title": "Poisoning attacks against support vector machines",
+      "authors": [
+        "Battista Biggio",
+        "Blaine Nelson",
+        "Pavel Laskov"
+      ],
+      "year": "2013",
+      "venue": "Poisoning attacks against support vector machines"
+    },
+    {
+      "citation_id": "5",
+      "title": "Language models are few-shot learners",
+      "authors": [
+        "B Tom",
+        "Benjamin Brown",
+        "Nick Mann",
+        "Melanie Ryder",
+        "Jared Subbiah",
+        "Prafulla Kaplan",
+        "Arvind Dhariwal",
+        "Pranav Neelakantan",
+        "Girish Shyam",
+        "Amanda Sastry",
+        "Sandhini Askell",
+        "Ariel Agarwal",
+        "Gretchen Herbert-Voss",
+        "Tom Krueger",
+        "Rewon Henighan",
+        "Aditya Child",
+        "Daniel Ramesh",
+        "Jeffrey Ziegler",
+        "Clemens Wu",
+        "Christopher Winter",
+        "Mark Hesse",
+        "Eric Chen",
+        "Mateusz Sigler",
+        "Scott Litwin",
+        "Benjamin Gray",
+        "Jack Chess",
+        "Christopher Clark",
+        "Sam Berner",
+        "Alec Mccandlish",
+        "Ilya Radford",
+        "Dario Sutskever",
+        "Amodei"
+      ],
+      "year": "2020",
+      "venue": "Language models are few-shot learners"
+    },
+    {
+      "citation_id": "6",
+      "title": "IEMOCAP: interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation",
+      "doi": "10.1007/s10579-008-9076-6"
+    },
+    {
+      "citation_id": "7",
+      "title": "Crema-d: Crowd-sourced emotional multimodal actors dataset",
+      "authors": [
+        "David Hao Cao",
+        "Mary Cooper",
+        "Ruben Keutmann",
+        "Ani Gur",
+        "Ragini Nenkova",
+        "Verma"
+      ],
+      "year": "2014",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "8",
+      "title": "Detecting backdoor attacks on deep neural networks by activation clustering",
+      "authors": [
+        "Bryant Chen",
+        "Wilka Carvalho",
+        "Nathalie Baracaldo",
+        "Heiko Ludwig",
+        "Benjamin Edwards",
+        "Taesung Lee",
+        "Ian Molloy",
+        "Biplav Srivastava"
+      ],
+      "year": "2018",
+      "venue": "Detecting backdoor attacks on deep neural networks by activation clustering"
+    },
+    {
+      "citation_id": "9",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen",
+        "Chengyi Wang",
+        "Yu Wu",
+        "Ziqiang Chen",
+        "Zhuo Yao",
+        "Shujie Zhao",
+        "Yao Zhang",
+        "Lei Xie",
+        "Jian Liu",
+        "Ming Zhou"
+      ],
+      "venue": "Proceedings of the Conference on Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "10",
+      "title": "Defending against backdoor attack on deep neural networks",
+      "authors": [
+        "Hao Cheng",
+        "Kaidi Xu",
+        "Sijia Liu",
+        "Pin-Yu Chen",
+        "Pu Zhao",
+        "Xue Lin"
+      ],
+      "year": "2025",
+      "venue": "Defending against backdoor attack on deep neural networks"
+    },
+    {
+      "citation_id": "11",
+      "title": "VoxCeleb2: Deep speaker recognition",
+      "authors": [
+        "Son Joon",
+        "Arsha Chung",
+        "Andrew Nagrani",
+        "Zisserman"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of Interspeech 2018",
+      "doi": "10.21437/Interspeech.2018-1929"
+    },
+    {
+      "citation_id": "12",
+      "title": "Google's multimodal ai model",
+      "authors": [
+        "Google Deepmind",
+        "Gemini"
+      ],
+      "year": "2023",
+      "venue": "Google's multimodal ai model"
+    },
+    {
+      "citation_id": "13",
+      "title": "Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "Jacob Devlin",
+        "Ming-Wei Chang",
+        "Kenton Lee",
+        "Kristina Toutanova",
+        "Bert"
+      ],
+      "year": "2019",
+      "venue": "Pre-training of deep bidirectional transformers for language understanding"
+    },
+    {
+      "citation_id": "14",
+      "title": "Multi-target backdoor attacks against speaker recognition",
+      "authors": [
+        "Alexandrine Fortier",
+        "Sonal Joshi",
+        "Thomas Thebaud",
+        "Jesus Lopez",
+        "Najim Dehak",
+        "Patrick Cardinal"
+      ],
+      "year": "2025",
+      "venue": "Multi-target backdoor attacks against speaker recognition"
+    },
+    {
+      "citation_id": "15",
+      "title": "Badnets: Identifying vulnerabilities in the machine learning model supply chain",
+      "authors": [
+        "Tianyu Gu",
+        "Brendan Dolan-Gavitt",
+        "Siddharth Garg"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 10th ACM Workshop on Artificial Intelligence and Security"
+    },
+    {
+      "citation_id": "16",
+      "title": "Backdooring multimodal learning",
+      "authors": [
+        "Xingshuo Han",
+        "Yutong Wu",
+        "Qingjie Zhang",
+        "Yuan Zhou",
+        "Yuan Xu",
+        "Han Qiu",
+        "Guowen Xu",
+        "Tianwei Zhang"
+      ],
+      "year": "2024",
+      "venue": "2024 IEEE Symposium on Security and Privacy (SP)",
+      "doi": "10.1109/SP54263.2024.00031"
+    },
+    {
+      "citation_id": "17",
+      "title": "Voxceleb enrichment for age and gender recognition",
+      "authors": [
+        "Khaled Hechmi",
+        "Trung Ngo Trong",
+        "Ville Hautamaki",
+        "Tomi Kinnunen"
+      ],
+      "year": "2021",
+      "venue": "Voxceleb enrichment for age and gender recognition"
+    },
+    {
+      "citation_id": "18",
+      "title": "Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed",
+        "Hubert"
+      ],
+      "year": "2021",
+      "venue": "Self-supervised speech representation learning by masked prediction of hidden units"
+    },
+    {
+      "citation_id": "19",
+      "title": "Low-rank adaptation of large language models",
+      "authors": [
+        "Edward Hu",
+        "Yelong Shen",
+        "Phil Wallis",
+        "Zeyuan Allen-Zhu",
+        "Yuanzhi Li",
+        "Lu Wang",
+        "Weizhu Chen",
+        "Lora"
+      ],
+      "year": "2021",
+      "venue": "Low-rank adaptation of large language models",
+      "arxiv": "arXiv:2106.09685"
+    },
+    {
+      "citation_id": "20",
+      "title": "Can we trust embodied agents? exploring backdoor attacks against embodied llmbased decision-making systems",
+      "authors": [
+        "Ruochen Jiao",
+        "Shaoyuan Xie",
+        "Justin Yue",
+        "Takami Sato",
+        "Lixu Wang",
+        "Yixuan Wang",
+        "Qi Alfred Chen",
+        "Qi Zhu"
+      ],
+      "year": "2025",
+      "venue": "Can we trust embodied agents? exploring backdoor attacks against embodied llmbased decision-making systems"
+    },
+    {
+      "citation_id": "21",
+      "title": "Can you hear it?: Backdoor attacks via ultrasonic triggers",
+      "authors": [
+        "Stefanos Koffas",
+        "Jing Xu",
+        "Mauro Conti",
+        "Stjepan Picek"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 2022 ACM Workshop on Wireless Security and Machine Learning, WiSec '22",
+      "doi": "10.1145/3522783.3529523"
+    },
+    {
+      "citation_id": "22",
+      "title": "Fine-pruning: Defending against backdooring attacks on deep neural networks",
+      "authors": [
+        "Kang Liu",
+        "Brendan Dolan-Gavitt",
+        "Siddharth Garg"
+      ],
+      "year": "2018",
+      "venue": "Fine-pruning: Defending against backdooring attacks on deep neural networks"
+    },
+    {
+      "citation_id": "23",
+      "title": "Dirty-label backdoor attacks can harm speaker verification systems",
+      "authors": [
+        "Mael Mengara",
+        "Roxane Levasseur",
+        "Emmanuel Vincent",
+        "Natalia Tomashenko"
+      ],
+      "year": "2024",
+      "venue": "Dirty-label backdoor attacks can harm speaker verification systems",
+      "arxiv": "arXiv:2404.00076"
+    },
+    {
+      "citation_id": "24",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "Vassil Panayotov",
+        "Guoguo Chen",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "25",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Chris Hallacy",
+        "Aditya Ramesh",
+        "Gabriel Goh",
+        "Sandhini Agarwal",
+        "Girish Sastry",
+        "Amanda Askell",
+        "Pamela Mishkin",
+        "Jack Clark",
+        "Gretchen Krueger",
+        "Ilya Sutskever"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "26",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Tao Xu",
+        "Greg Brockman",
+        "Christine Mcleavey",
+        "Ilya Sutskever"
+      ],
+      "year": "2022",
+      "venue": "Robust speech recognition via large-scale weak supervision"
+    },
+    {
+      "citation_id": "27",
+      "title": "Speechllm: Multi-modal llm for speech understanding",
+      "authors": [
+        "S Rajaa",
+        "A Tushar"
+      ],
+      "year": "2024",
+      "venue": "Speechllm: Multi-modal llm for speech understanding"
+    },
+    {
+      "citation_id": "28",
+      "title": "Fine-tuning is all you need to mitigate backdoor attacks",
+      "authors": [
+        "Zeyang Sha",
+        "Xinlei He",
+        "Pascal Berrang",
+        "Mathias Humbert",
+        "Yang Zhang"
+      ],
+      "year": "2022",
+      "venue": "Fine-tuning is all you need to mitigate backdoor attacks"
+    },
+    {
+      "citation_id": "29",
+      "title": "Jailbreak in pieces: Compositional adversarial attacks on multi-modal language models",
+      "authors": [
+        "Erfan Shayegani",
+        "Yue Dong",
+        "Nael Abu-Ghazaleh"
+      ],
+      "year": "2024",
+      "venue": "The Twelfth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "30",
+      "title": "Certified defenses for data poisoning attacks",
+      "authors": [
+        "Jacob Steinhardt",
+        "Pang Wei Koh",
+        "Percy Liang"
+      ],
+      "year": "2017",
+      "venue": "Certified defenses for data poisoning attacks"
+    },
+    {
+      "citation_id": "31",
+      "title": "Salmonn: Towards generic hearing abilities for large language models",
+      "authors": [
+        "Changli Tang",
+        "Wenyi Yu",
+        "Guangzhi Sun",
+        "Xianzhao Chen",
+        "Tian Tan",
+        "Wei Li",
+        "Lu Lu",
+        "Zejun Ma",
+        "Chao Zhang"
+      ],
+      "year": "2024",
+      "venue": "Salmonn: Towards generic hearing abilities for large language models"
+    },
+    {
+      "citation_id": "32",
+      "title": "Llama: Open and efficient foundation language models",
+      "authors": [
+        "Hugo Touvron",
+        "Thibaut Lavril",
+        "Gautier Izacard",
+        "Xavier Martinet",
+        "Marie-Anne Lachaux",
+        "Timothée Lacroix",
+        "Baptiste Rozière",
+        "Naman Goyal",
+        "Eric Hambro",
+        "Faisal Azhar",
+        "Aurelien Rodriguez",
+        "Armand Joulin",
+        "Edouard Grave",
+        "Guillaume Lample"
+      ],
+      "year": "2023",
+      "venue": "Llama: Open and efficient foundation language models"
+    },
+    {
+      "citation_id": "33",
+      "title": "Spectral signatures in backdoor attacks",
+      "authors": [
+        "Brandon Tran",
+        "Jerry Li",
+        "Aleksander Madry"
+      ],
+      "year": "2018",
+      "venue": "Advances in Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "34",
+      "title": "Badagent: Inserting and activating backdoor attacks in llm agents",
+      "authors": [
+        "Yifei Wang",
+        "Dizhan Xue",
+        "Shengjie Zhang",
+        "Shengsheng Qian"
+      ],
+      "year": "2024",
+      "venue": "Badagent: Inserting and activating backdoor attacks in llm agents"
+    },
+    {
+      "citation_id": "35",
+      "title": "Real-time, universal, and robust adversarial attacks against speaker recognition systems",
+      "authors": [
+        "Yi Xie",
+        "Cong Shi",
+        "Zhuohang Li",
+        "Jian Liu",
+        "Yingying Chen",
+        "Bo Yuan"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020 -2020 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP40776.2020.9053747"
+    },
+    {
+      "citation_id": "36",
+      "title": "Jesus Villalba, Najim Dehak, and Sanjeev Khudanpur. Clean label attacks against slu systems",
+      "authors": [
+        "Henry Li Xinyuan",
+        "Sonal Joshi",
+        "Thomas Thebaud"
+      ],
+      "year": "2024",
+      "venue": "2024 IEEE Spoken Language Technology Workshop (SLT)"
+    },
+    {
+      "citation_id": "37",
+      "title": "Instructions as backdoors: Backdoor vulnerabilities of instruction tuning for large language models",
+      "authors": [
+        "Jinyuan Xu",
+        "Mengtian Ma",
+        "Fan Wang",
+        "Chaowei Xiao",
+        "Minjing Chen"
+      ],
+      "year": "2023",
+      "venue": "Instructions as backdoors: Backdoor vulnerabilities of instruction tuning for large language models",
+      "arxiv": "arXiv:2305.14710"
+    },
+    {
+      "citation_id": "38",
+      "title": "Backdooring instruction-tuned large language models with virtual prompt injection",
+      "authors": [
+        "Jiayao Yan",
+        "Vivek Yadav",
+        "Shiyue Li",
+        "Lin Chen",
+        "Zihan Tang",
+        "Hengzhi Wang",
+        "Venkatakrishnan Srinivasan",
+        "Xiang Ren",
+        "Huan Jin"
+      ],
+      "year": "2023",
+      "venue": "Backdooring instruction-tuned large language models with virtual prompt injection",
+      "arxiv": "arXiv:2307.16888"
+    },
+    {
+      "citation_id": "39",
+      "title": "Watch out for your agents! investigating backdoor threats to llm-based agents",
+      "authors": [
+        "Wenkai Yang",
+        "Xiaohan Bi",
+        "Yankai Lin",
+        "Sishuo Chen",
+        "Jie Zhou",
+        "Xu Sun"
+      ],
+      "year": "2024",
+      "venue": "Watch out for your agents! investigating backdoor threats to llm-based agents"
+    },
+    {
+      "citation_id": "40",
+      "title": "Data poisoning attacks against multimodal encoders",
+      "authors": [
+        "Ziqing Yang",
+        "Xinlei He",
+        "Zheng Li",
+        "Michael Backes",
+        "Mathias Humbert",
+        "Pascal Berrang",
+        "Yang Zhang"
+      ],
+      "year": "2023",
+      "venue": "Data poisoning attacks against multimodal encoders"
+    },
+    {
+      "citation_id": "41",
+      "title": "Poisonprompt: Backdoor attack on prompt-based large language models",
+      "authors": [
+        "Hongwei Yao",
+        "Jian Lou",
+        "Zhan Qin"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP48485.2024.10446267"
+    },
+    {
+      "citation_id": "42",
+      "title": "A feature transfer perspective to backdoor attacks against speaker verification",
+      "authors": [
+        "Sangwook Yun",
+        "Seung Han",
+        "Yong-Hwa Lee",
+        "Seongkwon Mun",
+        "Han-Gyu Kim",
+        "Kyomin Jung"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "43",
+      "title": "Speechgpt: Empowering large language models with intrinsic cross-modal conversational abilities",
+      "authors": [
+        "Dong Zhang",
+        "Shimin Li",
+        "Xin Zhang",
+        "Jun Zhan",
+        "Pengyu Wang",
+        "Yaqian Zhou",
+        "Xipeng Qiu"
+      ],
+      "year": "2023",
+      "venue": "Speechgpt: Empowering large language models with intrinsic cross-modal conversational abilities"
+    },
+    {
+      "citation_id": "44",
+      "title": "Tinyllama: An open-source small language model",
+      "authors": [
+        "Peiyuan Zhang",
+        "Guangtao Zeng",
+        "Tianduo Wang",
+        "Wei Lu"
+      ],
+      "year": "2024",
+      "venue": "Tinyllama: An open-source small language model"
+    },
+    {
+      "citation_id": "45",
+      "title": "Speechlm: Enhanced speech pre-training with unpaired textual data",
+      "authors": [
+        "Ziqiang Zhang",
+        "Sanyuan Chen",
+        "Long Zhou",
+        "Yu Wu",
+        "Shuo Ren",
+        "Shujie Liu",
+        "Zhuoyuan Yao",
+        "Xun Gong",
+        "Lirong Dai",
+        "Jinyu Li",
+        "Furu Wei"
+      ],
+      "year": "2023",
+      "venue": "Speechlm: Enhanced speech pre-training with unpaired textual data"
+    },
+    {
+      "citation_id": "46",
+      "title": "Enhancing fine-tuning based backdoor defense with sharpness-aware minimization",
+      "authors": [
+        "Mingli Zhu",
+        "Shaokui Wei",
+        "Li Shen",
+        "Yanbo Fan",
+        "Baoyuan Wu"
+      ],
+      "year": "2023",
+      "venue": "Enhancing fine-tuning based backdoor defense with sharpness-aware minimization"
+    },
+    {
+      "citation_id": "47",
+      "title": "Poisoning language models during instruction fine-tuning",
+      "authors": [
+        "Andy Zou",
+        "Jinyuan Li",
+        "Dawn Song"
+      ],
+      "year": "2023",
+      "venue": "Poisoning language models during instruction fine-tuning",
+      "arxiv": "arXiv:2305.17449"
+    },
+    {
+      "citation_id": "48",
+      "title": "Jinjun Xiong Tang, and Dawn Song. Universal and transferable adversarial attacks on aligned language models",
+      "authors": [
+        "Andy Zou",
+        "Lianmin Zhang",
+        "Jinyuan Li"
+      ],
+      "year": "2023",
+      "venue": "Jinjun Xiong Tang, and Dawn Song. Universal and transferable adversarial attacks on aligned language models",
+      "arxiv": "arXiv:2307.15043"
+    }
+  ]
+}

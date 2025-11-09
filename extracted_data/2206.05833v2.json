@@ -1,0 +1,1765 @@
+{
+  "paper_id": "2206.05833v2",
+  "title": "Cold Fusion: Calibrated And Ordinal Latent Distribution Fusion For Uncertainty-Aware Multimodal Emotion Recognition",
+  "published": "2022-06-12T20:25:21Z",
+  "authors": [
+    "Mani Kumar Tellamekala",
+    "Shahin Amiriparian",
+    "Björn W. Schuller",
+    "Elisabeth André",
+    "Timo Giesbrecht",
+    "Michel Valstar"
+  ],
+  "keywords": [
+    "Uncertainty Modelling",
+    "Multimodal Fusion",
+    "Dimensional Affect Recognition",
+    "Categorical Emotion Recognition"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Automatically recognising apparent emotions from face and voice is hard, in part because of various sources of uncertainty, including in the input data and the labels used in a machine learning framework. This paper introduces an uncertainty-aware multimodal fusion approach that quantifies modality-wise aleatoric or data uncertainty towards emotion prediction. We propose a novel fusion framework, in which latent distributions over unimodal temporal context are learned by constraining their variance. These variance constraints, Calibration and Ordinal Ranking, are designed such that the variance estimated for a modality can represent how informative the temporal context of that modality is w.r.t. emotion recognition. When well-calibrated, modality-wise uncertainty scores indicate how much their corresponding predictions are likely to differ from the ground truth labels. Well-ranked uncertainty scores allow the ordinal ranking of different frames across different modalities. To jointly impose both these constraints, we propose a softmax distributional matching loss. Our evaluation on AVEC 2019 CES, CMU-MOSEI, and IEMOCAP datasets shows that the proposed multimodal fusion method not only improves the generalisation performance of emotion recognition models and their predictive uncertainty estimates, but also makes the models robust to novel noise patterns encountered at test time.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "L EARNING to fuse task-specific information from mul- tiple modalities is a fundamental problem in Machine Learning. At its core, this problem entails estimating how informative each modality is towards predicting the labels of a target task. For example, consider the task of automatically recognising emotional expressions from a video in which a person is talking with a face mask covering. In such a scenario, for effectively fusing information from the audio and visual modalities, the model must be aware of how informative the facial and vocal streams are w.r.t the target task separately. Thus, modality-wise uncertaintyaware fusion is a natural approach to multimodal learning.\n\nIn this work, we formulate an uncertainty-aware fusion method for the task of apparent emotion recognition from multimodal inputs. The proposed multimodal fusion framework is based on probabilistic modelling of unimodal temporal context related to emotional expressions. This probabilistic temporal modelling approach aims to capture the richness of the temporal context in terms of emotional expressions present in a given modality, and use that information in deciding the degree of importance of each modality towards recognising apparent emotions.\n\nIn the proposed method, we first estimate the uncertainty of unimodal temporal inputs, and then apply those uncertainty estimates in computing modality-wise fusion weights. In particular, we aim to estimate the aleatoric component of uncertainty  [1]  associated with different modalities for improved emotion recognition performance. Unlike the epistemic component of uncertainty, which can be explained away with more data, aleatoric uncertainty captures noise or stochasticity that is inherent to an input signal. To give an example, in recognising emotional expressions from face images, the epistemic component can describe the uncertainty due to insufficient data for 'happy' class whereas the aleatoric component captures the uncertainty caused by factors like occluded facial regions, low-resolution face images, etc. In this work, we focus on estimating modality-wise aleatoric uncertainty in a multimodal emotion recognition model.\n\nBeing an intrinsically temporal and multimodal phenomenon, emotion recognition from multimodal inputs is a long-standing challenge in Affective Computing  [2] ,  [3] ,  [4] . A meta-analysis presented in  [5]  has shown that although emotion recognition can benefit from multimodal fusion in general, performance improvements are not significant when it comes to spontaneous emotions. We believe that uncertainty-aware multimodal fusion may have the potential to address this challenge, considering that the intensity of spontaneous emotions embedded in different modalities are likely to vary dynamically over time  [6] ,  [7] .\n\nAlthough Deep Neural Networks (DNNs) have been extensively applied to multimodal emotion recognition  [8] ,  [9] ,  [10] ,  [11] , estimating modality-wise uncertainty for improved fusion performance is a relatively unexplored avenue. However, modelling predictive uncertainty (or confidence, its opposite) in DNNs received widespread attention in recent years  [12] ,  [13] ,  [14] , motivated by the observation that DNNs tend to make over-confident predictions  [15] ,  [16] . Most existing efforts towards uncertainty or confidence estimation in DNNs  [13] ,  [17]  focus solely on reducing miscalibration errors, i.e., the mismatch between expected model estimation errors and their corresponding confidence scores. Recently, as an alternative perspective, Moon et al.  [18]  introduced the idea of learning to rank confidence scores for identifying the most reliable predictions.\n\nIn this work we argue that the estimated uncertainty scores must be simultaneously both well-calibrated and wellranked (ordinal). The former is needed to accurately represent the correctness likelihood of a prediction for an individual sample. The latter is essential to effectively order predictions for a group of samples according to their correctness likelihoods. In other words, if an uncertainty estimate of an individual sample is well-calibrated, in the absence of its ground truth, the uncertainty score can serve as a proxy for its expected prediction error. If the uncertainty scores associated with different predictions are well-ranked or maintain ordinality, then one can use them to order their corresponding samples in terms of their reliability towards the target prediction, and to distinguish the most informative samples from the least informative samples.\n\nFor multimodal temporal learning, it is critical to estimate how informative the predictions made for different frames in different unimodal sequences are, towards estimating a common target label, so that the target-specific information can be reliably integrated  [19] . In this work, we hypothesise that jointly learning these two properties -calibration and ordinality -can lead to more reliable uncertainty estimates for each modality, facilitating more effective uncertainty-weighted temporal context fusion. Based on this hypothesis, we propose an uncertainty modelling method that imposes the calibration and ordinality constraints jointly, as Figure  1  illustrates. For example, consider the task of classifying whether a person's apparent emotional state as either 'happy' or 'neutral' by analysing a face image sequence and its speech signal. Assume that the face is covered with a mask in most frames, making the face modality less informative than the speech modality. In a unimodal setting, the face and speech classifiers are trained separately to output their corresponding 'happy' class probabilities. When well calibrated, these output probabilities should reflect the true correctness likelihoods of face and speech models' predictions. Similarly, when constrained by ordinal ranking, the speech model's output probability must be higher than the face model's probability, reflecting the relative uncertainty levels of the face and speech modalities w.r.t. each other.\n\nIn this work, we condition the unimodal latent distributions' variance vectors such that they represent the information different modalities contain w.r.t. predicting emotion. The proposed method can be viewed as an uncertaintyaware extension of classical late fusion, but here the fusion is applied in the latent space of unimodal temporal context embeddings. This approach is different from a simple confidence-weighted late fusion model in which uncertainty is modelled directly over the unimodal output predictions.\n\nIn our proposed framework, denoted as Calibrated Ordinal Latent Distributions (COLD), we first learn the latent distributions (multivariate normal distributions) over the temporal context of audio and visual modalities separately, as Figure  2  shows. We model the variance values of the audio and visual latent distributions, σ V and σ A , as the confidence measures towards emotion prediction. We design a novel training objective based on softmax distributional matching to encourage the variance norm values in each modality to be: (a) strongly correlated with the correctness likelihood of the unimodal predictions, and (b) ordinal in nature to effectively rank the relevance of different modalities towards emotion recognition. Thus, the calibrated and ordinal unimodal variance scores are learnt for effective uncertainty-weighted fusion, as shown in Figure  2 .\n\nWe evaluate the proposed COLD fusion approach on: (a) dimensional emotion recognition from face and voice modalities in the AVEC 2019 CES  [4]  and IEMOCAP  [20]  datasets, and (b) categorical emotion recognition from face, voice and text modalities in the CMU-MOSEI  [21]  and IEMOCAP datasets. Compared to the uncertainty-unaware fusion baselines, COLD fusion demonstrates noticeably better results on different multimodal emotion recognition tasks evaluated in this work. For example, in dimensional emotion regression tasks COLD fusion shows ∼6% average relative improvement over the best performing fusion baseline. Similarly, in the case of categorical emotion classification COLD fusion achieves ∼8.2% relative accuracy improvement over the existing state-of-the-art model. Furthermore, we assess the robustness of different fusion models at test time by inducing noise into the visual modality through face masking. With the faces masked in 50% of the evaluation sequences, COLD fusion achieves ∼17% average relative improvement over the best fusion baseline.\n\nThe key contributions of our work are as follows:\n\n•\n\nWe propose an uncertainty-aware multimodal fusion method that dynamically estimates the fusion weights to be assigned to unimodal features.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "•",
+      "text": "We demonstrate how to jointly learn well-calibrated and well-ranked unimodal uncertainty estimates. For this purpose, we propose a simple softmax distributional matching loss function that applies to both regression and classification models.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "•",
+      "text": "On both dimensional and categorical emotion recognition tasks, the proposed fusion approach shows no-ticeable performance gains and improved robustness to novel noise patterns encountered at test time.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Multimodal Affect Recognition. Humans rely primarily on visual (faces) and audio (voices) modalities to encode and express their affective or emotional states. Recognising dimensional emotions, valence (how pleasant an emotion is) and arousal (how active an emotion is), and categorical emotions (happy, sad, disgust, etc) from multiple modalities, is a widely studied problem in various prior works  [7] ,  [22] , ranging from the almost a decade-long running annual AVEC challenge series  [2] ,  [3] ,  [4]  to the recently introduced MuSe challenge  [23] ,  [24] ,  [25]  and ABAW challenge  [26] ,  [27] . Beyond audiovisual modalities, some recent works (e.g.  [28] ,  [29] ) explored how to fuse a wide range of contextual cues for reliably recognising expressed emotions. We refer the reader to Poria et al.  [30] , Roust et al.  [8] , Jiang et al.  [31]  and Zhao et al.  [32]  for comprehensive surveys of affect recognition in multimodal settings and contemporary deep learning-specific advancements in it. Since our main focus in this work is on uncertainty-aware fusion models for emotion recognition, we review the literature closely related to the following key research topics: i) uncertainty modelling for emotion and expression recognition, ii) uncertainty-aware multimodal fusion, iii) calibrated uncertainty, and iv) ranking-based uncertainty.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Uncertainty Modelling For Emotion And Expression",
+      "text": "Recognition. In categorical facial expression recognition tasks, modelling predictive uncertainty is studied in several recent works  [33] ,  [34] ,  [35] , by estimating uncertainty in the space of low-dimensional feature embedding outputs from a Convolutional Neural Network (CNN) backbone. On the other hand, directly predicting emotion label uncertainty is explored in  [36] , but only in unimodal (video-only) settings. For uncertainty-aware multimodal emotion recognition, some prior works applied Kernel Entropy Component Analysis (KECA)  [37]  and Multi Modal-Hidden Markov Models (MM-HMMs)  [38]  by predicting modality-specific uncertainty measures for estimating the fusion weights.\n\nNoting the limitations of deterministic function learning in DNNs for uncertainty modelling, Dang et al.  [39]  explored the application of Gaussian Process (GP) Regression to the fusion of emotion predictions. With the same motivation, in Affective Processes (APs)  [40] ,  [41] , Neural Processes  [42] ,  [43]  have been applied to the task of emotion recognition. By combining the abilities of GPs to learn function distributions with DNN's representation learning abilities, APs demonstrated superior generalisation performance over deterministic function learning models. Building on this idea of stochastic modelling of temporal functions, recently APs have been extended to multimodal settings in  [44]  based on a strictly model-based fusion approach, demonstrating impressive emotion recognition results. However, for uncertainty-aware temporal context modelling, APs heavily rely on the proxy labels predicted by a separate pre-trained backbone and a complex encoderdecoder formulation. In contrast to APs, our method aims to model the temporal context uncertainty in a modelagnostic fashion, by just altering the output head of sim-ple CNN+RNN models that are trained using some novel constrained optimisation objectives.\n\nAll the aforementioned methods demonstrated the potential of uncertainty-aware emotion recognition models over their uncertainty-unaware counterparts in general. However, they ignore two important aspects of uncertainty modelling: calibration and ordinality (ranking). In this work, we aim to demonstrate the significance of these two properties by hypothesising that learning well-calibrated and well-ranked uncertainty estimates is critical for improving multimodal emotion recognition performance. Uncertainty-Aware Multimodal Fusion. For multimodal sensor fusion, several prior works  [37] ,  [45] ,  [46] ,  [47]  explored uncertainty-aware or confidence-weighted averaging techniques for classic machine learning models before the advent of Deep Neural Networks (DNNs). Recently, Subedar et al.  [48]  applied Bayesian DNNs for uncertaintyaware audiovisual fusion to improve human activity recognition performance. Similarly, Tian et al.  [49]  explored the use of uncertainty estimation in fusing the softmax scores predicted using CNNs for semantic segmentation. Other notable approaches to uncertainty-aware multimodal fusion are based on optimal transport for cross-modal correspondence  [50] , random prior functions  [51] , boosted ensembles  [52] , and factorised deep markov models  [53] .\n\nAlthough all the aforementioned methods demonstrated critical advantages over the models that predict only point estimates, they do not study the calibration properties of the estimated uncertainty scores. Further, such DNN models focus mainly on modelling absolute uncertainty estimates, whereas our focus is on jointly learning the calibrated and relational uncertainty estimates in an end-to-end fashion introducing a novel softmax distributional matching loss. Calibrated Uncertainty. As DNNs tend to make overconfident predictions  [15] ,  [16] , confidence calibration has received significant attention in recent years  [15] ,  [16] . Calibrating confidence or uncertainty estimates involves maximising the correlation between predictive accuracy values and predictive uncertainty scores. A wide variety of calibration techniques, particularly in classification settings, can be broadly categorised into explicit and implicit calibration categories  [54] . In the former category, two types of posthoc methods, binning-based and temperature-scaling, are applied to increase the reliability of DNN confidence estimates  [13] ,  [55] . In binning-based methods such as nonparametric histogram binning  [56] , calibrated confidence is estimated based on the average count of positive-class instances in each bin. This method is extended to jointly optimise the bin boundaries and their predictions in Isotonic Regression  [57] . Temperature-scaling methods can be viewed as generalised versions of Platt scaling  [58]  using logistic regression for calibrating the class probabilities. We use temperature-scaling as a calibration baseline  [13] ,  [59]  to compare against the uncertainty calibration performance of the proposed method, due to its simplicity.\n\nImplicit calibration methods tailor the training objective of DNNs to minimise the prediction error and calibration error simultaneously. Addressing the limitations of standard cross-entropy loss w.r.t. confidence calibration, various alternative loss functions such as focal loss  [14] , maximum mean calibration error  [17] , and accuracy vs uncertainty calibration  [60] , have been investigated recently. Calibrating regression models is relatively under-explored compared to the classification. Some recent works  [61] ,  [62] ,  [63]  made attempts to extend some of the aforementioned calibration techniques to continuous-valued predictions. Ordinal or Ranking-based Uncertainty. In the existing uncertainty modelling works, the ordinal property of uncertainty estimates received less attention compared to the calibration property, which partly motivated the method introduced in this paper. Li et al.  [64]  proposed to model data uncertainty by inducing ordinality into probabilistic embeddings of face images. Towards uncertainty-aware regression problems, the results reported in  [64]  highlighted the key limitations of deterministic unordered embeddings compared to the probabilistic ordinal embeddings. Although not strictly ordinal, relative uncertainty modelling is explored for facial expression recognition in  [34] .\n\nOther closely related works approached the problem of ordinal ranking of uncertainty estimates with different objectives such as failure prediction  [65] , out-of-distribution detection  [66] , and selective classification  [67] . Fundamentally, all these objectives necessitate a method that can train the model to output well-ranked confidence or uncertainty scores. Among these existing methods, the one most closely related to ours is by Moon et al.  [18] , which proposes a Correctness Ranking Loss (CRL). CRL directly imposes ordinal ranking constraints on the confidence estimates of a DNN classifier. Similar to CRL, our proposed softmax distributional matching loss also constrains the ordinalranking property of uncertainty estimates. However, in addition to ordinal ranking, our method imposes the calibration property as well, most importantly by controlling the latent distribution variance, unlike in CRL. Moreover, our formulation generalises the idea of calibrated and ordinal uncertainty estimates to both classification and regression settings, using a common loss function computation.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Model-Agnostic Fusion Baselines",
+      "text": "Before introducing our uncertainty-aware multimodal fusion formulation, we briefly discuss the general multimodal fusion techniques w.r.t. audiovisual emotion recognition and introduce the related notations. A fundamental question in multimodal learning concerns the optimal stage to perform fusion  [68] . We consider the following three typical model-agnostic fusion methods as the baselines: feature fusion, temporal context fusion, and prediction fusion. Preliminaries and Notations. As Figure  2  illustrates, given a face video clip X V with N frames and its corresponding speech signal X A , using overlapping time windows, we first create N speech segments that correspond to the N visual frames. Here, we assume that both the signals X V and X A are annotated with a common dimensional emotion label,\n\nvalence , Y * arousal ] (either per-frame or per-sequence). We extract sequences of per-frame low dimensional features (Z V , Z A ) from the face video and speech inputs using a twostream network. This network is composed of a 2D CNN f V and a 1D CNN f A for processing the face images and speech segments respectively, f V :\n\nFor unimodal emotion recognition, we process the temporal context from each modality separately from Z V and Z A using different temporal networks g V : Z V → Y V and g A : Z A → Y A to predict the emotion labels Y V and Y A . Feature Fusion or early fusion integrates frame-level emotion cues present in the audiovisual features Z V and Z A (e.g.,  [69] ), not accounting for commonly encountered temporal misalignment between different modalities  [70] . Here, we concatenate the per-frame audiovisual features into a single sequence, Z = [Z V , Z A ], then pass it to a common temporal network g AV : Z → Y to predict emotion labels. Decision Fusion combines the unimodal emotion predictions Y V and Y A (e.g.,  [71] ). Here, we apply predictive confidence based weighted averaging to perform the late fusion. Unlike early fusion, late fusion does not leverage the lowlevel correspondences among the emotion cues distributed over the audio and visual streams  [68] . Temporal Context Fusion or simply context fusion integrates sequence-level emotion information aggregated in the form of audiovisual temporal context vectors h i V and h i A for frame i, produced by the temporal networks g V and g A respectively. This method is also referred to as 'feature fusion with RNNs' or 'mid-level' fusion in some prior works  [8] ,  [72] . Note that here temporal context or simply context at i th frame refers to the emotion information present in frame i w.r.t. the emotion information carried by remaining frames in the input sequence. As a result, unlike early fusion, context fusion is bound to suffer less from the temporal misalignment between the emotion-related semantics of audio and visual feature sequences. Further, context fusion benefits from the low-level audiovisual correspondences in the emotion space, in contrast to late fusion.\n\nConsidering the above-mentioned critical advantages of temporal context fusion, in this work, we propose to learn an uncertainty-aware context fusion model for multimodal emotion recognition as discussed below.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Proposed Method",
+      "text": "Figure  3  illustrates our proposed solution to uncertaintyaware multimodal fusion. Although this section describes the proposed fusion only in audiovisual settings, note that it can be easily extended to tasks with more than two modalities. In this section, we first discuss how we estimate modality-wise uncertainty by learning unimodal latent distributions over the temporal context, and we present our approach to derive the fusion weights based on unimodal context variance. Then, we introduce two key optimisation constraints imposed on the variance norms of unimodal latent distributions and describe their implementations.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Uncertainty-Aware Audiovisual Context Fusion",
+      "text": "Quantifying modality-wise uncertainty towards predicting a common target label is crucial to improve multimodal fusion performance. Our objective is to first quantify intramodal uncertainty in the temporal context space, and then use the estimated uncertainty scores to derive the fusion weights. To this end, we propose to learn unimodal latent distributions over the temporal context of the audio and visual modalities separately, as discussed below.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Latent Distributions Over Unimodal Temporal Context",
+      "text": "Figure  2  illustrates how we modify the temporal networks (Gated Recurrent Unit(GRU)-RNNs) g V and g A to output the parameters (mean and variance) of multivariate normal distributions\n\n) over the audio and visual temporal context vectors, respectively. Here, the term 'temporal context' refers to the hidden state outputs from the corresponding unimodal GRU blocks (g A or g V ).\n\nFor each modality separately, we learn this hidden state output as a multivariate normal distribution, instead of a typical deterministic embedding vector. We presume that these unimodal latent distributions are capable of representing modality-wise emotion information more effectively than deterministic embeddings. Given a sequence of frames, [X 1 , X 2 , ..., X T ], in order to predict their corresponding target variables\n\nT ] it is important to learn the underlying temporal context information, which is a function of the frames present in the input sequence as well as the order in which they appear. By modelling the temporal context as a probability distribution, we propose to use the prediction error ∥Y i -Y * i ∥ 2 to constrain the contribution of each frame X i in terms of its explained variance of the overall temporal context. Here, the idea of frame-wise explained variance of the temporal context refers to how much information a particular frame holds given all the rest of the frames, towards predicting the target variable Y * i . Thus, the higher the explained variance of a particular frame X i , the more informative it is for accurately predicting the target variable.\n\nHere our aim is to first estimate the informativeness of each modality towards the task of recognising emotions. To this end, we learn the temporal context variance such that it may represent how informative the temporal context of a particular modality is. For example, consider an audiovisual sequence in which all the audio frames have the same emotion (e.g. neutral tone), whereas the visual frames have more variations in terms of the emotional expressions. In this case, the fusion model must give more importance to the visual frames compared to the audio frames when predicting emotions. Guided by this intuition, our formulation aims to capture the emotion-related variance in the temporal context of each modality separately.\n\nIt is important to note the difference between the absolute variance of the temporal context distribution learned from all the frames and the explained temporal context variance of an individual frame. While the former can be thought of as a proxy metric for uncertainty measurement, the latter can be viewed as a per-frame information metric w.r.t the target prediction. For the sake of simplicity, throughout this work, we use the term 'context variance' in order to refer to the explained variance of temporal context for a given frame in an input sequence. The above argument can be extended to a multimodal fusion setting as well, in which the explained temporal context variance of a particular modality can be used as a proxy for how informative that modality is w.r.t predicting a common target variable.\n\nWe model the variance of a unimodal latent distribution as a proxy for how informative that modality is w.r.t. predicting the target emotion, and we use the inverse of variance values to quantify how uncertain a particular modality",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Intra Modal Calibration + Ordinality Constraints",
+      "text": "Cross modal Calibration + Ordinality Constraints is towards predicting emotion labels. Note that the potential of signal variance-based uncertainty modelling for multimodal fusion was already demonstrated in  [73] . Similarly, learning latent distribution variance was determined to be capable of uncertainty modelling in  [40] . Inspired by these ideas, we model the unimodal context variance norm values ∥σ 2 V ∥ 2 and ∥σ 2 A ∥ 2 to estimate how certain the audio and visual modalities are about predicting the emotion labels. Our approach to derive variance-based fusion weights for integrating the audiovisual information is discussed below.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Context Distribution Variance-Based Fusion Weights",
+      "text": "For an input frame with index i, given its unimodal latent distributions\n\nwhere h i V and h i A denote the visual and audio temporal context vectors, and w i V and w i A denote their correspond-ing weight values. The temporal context vectors h i V and h i A are sampled from their respective latent distributions,\n\nAt test time, we set h i V and h i A to their corresponding mean vectors µ i V and µ i A for evaluation purposes. Based on the unimodal context variance norm values (∥σ i V 2 ∥ 2 and ∥σ i A 2 ∥ 2 ), the weight values w i V and w i A in Equation (  1 ) are computed as:\n\n(2) Context variance modelling seems to be a simple yet effective approach to uncertainty-aware audiovisual fusion, yet learning audiovisual latent distributions with wellconditioned variance ranges is non-trivial in practice, as we show later in the experiments. To condition the variance values that can effectively capture intramodal uncertainty w.r.t. predicting the target labels, we define a more principled model training that applies two key optimisation constraints: Calibration and Ordinality.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Cold: Calibrated And Ordinal Latent Distributions",
+      "text": "To effectively learn the unimodal latent distributions for uncertainty-aware fusion, we propose to condition their variance values by applying optimisation constraints to the model training objective. We achieve this conditioning by imposing two key constraints: Calibration and Ordinality (or ranking) on the latent distribution variance vectors. When well-calibrated, an uncertainty score acts as a proxy for the correctness likelihood of its prediction for an individual input from a specific modality. In other words, wellcalibrated uncertainty indicates the expected estimation error, i.e., how far the predicted emotion is expected to lie from its ground truth.\n\nGiven the predictions made for a set of frames from different modalities, when their uncertainty scores are wellranked or maintain ordinality, we can effectively arrange the input unimodal frames according to their reliability for predicting a target emotion. In Figure  1 , we illustrate the definitions of both these constraints. It is important to note the fundamental difference between these two constraints: while the calibration constraint is applied individually for each unimodal frame, the ordinality or ranking constraint is imposed jointly for a set of frames from different modalities. Calibration Constraint -this is imposed by regularising the unimodal context variance norms,\n\nthat their values are strongly correlated with the correctness likelihood values of target emotion classes. In regression models, this constraint can be implemented by forcing the variance norm values to correlate with the Euclidean distance between their corresponding unimodal predictions Y V and Y A and their ground truth labels Y * , as shown in Figure  1 . In other words, the context variance values are learnt as reliability measures indicating how far the emotion predictions are expected to lie from their ground truth labels. To impose this property on the variance values of both modalities, COLD fusion applies the following regularisation constraints,   3 )) between different unimodal predictions and the ground truth labels:   2 ). Calibration and Ordinality Loss (L CO ) combines the aforementioned constraints, defined in Equation (  3 ) and Equation (4), into a single training objective using differentiable operations. Figure  3  shows the steps involved in implementing this component: given an input sequence with N frames, we first compute their unimodal latent distributions followed by their corresponding unimodal predictions. To impose the calibration and ordinality constraints, we first compute two sets of vectors for each modality: Distance Vectors. We collect the scalar distance values (d i V and d i A ) between the unimodal predictions (Y i V and Y i A ) and the ground truth labels (Y i * ) using either cross-entropy (classification) or MSE (regression) as the distance function. This step produces N-dimensional distance vectors,\n\n. Variance-Norm Vectors. We collect the inverted unimodal context variance norm values into another set of Ndimensional vectors, S V and S A , as shown below:\n\nSoftmax Distributional Matching for Calibration and Ordinal Ranking. Note that the distance vectors and variance-norm vectors contain scalar values that summarise the properties of different embedding spaces, emotion labels, and temporal context, respectively. Hence, we assume that matching their properties by imposing the calibration and ordinality constraints directly in their original spaces, is not optimal. For this reason, as illustrated in Figure  3 , we first apply the softmax operation on the distance vectors and variance-norm vectors separately to generate the softmax distributions. Then, we impose the calibration and ordinality constraints by minimising the mismatch between softmax distributions of the variance-norm vectors and distance vectors. This approach to calibration and ordinality loss computation based on soft-ranking is inspired by  [75]  in which softmax cross-entropy is used for ordinal regression.\n\nAs Figure  3  shows, in both intramodal and crossmodal settings, we compute the softmax distributions of distance vectors (P D V , P D A , and P D AV ) and variance-norm vectors (P S V , P S A , and P S AV ). Note that in the crossmodal case, we first concatenate the audio and visual distance vectors and variance-norm vectors separately, i.e.,\n\n. Then, we apply the softmax operation on the concatenated list which is 2N dimensional. Thus, the crossmodal softmax distributions capture the relative measures across both modalities. Now, to impose the calibration constraint, we minimise the KL divergence (both forward and backward) between the distance distributions and variance-norm distributions in both intramodal and crossmodal settings, as shown below:\n\nwhere P D represents P D V and P D A , and P S represents P S V and P S A in the intramodal loss computation. In the crossmodal case, P D and P S denote P D AV and P S AV , respectively.\n\nVariance Regularisation Loss (L regu ). Prior works  [40] ,  [76]  on latent distribution learning in high-dimensional input spaces such as images, have reported that the variance collapse is a commonly encountered problem. Variance collapse occurs mainly because the network is encouraged to predict small variance σ 2 values to suppress the unstable gradients that arise while training the latent distribution models using Stochastic Gradient Descent. To prevent this problem, we include the regularisation term proposed in  [76]  in the training objective:\n\nwhere ϵ and I denote the mean vector and an identity variance matrix respectively. Note that this regularisation term is applied to the audio and visual distributions, separately. In summary, the COLD fusion training objective composed of the above-discussed loss components, is as follows:\n\nwhere λ CO V (for visual-only), λ CO A (for audio-only), λ CO AV (for audio and visual combined), and λ R (for regularisation) are the optimisation hyperparameters that control the strength of each regularisation constraint.",
+      "page_start": 6,
+      "page_end": 8
+    },
+    {
+      "section_name": "Experiments",
+      "text": "We first discuss the details of dimensional and categorical emotion datasets used for evaluating the proposed COLD fusion model. Detailed information about each dataset can be found in  [4] ,  [20] ,  [21] . Then, we discuss the regression and classification formulations of emotion recognition and the evaluation metrics used for dimensional and categorical emotion tasks, along with a standard uncertainty calibration error metric that applies to the classification models. Finally, we present the details of the network architectures, fusion model implementations, and their optimisation.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Datasets",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Dimensional Emotion Recognition",
+      "text": "For spontaneous dimensional emotion recognition, we used the AVEC 2019 CES challenge corpus  [4]  which is designed for in-the-wild emotion recognition in cross-cultural settings as part of the SEWA project  [77] . This corpus is composed of 8.5 hours of audiovisual recordings collected from German, Hungarian, and Chinese participants. All videos in this corpus are annotated with continuous-valued valence and arousal labels in the range [-1, 1]. Note that the train and validation partitions are composed of only German and Hungarian cultures. As the labels for the test set (which has the Chinese culture in addition) are not publicly available, we report results on the validation set.\n\nFor acted emotion recognition, the Interactive Emotional Dyadic Motion Capture (IEMOCAP) dataset  [20]  is used. This dataset constitutes 12 hours of audiovisual data annotated with utterance-level labels of valence and arousal.\n\nHere, we normalised the original emotion labels to the range [-1, 1]. Among the available five sessions in this corpus, we used the first four sessions' data for training.\n\nNote that the COLD fusion model training involves tuning of multiple regularisation constraints (Equation (  8 )). Thus, the usual 5-fold cross-validation evaluation is found to be computationally expensive as it requires the values of λ CO V , λ CO A , λ CO AV , and λ R to be tuned for every fold. For this reason, we used the speaker-independent partitions of the fifth session as validation and test sets, the same as the first fold's validation and test sets used in the existing works (e.g.  [78] ,  [79] ) that apply 5-fold cross-validation.\n\nOn both the emotion datasets we trained and evaluated our audiovisual fusion models in regression as well as classification settings. To train the regression models, we directly used the continuous-valued labels as targets in the range [-1, 1]. For classification, we first mapped the continuous emotion values to three different classes for valence (positive, neutral, negative) and arousal (high, neutral, low) individually. For this binning, we chose the thresholds of -0.05 and 0.05 to draw the boundaries between the three above-mentioned bins. We adjusted the binning thresholds and picked the aforementioned values, to minimise the imbalances in the resultant class-wise label distributions. Addressing Imbalanced Emotion Class Label Distributions. Despite carefully tuning the binning thresholds, classwise label distributions of the dimensional emotion datasets still have significant imbalances, as shown in Figure  4 . To mitigate the effect of this problem, we applied two general techniques while training the classification models: a. nonuniform sampling of the training instances for different classes and b. class-weighted cross-entropy loss. In the former, we modified the sampling criteria to over sample for the minority classes and under sample for the majority classes based on the number of examples available for each class in the train set. In the latter technique, we divided the cross-entropy loss values for different classes by their relative bin size (in the train set).",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Categorical Emotion Recognition",
+      "text": "For spontaneous categorical emotion recognition, we used the CMU-MOSEI dataset  [21] , a large-scale dataset for For acted categorical emotion recognition, we used the IEMOCAP dataset with the labels of six basic emotions: neutral, angry, happy, sad, excited and frustrated. Following the existing works  [80] ,  [81] , we used a pre-processed version of this dataset that contains 7, 380 utterances, in which each utterance contains an image sequence sampled at 30Hz, an audio waveform sampled at 16kHz, and its text transcript. We followed the same training (70%), validation (10%) and test (20%) splits used in prior works (e.g.  [80] ).",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Evaluation Metrics",
+      "text": "Regression models' performance is measured using Lin's Concordance Correlation Coefficient (CCC)  [82]  between the predicted emotions y o and their ground truth labels y\n\nwhere ρ y * y o denotes the Pearson's coefficient of correlation between y * and y o , and (µ y * , µ y o ) and (σ y * , σ y o ) denote their mean and standard deviation values, respectively. Classification models of dimensional emotions are evaluated using precision, recall, and F1 score. Given the imbalanced emotion class distributions (see Figure  4 ), for these three metrics we report unweighted or macro averaged 1. https://github.com/A2Zadeh/CMU-MultimodalSDK values of the three emotion classes, so that the average values are not biased towards the most dominant classes.\n\nFor evaluating the categorical emotion models, following prior works  [80] ,  [81] ,  [83] ,  [84] , we used (a) the accuracy and F1 score metrics for IEMOCAP and (b) the weighted accuracy and F1 score for CMU-MOSEI. Uncertainty Calibration Errors of the classification models are measured to analyse the deviations between the true class likelihoods p and the predicted class confidence estimates p. Reliability diagrams  [13]  are used as empirical approximations to visually represent the confidence calibration errors. For plotting these diagrams, first, the accuracy and confidence axes are binned into equally-sized intervals and then, for each interval mean accuracy values are plotted against their corresponding mean confidence scores. For a perfectly calibrated model, the reliability diagram is supposed to be an identity function, i.e., accuracy and confidence should have the same values. Expected Calibration Error (ECE), a scalar summary statistic of the reliability diagram, computes the weighted average of calibration errors over all the intervals in a reliability diagram.\n\nwhere I m denotes the m th interval, M is the total number of intervals, and N is the total number of samples.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Network Architectures",
+      "text": "",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Feature Extraction For Dimensional Emotion Models",
+      "text": "Visual CNN Backbone. EmoFAN  [85] , a 2D CNN proposed recently for facial feature extraction, is proven highly efficient by building on hour-glass-based network architectures. This CNN backbone, pretrained on 2D face alignment task, has been found very efficient for transfer learning tasks  [86] ,  [87] . We used its pretrained model 2 on imagebased emotion recognition on the AffectNet dataset  [88] . Using this backbone, we extracted a 512D feature vector per frame. Audio CNN Backbone. We adopted a 2D CNN backbone proposed in  [89]  for extracting speech signal features in an end-to-end fashion. Here, we applied a VGGish  [90]  pretrained module to 2D Mel-spectrograms that are derived by setting the hop size and window length values to 0.1 s and 1 s respectively. Similar to  [89] , we fine-tuned only the last two fully connected layers of this VGGish module. To differentiate the interlocutor's information from that of the target speaker, we implemented the feature dimensionalitydoubling technique proposed in  [91] . Data Augmentation. We applied strong data augmentation techniques to the audiovisual inputs to minimise the overfitting problem. It is important to note that under heavy overfitting, the COLD loss function (Equation (  6 )) may collapse since the calibration and ordinality constraints rely on the prediction errors of the training instances. For face image data, we applied horizontal flipping with the probability set to 0.5, random scaling by a factor of 0.25, random translation by +/-30 pixels, and random rotation 2. Pretrained models of Toisoul et al.  [86]  are available at https:// github.com/face-analysis/emonet by 30 • . In the audio case, we applied SpecAugment  [92]  which directly augments the 2D spectrogram itself, instead of its original 1D waveform. Here, we applied the standard SpecAugment operations: time warping, frequency masking and time masking, with their order defined arbitrarily. The parameters 3 of time warping (ω), frequency masking (f ), and time masking (t) are chosen from different uniform distributions in the range [0, 50], [0,27], and [0,40] respectively.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Feature Extraction For Categorical Emotion Models",
+      "text": "Following the existing works  [80] ,  [81] , we applied the early-stage feature extraction on the aligned multimodal data. The visual features containing 35 facial action units are extracted using Facet 4 . The audio features extracted using COVAREP  [93]  contain glottal source parameters, Mel-frequency cepstral coefficients, etc. Similar to the prior works  [80] ,  [81] , we used 74-dimensional and 144dimensional audio features for CMU-MOSEI and IEMOCAP datasets, respectively. The text feature vectors with 300 dimensions are prepared by tokenising the text data at word level and then extracting their GLoVE  [94]  ( 5 ) embeddings.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Temporal Networks",
+      "text": "In dimensional emotion recognition models, the temporal networks are stacked on top of the unimodal CNN backbones to model the temporal dynamics and integrate the multimodal affect information. Note that all the fusion models evaluated in this work follow different temporal network implementations. However, all the temporal networks have the following GRU block in common: a 2-layer bidirectional GRU module followed by a fully connected (FC) output layer. This GRU block contains 256 hidden units with the dropout value set to 0.5. The number of GRU blocks and their input-output dimensionality vary across different fusion models, as discussed below.\n\nIn feature fusion, a single GRU+FC block is used to process the input feature sequence that is prepared via framewise concatenation of the unimodal embeddings, whereas, in the prediction fusion, different unimodal temporal models (GRU+FC) are applied separately, and their output softmax label distributions are aggregated into the final predictions. The context fusion implementation has two different GRU blocks, but a common FC layer. As shown in Figure  2 , COLD fusion is similar to the context fusion, but with the GRU block's output layer modified to predict the mean and variance vectors. Note that we trained the unimodal output branches simultaneously along with the fusion branch in all the multimodal models (see Figure  2 ).\n\nIn categorical emotion recognition models, the preextracted visual, audio, and text features are directly fed into their corresponding temporal networks, which are composed of the same GRU+FC blocks used in the dimensional emotion models. Except for the number of input units, which depend on the input feature dimensionality, all the network parameters are the same in both the cases. In the COLD fusion module, due to the presence of the   2 ) is modified to accommodate three modalities and the calibration and ordinal constraints, Equation (3) and Equation (  4 ), are modified to compute pairwise correlations for the six possible combinations of the audio, visual and text modalities.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Optimisation Details",
+      "text": "The batch size, learning rate, and weight decay values chosen for training all these models are 4, 5e-3, and 1e-4, respectively. For tuning the learning rate, we used Cosine annealing coupled with warm restarts  [95]  (the number of epochs for the first restart set to 1 and the multiplication factor set to 2). We used Adam optimiser  [96]  for training all the models evaluated in this work.\n\nFor dimensional emotion recognition, we used input sequences of 30 seconds duration with per-frame and persequence targets on the AVEC 2019 and IEMOCAP datasets respectively. The visual and audio backbones and all the fusion models are trained by jointly minimising the CCC loss  [74]  and mean squared error for the regression task and class-weighted cross-entropy loss for the classification task. For finding the optimal values of hyper-parameters, we used the IEMOCAP validation set and the same optimal values are applied to the models trained on the AVEC 2019 corpus. The hyper-parameter values in the loss function (Equation (  6 )) are tuned on the logarithmic scale in the range [1e-5, 1e+5] using RayTune  [97] . Based on the IEMOCAP validation set performance, the following values are found to be optimal: 1e-3 for λ CO V , λ CO A and λ CO AV , and 1e-4 for λ R . We applied the same hyperparameter values to the models trained on the AVEC 2019 corpus as well.\n\nFor categorical emotion recognition, we used sequences of 100 frames. The temporal networks are trained using the standard cross-entropy loss. The hyper-parameters are tuned separately on the validation sets of CMU-MOSEI and IEMOCAP. The following values are found to be optimal: 1e-2 and 5e-3 for {λ CO V , λ CO A , and λ CO AV } on CMU-MOSEI and IEMOCAP respectively and, 1e-4 and 5e-5 for λ R on CMU-MOSEI and IEMOCAP respectively.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Results And Discussion",
+      "text": "We first present the results of dimensional and categorical emotion recognition models based on different audiovisual fusion techniques. By inducing visual noise through face masking, we investigate the robustness of the proposed COLD fusion compared to the standard fusion baselines. Then, we analyse the uncertainty calibration performance of the COLD fusion model, particularly in classification settings. Finally, a qualitative analysis of modality-wise fusion weights is presented to demonstrate the calibration and ordinal ranking proprieties of the COLD fusion model.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Dimensional Emotion Recognition Results",
+      "text": "Regression performance of different unimodal (Aud-branch and Vis-branch) and multimodal (AV) predictions are presented in Table  1  and Table  2  for the AVEC 2019 CES (spontaneous emotion recognition) and IEMOCAP (acted emotion recognition) corpora, respectively. In both cases,    Zhao et al.  [98] , COLD fusion performs well in terms of arousal and mean CCC scores. However, it is slightly worse in the case of valence CCC. Note that Zhao et al.  [98]  use a domain adaptation technique to cope with the cross-cultural variations in audiovisual emotion expressions. However, our focus is not on coping with the cross-cultural variations, but primarily on improving the fusion performance. It is important to note that our fusion technique is, in principle, complementary to the domain adaptation used in  [98] .  More advanced temporal models such as Affective Processes  [40] ,  [41] ,  [44]  demonstrated superior generalisation performance than the RNNs in recent years. However, since this work mainly focuses on capturing temporal uncertainty for model-agnostic fusion based on simple CNN+RNN formulations, such complex temporal models based on APs are not included in this comparison, to not clutter the analysis of standard model-agnostic fusion methods presented here. In Appendix. A, we compare the proposed COLD fusion and a multimodal Transformer baseline  [99]  on the AVEC 2019 dimensional emotion regression task. Here also, COLD fusion clearly outperformed the transformer baseline by a noticeable margin, especially in arousal prediction.\n\nAppendix. B presents an ablation study of different components in the COLD fusion formulation, by nullifying different hyperparameters to modify the COLD training objective (Equation (  8 )). These results, as shown in   Classification performance on the AVEC 2019 CES and IEMOCAP corpora is presented in Tables  3  and 4 . Similar to the regression results, COLD fusion demonstrates superior emotion classification results on both datasets.\n\nNote that here, we pose the original regression problem as a 3-way classification problem by discretising the continuous emotion labels. For this reason, we do not have any existing benchmarks for comparison in this particular classification setting. Nevertheless, the performance improvements achieved by the COLD fusion are consistent for both valence and arousal in terms of all three metrics, except for the valence recall on IEMOCAP.\n\nUnimodal Performance Analysis. It is interesting to note that in the AVEC 2019 case, the visual modality (Vis-branch) has a considerably better performance compared to the audio modality (Aud-branch), while it is vice versa in the case of the IEMOCAP dataset. This discrepancy may be due to the difference in the quality of the video data in terms of face image resolution. Despite such dataset-specific differences, our COLD fusion technique shows consistent performance improvements in the multimodal classification and regression settings for both datasets.\n\nAnalysis of Fusion Baselines. Among the fusion methods that we evaluated here, temporal context or simply context fusion is found to be the second-best performing method after the proposed COLD fusion, on both datasets. Note   that here, the temporal context refers to the output of the unimodal GRU block, and unimodal predictions are generated by applying a shallow fully connected network to the unimodal context vector. Thus, the context vectors can be viewed as higher-dimensional descriptors of the final unimodal predictions. Based on this assumption, in theory, the performance of context fusion is bound to be either better or at least as good as the prediction fusion, justifying the trends observed in our experimental results. We notice that the feature fusion performance is inferior to all the remaining fusion techniques, and prediction fusion performs better than feature fusion. This result is consistent with an observation that prediction fusion achieves better results compared to feature fusion in general, as reported in the existing multimodal affect recognition literature  [71] . It is worth noting that the results of feature fusion are worse than that of the best performing unimodal models on both datasets, i.e., the visual (Vis-branch) model on AVEC 2019 and the audio (Aud-branch) model on IEMOCAP. This performance degradation may be due to not explicitly correcting the temporal misalignment effects  [70] , which are heuristically derived in general  [4] . This result indicates that integrating multimodal emotion information at the feature-level or frame-level could be suboptimal most likely due to the temporal misalignment issues, given that continuous emotion information is expressed in the audiovisual modalities at different frame rates  [8] ,  [72] . with 50% of randomly chosen face images masked during evaluation (see Figure  5 ) on the AVEC 2019 CES validation Set.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Dynamic Adaptation Of Fusion Weights In The",
+      "text": "noise patterns at test time. By inducing noise into the visual modality through face masking, here, we investigate the performance of different fusion baselines in comparison with the COLD fusion. For this evaluation, we overlaid the face masks as external occlusions on the image sequences using the method proposed in MaskTheFace [100] 6 . We applied MaskTheFace to 50% of the randomly chosen consecutive frames of the AVEC 2019 CES validation set sequences, as shown in Figure  5 . Note that all the fusion models evaluated here have not seen faces with masks during their training. As Table  7  shows, in this noiseinduced evaluation setup, performance drop compared to the noise-free evaluation (Table  1 ) is considerably higher for all three fusion baselines (feature, prediction, and context) than for the COLD fusion. Furthermore, the relative performance difference between the COLD fusion and the best-performing fusion baselines is increased from ∼6% in noise-free settings to ∼17% in this noise-induced case. Figure  5  compares the COLD fusion predictions with the predictions from visual and audio branches, along with the inferred modality-wise fusion weight scores. We can clearly see that the visual fusion weights are much lower for the frames with masks compared to the frames without masks, and as a result, the final predictions rely more on the audio modality in the presence of visual noise. This result demonstrates the ability of COLD fusion to dynamically adjust the importance of a specific modality according to its informativeness towards recognising the target emotions.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "Categorical Emotion Recognition Results",
+      "text": "The comparative results for the categorical emotion recognition tasks are presented in Table  8  (CMU-MOSEI) and Table  9  (IEMOCAP). This comparison considers the following baselines: late fusion models based on LSTMs and Transformers, existing multimodal benchmarks and a SOTA model (AMOA  [83] ) among the two-phase models. Note that most existing models evaluated on CMU-MOSEI and IEMOCAP take a two-phase approach to multimodal emotion recognition, in which unimodal hand-crafted feature extraction and multimodal temporal fusion are performed separately. In line with those works, we evaluated the COLD fusion using the same two-phase architecture.\n\nAs shown in Table  8  and Table  9 , COLD fusion achieves new SOTA performance among the two-phase models. Note     [84] ).\n\nthat on the both datasets there is a noticeable performance difference between the context fusion and COLD fusion models, which demonstrates the importance of the proposed calibration and ordinal constraints on temporal latent distribution learning. On CMU-MOSEI, compared to the existing SOTA (AMOA), COLD fusion achieves 8.2% and 1.8% relative improvements in terms of the average weighted accuracy and F1 scores respectively. On IEMOCAP, COLD fusion demonstrates the best accuracy and the second best F1 score. Here, the model with the highest F1 score is based on a multimodal transformer (Mult  [99] ), whereas the COLD fusion model implemented in this work uses GRUs for modelling the temporal dynamics. For further performance improvements, the proposed COLD fusion model can be integrated with transformer-based temporal models for combining the best of both worlds. Compared to the two-phase models considered here for evaluation, some recently proposed fully end-to-end models such as the ones in  [80] ,  [84] ,  [101]  demonstrated improved emotion recognition performance but at the cost of significantly increased model training complexity. Although the COLD fusion framework is not evaluated in such models in this work, its ability to achieve robust multimodal fusion can be extended to fully end-to-end models as well for additional performance gains.\n\nTo demonstrate the applicability of COLD fusion to other multimodal tasks, besides emotion recognition, we evaluated it on utterance-level multimodal (AVL) sentiment analysis tasks on the CMU-MOSEI dataset. Refer to Appendix. E for the sentiment classification and regression results of the COLD fusion model in comparison with the existing baselines. In this case, COLD fusion achieves competitive results compared to the best-performing baseline (MISA  [102] ) and it shows the best results when coupled with MISA.\n\nOverall, the multimodal categorical emotion and sentiment recognition results demonstrate the importance of learning well-calibrated and well-ranked uncertainty scores for improved multimodal fusion performance. These experiments also show that the COLD fusion formulation can be easily extended to models with more than two modalities.",
+      "page_start": 13,
+      "page_end": 14
+    },
+    {
+      "section_name": "Uncertainty Calibration Performance Analysis",
+      "text": "To measure the quality of uncertainty estimates, we computed Expected Calibration Error (ECE) (see Section 5.2) values for the unimodal and multimodal emotion classification models. Note that this calibration error metric applies only to the classification settings. By computing the ECE values before and after applying temperature scaling to the softmax distributions over the predictions of each model separately, we analyse the impact of explicit uncertainty calibration (temperature scaling). We searched for an optimal temperature value in the range of 1e -2 to 1000 by doing a random search for 100 iterations. Similar to the technique followed in  [14] , we selected a temperature value that achieves the lowest ECE value on the validation set.\n\nIt is important to consider that the COLD fusion models are trained to be implicitly calibrated (see Equation (  6 )) in terms of their context variance values. Thus, even before applying explicit calibration, i.e., temperature scaling, we expect the predictive uncertainty values or class-wise confidence scores of the COLD fusion models to have lower ECE values compared to the other fusion baselines.\n\nTable  5  reports the ECE values for valence and arousal attributes on the AVEC 2019 corpus. For both attributes, before the application of temperature scaling, COLD fusion has the lowest calibration error when compared to the other models. After applying temperature scaling, it is obvious that the ECE values for all the models go down, and the COLD fusion still achieves the lowest error. Only in the case of valence, AV context fusion has a marginally lower ECE value compared to the COLD fusion. This minor discrepancy could be due to the random search of optimal temperature values and note that here, different models have different optimal temperature values that are tuned for valence and arousal, separately. Nevertheless, in all the remaining cases (both before and after temperature scaling), COLD fusion consistently shows lower uncertainty calibration errors w.r.t. the other fusion models. Results on the IEMOCAP corpus (see Table  6 ) show similar trends, validating the effectiveness of the COLD fusion approach in producing well-calibrated uncertainty estimates. To visually illustrate the uncertainty calibration performance of the COLD fusion model, Appendix. D compares the reliability diagrams of different unimodal and multimodal dimensional emotion classification models.\n\nAnalysis of Audiovisual Fusion Weights. Figure  6  illustrates modality-wise fusion weights estimated by the COLD fusion model on a validation sequence taken from the AVEC 2019 corpus. Note that these fusion weights are functions the unimodal temporal context distributions (see Equation (  2 )). In this illustration, we analyse the temporal patterns of fusion weights along with their corresponding unimodal and multimodal emotion predictions and their ground truth labels. This analysis clearly shows the well-calibrated nature of modality-wise fusion weights: when the predictions of one modality move closer to the ground truth compared to those of the other modality, the audiovisual weight values in the COLD fusion are found to be varying accordingly. From the transition points marked in Figure  6 , we can see that the fusion weights are gradually inverted, as the predictions of one modality move closer to the ground truth while the other modality predictions move further. This result validates our main hypothesis of making unimodal latent distributions calibrated and ordinal for improved fusion performance.",
+      "page_start": 14,
+      "page_end": 15
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "We proposed an uncertainty-aware multimodal fusion approach to dimensional and categorical emotion recognition from multimodal data. To capture modality-wise uncertainty w.r.t. predicting valence and arousal dimensions, we probabilistically modelled the unimodal temporal context by learning modality-wise latent distributions. For effective uncertainty-weighted multimodal fusion, we suggested conditioning the unimodal latent distributions such that their variance norms are learnt to be well-calibrated and well-ranked (ordinal). To jointly impose these two constraints on the latent distributions, we introduced a novel softmax distributional matching loss function that encourages the uncertainty scores to be well-calibrated and well-ranked. Our novel loss function for multimodal learning is applicable to both classification and regression settings.\n\nFor example, in dimensional emotion regression tasks, COLD fusion shows ∼6% average relative improvement over the best performing fusion baseline. Similarly, in the case of categorical emotion classification, COLD fusion achieves ∼8.2% relative accuracy improvement over the existing state-of-the-art model. Furthermore, we assess the robustness of different fusion models at test time by inducing noise into the visual modality through face masking. With the faces masked in 50% of the evaluation sequences, COLD fusion achieves ∼17% average relative improvement over the best fusion baseline.\n\nOn spontaneous and acted emotion recognition tasks (in both dimensional and categorical emotion cases), our proposed uncertainty-aware fusion model achieved considerably better recognition performance than the uncertaintyunaware model-agnostic fusion baselines. In recognising dimensional emotions, COLD fusion demonstrated ∼6% relative improvement over the best-performing fusion baseline, and in the case of categorical emotion recognition it achieved ∼8.2% relative improvement over the existing state-of-the-art model. Validating our main hypothesis, extensive ablation studies (see Appendix. B) showed that it is important to apply both calibration and ordinality constraints for improving the emotion recognition results of uncertainty-aware fusion models. Furthermore, our method demonstrated noticeable improvements in terms of predictive uncertainty calibration errors of the emotion recognition models. It is important to note that our proposed calibration and ordinal ranking constraints can be easily applied to general model-fusion methods as well by quantifying the model-wise predictive uncertainty values of emotion labels. Future work can consider evaluating the COLD fusion approach on other complex multimodal learning tasks such as audiovisual speech recognition in noisy conditions  [103]  and humour detection  [25] ,  [104] , etc.\n\nIn summary, this work showed the importance of uncertainty modelling for the dynamic integration of emotional expression cues from multimodal signals. We believe that uncertainty-aware information fusion is fundamental to reliably recognise apparent emotional states in naturalistic conditions. We hope that the results we demonstrated in this work may help in generating more interest in embracing uncertainty in multimodal affective computing.",
+      "page_start": 15,
+      "page_end": 16
+    },
+    {
+      "section_name": "Appendix A Comparison With A Multimodal Trans-Former [99]",
+      "text": "In addition to the standard fusion baselines, we implemented a multimodal Transformer model based on pairwise crossmodal self-attention fusion proposed in Tsai et al.  [99] . It is worth noting that the crossmodal self-attention fusion aims to cope with the problem of temporal misalignment between different modalities during fusion, similar to the temporal context fusion model we evaluated in this work. We implemented an audio-visual version of this multimodal Transformer method by tailoring its original network architecture designed for the text, audio, and visual modalities 7 . We used a 3-layer self-attention network with 16 heads followed by an FC output layer to implement this multimodal Transformer. As shown in     11 , achieve considerably lower CCC scores. Most importantly, we observe that discarding the variance regularisation constraint results in more performance degradation than the remaining constraints. This observation indicates the importance of preventing the variance collapse problem by using the variance regularisation term, in line with the results reported in prior works  [40] ,  [76] .",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "Appendix B Ablation Studies",
+      "text": "",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "Appendix C Statistical Significance Analysis",
+      "text": "As shown in",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "Appendix D Reliability Diagrams: Uncertainty Calibra-Tion Performance Evaluation",
+      "text": "Reliability diagrams visually illustrate the uncertainty calibration performance of a model's predictions. As Figure  7  shows, when a model is perfectly calibrated, its confidence score vs the accuracy score histogram looks like a perfect right-angled triangle. The more the deviations are from the diagonal lines in them, the higher their ECE values are. Note that ECE is a scalar summary statistic of a reliability diagram, which computes the weighted average of such deviations over all the intervals in the reliability diagram. Though the ECE values reported for both the AVEC 2019 corpus (Table  5 ) and IEMOCAP (Table  6 ) already validate the improved calibration results with COLD fusion. Here, as an example, in Figure  7  we compare the reliability plots of different models evaluated on the AVEC validation set. In Figure  7 , we can see that compared to the unimodal cases and other fusion baselines, the COLD fusion reliability plot looks much closer to a perfect rightangled triangle. Among all the reliability plots illustrated, we observe that the audio branch for valence has the highest calibration error. This observation is in line with the Experimental Setup. In this evaluation our objective is to analyse the sentiment recognition performance of the proposed uncertainty-aware temporal context modelling approach, by demonstrating its application to multimodal fusion on a large-scale in-the-wild audiovisual dataset. Considering that the simple recurrent temporal model is used in the COLD fusion mechanism implemented in this work, we also show that the proposed uncertainty-aware fusion step can be easily integrated into the existing multimodal fusion techniques. We demonstrate this by modifying the standard modality-wise LSTM / GRU layer output layers in an existing multimodal fusion network, and by adding additional loss terms specific to the COLD fusion as described in Equation (  8 ). Based on these modifications, we added the COLD fusion step in one of the existing benchmark fusion models on CMU-MOSEI, Modality-Invariant and -Specific Representations (MISA)  [102] . MISA is a simple multimodal fusion approach in which utterance-level embeddings of the audio, visual and language modalities are projected into modality-invariant and modality-specific subspaces using different encoder modules. To extract the unimodal utterance embeddings in MISA, stacked LSTM modules are applied to each modality separately, similar to the temporal context extraction step followed in the COLD fusion model.  We followed the same audio, visual and textual feature extraction steps implemented in the original MISA model. Here we applied the COLD fusion to only audio and visual features, as the text embeddings are prepared using a pre-trained BERT model  [111] . Building on the main idea of MISA, we replaced the modality-wise (audio and visual) recurrent temporal modules in the MISA implementation with the modified GRU layers that output mean and variance vectors as in the COLD fusion model. Before learning the modality-invariant and modality-specific features, the temporal context embeddings of audio and visual modalities are multiplied with their corresponding COLD fusion weight vectors (see Equation (  2 )). For the purpose of computing the COLD fusion loss (Equation (  8 )), we additionally included modality-wise sentiment prediction modules, composed of a 2-layer fully connected network on top of the GRU layer outputs. Note that all the remaining experimental setup details of this modified MISA model that we used here for the COLD fusion evaluation are the same as in the publicly available implementation of MISA 8 .\n\nEvaluation Criteria. For analysing the sentiment intensity prediction performance in regression tasks, we used mean absolute error (MAE) and Pearson's correlation coefficient (Corr) as evaluation metrics. Similar to the existing benchmarks, we also included the classification results in terms of 7-class accuracy (Acc-7), 2-class accuracy of positive and negative classification task (Acc-2) and its corresponding F1 score values.",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "Results And Analysis.",
+      "text": "In Table  13  we present the sentiment intensity regression and classification results of the MISA model with and without COLD fusion on the test set of CMU-MOSEI, in comparison with the following fusion methods evaluated on multimodal sentiment analysis tasks:\n\n• A graph-based fusion model (Graph-MFN  [21] )\n\n• Attention and Transformer-based fusion models (RAVEN  [105]  and MulT  [99] )\n\n• Fusion models based on subspace learning (MCTN  [106]  and MFM  [109] )\n\n• A tensor-based fusion model (TFN  [108] ) and its lowrank variant (LMF  [107] )\n\n• A canonical correlation-based fusion network (ICCN  [110] ) Compared to the above-listed fusion models, the proposed COLD fusion mechanism integrated with the MISA model shows consistently better sentiment intensity prediction results in terms of both classification and regression metrics. The overall performance improvements achieved by the MISA + COLD fusion model validate the main hypothesis of this work that the uncertainty-aware temporal fusion improves the model's predictive performance. The performance difference between the MISA models with and without COLD fusion, indicates that the COLD fusion mechanism can complement the existing uncertaintyunaware temporal fusion models, at the cost of requiring only minimal changes to the canonical temporal model's architecture and the training loss function.",
+      "page_start": 20,
+      "page_end": 20
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: The proposed latent distribution learning approach",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: Overview of the proposed approach to an uncertainty-aware audiovisual fusion for emotion recognition: Modelling",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: illustrates.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: shows. We model the variance values of the",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: We evaluate the proposed COLD fusion approach on:",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: illustrates, given",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: illustrates our proposed solution to uncertainty-",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: illustrates how we modify the temporal networks",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: COLD fusion training loss computation: To simultaneously impose the calibration and ordinality constraints on",
+      "page": 6
+    },
+    {
+      "caption": "Figure 1: , we illustrate the",
+      "page": 7
+    },
+    {
+      "caption": "Figure 1: In other words, the context variance values",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: shows the steps involved in imple-",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: shows, in both intramodal and crossmodal",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Class imbalances in the distributions of valence and",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: ), for these",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Dynamic adaptation of COLD fusion weights when presented with novel noise patterns induced into the visual",
+      "page": 11
+    },
+    {
+      "caption": "Figure 6: Emotion predictions on an example from the AVEC",
+      "page": 12
+    },
+    {
+      "caption": "Figure 5: ) on the AVEC 2019 CES validation Set.",
+      "page": 13
+    },
+    {
+      "caption": "Figure 5: Note that all the fusion",
+      "page": 13
+    },
+    {
+      "caption": "Figure 5: compares the COLD fusion predictions with",
+      "page": 13
+    },
+    {
+      "caption": "Figure 6: , we can see that the fusion weights are gradually",
+      "page": 15
+    },
+    {
+      "caption": "Figure 7: shows, when a model is perfectly calibrated,",
+      "page": 19
+    },
+    {
+      "caption": "Figure 7: we compare",
+      "page": 19
+    },
+    {
+      "caption": "Figure 7: , we can see that compared",
+      "page": 19
+    },
+    {
+      "caption": "Figure 7: Reliability plots of unimodal and multimodal classifi-",
+      "page": 20
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "𝐴.𝑪𝒂𝒍𝒊𝒃𝒓𝒂𝒕𝒆𝒅𝐿𝑎𝑡𝑒𝑛𝑡 𝐵.𝑶𝒓𝒅𝒊𝒏𝒂𝒍𝐿𝑎𝑡𝑒𝑛𝑡\n𝐷𝑖𝑠𝑡𝑟𝑖𝑏𝑢𝑡𝑖𝑜𝑛 𝐷𝑖𝑠𝑡𝑟𝑖𝑏𝑢𝑡𝑖𝑜𝑛s\n𝜎2\n𝑉\n𝜎2\nY 𝐴\nY* V\nY*\nY\nA\nY\n𝑎𝑟𝑔 𝜎 𝑚 2 𝑎𝑥 Correlation |𝜎 1 2|2 ,𝑑(𝑌,𝑌∗) 𝑎 𝜎 𝑟 𝑉 2 𝑔𝑚 ,𝜎𝐴 𝑎 2 𝑥 Correlationቆ𝑅𝑎𝑛𝑘 |𝜎𝑉 1 2|2 , |𝜎𝐴 1 2|2 ,\n𝑅𝑎𝑛𝑘 𝑑 𝑌𝑉,𝑌∗ ,𝑑(𝑌𝐴,𝑌∗) ቇ": "",
+          "Column_2": "𝑎 𝜎 𝑟 𝑉 2 𝑔𝑚 ,𝜎𝐴 𝑎 2 𝑥 Correlationቆ𝑅𝑎𝑛𝑘 |𝜎𝑉 1 2|2 , |𝜎𝐴 1 2|2 ,\n𝑅𝑎𝑛𝑘 𝑑 𝑌𝑉,𝑌∗ ,𝑑(𝑌𝐴,𝑌∗) ቇ"
+        }
+      ],
+      "page": 1
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Aleatoric and epistemic uncertainty in machine learning: An introduction to concepts and methods",
+      "authors": [
+        "W Waegeman"
+      ],
+      "year": "2021",
+      "venue": "Machine Learning"
+    },
+    {
+      "citation_id": "2",
+      "title": "AVEC 2012: the continuous audio/visual emotion challenge",
+      "authors": [
+        "B Schuller",
+        "M Valster",
+        "F Eyben",
+        "R Cowie",
+        "M Pantic"
+      ],
+      "year": "2012",
+      "venue": "ICMI"
+    },
+    {
+      "citation_id": "3",
+      "title": "AVEC 2013: the continuous audio/visual emotion and depression recognition challenge",
+      "authors": [
+        "M Valstar",
+        "B Schuller",
+        "K Smith",
+        "F Eyben",
+        "B Jiang",
+        "S Bilakhia",
+        "S Schnieder",
+        "R Cowie",
+        "M Pantic"
+      ],
+      "year": "2013",
+      "venue": "AVEC workshop"
+    },
+    {
+      "citation_id": "4",
+      "title": "AVEC 2019 workshop and challenge: state-of-mind, detecting depression with ai, and cross-cultural affect recognition",
+      "authors": [
+        "F Ringeval",
+        "B Schuller",
+        "M Valstar",
+        "N Cummins",
+        "R Cowie",
+        "L Tavabi",
+        "M Schmitt",
+        "S Alisamir",
+        "S Amiriparian",
+        "E.-M Messner"
+      ],
+      "year": "2019",
+      "venue": "AVEC workshop"
+    },
+    {
+      "citation_id": "5",
+      "title": "A review and meta-analysis of multimodal affect detection systems",
+      "authors": [
+        "J Kory"
+      ],
+      "year": "2015",
+      "venue": "ACM Computing Surveys"
+    },
+    {
+      "citation_id": "6",
+      "title": "Continuous prediction of spontaneous affect from multiple cues and modalities in valence-arousal space",
+      "authors": [
+        "M Nicolaou",
+        "H Gunes",
+        "M Pantic"
+      ],
+      "year": "2011",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "7",
+      "title": "A survey of affect recognition methods: Audio, visual, and spontaneous expressions",
+      "authors": [
+        "Z Zeng",
+        "M Pantic",
+        "G Roisman",
+        "T Huang"
+      ],
+      "year": "2008",
+      "venue": "IEEE TPAMI"
+    },
+    {
+      "citation_id": "8",
+      "title": "Deep learning for human affect recognition: Insights and new developments",
+      "authors": [
+        "P Rouast",
+        "M Adam",
+        "R Chiong"
+      ],
+      "year": "2019",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "9",
+      "title": "Audio-visual emotion recognition in video clips",
+      "authors": [
+        "F Noroozi",
+        "M Marjanovic",
+        "A Njegus",
+        "S Escalera",
+        "G Anbarjafari"
+      ],
+      "year": "2017",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "10",
+      "title": "Leveraging recent advances in deep learning for audio-visual emotion recognition",
+      "authors": [
+        "L Schoneveld",
+        "A Othmani",
+        "H Abdelkawy"
+      ],
+      "year": "2021",
+      "venue": "Pattern Recognition Letters"
+    },
+    {
+      "citation_id": "11",
+      "title": "Emonet: A transfer learning framework for multi-corpus speech emotion recognition",
+      "authors": [
+        "M Gerczuk",
+        "S Amiriparian",
+        "S Ottl",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "12",
+      "title": "Packed-ensembles for efficient uncertainty estimation",
+      "authors": [
+        "O Laurent",
+        "A Lafage",
+        "E Tartaglione",
+        "G Daniel",
+        "J.-M Martinez",
+        "A Bursuc",
+        "G Franchi"
+      ],
+      "year": "2023",
+      "venue": "Packed-ensembles for efficient uncertainty estimation"
+    },
+    {
+      "citation_id": "13",
+      "title": "On calibration of modern neural networks",
+      "authors": [
+        "C Guo",
+        "G Pleiss",
+        "Y Sun",
+        "K Weinberger"
+      ],
+      "year": "2017",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "14",
+      "title": "Calibrating deep neural networks using focal loss",
+      "authors": [
+        "J Mukhoti",
+        "V Kulharia",
+        "A Sanyal",
+        "S Golodetz",
+        "P Torr",
+        "P Dokania"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "15",
+      "title": "Deep neural networks are easily fooled: High confidence predictions for unrecognizable images",
+      "authors": [
+        "A Nguyen",
+        "J Yosinski",
+        "J Clune"
+      ],
+      "year": "2015",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "16",
+      "title": "Intriguing properties of neural networks",
+      "authors": [
+        "C Szegedy",
+        "W Zaremba",
+        "I Sutskever",
+        "J Bruna",
+        "D Erhan",
+        "I Goodfellow",
+        "R Fergus"
+      ],
+      "year": "2014",
+      "venue": "Intriguing properties of neural networks"
+    },
+    {
+      "citation_id": "17",
+      "title": "Trainable calibration measures for neural networks from kernel mean embeddings",
+      "authors": [
+        "A Kumar",
+        "S Sarawagi",
+        "U Jain"
+      ],
+      "year": "2018",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "18",
+      "title": "Confidence-aware learning for deep neural networks",
+      "authors": [
+        "J Moon",
+        "J Kim",
+        "Y Shin",
+        "S Hwang"
+      ],
+      "year": "2020",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "19",
+      "title": "Deep multimodal representation learning from temporal data",
+      "authors": [
+        "X Yang",
+        "P Ramesh",
+        "R Chitta",
+        "S Madhvanath",
+        "E Bernal",
+        "J Luo"
+      ],
+      "year": "2017",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "20",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "21",
+      "title": "Multimodal language analysis in the wild: Cmu-mosei dataset and interpretable dynamic fusion graph",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "22",
+      "title": "Emotion representation, analysis and synthesis in continuous space: A survey",
+      "authors": [
+        "H Gunes",
+        "B Schuller",
+        "M Pantic",
+        "R Cowie"
+      ],
+      "year": "2011",
+      "venue": "IEEE FG"
+    },
+    {
+      "citation_id": "23",
+      "title": "Muse 2020 challenge and workshop: Multimodal sentiment analysis, emotion-target engagement and trustworthiness detection in real-life media: Emotional car reviews in-the-wild",
+      "authors": [
+        "L Stappen",
+        "A Baird",
+        "G Rizos",
+        "P Tzirakis",
+        "X Du",
+        "F Hafner",
+        "L Schumann",
+        "A Mallol-Ragolta",
+        "B Schuller",
+        "I Lefter"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 1st International on Multimodal Sentiment Analysis in Real-life Media Challenge and Workshop"
+    },
+    {
+      "citation_id": "24",
+      "title": "The muse 2021 multimodal sentiment analysis challenge: sentiment, emotion, physiological-emotion, and stress",
+      "authors": [
+        "L Stappen",
+        "A Baird",
+        "L Christ",
+        "L Schumann",
+        "B Sertolli",
+        "E.-M Messner",
+        "E Cambria",
+        "G Zhao",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 2nd on Multimodal Sentiment Analysis Challenge"
+    },
+    {
+      "citation_id": "25",
+      "title": "The muse 2022 multimodal sentiment analysis challenge: Humor, emotional reactions, and stress",
+      "authors": [
+        "L Christ",
+        "S Amiriparian",
+        "A Baird",
+        "P Tzirakis",
+        "A Kathan",
+        "N Üller",
+        "L Stappen",
+        "E.-M Meßner",
+        "A Önig",
+        "A Cowen"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 3rd International on Multimodal Sentiment Analysis Workshop and Challenge"
+    },
+    {
+      "citation_id": "26",
+      "title": "Analysing affective behavior in the first ABAW 2020 competition",
+      "authors": [
+        "D Kollias",
+        "A Schulc",
+        "E Hajiyev",
+        "S Zafeiriou"
+      ],
+      "year": "2020",
+      "venue": "IEEE FG"
+    },
+    {
+      "citation_id": "27",
+      "title": "Analysing affective behavior in the second ABAW2 competition",
+      "authors": [
+        "D Kollias",
+        "S Zafeiriou"
+      ],
+      "year": "2021",
+      "venue": "ICCV"
+    },
+    {
+      "citation_id": "28",
+      "title": "Emoticon: Context-aware multimodal emotion recognition using frege's principle",
+      "authors": [
+        "T Mittal",
+        "P Guhan",
+        "U Bhattacharya",
+        "R Chandra",
+        "A Bera",
+        "D Manocha"
+      ],
+      "year": "2020",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "29",
+      "title": "Emotion recognition for multiple context awareness",
+      "authors": [
+        "D Yang",
+        "S Huang",
+        "S Wang",
+        "Y Liu",
+        "P Zhai",
+        "L Su",
+        "M Li",
+        "L Zhang"
+      ],
+      "year": "2022",
+      "venue": "ECCV"
+    },
+    {
+      "citation_id": "30",
+      "title": "A review of affective computing: From unimodal analysis to multimodal fusion",
+      "authors": [
+        "S Poria",
+        "E Cambria",
+        "R Bajpai",
+        "A Hussain"
+      ],
+      "year": "2017",
+      "venue": "Information Fusion"
+    },
+    {
+      "citation_id": "31",
+      "title": "A snapshot research and implementation of multimodal information fusion for data-driven emotion recognition",
+      "authors": [
+        "Y Jiang",
+        "W Li",
+        "M Hossain",
+        "M Chen",
+        "A Alelaiwi",
+        "M Al-Hammadi"
+      ],
+      "year": "2020",
+      "venue": "Information Fusion"
+    },
+    {
+      "citation_id": "32",
+      "title": "Emotion recognition from multiple modalities: Fundamentals and methodologies",
+      "authors": [
+        "S Zhao",
+        "G Jia",
+        "J Yang",
+        "G Ding",
+        "K Keutzer"
+      ],
+      "year": "2021",
+      "venue": "IEEE Signal Process. Mag"
+    },
+    {
+      "citation_id": "33",
+      "title": "Dive into ambiguity: Latent distribution mining and pairwise uncertainty estimation for facial expression recognition",
+      "authors": [
+        "J She",
+        "Y Hu",
+        "H Shi",
+        "J Wang",
+        "Q Shen",
+        "T Mei"
+      ],
+      "year": "2021",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "34",
+      "title": "Relative uncertainty learning for facial expression recognition",
+      "authors": [
+        "Y Zhang",
+        "C Wang",
+        "W Deng"
+      ],
+      "year": "2021",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "35",
+      "title": "Suppressing uncertainties for large-scale facial expression recognition",
+      "authors": [
+        "K Wang",
+        "X Peng",
+        "J Yang",
+        "S Lu",
+        "Y Qiao"
+      ],
+      "year": "2020",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "36",
+      "title": "Estimating continuous affect with label uncertainty",
+      "authors": [
+        "N Foteinopoulou",
+        "C Tzelepis",
+        "I Patras"
+      ],
+      "year": "2021",
+      "venue": "ACII"
+    },
+    {
+      "citation_id": "37",
+      "title": "Multi-stream confidence analysis for audio-visual affect recognition",
+      "authors": [
+        "Z Zeng",
+        "J Tu",
+        "M Liu",
+        "T Huang"
+      ],
+      "year": "2005",
+      "venue": "ACII"
+    },
+    {
+      "citation_id": "38",
+      "title": "Multimodal information fusion of audiovisual emotion recognition using novel information theoretic tools",
+      "authors": [
+        "Z Xie",
+        "L Guan"
+      ],
+      "year": "2013",
+      "venue": "ICME"
+    },
+    {
+      "citation_id": "39",
+      "title": "Investigating word affect features and fusion of probabilistic predictions incorporating uncertainty in avec 2017",
+      "authors": [
+        "T Dang",
+        "B Stasak",
+        "Z Huang",
+        "S Jayawardena",
+        "M Atcheson",
+        "M Hayat",
+        "P Le",
+        "V Sethu",
+        "R Goecke",
+        "J Epps"
+      ],
+      "year": "2017",
+      "venue": "AVEC"
+    },
+    {
+      "citation_id": "40",
+      "title": "Affective processes: stochastic modelling of temporal context for emotion and facial expression recognition",
+      "authors": [
+        "E Sanchez",
+        "M Tellamekala",
+        "M Valstar",
+        "G Tzimiropoulos"
+      ],
+      "year": "2021",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "41",
+      "title": "Stochastic process regression for cross-cultural speech emotion recognition",
+      "authors": [
+        "T Kumar",
+        "E Sanchez",
+        "G Tzimiropoulos",
+        "T Giesbrecht",
+        "M Valstar"
+      ],
+      "year": "2021",
+      "venue": "Stochastic process regression for cross-cultural speech emotion recognition"
+    },
+    {
+      "citation_id": "42",
+      "title": "Conditional neural processes",
+      "authors": [
+        "M Garnelo",
+        "D Rosenbaum",
+        "C Maddison",
+        "T Ramalho",
+        "D Saxton",
+        "M Shanahan",
+        "Y Teh",
+        "D Rezende",
+        "S Eslami"
+      ],
+      "year": "2018",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "43",
+      "title": "Neural processes",
+      "authors": [
+        "M Garnelo",
+        "J Schwarz",
+        "D Rosenbaum",
+        "F Viola",
+        "D Rezende",
+        "S Eslami",
+        "Y Teh"
+      ],
+      "year": "2018",
+      "venue": "ICML Workshop"
+    },
+    {
+      "citation_id": "44",
+      "title": "Modelling stochastic context of audio-visual expressive behaviour with affective processes",
+      "authors": [
+        "M Tellamekala",
+        "T Giesbrecht",
+        "M Valstar"
+      ],
+      "year": "2022",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "45",
+      "title": "Extended confidenceweighted averaging in sensor fusion",
+      "authors": [
+        "A Sch",
+        "W Elmenreich"
+      ],
+      "year": "2006",
+      "venue": "Proceedings of the Junior Scientist Conference"
+    },
+    {
+      "citation_id": "46",
+      "title": "Confidence based multimodal fusion for person identification",
+      "authors": [
+        "P Große",
+        "H Holzapfel",
+        "A Waibel"
+      ],
+      "year": "2008",
+      "venue": "ACM MM"
+    },
+    {
+      "citation_id": "47",
+      "title": "Adaptive multimodal fusion by uncertainty compensation with application to audiovisual speech recognition",
+      "authors": [
+        "G Papandreou",
+        "A Katsamanis",
+        "V Pitsikalis",
+        "P Maragos"
+      ],
+      "year": "2009",
+      "venue": "IEEE TASLP"
+    },
+    {
+      "citation_id": "48",
+      "title": "Uncertainty-aware audiovisual activity recognition using deep bayesian variational inference",
+      "authors": [
+        "M Subedar",
+        "R Krishnan",
+        "P Meyer",
+        "O Tickoo",
+        "J Huang"
+      ],
+      "year": "2019",
+      "venue": "ICCV"
+    },
+    {
+      "citation_id": "49",
+      "title": "Uno: Uncertainty-aware noisy-or multimodal fusion for unanticipated input degradation",
+      "authors": [
+        "J Tian",
+        "W Cheung",
+        "N Glaser",
+        "Y.-C Liu",
+        "Z Kira"
+      ],
+      "year": "2020",
+      "venue": "ICRA"
+    },
+    {
+      "citation_id": "50",
+      "title": "Multimodal learning using optimal transport for sarcasm and humor detection",
+      "authors": [
+        "S Pramanick",
+        "A Roy",
+        "V Patel"
+      ],
+      "year": "2022",
+      "venue": "Multimodal learning using optimal transport for sarcasm and humor detection"
+    },
+    {
+      "citation_id": "51",
+      "title": "Uncertainty-aware multi-modal learning via crossmodal random network prediction",
+      "authors": [
+        "H Wang",
+        "J Zhang",
+        "Y Chen",
+        "C Ma",
+        "J Avery",
+        "L Hull",
+        "G Carneiro"
+      ],
+      "year": "2022",
+      "venue": "ECCV"
+    },
+    {
+      "citation_id": "52",
+      "title": "Uncertainty-aware boosted ensembling in multi-modal settings",
+      "authors": [
+        "U Sarawgi",
+        "R Khincha",
+        "W Zulfikar",
+        "S Ghosh",
+        "P Maes"
+      ],
+      "year": "2021",
+      "venue": "IJCNN"
+    },
+    {
+      "citation_id": "53",
+      "title": "Factorized inference in deep markov models for incomplete multimodal time series",
+      "authors": [
+        "T Zhi-Xuan",
+        "H Soh",
+        "D Ong"
+      ],
+      "year": "2020",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "54",
+      "title": "Rethinking calibration of deep neural networks: Do not be afraid of overconfidence",
+      "authors": [
+        "D.-B Wang",
+        "L Feng",
+        "M.-L Zhang"
+      ],
+      "year": "2021",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "55",
+      "title": "Revisiting the calibration of modern neural networks",
+      "authors": [
+        "M Minderer",
+        "J Djolonga",
+        "R Romijnders",
+        "F Hubis",
+        "X Zhai",
+        "N Houlsby",
+        "D Tran",
+        "M Lucic"
+      ],
+      "year": "2021",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "56",
+      "title": "Obtaining calibrated probability estimates from decision trees and naive bayesian classifiers",
+      "authors": [
+        "B Zadrozny",
+        "C Elkan"
+      ],
+      "year": "2001",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "57",
+      "title": "Transforming classifier scores into accurate multiclass probability estimates",
+      "year": "2002",
+      "venue": "Proceedings of the eighth ACM SIGKDD International Conference on Knowledge Discovery and Data Mining"
+    },
+    {
+      "citation_id": "58",
+      "title": "Probabilistic outputs for support vector machines and comparisons to regularized likelihood methods",
+      "authors": [
+        "J Platt"
+      ],
+      "year": "1999",
+      "venue": "Advances in large margin classifiers"
+    },
+    {
+      "citation_id": "59",
+      "title": "Distilling the knowledge in a neural network",
+      "authors": [
+        "G Hinton",
+        "O Vinyals",
+        "J Dean"
+      ],
+      "year": "2015",
+      "venue": "Distilling the knowledge in a neural network",
+      "arxiv": "arXiv:1503.02531"
+    },
+    {
+      "citation_id": "60",
+      "title": "Improving model calibration with accuracy versus uncertainty optimization",
+      "authors": [
+        "R Krishnan",
+        "O Tickoo"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "61",
+      "title": "Accurate uncertainties for deep learning using calibrated regression",
+      "authors": [
+        "V Kuleshov",
+        "N Fenner",
+        "S Ermon"
+      ],
+      "year": "2018",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "62",
+      "title": "Distribution calibration for regression",
+      "authors": [
+        "H Song",
+        "T Diethe",
+        "M Kull",
+        "P Flach"
+      ],
+      "year": "2019",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "63",
+      "title": "Quantile regularization: Towards implicit calibration of regression models",
+      "authors": [
+        "S Utpala",
+        "P Rai"
+      ],
+      "year": "2020",
+      "venue": "Quantile regularization: Towards implicit calibration of regression models",
+      "arxiv": "arXiv:2002.12860"
+    },
+    {
+      "citation_id": "64",
+      "title": "Learning probabilistic ordinal embeddings for uncertainty-aware regression",
+      "authors": [
+        "W Li",
+        "X Huang",
+        "J Lu",
+        "J Feng",
+        "J Zhou"
+      ],
+      "year": "2021",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "65",
+      "title": "Addressing failure prediction by learning model confidence",
+      "authors": [
+        "C Corbière",
+        "N Thome",
+        "A Bar-Hen",
+        "M Cord",
+        "P Pérez"
+      ],
+      "year": "2019",
+      "venue": "Addressing failure prediction by learning model confidence"
+    },
+    {
+      "citation_id": "66",
+      "title": "Are out-of-distribution detection methods effective on largescale datasets?",
+      "authors": [
+        "R Roady",
+        "T Hayes",
+        "R Kemker",
+        "A Gonzales",
+        "C Kanan"
+      ],
+      "year": "2019",
+      "venue": "Are out-of-distribution detection methods effective on largescale datasets?",
+      "arxiv": "arXiv:1910.14034"
+    },
+    {
+      "citation_id": "67",
+      "title": "Selective classification for deep neural networks",
+      "authors": [
+        "Y Geifman",
+        "R El-Yaniv"
+      ],
+      "year": "2017",
+      "venue": "Selective classification for deep neural networks"
+    },
+    {
+      "citation_id": "68",
+      "title": "Multimodal machine learning: A survey and taxonomy",
+      "authors": [
+        "T Baltrušaitis",
+        "C Ahuja",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "IEEE TPAMI"
+    },
+    {
+      "citation_id": "69",
+      "title": "Learning affective features with a hybrid deep model for audio-visual emotion recognition",
+      "authors": [
+        "S Zhang",
+        "S Zhang",
+        "T Huang",
+        "W Gao",
+        "Q Tian"
+      ],
+      "year": "2017",
+      "venue": "IEEE TCSVT"
+    },
+    {
+      "citation_id": "70",
+      "title": "Asynchronous and event-based fusion systems for affect recognition on naturalistic data in comparison to conventional approaches",
+      "authors": [
+        "F Lingenfelser",
+        "J Wagner",
+        "J Deng",
+        "R Brueckner",
+        "B Schuller",
+        "E André"
+      ],
+      "year": "2016",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "71",
+      "title": "Prediction of asynchronous dimensional emotion ratings from audiovisual and physiological data",
+      "authors": [
+        "F Ringeval",
+        "F Eyben",
+        "E Kroupi",
+        "A Yuce",
+        "J.-P Thiran",
+        "T Ebrahimi",
+        "D Lalanne",
+        "B Schuller"
+      ],
+      "year": "2015",
+      "venue": "Pattern Recognition Letters"
+    },
+    {
+      "citation_id": "72",
+      "title": "End-to-end multimodal emotion recognition using deep neural networks",
+      "authors": [
+        "P Tzirakis",
+        "G Trigeorgis",
+        "M Nicolaou",
+        "B Schuller",
+        "S Zafeiriou"
+      ],
+      "year": "2017",
+      "venue": "IEEE Journal of Seleted Topics in Signal Processing"
+    },
+    {
+      "citation_id": "73",
+      "title": "Multimodal saliency and fusion for movie summarization based on aural, visual, and textual attention",
+      "authors": [
+        "G Evangelopoulos",
+        "A Zlatintsi",
+        "A Potamianos",
+        "P Maragos",
+        "K Rapantzikos",
+        "G Skoumas",
+        "Y Avrithis"
+      ],
+      "year": "2013",
+      "venue": "IEEE Trans. Multimedia"
+    },
+    {
+      "citation_id": "74",
+      "title": "Factorized higher-order cnns with an application to spatio-temporal emotion estimation",
+      "authors": [
+        "J Kossaifi",
+        "A Toisoul",
+        "A Bulat",
+        "Y Panagakis",
+        "T Hospedales",
+        "M Pantic"
+      ],
+      "year": "2020",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "75",
+      "title": "An analysis of the softmax cross entropy loss for learning-to-rank with binary relevance",
+      "authors": [
+        "S Bruch",
+        "X Wang",
+        "M Bendersky",
+        "M Najork"
+      ],
+      "year": "2019",
+      "venue": "ACM SIGIR ICTIR"
+    },
+    {
+      "citation_id": "76",
+      "title": "Data uncertainty learning in face recognition",
+      "authors": [
+        "J Chang",
+        "Z Lan",
+        "C Cheng",
+        "Y Wei"
+      ],
+      "year": "2020",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "77",
+      "title": "SEWA DB: A rich database for audio-visual emotion and sentiment research in the wild",
+      "authors": [
+        "J Kossaifi",
+        "R Walecki",
+        "Y Panagakis",
+        "J Shen",
+        "M Schmitt",
+        "F Ringeval",
+        "J Han",
+        "V Pandit",
+        "A Toisoul",
+        "B Schuller"
+      ],
+      "year": "2019",
+      "venue": "IEEE TPAMI"
+    },
+    {
+      "citation_id": "78",
+      "title": "Exploring spatio-temporal representations by integrating attentionbased bidirectional-lstm-rnns and fcns for speech emotion recognition",
+      "authors": [
+        "Z Zhao",
+        "Y Zheng",
+        "Z Zhang",
+        "H Wang",
+        "Y Zhao",
+        "C Li"
+      ],
+      "year": "2018",
+      "venue": "Exploring spatio-temporal representations by integrating attentionbased bidirectional-lstm-rnns and fcns for speech emotion recognition"
+    },
+    {
+      "citation_id": "79",
+      "title": "Multi-modal emotion recognition on IEMOCAP with neural networks",
+      "authors": [
+        "S Tripathi",
+        "H Beigi"
+      ],
+      "year": "2018",
+      "venue": "Multi-modal emotion recognition on IEMOCAP with neural networks",
+      "arxiv": "arXiv:1804.05788"
+    },
+    {
+      "citation_id": "80",
+      "title": "Multimodal endto-end sparse model for emotion recognition",
+      "authors": [
+        "W Dai",
+        "S Cahyawijaya",
+        "Z Liu",
+        "P Fung"
+      ],
+      "year": "2021",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "81",
+      "title": "Modality-transferable emotion embeddings for low-resource multimodal emotion recognition",
+      "authors": [
+        "W Dai",
+        "Z Liu",
+        "T Yu",
+        "P Fung"
+      ],
+      "year": "2020",
+      "venue": "IJCNLP-AACL"
+    },
+    {
+      "citation_id": "82",
+      "title": "A concordance correlation coefficient to evaluate reproducibility",
+      "authors": [
+        "I Lawrence",
+        "K Lin"
+      ],
+      "year": "1989",
+      "venue": "Biometrics"
+    },
+    {
+      "citation_id": "83",
+      "title": "Amoa: Global acoustic feature enhanced modal-order-aware network for multimodal sentiment analysis",
+      "authors": [
+        "Z Li",
+        "Y Zhou",
+        "W Zhang",
+        "Y Liu",
+        "C Yang",
+        "Z Lian",
+        "S Hu"
+      ],
+      "year": "2022",
+      "venue": "COLING"
+    },
+    {
+      "citation_id": "84",
+      "title": "Qap: A quantum-inspired adaptive-priority-learning model for multimodal emotion recognition",
+      "authors": [
+        "Z Li",
+        "Y Zhou",
+        "Y Liu",
+        "F Zhu",
+        "C Yang",
+        "S Hu"
+      ],
+      "year": "2023",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "85",
+      "title": "Fan-face: a simple orthogonal improvement to deep face recognition",
+      "authors": [
+        "J Yang",
+        "A Bulat",
+        "G Tzimiropoulos"
+      ],
+      "year": "2020",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "86",
+      "title": "Estimation of continuous valence and arousal levels from faces in naturalistic conditions",
+      "authors": [
+        "A Toisoul",
+        "J Kossaifi",
+        "A Bulat",
+        "G Tzimiropoulos",
+        "M Pantic"
+      ],
+      "year": "2021",
+      "venue": "Nature Machine Intelligence"
+    },
+    {
+      "citation_id": "87",
+      "title": "A transfer learning approach to heatmap regression for action unit intensity estimation",
+      "authors": [
+        "I Ntinou",
+        "E Sanchez",
+        "A Bulat",
+        "M Valstar",
+        "Y Tzimiropoulos"
+      ],
+      "year": "2021",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "88",
+      "title": "Affectnet: A database for facial expression, valence, and arousal computing in the wild",
+      "authors": [
+        "A Mollahosseini",
+        "B Hasani",
+        "M Mahoor"
+      ],
+      "year": "2017",
+      "venue": "IEEE TAC"
+    },
+    {
+      "citation_id": "89",
+      "title": "Efficient spatial temporal convolutional features for audiovisual continuous affect recognition",
+      "authors": [
+        "H Chen",
+        "Y Deng",
+        "S Cheng",
+        "Y Wang",
+        "D Jiang",
+        "H Sahli"
+      ],
+      "year": "2019",
+      "venue": "AVEC workshop"
+    },
+    {
+      "citation_id": "90",
+      "title": "Cnn architectures for large-scale audio classification",
+      "authors": [
+        "S Hershey",
+        "S Chaudhuri",
+        "D Ellis",
+        "J Gemmeke",
+        "A Jansen",
+        "R Moore",
+        "M Plakal",
+        "D Platt",
+        "R Saurous",
+        "B Seybold"
+      ],
+      "year": "2017",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "91",
+      "title": "Multimodal multi-task learning for dimensional and continuous emotion recognition",
+      "authors": [
+        "S Chen",
+        "Q Jin",
+        "J Zhao",
+        "S Wang"
+      ],
+      "year": "2017",
+      "venue": "AVEC workshop"
+    },
+    {
+      "citation_id": "92",
+      "title": "Specaugment: A simple data augmentation method for automatic speech recognition",
+      "authors": [
+        "D Park",
+        "W Chan",
+        "Y Zhang",
+        "C.-C Chiu",
+        "B Zoph",
+        "E Cubuk",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Specaugment: A simple data augmentation method for automatic speech recognition"
+    },
+    {
+      "citation_id": "93",
+      "title": "Covarep-a collaborative voice analysis repository for speech technologies",
+      "authors": [
+        "G Degottex",
+        "J Kane",
+        "T Drugman",
+        "T Raitio",
+        "S Scherer"
+      ],
+      "year": "2014",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "94",
+      "title": "Glove: Global vectors for word representation",
+      "authors": [
+        "J Pennington",
+        "R Socher",
+        "C Manning"
+      ],
+      "year": "2014",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "95",
+      "title": "SGDR: Stochastic gradient descent with warm restarts",
+      "authors": [
+        "I Loshchilov",
+        "F Hutter"
+      ],
+      "year": "2016",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "96",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2014",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "97",
+      "title": "Tune: A research platform for distributed model selection and training",
+      "authors": [
+        "R Liaw",
+        "E Liang",
+        "R Nishihara",
+        "P Moritz",
+        "J Gonzalez",
+        "I Stoica"
+      ],
+      "year": "2018",
+      "venue": "Tune: A research platform for distributed model selection and training",
+      "arxiv": "arXiv:1807.05118"
+    },
+    {
+      "citation_id": "98",
+      "title": "Adversarial domain adaption for multi-cultural dimensional emotion recognition in dyadic interactions",
+      "authors": [
+        "J Zhao",
+        "R Li",
+        "J Liang",
+        "S Chen",
+        "Q Jin"
+      ],
+      "year": "2019",
+      "venue": "AVEC workshop"
+    },
+    {
+      "citation_id": "99",
+      "title": "Multimodal transformer for unaligned multimodal language sequences",
+      "authors": [
+        "Y.-H Tsai",
+        "S Bai",
+        "P Liang",
+        "J Kolter",
+        "L.-P Morency",
+        "R Salakhutdinov"
+      ],
+      "year": "2019",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "100",
+      "title": "Masked face recognition for secure authentication",
+      "authors": [
+        "A Anwar",
+        "A Raychowdhury"
+      ],
+      "year": "2020",
+      "venue": "Masked face recognition for secure authentication",
+      "arxiv": "arXiv:2008.11104"
+    },
+    {
+      "citation_id": "101",
+      "title": "Fv2es: A fully end2end multimodal system for fast yet effective video emotion recognition inference",
+      "authors": [
+        "Q Wei",
+        "X Huang",
+        "Y Zhang"
+      ],
+      "year": "2022",
+      "venue": "IEEE Trans. Broadcast"
+    },
+    {
+      "citation_id": "102",
+      "title": "MISA: Modalityinvariant and-specific representations for multimodal sentiment analysis",
+      "authors": [
+        "D Hazarika",
+        "R Zimmermann",
+        "S Poria"
+      ],
+      "year": "2020",
+      "venue": "ACM MM"
+    },
+    {
+      "citation_id": "103",
+      "title": "Robust audiovisual speech recognition under noisy audio-video conditions",
+      "authors": [
+        "D Stewart",
+        "R Seymour",
+        "A Pass",
+        "J Ming"
+      ],
+      "year": "2013",
+      "venue": "IEEE Trans. Cybern"
+    },
+    {
+      "citation_id": "104",
+      "title": "The muse 2023 multimodal sentiment analysis challenge: Mimicked emotions, cross-cultural humour, and personalisation",
+      "authors": [
+        "L Christ",
+        "S Amiriparian",
+        "A Baird",
+        "A Kathan",
+        "N Üller",
+        "S Klug",
+        "C Gagne",
+        "P Tzirakis",
+        "E.-M Meßner",
+        "A Önig"
+      ],
+      "year": "2023",
+      "venue": "The muse 2023 multimodal sentiment analysis challenge: Mimicked emotions, cross-cultural humour, and personalisation",
+      "arxiv": "arXiv:2305.03369"
+    },
+    {
+      "citation_id": "105",
+      "title": "Words can shift: Dynamically adjusting word representations using nonverbal behaviors",
+      "authors": [
+        "Y Wang",
+        "Y Shen",
+        "Z Liu",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency"
+      ],
+      "year": "2019",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "106",
+      "title": "Found in translation: Learning robust joint representations by cyclic translations between modalities",
+      "authors": [
+        "H Pham",
+        "P Liang",
+        "T Manzini",
+        "L.-P Morency",
+        "B Óczos"
+      ],
+      "year": "2019",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "107",
+      "title": "Efficient low-rank multimodal fusion with modality-specific factors",
+      "authors": [
+        "Z Liu",
+        "Y Shen",
+        "V Lakshminarasimhan",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "108",
+      "title": "Tensor fusion network for multimodal sentiment analysis",
+      "authors": [
+        "A Zadeh",
+        "M Chen",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2017",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "109",
+      "title": "Learning factorized multimodal representations",
+      "authors": [
+        "Y.-H Tsai",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency",
+        "R Salakhutdinov"
+      ],
+      "year": "2019",
+      "venue": "Learning factorized multimodal representations"
+    },
+    {
+      "citation_id": "110",
+      "title": "Learning relationships between text, audio, and video via deep canonical correlation for multimodal language analysis",
+      "authors": [
+        "Z Sun",
+        "P Sarma",
+        "W Sethares",
+        "Y Liang"
+      ],
+      "year": "2020",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "111",
+      "title": "BERT: Pretraining of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the NAACL-HLT"
+    }
+  ]
+}

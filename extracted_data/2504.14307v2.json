@@ -1,0 +1,863 @@
+{
+  "paper_id": "2504.14307v2",
+  "title": "Learning From Stochastic Teacher Representations Using Student-Guided Knowledge Distillation",
+  "published": "2025-04-19T14:08:56Z",
+  "authors": [
+    "Muhammad Haseeb Aslam",
+    "Clara Martinez",
+    "Marco Pedersoli",
+    "Alessandro Koerich",
+    "Ali Etemad",
+    "Eric Granger"
+  ],
+  "keywords": [
+    "Deep Learning",
+    "Self Distillation",
+    "Dropout",
+    "Time-Series",
+    "Student-Guided Knowledge Distillation"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Advances in self-distillation have shown that when knowledge is distilled from a teacher to a student using the same deep learning (DL) model, student performance can surpass the teacher, particularly when the model is over-parameterized and the teacher is trained with early stopping. Alternatively, ensemble learning also improves performance, although training, storing, and deploying multiple DL models becomes impractical as the number of models grows. Even distilling a deep ensemble to a single student model or weight averaging methods first requires training of multiple teacher models and does not fully leverage the inherent stochasticity for generating and distilling diversity in DL models. These constraints are particularly prohibitive in resourceconstrained or latency-sensitive applications on, e.g., wearable devices. This paper proposes to train only one model and generate multiple diverse teacher representations using distillation-time dropout. However, generating these representations stochastically leads to noisy representations that are misaligned with the learned task. To overcome this problem, a novel stochastic self-distillation (SSD) training strategy is introduced for filtering and weighting teacher representation to distill from task-relevant representations only, using student-guided knowledge distillation. The student representation at each distillation step is used to guide the distillation process. Experimental results 4 on real-world affective computing, wearable/biosignal (UCR Archive), HAR, and image classification datasets show that the proposed SSD method can outperform state-of-the-art methods without increasing the model size at both training and testing time. It incurs negligible computational complexity compared to ensemble learning and weight averaging methods.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Wearable technology has many applications, primarily in healthcare monitoring, such as activity and exercise tracking, sleep analysis, stress detection, and fall detection. It also includes applications like chronic disease management, personalized health insights, and human behavior and physiology research by continuously tracking metrics like heart rate, steps taken, body temperature, and movement patterns over time. Time-series signals such as electrocardiogram (ECG), respiration rate, and other biosignals are often multi-dimensional, noisy, and collected in real time from resource-constrained devices. These signals require efficient processing methods that balance accuracy with computational efficiency. Cumbersome methods for performance boosting are less effective for this application. Knowledge distillation (KD) is typically used for transferring knowledge from a large, well-trained teacher model to a more compact student model for deployment, thereby enhancing the latter's accuracy without incurring significant computational costs  [12] .\n\nSelf-distillation is a specialized case in KD, where the teacher and student have the same DL architecture, and the student typically surpasses the teacher's performance particularly where the model is over-parameterized i.e., has sufficient capacity and the teacher is trained with early-stopping. This increase in performance is typically associated with the fact that, with DL models, the teacher and the student have learned separate discriminative features, and selfdistillation implicitly ensembles the two models  [1] . Diversity in the feature space is a critical factor that enhances the robustness and accuracy of machine learning models. Diverse representations provide a comprehensive understanding of the input data, mitigating overfitting and improving generalization across various tasks  [9]    [17] .\n\nApproaches for ensemble learning leverage the independent training of multiple diverse models to learn more robust decision boundaries, leading to significant improvements in predictive accuracy. Despite these advantages, deploying deep ensembles introduces substantial computational and storage overhead, as each model in the ensemble requires independent training, parameter storage, and inference pipelines. These constraints are particularly prohibitive in resourceconstrained embedded systems as employed in wearable applications.\n\nState-of-the-art (SOTA) approaches  [1]  that distill diverse ensemble-based representations involve the cumbersome process of training the teacher model multiple times or utilizing complex ensemble learning methods to generate a pool of diverse teacher models for effective knowledge transfer. These methods are computationally intensive and may not fully leverage the potential of stochasticity inherent in DL models for generating diversity.\n\nThis paper introduces a KD training strategy called Stochastic Self-Distillation (SSD) to capitalize on distillation-time dropout, thereby inducing stochasticity in a single, pre-trained teacher model. SSD generates multiple stochastic feature representations, effectively simulating a diverse ensemble of DL models without requiring extensive teacher re-training. This technique aligns with the principles of Monte Carlo dropout  [11] . Moreover, a Student-Guided Knowledge Distilla-tion (SGKD) is introduced to distill the most relevant knowledge (or filter out noisy representations) to the student model using student-guided attention. This mechanism allows the student to selectively focus on the most informative representations within the teacher's output space, facilitating a more efficient and targeted knowledge transfer. Subsequently, feature-level KD is employed to align the student's feature representations with the filtered and attention-weighted teacher feature representation.\n\nThe main contributions of this paper are summarized as follows.\n\n(1) We propose SSD, a novel distillation-time dropout strategy to generate diverse stochastic representations from a single, pre-trained teacher model.\n\n(2) Within SSD, a novel SGKD mechanism enables the student model to selectively distill knowledge from the most informative teacher representations. Feature-based KD is used to align the student's internal feature space with the teacher, promoting a more granular knowledge transfer.\n\n(3) Our extensive experiments on challenging affective computing benchmark datasets (Biovid Pain and StressID), biosignal/wearable datasets (from the UCR Archive), the HAR dataset, and benchmark image classification datasets (CIFAR-10 and CIFAR-100) show that our SSD training strategy allows training models that can achieve SOTA performance while maintaining computational efficiency.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Knowledge Distillation. Originally introduced by  [5]    [12] , the KD domain has evolved with several refinements in its application and architecture. Romero et al.  [29]  introduced the concept of distilling from feature representations instead of logits. The idea of transferring the attention maps from the teacher model to the student model was studied by Zagoruyko and Komodakis  [41] . Relational KD proposed by Park et al.  [27]  studied the benefits of utilizing structural information for more fine-grained KD. The KD domain was extended to multi-task, semi-supervised, and unsupervised learning by Lopez et al.  [23] . KD has also been studied in multimodal systems, particularly with applications like crossmodal KD  [30]  privileged KD  [3] , federated learning  [21] , are a few examples of the widespread application of KD in real-world systems. Deep Ensembles and Model Soups. Ensembling methods improve predictive performance, generalization in neural networks, and uncertainty estimation. Deep ensemble is a simple yet effective technique where a simple aggregation of independently trained models harnesses the diversity, leading to better performance than each model. Lakshminarayanan et al.  [17]  demonstrated the effectiveness of deep ensembles for uncertainty estimation, showing that they outperform many Bayesian approaches in terms of both calibration and robustness. Deep theoretical insights on ensemble diversity were provided by Fort et al.  [9] . Moreover, Ovadia et al.  [26]  highlight the advantages of deep ensembles in handling distributional shifts, reinforcing their utility in real-world scenarios. Despite their advantages, deep ensembles are computationally expensive, requiring the training and storage of multiple models, which motivates research into alternative methods that capture similar benefits with reduced complexity. More recently, parameter-efficient fine-tuning techniques like low-rank adaptation (LoRA)  [13]  have enabled efficient fine-tuning of large models. For example, Li et al.  [20]  introduced Ensembles of Low-Rank Expert Adapters. However, these techniques still require i) careful adaptation of each model, and ii) storing all the models for inference.\n\nModel soups  [39] , is a technique for improving model generalization by averaging the weights of multiple fine-tuned models. Instead of selecting a single best model, model soups combine the parameters of different models fine-tuned with different hyperparameters, datasets, or random seeds, resulting in a more robust model. Two variations of the model soups were proposed: (i ) uniform soup averages the weights of all fine-tuned models equally, and (ii ) greedy soup, where models are added iteratively using a greedy approach. Model soup does not increase the model size for inference/deployment, yet it incurs significant additional train-time computational cost by fine-tuning models multiple times.\n\nSelf-Distillation. This term has been used in the literature in two different contexts: distilling knowledge from deeper layers in a model to shallower layers of the same model's instance or through the use of an auxiliary network  [19, 42] , and knowledge distilled from a model to another instance of the model with the same architecture  [1, 10, 25] . In this work, 'self-distillation' refers to the latter. Furlanello et al.  [10]  proposed born-again neural networks, a seminal work exploring KD using the same model for teacher and student, showing that the student can outperform the teacher. Iterative distillation from the trained student, used as a teacher for the subsequent student model, also improved performance. Dong et al.  [?]  showed that early stopping is crucial in harnessing dark knowledge in self-distillation settings. Dark knowledge is the hidden class relationships encoded in the teacher model's soft probability outputs, which provide more information than hard labels. This nuanced information helps the student model learn better generalization and richer representations. A direct correlation between the diversity in the teacher predictions and student performance was studied in depth by Zhang et al.  [43] . The authors enhanced the predictive diversity through a novel instance-specific label smoothing.\n\nThe concept of self-distillation in a regression setting was first studied by Mohabi et al.  [25] , in which the authors provided a theoretical analysis of selfdistillation where only the soft labels from the teachers were used to train the student. Multi-round self-distillation settings limit the number of basic functions that must be learned. Borup et al.  [4]  build upon the previous analysis by including the weighted-ground truth targets in the self-distillation procedure. They show that for fixed distillation weights, the ground-truth targets lessen the sparsification and regularization effect of the self-distilled solution. Stanton et al.  [32]  studied the paradigm of KD through the lens of fidelity. Their key takeaway regarding KD and ensembles was that the highest-fidelity student is the best calibrated, even when it is not the most accurate. The closest work to SSD was proposed by Allen-Zhu and Li  [1] , who explored the concept of selfdistillation in conjunction with the multi-view structure of the input data. In this case, the student model was trained on the ground truth labels with additional supervision from the ensemble of multiple teachers' soft labels. Multiple teachers were trained with random seed initialization.\n\nIn contrast to these methods, our proposed SSD training strategy obviates the need for such data augmentations or random seed initialization to generate diversity in the teacher space. SSD operates in the feature space, using dropout as a tool to introduce diversity and student-guided attention to distill relevant information for the student. Consequently, SSD requires significantly less complexity for training when compared to traditional ensemble learning and weightaveraging methods, and without increasing model size at deployment time.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Proposed Method",
+      "text": "Notation: Let T be a teacher model with model parameters θ T and S be a student model with parameters θ S . For given inputs X = [x 1 , x 2 , . . . , x m ], we obtain the feature vectors f T = T (X ; θ T ) ∈ R d×m and f S = S(X ; θ S ) ∈ R d×m , where d is the dimension of the feature vector and m is the number of input samples. Let\n\n] represents the multiple stochastic teacher representations generated through n forward passes through T (X ; θ T ) for the same input sample x ∈ X . Problem Definition: Given a trained teacher model T , the challenge is to effectively transfer its knowledge to a student model S such that its generalization performance is maximized. Standard self-distillation techniques often treat the teacher's outputs as deterministic, failing to exploit the inherent stochasticity that can provide richer and more diverse information. On the other hand, stochastically obtaining the teacher representations introduces diversity but at the cost of generating noisy representations. The problem, therefore, is to design a KD framework that leverages the variability in the teacher's representations, generated through stochastic mechanisms like dropout, while ensuring that the student learns task-relevant information in a computationally efficient manner. The main aim of our paper is to filter out the noisy representations from F T (x) and obtain weighted teacher representation f T (x) to selectively distill from the relevant teacher representations.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Stochastic Self-Distillation",
+      "text": "The proposed SSD training strategy generates multiple diverse representations per sample and uses the current student representation as a reference to rank, select, and weigh (using student-guided attention) the teacher representations before distilling. Further, SSD enforces the attention weights of the meaningful representations to be spread out through temperature scaling, this implicitly models the feature ensemble to harness diversity. The student representation guides each distillation step because it is initialized with the same weights as the main trained teacher. Fig.  1  illustrates the proposed SSD method. The remainder of this section provides details on the SSD training strategy. Teacher Training. The first step is to train the teacher model and get trained teacher parameters θ T ′ . This step is needed for two purposes: i) because the trained teacher model is used to generate the stochastic teacher representations F T (x), and ii) because these weights are also used to initialize the student model parameters in the student training step. Student Parameters Initialization. After the teacher model is trained, the student model parameters are initialized with the trained teacher weights. This initialization is also crucial in the proposed training strategy. The proposed method relies on student guidance to obtain the attended teacher feature vector f T (x). The initialization of the student parameters with trained teacher weights lets the student serve as authority to weigh the teacher representations. As mentioned earlier, the stochastic nature of θ T ′ , necessitates that some of the generated representations would be misaligned with the learned task-specific representation and hence would act as noise for the student model. This phenomenon is studied in detail in Section 4.3",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Student-Guided Knowledge Distillation",
+      "text": "Traditionally, in KD methods, the teacher representation(s) are informative and serve as additional supervision for the student model. However, if the teacher representations are generated through a stochastic process, they are not aligned with the learned class boundary and can be noise for the student model. There-fore, we use the current student representation as authority to select representations aligned with the learned class boundary. The student representation at each distillation step can be used as the guiding mechanism because the student model is initialized with the learned weights from the teacher network. This initialization allows the student to make use of its intermediate representation f S (x) as an anchor to rank the teacher representation f T i (x) ∈ F T . To guide the distillation process using the current student representation, we first calculate the dot product (ϕ i ) between the current student representation f S (x) and each teacher representation f T i (x) ∈ F T (x) and compute attention weights using:\n\nwhere N is the number of teacher representations and h is a regularization factor used to smooth the attention weights to ensure that the attended teacher feature vector f T (x) is not heavily influenced only by a single teacher representation. This regularization step is crucial since it dictates the attention weights for teacher representations. Since the way these teacher representations are ranked is through dot product between current student representation f S (x) and each of the stochastic teacher representation f T i (x), the value ϕ i naturally would be the highest for the teacher representation that is the most similar to the student representation. This renders the entire framework ineffective because f T (x) becomes overly similar to f S (x).\n\nThe SSD method relies on selecting teacher representations that would mimic an ensemble of independently trained teacher models. In other words, it masks out the representations that are too different from the current student representations. A direct way of selecting such representations would be to use the top-k strategy at each distillation step. Although this strategy can work, it relies on k a hyperparameter that is agnostic to the distribution of f T i (x) ∈ F T at each distillation step. To avoid a manual selection of meaningful representations using a top-k strategy, α i is masked for all indices falling outside of the ϵ-th percentile, denoted by αi .\n\nwhere ϵ ∈ [0, 100] is the threshold value for masking. Section 4.3 provides a more detailed discussion. After obtaining the regularized attention weights αi , the original teacher feature representations f T i (x) are weighed using αi to obtain the attended teacher feature vector f T (x) as:\n\nThe attended feature vector f T (x) is used to distill the information using the mean squared error loss:\n\nThe total loss for the student is shown in Eq. 5,\n\nwhere λ is the weighting parameter for the distillation loss. The method also allows for the additional constraint for logit-level distillation and can be added to L total . For the unsupervised/contrastive loss-based methods, we use the intermediate teacher representations to obtain the f T (x). In case of augmented views of the input sample, we average the distillation loss from both views. The pseudo-code for the SSD training procedure is shown in Algorithm 1. 1: Extract teacher feature vectors",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "5:",
+      "text": "Compute dot products ϕi = f S (x) • f T i (x) for i = 1, 2, . . . , n.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "6:",
+      "text": "Compute attention weights: αi for i = 1, 2, . . . , n using Eq. (1) 7:\n\nMask αi for all indices outside the ϵ-th percentile using Eq. (2) 8:\n\nCompute attended teacher feature vector: f T (x) using Eq. (3) 9:\n\nCompute distillation loss L dist using Eq. (4) 10: end for 11: Compute total loss L total using Eq. (  5 ) 12: Update parameters θ S using backpropagation 4 Results and Discussion",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Experiment Setup",
+      "text": "SSD is validated on: (i) real-world affective computing datasets: the Biovid Heat Pain Database  [3]  and StressID dataset  [4] , (ii) wearable and biosignal datasets from the UCR Archive  [1] , (iii) Human Activity Recognition (HAR) dataset set from the UCI Archive  [2] , and (iv) on benchmark image classification datasets. Appendix A.1 provides details on these datasets, while Appendix A.3 provides implementation details and results on the CIFAR-10 and CIFAR-100 datasets.\n\nBiovid Heat Pain Database. For Biovid, we use the EDA modality and LOSO cross-validation. The proposed method is tested with a SOTA method on the dataset using the Pain Attention Net  [24] , which is a transformer-based physiological signal classification network comprised of a multi-scale convolutional network, as SE residual network, and a transformer encoder block. The batch size used for teacher training was 128, and the network was optimized using the Adam optimizer with a learning rate of 0.001. The network was trained over 100 epochs with early stopping. The total number of folds was 87, corresponding to the total number of subjects. For student training, we keep the same setting as the teacher. We manually activate dropout layers with a p-value of 0.2 while keeping the teacher model in inference mode. The total number of repetitions for generating diverse teacher representations was 30. StressID Dataset. For the StressID dataset, use the EDA and RR modalities and apply feature concatenation to fuse the backbone representations. The EDA backbone was Pain Attention Net  [24] , and the RR backbone was a 1D CNN with three 1D conv layers with 16, 32, and 64 channels, respectively, with a kernel size of 5, and stride equal to 1, followed by three batch normalization layers. Following the original dataset authors  [4] , we apply an 80 -20 split for the train and test set and further divide the train data and keep 20% of that for model selection. The batch size used for both teacher and student training was 128, with the learning rate of 0.001 using the Adam optimizer. The total number of repetitions was 30. The dropout layer was activated before the feature concatenation module with a p-value of 0.2. UCR Archive. For the datasets in the UCR Archive, the proposed method was applied to two SOTA techniques -TS2Vec and SoftCLT -for unsupervised timeseries representation learning. We follow the same experimental methodology proposed in TS2Vec  [40]  and SoftCLT  [18] . For the TS2Vec method, the number of stochastic teacher representations was 15, with a teacher dropout rate p of 0.2, and the student dropout rate was set to 0.1. The value of H was 5. For loss weighting, λ was set to 0.2. For softCLT, all the parameters were kept the same as those for TS2Vec except for the value of H, which was set to 15. Computing infrastructure. All experiments were performed on the NVIDIA A100-SXM4-40GB GPUs with the ϵ value of 90.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Comparison Against State-Of-The-Art Methods",
+      "text": "Affective Computing Datasets. Table  1  reports the results of SSD and SOTA methods on Biovid. SSD improves accuracy by 2.5% over the selected baseline (PAN without SSD) and 1.7% over the current SOTA. Specifically, accuracy on Biovid increases from 84.59% (using the EDA modality without SSD) to 86.90% with the proposed SSD method.\n\nTable  2  compares the performance of the proposed method with SOTA on the StressID dataset. We achieve 0.74±0.02 for the F1-score and 0.74±0.03 accuracy without applying SSD. The proposed method improves 3% for the F1-score and 4% in accuracy for the binary classification task over the SOTA. This increase in predictive performance shows that the proposed method can perform well Time-Series Datasets (UCR Archive). Table  3  shows the performance of SSD against the TS2Vec baseline on 12 wearable/biosignal datasets from the UCR Archive. The student model achieves an average accuracy score of 0.8441. Comparison with Traditional Ensembles and Model Soups Table  4  compares the performance of SSD against traditional ensembles and weight-averaging methods. For simplicity in experimentation and to make sure the results are not biased by the internal mechanisms of architecture, this comparison is performed on bare-bones 1D CNN architecture, which serves as the teacher network for SSD and is also used in the ensembles as well as weight-averaging results. SSD aims to minimize the space and computational complexity both during training and testing. Fig.  2  compares the performance gain in terms of model size at inference. We compare traditional ensembles (majority voting and averaging), stochastic weight averaging, uniform soup (uniform weight averaging), and greedy soup (a greedy approach for weight averaging). The marker size in Fig.  2  denotes the model size at inference; since traditional ensembles require storing all of the trained models for inference, it becomes impractical to deploy for inference on wearable devices. It can be observed from Fig.  2  that both ma-jority vote and averaging-based ensembles increase the model performance, but the model size proportionally increases; essentially, for an ensemble model with 25 models, it would become 25× the size of the baseline model. On the other hand, model soups do not increase the model size at inference but are still computationally expensive in terms of train-time FLOPs as shown in Appendix B. The total number of FLOPs increases from ≈ 0.87 G-FLOPs to ≈ 21.8 G-FLOPs. In contrast, the proposed method achieves comparable performance to the traditional approaches, i.e., 1.8% increase in the accuracy over the baseline, while keeping the model size the same as the baseline model, and the traintime computation is significantly less since SSD requires the model to be trained twice, once in the teacher training process and second for student training. Fig.  2 : Comparison of the SSD method with baseline (BL), traditional ensembles with majority vote (E MV ) and average (E Avg ), uniform soup (US) and greed soups (GS) on HAR dataset in terms of accuracy and model size at inference.",
+      "page_start": 10,
+      "page_end": 12
+    },
+    {
+      "section_name": "Ablations",
+      "text": "Number of Stochastic Representations. As discussed before, meaningful diversity in the teacher space is crucial for the superior performance of an ensemble and, by extension, also crucial in SSD, since it also implicitly ensembles teacher representations. The number of repetitions dictates how diverse f T i (x) is. We evaluated with different settings and reported the results in Table  5 . Distill All -the first two rows show the results without applying SSD and learning from all stochastic representations. This could also be seen as an alternative way of teaching students to drop out. Rows 3-6 show results with an increasing number of total repetitions and selected representations. As the total number of representations becomes too large, the performance drops even when applying SSD. This leads us to believe that when you select a more significant number of representations, the noisy representations bypass through the filtering mechanism and become part of the distillation process. This problem also indicates a simple top-k selection is not the best strategy in this case. Hence, dynamic selection is applied based on ϵ-th percentile thresholding. Dropout Rate The extent of diversity in the teacher space is directly related to the distillation-time dropout rate. To study how the probability value of each neuron to be deactivated affects the teacher representation space, we plot and compare the t-SNE plots with different dropout rates. Figs.  3(a )-(d) are plotted with dropout rates 0.1, 0.2, 0.5 and 0.9 respectively. It is observed that for smaller dropout rates (Fig.  3(a) ), the teacher can maintain its discriminative ability; however, the three teacher representations f T 1 (x) (triangle), f T 2 (x) (circle), f T 3 (x) (square) mostly overlap each other, effectively meaning there is not enough diversity in the teacher space. For dropout rate 0.2 (Fig.  3(b) ), the three representations are diverse while maintaining the original structure, which shows that the teacher space has become diverse while maintaining the discriminative ability. In Fig.  3(c ), the three representations are adequately spaced, but the model loses its discriminative ability. To further analyze the impact dropout rate on both variance and overall performance, we conducted an ablation study on the HAR dataset. Fig.  4  shows the effect of dropout rates on the student performance (dashed/black line) and the variance across teacher representations (colored/solid lines). Variance increases with the teacher dropout rate. For each dropout rate, the highest variance is observed for the lowest number of repetitions. Conversely, the lowest variance for each dropout rate is observed with the highest number of reps. Results suggest that when the number of forward passes is greater, the overall variance decreases. It may also indicate a more accurate approximation of the true variance because it is calculated with more samples. In the latter case, it can be observed that for lower dropout rates, the variances across different number of repetitions are more accurate approximation of the true variance. In terms of performance, the model peaks at a dropout rate of 0.2, and the performance starts deteriorating beyond a dropout rate of 0.5. This phenomenon can be further explained from Fig.  3  where the t-SNE plots show the model starting to lose its discriminative ability at higher dropout rates. Effect of Attention Weights Regularization. SSD heavily relies on the diversity in the f T (x), implicitly mimicking the ensemble of task-relevant embeddings from the teacher space. If the attention weights are not regularized, the f T (x) would be highly influenced by one of the teacher embeddings, which is closest to the current f S (x), essentially rendering the proposed methodology ineffective. Fig.  5a  shows the attention weights of an input sample x ∈ X . It Fig.  5 : Effect of attention weights α i regularization on student performance can be observed from Fig.  5a  that, without regularization, the attention weight is extremely high for α 2 . On the other hand, the weights are more spread out with regularization, showing that the student model trained with SSD leverages the diversity in the meaningful teacher representations. Fig.  5b  shows the results obtained with and without regularization of α i . In all instances, regularization improves accuracy.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Effect Of Student Parameters Initialization With Teacher Weights.",
+      "text": "The current student representation guides the distillation process at each step. This section investigates the impact of student parameter initialization with the trained teacher weights θ T ′ . Fig.  6  shows the results obtained by the student model with the baseline, random initialization, and student parameter initialization with trained teacher weights. It can be observed from the figure that in each instance, the random initialization performs even worse than the baseline. This shows the effectiveness of the proposed method, because if the student model is not initialized with θ T ′ , the ϕ i calculated would be ineffective since the current f S (x) is not task aligned. Hence adding the additional constraint in the L total term breaks the performance. See Appendix C.1 for detailed results.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Discussion",
+      "text": "Analysis of Performance on Teacher Network Architecture. SSD can improve performance quite significantly on real-world datasets, particularly with models that have multiple dropout layers built into the architecture. Methods like PAN  [24]  and the fusion-based architecture used for Biovid and StressID datasets, respectively, have multiple dropout layers throughout backbones and various modules; in contrast, models for HAR and CIFAR datasets are 1D and 2D-Conv ResNet-based architectures with only one dropout layer. One direct correlation between the performance and the capacity to generate stochastic representations can be drawn. The models with a higher number of dropout layers naturally have a greater capacity to generate stochastic representations with more diversity, which allows the proposed method to form a more informative f T (x), consequently leading to a student model with a significant performance boost over the teacher model. Supervised vs. Unsupervised Setting. The proposed method can enhance performance both in supervised and unsupervised settings. The performance boost observed in the supervised setting is slightly higher than in the unsupervised setting; this could be because the unsupervised contrastive loss-based methods are already equipped with the ability to learn generalized representation. The augmented views of the input data in both TS2Vec and SoftCLT methods lead to more generalized representations.\n\nWhy is SSD Different from just Teaching Dropout to the Student Model? Intuitively, it seems that the proposed method might be an alternative way of teaching the student model to drop out. However, during both the teacher training step and student training, the standard training-time dropout is activated, but the performance boost is not observed. The performance boost can be explained by the filtering of the teacher representations, where teaching the student to drop out would be equivalent to distilling from all stochastic representations f T i (x) instead of the attended teacher representation f T (x), which is then filtered through the proposed SSD method (see Appendix D for a detailed discussion). This explanation is also supported by the results in Table  5  where we first distill from all f T i (x), and the student performance does not improve.",
+      "page_start": 16,
+      "page_end": 16
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this work, we introduced SSD, a novel approach to enhancing diversity in the teacher space by leveraging the stochastic nature of DL models using distillationtime dropout and applying SGKD to learn meaningful representations. It employs the student's current representation as a guide to select meaningful representations, implicitly mimicking an ensemble of task-relevant representations.\n\nExtensive experiments on real-world time-series data, complemented by validation on a benchmark vision dataset, show the effectiveness of SSD in improving representation learning. While SSD outperforms SOTA methods, its current evaluation is limited to architectures that already incorporate dropout. Given that SSD operates in the latent space, we hypothesize that the proposed SGKD framework could be extended to other settings where diversity is introduced through perturbations in the feature space or noise injection. This presents an compelling avenue for future research and a promising alternative to deep ensembles. It also provides an alternative for learning generalized representations for time-series data, paving the way for more efficient and robust representation learning in a wide range of applications.",
+      "page_start": 16,
+      "page_end": 16
+    },
+    {
+      "section_name": "A Datasets And Implementation Details",
+      "text": "A. We follow the same evaluation protocol as the original dataset authors  [4]  and report both accuracy and weighted F1 score on binary and 3-class problems.\n\nTime-Series Benchmark Datasets: The UCR Archive  [1]  serves as a benchmark repository for researchers working on time-series classification, clustering, and related tasks. We present results on the time-series classification task on the wearable and biosignal datasets from the UCR Archive. Predefined train and test splits are provided for each dataset and the performance metric used for all datasets is accuracy.\n\nHuman Activity Recognition (HAR) Dataset: The UCI HAR dataset  [2]  is a collection of waist-mounted smartphone-based sensor readings for 30 subjects. The signals are recorded while performing six activities, i.e., lying down, walking, walking upstairs, downstairs, sitting, and standing. The data is collected using the accelerometer and gyroscope at a sampling rate of 50 Hz. The 1D CNN used for the HAR dataset is a custom CNN with two convolutional layers and three fully connected layers. Table  6  shows the network architecture. Implementation Details -HAR Dataset: For validation on Human Activity Recognition (HAR) Dataset, we use 1D CNN barebones as shown in Table  6 . The teacher model was trained for a total of 100 epochs with Adam optimizer. The initial learning rate was 0.05 with a ReduceLROnPlateau scheduler on training loss with patience of 10 and a reduction factor of 0.1. While training the student, the total number of repetitions to generate teacher representations was 30. The batch size was 128, and the distillation-time dropout rate was 0.2.",
+      "page_start": 17,
+      "page_end": 20
+    },
+    {
+      "section_name": "A.3 Validating Ssd Beyond Time-Series",
+      "text": "The proposed method is mainly validated on time-series signals of two real-world affective computing datasets and wearable time-series datasets from the UCR Archive. Since the SSD relies on diversification in feature space, the same concept can be extended to vision datasets. To prove the effectiveness of the proposed method across a variety of tasks, we perform additional validation on benchmark vision datasets CIFAR-10 and CIFAR-100. The proposed method achieves 94.83%, improving 1.5% over the baseline with standard ResNet34 w/dropout. For CIFAR100, the model improves 1.2% over the baseline using ResNet50. By applying the proposed SSD method, we achieve 79.47%, which is improved after distillation to 81.73%.",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "B Comparison Of Train Time Complexity",
+      "text": "This section compares the training time and computational complexity of SSD with traditional ensembles, Stochastic Weight Averaging, and Model Soups. SSD performance at test is at par with state of the art Greedy Soup method, however in terms of train-time computational complexity, the proposed method only adds insignificant overhead. For methods like greedy soup, the model needs to be trained 25× whereas in SSD, the model is trained only two times. The current student representation is what guides the distillation process at each distillation step. This section investigates the impact to student parameter initialization with the trained teacher weights θ T ′ . Table  8  compares the performance of SSD on the HAR dataset. The baseline i.e. the teacher model achieves 0.9002 accuracy score. However the student model performance with random initialization is 0.8975, which is lower than the baseline performance. As explained in Section 4.3, this decrease in performance is observed because the distillation process is guided by the current student representation f S . If the student model is not initialized with the teacher weights, it learns a separate trajectory to converge. This phenomenon is similar to the concept of pretraining in weight averaging methods, where if weights of different models trained from scratch are averaged, the performance diminishes drastically because each model learns a different trajectory towards convergence. On the other hand, if the models start with pre-trained weights, they are more likely to converge with similar weights, and averaging them leads to better performance. Similarly, in SSD, if the student model parameters are randomly initialized, the student representation f S for each x ∈ X will be misaligned with the teacher representation. It is only after the student model parameters with θ T , that the ϕ i calculated is aligned leading to a teacher representation f T that has meaningful diversity aligned with the student representation. Table  9  also presents similar results where the average of the 12 selected datasets from the UCR archive, drops from 0.8426 to 0.8125 with random initialization of student parameters. Whereas the student model with teacher weights initialization achieves 0.8508 average accuracy score.",
+      "page_start": 21,
+      "page_end": 23
+    },
+    {
+      "section_name": "C Additional Results",
+      "text": "",
+      "page_start": 23,
+      "page_end": 23
+    },
+    {
+      "section_name": "C.1 Effect Of Student Parameters Initialization With Teacher Weights",
+      "text": "",
+      "page_start": 23,
+      "page_end": 23
+    },
+    {
+      "section_name": "C.2 Effect Of Percentile Thresholding On Performance",
+      "text": "The proposed SSD method relies on the dynamic selection of the teacher representation based on percentile thresholding. The parameter ϵ controls the percentile value. This section studies the effect of different ϵ values on the overall student performance. Table  10  shows the student performance with increasing value of ϵ. For lower values of ϵ, the student performance is close to the baseline. As ϵ increases, the far-off representations in the teacher space are effectively masked/filtered, allowing only relevant ones to be included in the αi . The model's performance peaks at ϵ = 90. A decrease in performance is observed again at ϵ = 100, likely because this high threshold selects only the single teacher representation most similar to the student representation, significantly limiting diversity in the teacher and the student representations. Another interesting observation is that the performance is not as sensitive to the ϵ value as it is to statically selecting top-k representations. This is because the top-k is unaware of batch dynamics always selects a k number of representations, whereas ϵ-thresholding dynamically selects only the relevant teacher representations.",
+      "page_start": 23,
+      "page_end": 24
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: illustrates the proposed SSD method. The remainder",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: Illustration of the proposed SSD training strategy. The teacher T is",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: compares the performance gain in terms of model",
+      "page": 11
+    },
+    {
+      "caption": "Figure 2: denotes the model size at inference; since traditional ensembles require",
+      "page": 11
+    },
+    {
+      "caption": "Figure 2: that both ma-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 2: Comparison of the SSD method with baseline (BL), traditional ensembles",
+      "page": 12
+    },
+    {
+      "caption": "Figure 3: (a)), the teacher can maintain its discriminative",
+      "page": 13
+    },
+    {
+      "caption": "Figure 3: (b)), the three",
+      "page": 13
+    },
+    {
+      "caption": "Figure 3: (c), the three representations are adequately spaced, but the",
+      "page": 13
+    },
+    {
+      "caption": "Figure 3: t-SNE plots of three teacher representations f T",
+      "page": 13
+    },
+    {
+      "caption": "Figure 4: shows the",
+      "page": 14
+    },
+    {
+      "caption": "Figure 3: where the t-SNE plots show the model starting to lose its discriminative",
+      "page": 14
+    },
+    {
+      "caption": "Figure 4: Effect of various dropout rates on the performance and variance quantifi-",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: a shows the attention weights of an input sample x ∈X. It",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: Effect of attention weights αi regularization on student performance",
+      "page": 15
+    },
+    {
+      "caption": "Figure 5: a that, without regularization, the attention weight",
+      "page": 15
+    },
+    {
+      "caption": "Figure 5: b shows the results",
+      "page": 15
+    },
+    {
+      "caption": "Figure 6: shows the results obtained by the student",
+      "page": 15
+    },
+    {
+      "caption": "Figure 6: Performance of SSD with and without student parameters initialization",
+      "page": 15
+    },
+    {
+      "caption": "Figure 7: Accuracy on HAR data of the SSD method with baseline (BL), traditional",
+      "page": 22
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 3: shows the performance of",
+      "data": [
+        {
+          "Werner et al.\n[38]\nICPR 2014\nWerner et al.\n[37]\nIEEE TAC 2016\nKachele et al.\n[16]\nLopez et al.\n[23]\nACII 2017\nLopez et al.\n[22]\nEMBC 2018\nThiam et al.\n[33]\nSensors 2019\nWang et al.\n[36]\nEMBC 2020\nPouromran et al.\n[28] PLoSONE 2021\nThiam et al\n[34]\nFrontiers 2021\nShi et al\n[31]\nICOST 2022\nJi et al\n[14]\nACM SAC 2023\nJiang et al\n[15]\nESWA 2024": "Baseline (w/o SSD)\n–\nSSD (ours)\n–",
+          "Physio + Vision\nVideo\nIEEE IJSTSP 2016 EDA, ECG, EMG\nEDA, ECG\nEDA\nEDA\nEDA, ECG, EMG\nEDA\nEDA, ECG, EMG\nEDA\nEDA\nEDA": "EDA\nEDA",
+          "5-fold\nLOSO\nLOSO\n10-fold\nLOSO\nLOSO\nLOSO\nLOSO\nLOSO\nLOSO\nLOSO\nLOSO": "LOSO\nLOSO",
+          "0.8060\n0.7240\n0.8273\n0.8275\n0.7421\n0.8457\n0.8330\n0.8330\n0.8425\n0.8523\n0.8040\n0.8458": "0.8459\n0.8690"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table 3: shows the performance of",
+      "data": [
+        {
+          "HC + RF\nHC + SVM\nHC + MLP\nAUs + kNN\nAUs + SVM\nAUs + MLP\nHC + kNN\nHC + SVM\nwav2vec 2.0\nMordacq et al.": "Baseline (w/o SSD)\nSSD (ours)",
+          "Physio\nPhysio\nPhysio\nVision\nVision\nVision\nAudio\nAudio\nAudio\nMM": "Physio\nPhysio",
+          "0.73 ± 0.02\n0.71 ± 0.02\n0.70 ± 0.03\n0.70 ± 0.04\n0.69 ± 0.04\n0.70 ± 0.03\n0.67 ± 0.06\n0.61 ± 0.06\n0.70 ± 0.02\n0.69": "0.74 ± 0.02",
+          "0.72 ± 0.03\n0.71 ± 0.02\n0.70 ± 0.03\n0.69 ± 0.04\n0.69 ± 0.04\n0.70 ± 0.03\n0.60 ± 0.05\n0.54 ± 0.03\n0.66 ± 0.03\n0.76": "0.74 ± 0.03\n0.77 ± 0.03 0.77 ± 0.03 0.63 ± 0.02 0.60 ± 0.02",
+          "0.55 ± 0.04\n0.59 ± 0.04\n0.54 ± 0.04\n0.54 ± 0.05\n0.55 ± 0.05\n0.55 ± 0.03\n0.53 ± 0.04\n0.53 ± 0.08\n0.56 ± 0.04\nNR": "0.61 ± 0.01",
+          "0.56 ± 0.03\n0.59 ± 0.03\n0.53 ± 0.04\n0.53 ± 0.05\n0.54 ± 0.04\n0.55 ± 0.03\n0.52 ± 0.04\n0.48 ± 0.04\n0.52 ± 0.04\nNR": "0.59 ± 0.01"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table 3: Accuracy of SSD applied to TS2Vec and SoftCLT baselines for the",
+      "data": [
+        {
+          "ECG200\nECG5000\nTwoLeadECG\nNIFetalECGThorax1\nNIFetalECGThorax2\nChinatown\nUWaveGestureLibraryX\nUWaveGestureLibraryY\nUWaveGestureLibraryZ\nMedicalImages\nDodgerLoopDay\nDodgerLoopGame": "Total",
+          "0.9000\n0.9348\n0.9789\n0.9277\n0.9389\n0.9737\n0.7995\n0.7152\n0.7624\n0.8092\n0.5125\n0.7826": "0.8350",
+          "0.9100\n0.9411\n0.9877\n0.9318\n0.9343\n0.9708\n0.8079\n0.7317\n0.7660\n0.8078\n0.5250\n0.8405": "0.8441",
+          "0.8800\n0.9400\n0.9762\n0.9201\n0.9435\n0.9737\n0.8001\n0.7169\n0.7674\n0.8171\n0.5500\n0.8260": "0.8426",
+          "0.9300\n0.9413\n0.9798\n0.9394\n0.9480\n0.9708\n0.8143\n0.7266\n0.7682\n0.7710\n0.5500\n0.8695": "0.8508"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table 5: Comparison of schemes for selecting teacher representations on the",
+      "data": [
+        {
+          "Distill All\nDistill All": "top-k\ntop-k\ntop-k\ntop-k",
+          "10\n30": "10\n20\n30\n50",
+          "All\nAll": "3\n10\n15\n30",
+          "0.74 ± 0.02\n↓ 0.72 ± 0.02": "↑ 0.75 ± 0.02\n↑ 0.76 ± 0.03\n↑ 0.76 ± 0.04\n↓ 0.72 ± 0.02",
+          "0.74 ± 0.02\n0.72 ± 0.02": "0.74 ± 0.02\n0.76 ± 0.02\n0.76 ± 0.04\n0.73 ± 0.02"
+        },
+        {
+          "Distill All\nDistill All": "DS\nDS",
+          "10\n30": "30\n50",
+          "All\nAll": "NA\nNA",
+          "0.74 ± 0.02\n↓ 0.72 ± 0.02": "↑ 0.77 ± 0.03 0.77 ± 0.03\n↑ 0.77 ± 0.03 0.77 ± 0.04",
+          "0.74 ± 0.02\n0.72 ± 0.02": ""
+        }
+      ],
+      "page": 13
+    },
+    {
+      "caption": "Table 6: 1D CNN architecture used with the HAR dataset.",
+      "data": [
+        {
+          "Conv1": "Conv2",
+          "Conv2d\nMaxPool2d": "Conv2d\nMaxPool2d",
+          "(9, 32), kernel = (1, 9)\n(1, 2), stride = 2": "(32, 64), kernel = (1, 9)\n(1, 2), stride = 2",
+          "ReLU\n-": "ReLU\n-"
+        },
+        {
+          "Conv1": "FC1",
+          "Conv2d\nMaxPool2d": "Linear",
+          "(9, 32), kernel = (1, 9)\n(1, 2), stride = 2": "1664 → 1000",
+          "ReLU\n-": "ReLU"
+        },
+        {
+          "Conv1": "FC2",
+          "Conv2d\nMaxPool2d": "Linear",
+          "(9, 32), kernel = (1, 9)\n(1, 2), stride = 2": "1000 → 500",
+          "ReLU\n-": "ReLU"
+        },
+        {
+          "Conv1": "FC3",
+          "Conv2d\nMaxPool2d": "Linear",
+          "(9, 32), kernel = (1, 9)\n(1, 2), stride = 2": "500 → 6",
+          "ReLU\n-": "-"
+        }
+      ],
+      "page": 20
+    },
+    {
+      "caption": "Table 8: compares the",
+      "data": [
+        {
+          "GS 25\nGS 20\nSSD\nE 25\nMV\nE 10\nMV\nE 5\nMV\nE 25\nAvg\nGS 10\nSWA\nE 5\nE 10\nAvg\nAvg\nUS 10\nBL\nModel Size at Test\n9.35 M\n0.9 M\n17.8 M": ""
+        }
+      ],
+      "page": 22
+    },
+    {
+      "caption": "Table 9: Accuracy of UCR datasets with and without student parameters ini-",
+      "data": [
+        {
+          "ECG200\nECG5000\nTwoLeadECG\nNIFetalECGThorax1\nNIFetalECGThorax2\nChinatown\nUWaveGestureLibraryX\nUWaveGestureLibraryY\nUWaveGestureLibraryZ\nMedicalImages\nDodgerLoopDay\nDodgerLoopGame": "Total",
+          "0.9300\n0.9413\n0.9798\n0.9394\n0.9480\n0.9708\n0.8143\n0.7266\n0.7682\n0.7710\n0.5500\n0.8695": "0.8508",
+          "0.8478\n0.9187\n0.9625\n0.9112\n0.9326\n0.9618\n0.7829\n0.6924\n0.7518\n0.8017\n0.5032\n0.7914": "0.8215"
+        }
+      ],
+      "page": 23
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Towards understanding ensemble, knowledge distillation and self-distillation in deep learning",
+      "authors": [
+        "Z Allen-Zhu",
+        "Y Li"
+      ],
+      "year": "2020",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "2",
+      "title": "A public domain dataset for human activity recognition using smartphones",
+      "authors": [
+        "D Anguita",
+        "A Ghio",
+        "L Oneto",
+        "X Parra",
+        "J Reyes-Ortiz"
+      ],
+      "year": "2013",
+      "venue": "A public domain dataset for human activity recognition using smartphones"
+    },
+    {
+      "citation_id": "3",
+      "title": "Privileged knowledge distillation for dimensional emotion recognition in the wild",
+      "authors": [
+        "M Aslam",
+        "M Osama Zeeshan",
+        "M Pedersoli",
+        "A Koerich",
+        "S Bacon",
+        "E Granger"
+      ],
+      "year": "2023",
+      "venue": "Privileged knowledge distillation for dimensional emotion recognition in the wild"
+    },
+    {
+      "citation_id": "4",
+      "title": "Even your teacher needs guidance: Ground-truth targets dampen regularization imposed by self-distillation",
+      "authors": [
+        "K Borup",
+        "L Andersen"
+      ],
+      "year": "2021",
+      "venue": "Even your teacher needs guidance: Ground-truth targets dampen regularization imposed by self-distillation"
+    },
+    {
+      "citation_id": "5",
+      "title": "Model compression",
+      "authors": [
+        "C Bucilua",
+        "R Caruana",
+        "A Niculescu-Mizil"
+      ],
+      "year": "2006",
+      "venue": "Proceedings of the 12th ACM SIGKDD"
+    },
+    {
+      "citation_id": "6",
+      "title": "StressID: a multimodal dataset for stress identification",
+      "authors": [
+        "H Chaptoukaev",
+        "V Strizhkova"
+      ],
+      "year": "2023",
+      "venue": "Neural IPS Datasets and Benchmarks Track"
+    },
+    {
+      "citation_id": "7",
+      "title": "Darkrank: Accelerating deep metric learning via cross sample similarities transfer",
+      "authors": [
+        "Y Chen",
+        "N Wang",
+        "Z Zhang"
+      ],
+      "year": "2017",
+      "venue": "Darkrank: Accelerating deep metric learning via cross sample similarities transfer"
+    },
+    {
+      "citation_id": "8",
+      "title": "The ucr time series archive",
+      "authors": [
+        "Dau"
+      ],
+      "year": "2019",
+      "venue": "IEEE/CAA Journal of Automatica Sinica"
+    },
+    {
+      "citation_id": "9",
+      "title": "Deep ensembles: A loss landscape perspective",
+      "authors": [
+        "S Fort",
+        "H Hu",
+        "B Lakshminarayanan"
+      ],
+      "year": "2020",
+      "venue": "Deep ensembles: A loss landscape perspective"
+    },
+    {
+      "citation_id": "10",
+      "title": "Born again neural networks",
+      "authors": [
+        "T Furlanello",
+        "Z Lipton",
+        "M Tschannen",
+        "L Itti",
+        "A Anandkumar"
+      ],
+      "year": "2018",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "11",
+      "title": "Dropout as a bayesian approximation: Representing model uncertainty in deep learning",
+      "authors": [
+        "Y Gal",
+        "Z Ghahramani"
+      ],
+      "year": "2016",
+      "venue": "Dropout as a bayesian approximation: Representing model uncertainty in deep learning"
+    },
+    {
+      "citation_id": "12",
+      "title": "Distilling the knowledge in a neural network",
+      "authors": [
+        "G Hinton",
+        "O Vinyals",
+        "J Dean"
+      ],
+      "year": "2015",
+      "venue": "Distilling the knowledge in a neural network"
+    },
+    {
+      "citation_id": "13",
+      "title": "Lora: Low-rank adaptation of large language models",
+      "authors": [
+        "E Hu",
+        "Y Shen",
+        "P Wallis",
+        "Z Allen-Zhu",
+        "Y Li",
+        "S Wang",
+        "L Wang",
+        "W Chen"
+      ],
+      "year": "2021",
+      "venue": "Lora: Low-rank adaptation of large language models"
+    },
+    {
+      "citation_id": "14",
+      "title": "Automatic pain assessment with ultra-short electrodermal activity signal. SAC",
+      "authors": [
+        "X Ji",
+        "T Zhao",
+        "W Li",
+        "A Zomaya"
+      ],
+      "year": "2023",
+      "venue": "Automatic pain assessment with ultra-short electrodermal activity signal. SAC"
+    },
+    {
+      "citation_id": "15",
+      "title": "Personalized and adaptive neural networks for pain detection from multi-modal physiological features",
+      "authors": [
+        "M Jiang",
+        "R Rosio"
+      ],
+      "year": "2024",
+      "venue": "ESWA"
+    },
+    {
+      "citation_id": "16",
+      "title": "Methods for person-centered continuous pain intensity assessment from bio-physiological channels",
+      "authors": [
+        "M Kächele",
+        "P Thiam",
+        "M Amirian"
+      ],
+      "year": "2016",
+      "venue": "IEEE JSTSP"
+    },
+    {
+      "citation_id": "17",
+      "title": "Simple and scalable predictive uncertainty estimation using deep ensembles",
+      "authors": [
+        "B Lakshminarayanan",
+        "A Pritzel",
+        "C Blundell"
+      ],
+      "year": "2017",
+      "venue": "Simple and scalable predictive uncertainty estimation using deep ensembles"
+    },
+    {
+      "citation_id": "18",
+      "title": "Soft contrastive learning for time series",
+      "authors": [
+        "S Lee",
+        "T Park",
+        "K Lee"
+      ],
+      "venue": "Soft contrastive learning for time series"
+    },
+    {
+      "citation_id": "19",
+      "title": "Distilling a powerful student model via online knowledge distillation",
+      "authors": [
+        "S Li",
+        "M Lin",
+        "Y Wang",
+        "Y Wu",
+        "Y Tian",
+        "L Shao",
+        "R Ji"
+      ],
+      "year": "2023",
+      "venue": "IEEE TNNLS"
+    },
+    {
+      "citation_id": "20",
+      "title": "Ensembles of low-rank expert adapters",
+      "authors": [
+        "Y Li"
+      ],
+      "year": "2025",
+      "venue": "Ensembles of low-rank expert adapters"
+    },
+    {
+      "citation_id": "21",
+      "title": "Ensemble distillation for robust model fusion in fed",
+      "authors": [
+        "T Lin"
+      ],
+      "year": "2021",
+      "venue": "Ensemble distillation for robust model fusion in fed"
+    },
+    {
+      "citation_id": "22",
+      "title": "Continuous pain intensity estimation from autonomic signals with recurrent neural networks",
+      "authors": [
+        "D Lopez-Martinez",
+        "R Picard"
+      ],
+      "venue": "Continuous pain intensity estimation from autonomic signals with recurrent neural networks"
+    },
+    {
+      "citation_id": "23",
+      "title": "Multi-task neural networks for personalized pain recognition from physiological signals",
+      "authors": [
+        "D Lopez-Martinez",
+        "R Picard"
+      ],
+      "year": "2017",
+      "venue": "IEEE ACIIw"
+    },
+    {
+      "citation_id": "24",
+      "title": "Transformer encoder with multiscale deep learning for pain classification using physiological signals",
+      "authors": [
+        "Z Lu",
+        "B Ozek",
+        "S Kamarthi"
+      ],
+      "year": "2023",
+      "venue": "Frontiers in Physiology"
+    },
+    {
+      "citation_id": "25",
+      "title": "Self-distillation amplifies regularization in hilbert space",
+      "authors": [
+        "H Mobahi",
+        "M Farajtabar",
+        "P Bartlett"
+      ],
+      "year": "2020",
+      "venue": "Self-distillation amplifies regularization in hilbert space"
+    },
+    {
+      "citation_id": "26",
+      "title": "Can you trust your model's uncertainty? evaluating predictive uncertainty under dataset shift",
+      "authors": [
+        "Y Ovadia",
+        "E Fertig"
+      ],
+      "year": "2019",
+      "venue": "Can you trust your model's uncertainty? evaluating predictive uncertainty under dataset shift"
+    },
+    {
+      "citation_id": "27",
+      "title": "Cho: Relational knowledge distillation",
+      "authors": [
+        "W Park",
+        "D Kim",
+        "Y Lu"
+      ],
+      "venue": "Cho: Relational knowledge distillation"
+    },
+    {
+      "citation_id": "28",
+      "title": "Exploration of physiological sensors, features, and ml models for pain intensity estimation",
+      "authors": [
+        "F Pouromran",
+        "S Radhakrishnan",
+        "S Kamarthi"
+      ],
+      "year": "2021",
+      "venue": "PlusOne Journal"
+    },
+    {
+      "citation_id": "29",
+      "title": "Fitnets: Hints for thin deep nets",
+      "authors": [
+        "A Romero",
+        "N Ballas",
+        "S Kahou",
+        "A Chassang",
+        "C Gatta",
+        "Y Bengio"
+      ],
+      "venue": "Fitnets: Hints for thin deep nets"
+    },
+    {
+      "citation_id": "30",
+      "title": "Xkd: Cross-modal knowledge distillation with domain alignment for video representation learning",
+      "authors": [
+        "P Sarkar",
+        "A Etemad"
+      ],
+      "year": "2024",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "31",
+      "title": "Tree-based models for pain detection from biomedical signals",
+      "authors": [
+        "H Shi",
+        "B Chikhaoui",
+        "S Wang"
+      ],
+      "year": "2022",
+      "venue": "ICOST"
+    },
+    {
+      "citation_id": "32",
+      "title": "Does knowledge distillation really work?",
+      "authors": [
+        "S Stanton",
+        "P Izmailov",
+        "P Kirichenko",
+        "A Alemi",
+        "A Wilson"
+      ],
+      "year": "2021",
+      "venue": "Does knowledge distillation really work?"
+    },
+    {
+      "citation_id": "33",
+      "title": "Exploring deep physiological models for nociceptive pain recognition",
+      "authors": [
+        "P Thiam",
+        "P Bellmann",
+        "H Kestler",
+        "F Schwenker"
+      ],
+      "year": "2019",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "34",
+      "title": "Multi-modal pain intensity assessment based on physiological signals",
+      "authors": [
+        "P Thiam",
+        "H Hihn",
+        "D Braun",
+        "H Kestler",
+        "F Schwenker"
+      ],
+      "year": "2022",
+      "venue": "Frontiers in Physiology"
+    },
+    {
+      "citation_id": "35",
+      "title": "The biovid heat pain database: Data for the advancement and systematic validation of an automated pain recognition",
+      "authors": [
+        "S Walter",
+        "E Werner"
+      ],
+      "venue": "The biovid heat pain database: Data for the advancement and systematic validation of an automated pain recognition"
+    },
+    {
+      "citation_id": "36",
+      "title": "Hybrid rnn-ann based deep physiological network for pain recognition",
+      "authors": [
+        "R Wang",
+        "K Xu",
+        "H Feng",
+        "W Chen"
+      ],
+      "year": "2020",
+      "venue": "42nd IEEE EMBC"
+    },
+    {
+      "citation_id": "37",
+      "title": "Automatic pain assessment with facial activity descriptors",
+      "authors": [
+        "P Werner",
+        "A Al-Hamadi",
+        "K Limbrecht-Ecklundt",
+        "S Walter",
+        "S Gruss",
+        "H Traue"
+      ],
+      "venue": "Automatic pain assessment with facial activity descriptors"
+    },
+    {
+      "citation_id": "38",
+      "title": "Automatic pain recognition from video and biomedical signals",
+      "authors": [
+        "P Werner",
+        "A Al-Hamadi",
+        "R Niese",
+        "S Walter",
+        "S Gruss",
+        "H Traue"
+      ],
+      "year": "2014",
+      "venue": "Automatic pain recognition from video and biomedical signals"
+    },
+    {
+      "citation_id": "39",
+      "title": "Model soups",
+      "authors": [
+        "M Wortsman",
+        "G Ilharco",
+        "S Gadre"
+      ],
+      "year": "2022",
+      "venue": "Model soups"
+    },
+    {
+      "citation_id": "40",
+      "title": "Ts2vec: Towards universal representation of time series",
+      "authors": [
+        "Z Yue",
+        "Y Wang",
+        "J Duan",
+        "T Yang",
+        "C Huang",
+        "Y Tong",
+        "B Xu"
+      ],
+      "year": "2021",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "41",
+      "title": "Paying more attention to attention: Improving the performance of cnns via attention transfer",
+      "authors": [
+        "S Zagoruyko",
+        "N Komodakis"
+      ],
+      "year": "2017",
+      "venue": "Paying more attention to attention: Improving the performance of cnns via attention transfer"
+    },
+    {
+      "citation_id": "42",
+      "title": "Self-distillation: Towards efficient and compact neural networks",
+      "authors": [
+        "L Zhang",
+        "C Bao",
+        "K Ma"
+      ],
+      "year": "2021",
+      "venue": "IEEE"
+    },
+    {
+      "citation_id": "43",
+      "title": "Self-distillation as instance-specific label smoothing",
+      "authors": [
+        "Z Zhang",
+        "M Sabuncu"
+      ],
+      "year": "2020",
+      "venue": "Self-distillation as instance-specific label smoothing"
+    },
+    {
+      "citation_id": "44",
+      "title": "The ucr time series archive",
+      "authors": [
+        "Dau"
+      ],
+      "year": "2019",
+      "venue": "IEEE/CAA Journal of Automatica Sinica"
+    },
+    {
+      "citation_id": "45",
+      "title": "A public domain dataset for human activity recognition using smartphones",
+      "authors": [
+        "D Anguita",
+        "A Ghio",
+        "L Oneto",
+        "X Parra",
+        "J Reyes-Ortiz"
+      ],
+      "year": "2013",
+      "venue": "A public domain dataset for human activity recognition using smartphones"
+    },
+    {
+      "citation_id": "46",
+      "title": "The biovid heat pain database: Data for the advancement and systematic validation of an automated pain recognition",
+      "authors": [
+        "S Walter",
+        "E Werner"
+      ],
+      "venue": "The biovid heat pain database: Data for the advancement and systematic validation of an automated pain recognition"
+    },
+    {
+      "citation_id": "47",
+      "title": "StressID: a multimodal dataset for stress identification",
+      "authors": [
+        "H Chaptoukaev",
+        "V Strizhkova"
+      ],
+      "year": "2023",
+      "venue": "Neural IPS Datasets and Benchmarks Track"
+    }
+  ]
+}

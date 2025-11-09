@@ -1,0 +1,2018 @@
+{
+  "paper_id": "2406.02963v1",
+  "title": "Dataset-Distillation Generative Model For Speech Emotion Recognition",
+  "published": "2024-06-05T05:38:46Z",
+  "authors": [
+    "Fabian Ritter-Gutierrez",
+    "Kuan-Po Huang",
+    "Jeremy H. M Wong",
+    "Dianwen Ng",
+    "Hung-yi Lee",
+    "Nancy F. Chen",
+    "Eng Siong Chng"
+  ],
+  "keywords": [
+    "self-supervised learning",
+    "dataset distillation",
+    "speech emotion recognition",
+    "generative adversarial network"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Deep learning models for speech rely on large datasets, presenting computational challenges. Yet, performance hinges on training data size. Dataset Distillation (DD) aims to learn a smaller dataset without much performance degradation when training with it. DD has been investigated in computer vision but not yet in speech. This paper presents the first approach for DD to speech targeting Speech Emotion Recognition on IEMO-CAP. We employ Generative Adversarial Networks (GANs) not to mimic real data but to distil key discriminative information of IEMOCAP that is useful for downstream training. The GAN then replaces the original dataset and can sample custom synthetic dataset sizes. It performs comparably when following the original class imbalance but improves performance by 0.3% absolute UAR with balanced classes. It also reduces dataset storage and accelerates downstream training by 95% in both cases and reduces speaker information which could help for a privacy application.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "End-to-end (E2E) machine learning and self-supervised learning (SSL) techniques have revolutionized speech processing in various tasks  [1] [2] [3] . However, they rely on large data resources for training, posing storage and data processing challenges. For example,  [4]  utilized 180k hours of labelled data and required 20 days of training on 64 GPUs to train a single model. Such data-intensive models present financial and logistical challenges when faced with limited resources while posing severe environmental impact  [5] . Despite these issues, the current training paradigm necessitates a vast amount of data  [6] .\n\nDataset Distillation (DD)  [7]  has emerged, showing great promise for reducing training costs. DD aims to learn discriminative and informative samples and form a smaller synthetic dataset hoping to retain as much performance as the original dataset. DD deviates from the \"data-selection\" paradigm  [8]  where a smaller dataset is created by selecting representative data points in the dataset. In contrast, DD learns abstract representations that convey the dataset's most discriminative information, which may or may not look realistic.\n\nDD is a popular emerging paradigm in Computer Vision (CV)  [9] [10] [11] [12] [13]  yet it has not been explored for speech processing tasks. DD for speech processing introduces unique challenges due to the inherent differences between speech signals and images. Speech is a temporal signal with temporal dependencies. Hence, there is relevant information to distil across time. This paper proposes a first attempt of DD on speech processing task, aiming to 1) significantly reduce the disk storage requirement compared to the original dataset, 2) reduce training time computation on the downstream task, 3) make speaker identity harder to recover to enhance privacy and 4) alleviate data-label imbalance. Such goals should be achieved without considerably hurting downstream model performance when training with the distilled dataset.\n\nSpeech emotion recognition (SER) task in the IEMOCAP dataset  [14]  is chosen as a case study for the following reasons. First, SER is an utterance-level classification task, where the variable length speech sequence is mapped into a single vector for classification. This is a favorable starting point to analyze the feasibility of this research direction on speech processing before extending the approach to speech tasks that make predictions over frames of the speech sequence. Second, while utterance-level classification makes the task more manageable, the subtleties needed to model emotions are challenging and interesting. The DD algorithm will need to convey discriminative information of a speech signal for ER classification.\n\nFig.  1  shows the usage scenario of the proposed method. Rather than training a downstream model with the original dataset, which requires expensive model training due to hyperparameter tuning, downstream architecture selection, and so on, we propose to learn a distribution that summarizes the training data, and that is controlled only by the emotion class labels. By learning a distribution that summarizes the training data across emotion labels, we do not need to retain a record of the original speech. Hence, our proposal implicitly enhances privacy. Nonetheless, this does not means the proposal guarantees private generated representations. Once this summary distribution is learned as a generative model, a custom budget of samples per class can be generated to train downstream models, perform parameter tuning and so on. While training a generator incurs a cost, our proposal aims to provide a generator that replaces the dataset, meaning that training the generator is a once-for-all process.\n\nThe method, depicted in Fig  2 , employs a Generative Adversarial Network (GAN) for DD in IEMOCAP, favored over a Diffusion Probabilistic Model (DPM) due to its smaller size, higher computational efficiency, and quicker on-the-fly data generation capabilities  [15] . Nonetheless, GANs have been designed to generate real-looking data, differing from our goal of learning a summary distribution of the dataset useful for downstream training. Hence, to make the GAN learn discriminative information useful for downstream performance, we propose to bias the GAN by adding a term that minimizes the Kullback-Leibler (KL) divergence between the softmax probabilities of emotion classes of downstream forward passes between the real and synthetic data. We prevent the GAN from merely memorizing the softmax probability distribution by sampling from a variety of downstream model checkpoints, thereby introducing a range of possible KL divergence targets. Furthermore, a diversity penalty term is added to make the GAN sample more diverse data on smaller synthetic dataset sizes. To test the efficiency of the proposed method, we do ablations to see real data test set performance on IEMOCAP. The results obtained show that our proposal consistently maintains close accuracy performance comparable to a model trained on the real IEMOCAP dataset and it is consistently better than a GAN  [16]  trained without our proposed criteria with statistical significance at a p-value of 0.05. The proposed method reduces the dataset size and training time by 95% with minimal performance degradation. Additionally, it improves SER over the real data training when our method samples balanced datasets. Hence, the proposal alleviates data imbalance issues inherent in IEMOCAP. Finally, this proposal implicitly decreases speaker identity information which fosters possibilities for privacy related applications.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "While there is no work directly aiming to distill a dataset for SER or any speech processing task, there is work that leverages GANs for data augmentation in SER. In  [17] , an unconditional and conditional GAN was trained for the IEMOCAP dataset.  [18] , uses a conditional GAN to do mel-spectrogram augmentation to improve performance on less representative emotion classes for IEMOCAP.  [19]  investigates CycleGAN for emotion style transfer, aiming to generate realistic emotion data. The study adds an evaluation of real test sets for models trained on synthetic data only, revealing a performance gap above 8% between training on real versus synthetic data. There are more similar works using GANs for data augmentation such as  [20] [21] [22]  but with different GANs architectures and some recent work has attempted speech emotion recognition data augmentation using denoising diffusion probabilistic models (DDPM)  [23] .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Dataset Distillation",
+      "text": "Generally speaking, DD aims to learn a small dataset that achieves comparable performance to the original dataset that it is distilling from. Let T = (x i , y i )| |T| i=1 be the real dataset consisting on data-label pairs xi, yi with xi ∈ R d with d the feature dimension and yi ∈ R c with c the number of classes. DD aims to create a synthetic dataset S = (sj, yj)| |S| j=1 (|S| ≪ |T|). Once S is learned, the dataset is deployed to train a downstream model, and that model is evaluated on the real data test set.\n\nDD methods are based on three strategies  [7] : i) performance matching: monitoring performance achieved by a neural network with the original dataset versus the synthetic dataset  [9] ; ii) gradient matching: match the gradient in a neural network of the original and synthetic dataset at each iteration  [10] ; iii) distribution or feature matching: match the features produced on a neural network for the real and synthetic data  [11, 12] . In general, the algorithm will define a fixed budget of number of elements per class when doing DD. Hence, if a different budget is needed, a whole DD training must be done again. Differently, the works  [24, 25]  distill CV datasets into a generative model. Hence, rather than directly learning a dataset S, they learn a generator g that can sample different datasets based on a sample per class budget. Our proposal is motivated by these ideas.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Dataset Distillation For Speech Emotion",
+      "text": "In this paper, rather than directly learning a dataset S, a generative model g is learnt to generate summary distributions of T. Once g is learnt, custom-defined samples per emotion can be generated. Small-size generative models are designed, thereby significantly decreasing storage requirements of the original dataset as seen in Table  1 .\n\nThe proposed approach consists of two stages, the first stage is a standard GAN training, particularly the conditional Wasserstein GAN implementation with gradient penalty (WGAN-GP)  [16] . In WGAN-GP, the discriminator dω, with ω the weight parameters, is optimized as,\n\n[dω(x)] + λ1LGP(w),  (1)  where g ϕ is the generator parametrized by the weights ϕ, P (z), P (x) denotes the distribution of noise (latent) vectors and real samples respectively. A noise vector z ∼ P (z) contains the information of the label y in the form of a one-hot vector, i.e. z ≡ [y ⊕ e], with ⊕ the concatenation operation and e ∼ N (0, 1).\n\nThe gradient penalty LGP(w) is needed to have a valid Wasserstein distance computation and λ1 controls the importance of this term. We use λ1 = 10 as in the original WGAN-GP  [16] .\n\nThe generator in WGAN-GP is trained to minimize,\n\nAdditionally, motivated by speech processing research on melspectrogram inversion  [26, 27] , we add a feature matching (FM) loss, shown to improve stability for generator training. The FM loss is defined as,\n\nw is the feature map at the \"l-th\" layer of the discriminator dw, and M the number of layers. Eq. (  3 ) helps the generator to sample features on the same space than the real data.\n\nFinally, to use the conditioning class label information, a cross-entropy loss is added. Then, the final loss for the discriminator is,",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Ce(D Class",
+      "text": "w (x), y)\n\nwith CE denoting the cross-entropy loss, d class w (•) the logits distribution of the emotion classes y, and λi represent scalar weights. The final generator loss is,\n\nEq. (  4 ) and (  5 ) are designed to generate data that resembles real instances as done in previous work  [18, 19] . The aim of this paper diverges from conventional uses of GANs for creating real-looking data. Instead, the focus is on harnessing GANs to generate key discriminative information that serves downstream model performance so that it can be used for DD. This point is important as it differs from the paradigm of generating the same distribution of the original dataset but rather a distribution that contains the information useful for downstream task training. To achieve this goal, a softmax probability matching method is proposed to minimize the KL-divergence between the softmax probabilities of real and synthetic data across a range of downstream model checkpoints, this range is needed to avoid the GAN memorizing the logits distribution of a single model. The proposed softmax matching loss (SML) enforces the generator g ϕ to generate representations that are useful for downstream model training. Specifically, let Θ consist of a distribution of model checkpoints. For any sampled model f θ from this set, where θ ∼ Θ represents the downstream model weights, the SML is defined as,\n\nfor |y|, the number of classes, B the batch size and f θ (•)i is the softmax probability of the i-th class given some real observation x j or generated representation g ϕ (zj) . Furthermore, inspired by  [28] , a diversity penalty is included into the generator g ϕ to encourage the generation of a wider variety of samples. Rather than producing samples clustered around a mode, the goal is to span the support of the real data as broadly as possible. The diversity penalty loss is defined as,\n\nwith τ a scalar that bounds the diversity penalty for stability. Eq. (  7 ) compares noises of the same class. Then, for two vectors z1 and z2, if z1 ≈ z2, the generator should generate two similar vectors. On the other hand, if the noises are different, then the generator should generate a different representation, thus avoiding mode collapse. Finally, the proposed DD method consists of the same discriminator loss of Equation (  4 ) and the following generator loss, Using only CNN layers for the generator has the inductive bias that points that are spatially close to each other are correlated while neglecting long-range correlations. Nonetheless, for SER, modeling a long temporal context over each feature dimension may be important. Hence, the generator is modified to include only one self-attention operation over the time dimension after the 4-th CNN layer. To reduce number of parameters even further, the number of channels in the CNN layers are reduced from 256 to 128 and dilation is included to increase the receptive field of each CNN layer. This architecture is called GAN-ATT. Both models train on an A100-SXM4-40GB GPU, requiring 30 GPU hours each. Table  1 , shows the sizes of the two GAN's architectures, highlighting a nearly 95% size reduction compared to the original IEMOCAP audio. Such results in Table  1  are important when scaling up to bigger datasets.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Gan As A Dataset Distillator",
+      "text": "Table  2  analyzes the effect of training with a traditional WGAN-GP (Baseline) versus the proposed losses LDIV and LSML for the two generator architectures mentioned. DD aims to learn key discriminative information for training. In order to evaluate the efficiency of the discriminative information modelled, it is common to analyze DD performance using a small number of datapoints. Therefore, Table  2  analyzes such results under a low points per class (ppc) budget of 50 ppc (5.6% of the size of the original dataset) and 100 ppc (11.2% of the size of the original dataset). Additionaly, to analyze how the proposal scales to   2 , it is evident that incorporating the proposed LDIV and LSML into the Baseline WGAN-GP significantly improves UAR across both generator architectures (GAN-CNN and GAN-ATT) and for both 50 ppc and 100 ppc dataset budgets. Furthermore, it can be seen that both terms are complementary. When comparing the Baseline with models using either LDIV or LSML individually, there is a noticeable improvement in performance. For instance, in the GAN-CNN architecture at 50 ppc, the UAR improves from 47.75% to 48.52% with LDIV and to 53.79% with LSML and to 54.99% when both terms are used together. For the GAN-ATT architecture, the trends are analogous. Interestingly, the GAN-ATT generator using both terms proposed for a budget of 11.2% of the original dataset size can achieve an UAR score of 61.95% which is only 2.25% less than the model trained with the full original training data (see first row in Table  3 ). For bigger data budgets, GAN-ATT surpasses the performance of the model trained with the original training set. Notably, two-tailed McNemar's test is performed at a p-value of 0.05 and results shows statistical significance for the LSML and LDIV + LSML models when compared to the Baseline. Additionally, the Baseline+LDIV +LSML model is also statistically significant when compared with +LSML only. Table  3  compares GAN-ATT's performance against real data training in both balanced and imbalanced scenarios. IEMOCAP is a well known imbalanced dataset, meaning that some classes are represented more than others. Training with imbalanced data may hurt performance and hence using a GAN to alleviate this issue may be of importance. Last column of Table  3  shows that using the same size than the original dataset but with balanced classes improves performance than training with the original dataset. On the other hand, Full data Imbalanced column assess GAN-ATT under the same class label distribution of the original train set which shows similar performance than the model trained with real SSL. Besides, in order to test the real data set in a balance scenario, we select all the datapoints from the minority emotion class (693 utterances) and randomly select 693 utterances for each of the rest of emotion classes. Similarly, we analyze performance of 693 ppc for the GAN-ATT (2447 points in total) and finally we see performances of real SSL and GAN-ATT under the imbalance scenario for 2447 datapoints. Findings in Table  3  suggest that the proposed method can be used to alleviate data label imbalance because GAN only training can improve performance versus real data training. Such results suggest that having a generative model that can modify the train data class label distribution is beneficial and is a strength of this proposed method. Finally, we noticed that using GAN data makes the downstream model quickly converge on the real validation set, making the model to be trained in less than 5 minutes. On the other hand, real data training convergence is slower, taking around 90 minutes to train which is nearly a 95% time reduction for downstream model training. This efficiency facilitates quicker hyperparameter optimization for downstream models, showcasing another advantage of our approach.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "On The Privacy Aspect",
+      "text": "Although this method does not inherently guarantee privacy, its use of GANs to learn SSL-like representations, conditioned solely on emotion labels, does not seem optimal to retain other forms of information. This section focuses on speaker identity, but similar arguments can be made about the retention of information such as content. The model's design, results in the generation of abstract representations that enhance downstream model performance for SER. This implicitly bolsters privacy by limiting the frame-level information necessary for accurate speech reconstruction. To assess the potential for retaining speaker information, we propose testing using the downstream model's first layer as a speaker embedding, a technique widely recognized in speaker identification (SID) studies  [32, 33] . Table  4  shows such results for SUPERB SID task, where our proposed method reduces speaker information by 6.88% compared to the linear layer of a downstream model trained for SER with real SSL representations. While these results do not mean the GAN-ATT ensures privacy, it does mean there is an implicit reduction on speaker identity modelling which could serve as a starting point for explicitly training DD that ensures privacy. This will be investigated in future work.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "This study introduced DD for SER by leveraging a GAN to generate datasets that are useful for downstream model training. A softmax probability matching loss is proposed to achieve such goal. Diversity penalty is proposed to sample more variety of synthetic datapoints. The method achieves performance on par compared to real data downstream model training while substantially reducing dataset size and downstream training time. Our method can alleviate data label imbalance. Our method as well carries less speaker information which could serve as a starting point for an application on privacy preserving dataset distillation. Future work will analyze this direction as well as scaling to bigger datasets.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: shows the usage scenario of the proposed method.",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: , employs a Generative Ad-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: Usage scenario for DD on speech processing tasks.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Schematic representation of the proposed DD. The",
+      "page": 2
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "DAMO Academy, Alibaba Group, Singapore"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "stufarg@i2r.a-star.edu.sg"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "compared to the original dataset, 2) reduce training time compu-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "tation on the downstream task, 3) make speaker identity harder"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "to recover\nto enhance privacy and 4) alleviate data-label\nim-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "balance.\nSuch goals should be achieved without considerably"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "hurting downstream model performance when training with the"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "distilled dataset."
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "Speech emotion recognition (SER) task in the IEMOCAP"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "dataset [14] is chosen as a case study for the following reasons."
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "First, SER is an utterance-level classification task, where the"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "variable length speech sequence is mapped into a single vector"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "for classification. This is a favorable starting point\nto analyze"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "the feasibility of\nthis research direction on speech processing"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "before extending the approach to speech tasks that make pre-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "dictions over\nframes of\nthe speech sequence.\nSecond, while"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "utterance-level classification makes the task more manageable,"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "the subtleties needed to model emotions are challenging and in-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "teresting. The DD algorithm will need to convey discriminative"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "information of a speech signal for ER classification."
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "Fig.\n1 shows the usage scenario of\nthe proposed method."
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "Rather\nthan training a downstream model with the original"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "dataset, which requires expensive model\ntraining due to hyper-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "parameter tuning, downstream architecture selection, and so on,"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": ""
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "we propose to learn a distribution that summarizes the training"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "data, and that is controlled only by the emotion class labels. By"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "learning a distribution that summarizes the training data across"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "emotion labels, we do not need to retain a record of\nthe orig-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "inal speech. Hence, our proposal\nimplicitly enhances privacy."
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "Nonetheless,\nthis does not means the proposal guarantees pri-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "vate generated representations. Once this summary distribution"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "is learned as a generative model, a custom budget of samples"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "per class can be generated to train downstream models, perform"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "parameter tuning and so on. While training a generator incurs"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "a cost, our proposal aims to provide a generator\nthat\nreplaces"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "the dataset, meaning that training the generator is a once-for-all"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "process."
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "The method, depicted in Fig 2, employs a Generative Ad-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "versarial Network (GAN) for DD in IEMOCAP, favored over a"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "Diffusion Probabilistic Model\n(DPM) due to its smaller size,"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "higher\ncomputational\nefficiency,\nand quicker on-the-fly data"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "generation capabilities [15]. Nonetheless, GANs have been de-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "signed to generate real-looking data, differing from our goal of"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "learning a summary distribution of the dataset useful for down-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "stream training. Hence,\nto make the GAN learn discriminative"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "information useful for downstream performance, we propose to"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "bias the GAN by adding a term that minimizes the Kullback-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "Leibler\n(KL) divergence between the softmax probabilities of"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "emotion classes of downstream forward passes between the real"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "and synthetic data. We prevent\nthe GAN from merely memo-"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "rizing the softmax probability distribution by sampling from a"
+        },
+        {
+          "3National Taiwan University, Taiwan 4ASUS Intelligent Cloud Services, Taiwan 5Speech Lab of": "variety of downstream model checkpoints,\nthereby introducing"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "versity penalty term is added to make the GAN sample more",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "Generally speaking, DD aims\nto learn a\nsmall dataset\nthat"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "diverse data on smaller synthetic dataset sizes. To test\nthe effi-",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "achieves comparable performance to the original dataset that it"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "ciency of the proposed method, we do ablations to see real data",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "is distilling from.\nLet T = (xi, yi)||T|\ni=1 be the real dataset"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "test set performance on IEMOCAP. The results obtained show",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "∈ Rd with d\nconsisting on data-label pairs xi, yi with xi"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "that our proposal consistently maintains close accuracy perfor-",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "the\n∈ Rc with c\nthe number of\nfeature dimension and yi"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "mance comparable to a model\ntrained on the real\nIEMOCAP",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "dataset and it\nis consistently better\nthan a GAN [16]\ntrained",
+          "3. Dataset Distillation": "classes. DD aims to create a synthetic dataset S = (sj, yj)||S|\nj=1"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "without our proposed criteria with statistical significance at a",
+          "3. Dataset Distillation": "(|S| ≪ |T|). Once S is learned, the dataset is deployed to train"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "p-value of 0.05. The proposed method reduces the dataset size",
+          "3. Dataset Distillation": "a downstream model, and that model\nis evaluated on the real"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "and training time by 95% with minimal performance degrada-",
+          "3. Dataset Distillation": "data test set."
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "tion. Additionally,\nit\nimproves SER over the real data training",
+          "3. Dataset Distillation": "DD methods\nare\nbased\non\nthree\nstrategies\n[7]:\ni)\nper-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "when our method samples balanced datasets. Hence,\nthe pro-",
+          "3. Dataset Distillation": "formance matching: monitoring performance\nachieved by a"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "posal alleviates data imbalance issues inherent\nin IEMOCAP.",
+          "3. Dataset Distillation": "neural network with the original dataset versus\nthe synthetic"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "Finally,\nthis proposal\nimplicitly decreases speaker\nidentity in-",
+          "3. Dataset Distillation": "dataset [9];\nii) gradient matching: match the gradient\nin a neu-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "formation which fosters possibilities for privacy related appli-",
+          "3. Dataset Distillation": "ral network of the original and synthetic dataset at each itera-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "cations.",
+          "3. Dataset Distillation": "tion [10];\niii) distribution or\nfeature matching: match the fea-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "tures produced on a neural network for\nthe real and synthetic"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "data [11, 12].\nIn general,\nthe algorithm will define a fixed bud-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "get of number of elements per class when doing DD. Hence,\nif"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "a different budget is needed, a whole DD training must be done"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "again. Differently,\nthe works [24, 25] distill CV datasets into a"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "generative model. Hence, rather than directly learning a dataset"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "S,\nthey learn a generator g that can sample different datasets"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "based on a sample per class budget. Our proposal\nis motivated"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "by these ideas."
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "4. Dataset Distillation for Speech Emotion"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "Figure 1: Usage scenario for DD on speech processing tasks.",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "represents\ninference\non\na\ndownstream model f\nfT(xtest)",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "In this paper, rather than directly learning a dataset S, a gener-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "trained under dataset T.",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "ative model g is learnt to generate summary distributions of T."
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "Once g is learnt, custom-defined samples per emotion can be"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "generated. Small-size generative models are designed,\nthereby"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "significantly decreasing storage\nrequirements of\nthe original"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "dataset as seen in Table 1."
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "The proposed approach consists of\ntwo stages,\nthe first"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "stage\nis\na\nstandard GAN training,\nparticularly\nthe\ncondi-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "tional Wasserstein GAN implementation with gradient penalty"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "(WGAN-GP) [16].\nIn WGAN-GP,\nthe discriminator dω, with"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "ω the weight parameters, is optimized as,"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "E\nE\n[dω (gϕ(z))] −\n(1)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "Schematic representation of\nthe proposed DD. The\nFigure 2:",
+          "3. Dataset Distillation": "LDADV (w) ="
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "z∼P (z)\nx∼P (x)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "blue dashed lines represent the standard training of a GAN",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "where gϕ is the generator parametrized by the weights ϕ, P (z),"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "P (x) denotes the distribution of noise (latent) vectors and real"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "samples respectively. A noise vector z ∼ P (z) contains the"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "information of\nthe\nlabel y in the\nform of\na one-hot vector,"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "2. Related Work",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "i.e.\nz ≡ [y ⊕ e], with ⊕ the concatenation operation and"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "e ∼ N (0, 1)."
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "While there is no work directly aiming to distill a dataset\nfor",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "is needed to have\na valid\nThe gradient penalty LGP(w)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "SER or any speech processing task,\nthere is work that\nlever-",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "Wasserstein distance computation and λ1 controls the impor-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "ages GANs for data augmentation in SER.\nIn [17], an uncon-",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "tance of this term. We use λ1 = 10 as in the original WGAN-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "ditional and conditional GAN was trained for\nthe IEMOCAP",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "GP [16]."
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "dataset.\n[18], uses a conditional GAN to do mel-spectrogram",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "The generator in WGAN-GP is trained to minimize,"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "augmentation to improve performance on less\nrepresentative",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "emotion classes\nfor\nIEMOCAP.\n[19]\ninvestigates CycleGAN",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "E"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "(2)\n[dw (gϕ(z))] .\nLGADV (ϕ) = −"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "for emotion style transfer,\naiming to generate realistic emo-",
+          "3. Dataset Distillation": "z∼P (z)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "tion data.\nThe study adds an evaluation of\nreal\ntest\nsets\nfor",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "Additionally, motivated by speech processing research on mel-"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "models trained on synthetic data only, revealing a performance",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "spectrogram inversion [26,27], we add a feature matching (FM)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "gap above 8% between training on real versus synthetic data.",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "loss, shown to improve stability for generator training. The FM"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "There are more similar works using GANs for data augmen-",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "loss is defined as,"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "tation such as [20–22] but with different GANs architectures",
+          "3. Dataset Distillation": ""
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "and some recent work has attempted speech emotion recogni-",
+          "3. Dataset Distillation": "(cid:35)\n(cid:34) M"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "tion data augmentation using denoising diffusion probabilistic",
+          "3. Dataset Distillation": "(cid:12)(cid:12)(cid:12)\n(cid:12)(cid:12)(cid:12)\nE\nd(l)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "(cid:88) l\n1 M\n,\n(3)\nLFM (gϕ, dw) =\nw (x) − d(l)\nw (gϕ(z))"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "x∼P (x)"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "models (DDPM) [23].",
+          "3. Dataset Distillation": "=1"
+        },
+        {
+          "a range of possible KL divergence targets. Furthermore, a di-": "",
+          "3. Dataset Distillation": "z∼P (z)"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": "SSL"
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": "feats"
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": "2.4 GB"
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        },
+        {
+          "Table 1: DD size reduction of training set of IEMOCAP": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "5. Experiments"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "5.1.\nImplementation details"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "Dataset and SSL setup: As explained in Section 1, SER task"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "is chosen and SUPERB [29]\nframework is followed for easy"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "reproducibility and comparison with real data training. Experi-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "ments follow the leave-one-out session and only leave-out Ses-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "sion 1 is assessed due to computational\nresource restrictions."
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "Nonetheless, in order to account for the possible variance in the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "results, McNemar’s test is conducted at a p-value of 0.05 to ver-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "ify statistical significance. The training data consists of Session"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "2 to 4, spanning 3,556 audios to distill. Motivated by [17,19,30]"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "that does GAN data augmentation on a time averaged openS-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "MILE [31] representation, this work generates a distribution on"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "SSL representations but\nretaining the time dimension. Distil-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "lation is done over HuBERT Base [1] SSL representations and"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "evaluations are done with Unweighted Average Recall\n(UAR)"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "to account for class imbalance."
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "Discriminator and Generator Architecture: Two small size"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "architectures are considered. The first, named GAN-CNN,\nis a"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "WGAN-GP model utilizing solely convolutional\nlayers (CNN)"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "for both its discriminator and generator.\nThe discriminator\nis"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "composed of 8 2D-CNN layers, each featuring layer normaliza-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "tion and leaky-relu activation.\nThe final CNN layer connects"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "to two feed-forward layers: one calculates the Wasserstein dis-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "tance, and the other predicts the class category. The generator in"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "GAN-CNN employs 2D CNN and transposed convolution lay-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "ers followed by batch normalization and leaky-relu activation."
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "There is no tanh operation at the generator’s output, because the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "original SSL features are not limited to the [-1,1] range."
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "Using only CNN layers for the generator has the inductive"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "bias that points that are spatially close to each other are cor-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "related while neglecting long-range correlations. Nonetheless,"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "for SER, modeling a long temporal context over each feature di-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "mension may be important. Hence, the generator is modified to"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "include only one self-attention operation over the time dimen-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "sion after the 4-th CNN layer. To reduce number of parameters"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "even further,\nthe number of channels in the CNN layers are re-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "duced from 256 to 128 and dilation is included to increase the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "receptive field of each CNN layer. This architecture is called"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "GAN-ATT. Both models train on an A100-SXM4-40GB GPU,"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "requiring 30 GPU hours each. Table 1, shows the sizes of the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "two GAN’s architectures, highlighting a nearly 95% size reduc-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "tion compared to the original IEMOCAP audio. Such results in"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "Table 1 are important when scaling up to bigger datasets."
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "5.2. GAN as a dataset distillator"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "Table 2 analyzes the effect of training with a traditional WGAN-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "GP (Baseline) versus the proposed losses LDIV and LSML for the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "two generator architectures mentioned. DD aims to learn key"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "discriminative information for training. In order to evaluate the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "efficiency of the discriminative information modelled, it is com-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "mon to analyze DD performance using a small number of dat-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "apoints. Therefore, Table 2 analyzes such results under a low"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "points per class (ppc) budget of 50 ppc (5.6% of the size of the"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": ""
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "original dataset) and 100 ppc (11.2% of\nthe size of\nthe origi-"
+        },
+        {
+          "GAN-ATT\n0.06 GB\n96.95\n97.50": "nal dataset). Additionaly, to analyze how the proposal scales to"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 2: SER UAR (%↑) for downstream model trained only Table4:SIDAccuracy(Acc)withdifferentspeakerembeddings.",
+      "data": [
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": ""
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": ""
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": "Acc (%↓)"
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": ""
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": "80.89"
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": "44.87"
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": "42.87"
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": ""
+        },
+        {
+          "Table 4: SID Accuracy (Acc) with different speaker embeddings.": "37.99"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 2: SER UAR (%↑) for downstream model trained only Table4:SIDAccuracy(Acc)withdifferentspeakerembeddings.",
+      "data": [
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "a McNemar’s",
+          "the GAN without DD criterions.\n† denotes": "test\nstatistically significant difference over\nthe"
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "Baseline.‡ denotes significance over the +LSML model.",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "Model",
+          "the GAN without DD criterions.\n† denotes": "GAN-CNN\nGAN-ATT"
+        },
+        {
+          "Baseline denotes": "ppc",
+          "the GAN without DD criterions.\n† denotes": "50\n100\n50\n100\n800\n1800"
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": "UAR\nUAR\nUAR\nUAR\nUAR\nUAR"
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "Baseline",
+          "the GAN without DD criterions.\n† denotes": "47.75\n53.01\n56.31\n59.07\n61.44\n62.05"
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "+ LDIV",
+          "the GAN without DD criterions.\n† denotes": "48.52\n53.25\n58.89\n60.52\n62.20\n62.86"
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "+ LSML",
+          "the GAN without DD criterions.\n† denotes": "53.79† 60.52† 56.99† 60.26† 63.96† 64.07†"
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "+ LDIV + LSML 54.99†‡ 60.99†‡ 60.27†‡ 61.95†‡ 64.35†‡ 64.70†‡",
+          "the GAN without DD criterions.\n† denotes": ""
+        },
+        {
+          "Baseline denotes": "",
+          "the GAN without DD criterions.\n† denotes": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "stargan for emotional voice conversion: Enhancing voice quality"
+        },
+        {
+          "7. Acknowledgments": "I want\nto deeply thank my friend Nikita Kuzmin for the great",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "and data augmentation,” in Interspeech, 2021."
+        },
+        {
+          "7. Acknowledgments": "discussions on the privacy aspect. Unfortunately for him, I end",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[23]\nI. Malik, S. Latif, R.\nJurdak,\nand B. Schuller,\n“A preliminary"
+        },
+        {
+          "7. Acknowledgments": "up not adding such results on this manuscript.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "study on augmenting speech emotion recognition using a diffu-"
+        },
+        {
+          "7. Acknowledgments": "The computational work for this article was fully performed on",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "sion model,” in Interspeech, 2023."
+        },
+        {
+          "7. Acknowledgments": "resources of\nthe National Supercomputing Centre, Singapore",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[24] B. Zhao and H. Bilen, “Synthesizing informative training sam-"
+        },
+        {
+          "7. Acknowledgments": "(https://www.nscc.sg).",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "ples with gan,” in NeurIPS 2022 Workshop on Synthetic Data for"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "Empowering ML Research, 2022."
+        },
+        {
+          "7. Acknowledgments": "8. References",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[25] K. Wang, J. Gu, D. Zhou, Z. H. Zhu, W. Jiang, and Y. You, “Dim:"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "Distilling dataset into generative model,” ArXiv, 2023."
+        },
+        {
+          "7. Acknowledgments": "[1] W.-N. Hsu, B. Bolte, Y.-H. H. Tsai, K. Lakhotia et al., “Hubert:",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "Self-supervised speech representation learning by masked predic-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[26] K. Kumar, R. Kumar, T. de Boissi`ere et al., “Melgan: Genera-"
+        },
+        {
+          "7. Acknowledgments": "tion of hidden units,” in IEEE/ACM TASLP, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "tive adversarial networks for conditional waveform synthesis,” in"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "NeurIPS, 2019."
+        },
+        {
+          "7. Acknowledgments": "[2]\nS. Chen, C. Wang, Z. Chen, Y. Wu, et al., “Wavlm: Large-scale",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "self-supervised pre-training for\nfull stack speech processing,” in",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[27]\nJ. Kong, J. Kim, and J. Bae, “Hifi-gan: Generative adversarial net-"
+        },
+        {
+          "7. Acknowledgments": "IEEE J-STSP, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "works for efficient and high fidelity speech synthesis,” NeurIPS,"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "2020."
+        },
+        {
+          "7. Acknowledgments": "[3] A. Mohamed, H. yi Lee, L. Borgholt, J. D. Havtorn et al., “Self-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "supervised speech representation learning: A review,” in IEEE J-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[28] D. Yang, S. Hong, Y.\nJang, T. Zhao,\nand H. Lee,\n“Diversity-"
+        },
+        {
+          "7. Acknowledgments": "STSP, 2022.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "sensitive\nconditional generative\nadversarial networks,”\nin Pro-"
+        },
+        {
+          "7. Acknowledgments": "[4] Y. Peng, J. Tian, B. Yan et al., “Reproducing whisper-style train-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "ceedings of\nthe International Conference on Learning Represen-"
+        },
+        {
+          "7. Acknowledgments": "ing using an open-source\ntoolkit\nand publicly available data,”",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "tations, 2019."
+        },
+        {
+          "7. Acknowledgments": "in 2023 IEEE Automatic Speech Recognition and Understanding",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[29]\nS. wen Yang, P.-H. Chi, Y.-S. Chuang, C.-I. Lai, K. Lakhotia et al.,"
+        },
+        {
+          "7. Acknowledgments": "Workshop (ASRU).\nIEEE, 2023, pp. 1–8.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "“Superb: Speech processing universal performance benchmark,”"
+        },
+        {
+          "7. Acknowledgments": "[5]\nE. Strubell, A. Ganesh, and A. McCallum, “Energy and policy",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "in Interspeech, 2021."
+        },
+        {
+          "7. Acknowledgments": "considerations for deep learning in NLP,” in ACL, A. Korhonen,",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[30]\nJ. Han, Z. Zhang, Z. Ren, F. Ringeval,\nand B. Schuller,\n“To-"
+        },
+        {
+          "7. Acknowledgments": "D. Traum, and L. M`arquez, Eds., 2019.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "wards\nconditional\nadversarial\ntraining for predicting emotions"
+        },
+        {
+          "7. Acknowledgments": "[6]\nJ. Droppo and O. H. Elibol, “Scaling laws for acoustic models,”",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "from speech,” ICASSP, 2018."
+        },
+        {
+          "7. Acknowledgments": "in Interspeech, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[31]\nF. Eyben, F. Weninger, F. Gross, and B. Schuller, “Recent devel-"
+        },
+        {
+          "7. Acknowledgments": "[7] R. Yu, S. Liu, and X. Wang, “Dataset distillation: A comprehen-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "opments in opensmile,\nthe munich open-source multimedia fea-"
+        },
+        {
+          "7. Acknowledgments": "sive review,” IEEE TPAMI, 2023.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "ture extractor,” in ACM Multimedia, 2013."
+        },
+        {
+          "7. Acknowledgments": "[8] K. Killamsetty, X. Zhao, F. Chen, and R. Iyer, “Retrieve: Core-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[32] D. Snyder, D. Garcia-Romero, G. Sell, D. Povey, and S. Khu-"
+        },
+        {
+          "7. Acknowledgments": "set\nselection for efficient and robust\nsemi-supervised learning,”",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "danpur, “X-vectors: Robust dnn embeddings for speaker recogni-"
+        },
+        {
+          "7. Acknowledgments": "NeurIPS, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "tion,” 2018 IEEE International Conference on Acoustics, Speech"
+        },
+        {
+          "7. Acknowledgments": "[9]\nT. Wang, J.-Y. Zhu, A. Torralba, and A. A. Efros, “Dataset distil-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "and Signal Processing (ICASSP), pp. 5329–5333, 2018."
+        },
+        {
+          "7. Acknowledgments": "lation,” arXiv preprint, 2018.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[33]\nT. Liu, K. A. Lee, Q. Wang, and H. Li, “Disentangling voice and"
+        },
+        {
+          "7. Acknowledgments": "[10] B. Zhao, K. R. Mopuri, and H. Bilen, “Dataset condensation with",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "content with self-supervision for speaker recognition,” Advances"
+        },
+        {
+          "7. Acknowledgments": "gradient matching,” ICLR, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "in Neural Information Processing Systems, vol. 36, 2024."
+        },
+        {
+          "7. Acknowledgments": "[11] B. Zhao and H. Bilen, “Dataset condensation with distribution",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "stargan for emotional voice conversion: Enhancing voice quality"
+        },
+        {
+          "7. Acknowledgments": "I want\nto deeply thank my friend Nikita Kuzmin for the great",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "and data augmentation,” in Interspeech, 2021."
+        },
+        {
+          "7. Acknowledgments": "discussions on the privacy aspect. Unfortunately for him, I end",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[23]\nI. Malik, S. Latif, R.\nJurdak,\nand B. Schuller,\n“A preliminary"
+        },
+        {
+          "7. Acknowledgments": "up not adding such results on this manuscript.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "study on augmenting speech emotion recognition using a diffu-"
+        },
+        {
+          "7. Acknowledgments": "The computational work for this article was fully performed on",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "sion model,” in Interspeech, 2023."
+        },
+        {
+          "7. Acknowledgments": "resources of\nthe National Supercomputing Centre, Singapore",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[24] B. Zhao and H. Bilen, “Synthesizing informative training sam-"
+        },
+        {
+          "7. Acknowledgments": "(https://www.nscc.sg).",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "ples with gan,” in NeurIPS 2022 Workshop on Synthetic Data for"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "Empowering ML Research, 2022."
+        },
+        {
+          "7. Acknowledgments": "8. References",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[25] K. Wang, J. Gu, D. Zhou, Z. H. Zhu, W. Jiang, and Y. You, “Dim:"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "Distilling dataset into generative model,” ArXiv, 2023."
+        },
+        {
+          "7. Acknowledgments": "[1] W.-N. Hsu, B. Bolte, Y.-H. H. Tsai, K. Lakhotia et al., “Hubert:",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "Self-supervised speech representation learning by masked predic-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[26] K. Kumar, R. Kumar, T. de Boissi`ere et al., “Melgan: Genera-"
+        },
+        {
+          "7. Acknowledgments": "tion of hidden units,” in IEEE/ACM TASLP, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "tive adversarial networks for conditional waveform synthesis,” in"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "NeurIPS, 2019."
+        },
+        {
+          "7. Acknowledgments": "[2]\nS. Chen, C. Wang, Z. Chen, Y. Wu, et al., “Wavlm: Large-scale",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "self-supervised pre-training for\nfull stack speech processing,” in",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[27]\nJ. Kong, J. Kim, and J. Bae, “Hifi-gan: Generative adversarial net-"
+        },
+        {
+          "7. Acknowledgments": "IEEE J-STSP, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "works for efficient and high fidelity speech synthesis,” NeurIPS,"
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "2020."
+        },
+        {
+          "7. Acknowledgments": "[3] A. Mohamed, H. yi Lee, L. Borgholt, J. D. Havtorn et al., “Self-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "supervised speech representation learning: A review,” in IEEE J-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[28] D. Yang, S. Hong, Y.\nJang, T. Zhao,\nand H. Lee,\n“Diversity-"
+        },
+        {
+          "7. Acknowledgments": "STSP, 2022.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "sensitive\nconditional generative\nadversarial networks,”\nin Pro-"
+        },
+        {
+          "7. Acknowledgments": "[4] Y. Peng, J. Tian, B. Yan et al., “Reproducing whisper-style train-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "ceedings of\nthe International Conference on Learning Represen-"
+        },
+        {
+          "7. Acknowledgments": "ing using an open-source\ntoolkit\nand publicly available data,”",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "tations, 2019."
+        },
+        {
+          "7. Acknowledgments": "in 2023 IEEE Automatic Speech Recognition and Understanding",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[29]\nS. wen Yang, P.-H. Chi, Y.-S. Chuang, C.-I. Lai, K. Lakhotia et al.,"
+        },
+        {
+          "7. Acknowledgments": "Workshop (ASRU).\nIEEE, 2023, pp. 1–8.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "“Superb: Speech processing universal performance benchmark,”"
+        },
+        {
+          "7. Acknowledgments": "[5]\nE. Strubell, A. Ganesh, and A. McCallum, “Energy and policy",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "in Interspeech, 2021."
+        },
+        {
+          "7. Acknowledgments": "considerations for deep learning in NLP,” in ACL, A. Korhonen,",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[30]\nJ. Han, Z. Zhang, Z. Ren, F. Ringeval,\nand B. Schuller,\n“To-"
+        },
+        {
+          "7. Acknowledgments": "D. Traum, and L. M`arquez, Eds., 2019.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "wards\nconditional\nadversarial\ntraining for predicting emotions"
+        },
+        {
+          "7. Acknowledgments": "[6]\nJ. Droppo and O. H. Elibol, “Scaling laws for acoustic models,”",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "from speech,” ICASSP, 2018."
+        },
+        {
+          "7. Acknowledgments": "in Interspeech, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[31]\nF. Eyben, F. Weninger, F. Gross, and B. Schuller, “Recent devel-"
+        },
+        {
+          "7. Acknowledgments": "[7] R. Yu, S. Liu, and X. Wang, “Dataset distillation: A comprehen-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "opments in opensmile,\nthe munich open-source multimedia fea-"
+        },
+        {
+          "7. Acknowledgments": "sive review,” IEEE TPAMI, 2023.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "ture extractor,” in ACM Multimedia, 2013."
+        },
+        {
+          "7. Acknowledgments": "[8] K. Killamsetty, X. Zhao, F. Chen, and R. Iyer, “Retrieve: Core-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[32] D. Snyder, D. Garcia-Romero, G. Sell, D. Povey, and S. Khu-"
+        },
+        {
+          "7. Acknowledgments": "set\nselection for efficient and robust\nsemi-supervised learning,”",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "danpur, “X-vectors: Robust dnn embeddings for speaker recogni-"
+        },
+        {
+          "7. Acknowledgments": "NeurIPS, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "tion,” 2018 IEEE International Conference on Acoustics, Speech"
+        },
+        {
+          "7. Acknowledgments": "[9]\nT. Wang, J.-Y. Zhu, A. Torralba, and A. A. Efros, “Dataset distil-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "and Signal Processing (ICASSP), pp. 5329–5333, 2018."
+        },
+        {
+          "7. Acknowledgments": "lation,” arXiv preprint, 2018.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "[33]\nT. Liu, K. A. Lee, Q. Wang, and H. Li, “Disentangling voice and"
+        },
+        {
+          "7. Acknowledgments": "[10] B. Zhao, K. R. Mopuri, and H. Bilen, “Dataset condensation with",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "content with self-supervision for speaker recognition,” Advances"
+        },
+        {
+          "7. Acknowledgments": "gradient matching,” ICLR, 2021.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": "in Neural Information Processing Systems, vol. 36, 2024."
+        },
+        {
+          "7. Acknowledgments": "[11] B. Zhao and H. Bilen, “Dataset condensation with distribution",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "matching,” in WACV, 2023.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[12] K. Wang, B. Zhao, X. Peng, Z. Zhu et al., “Cafe: Learning to",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "condense dataset by aligning features,” in CVPR, 2022.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[13] D. Zhou, K. Wang, J. Gu, X. Peng, D. Lian et al., “Dataset quan-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "tization,” in ICCV, 2023.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[14] C. Busso, M. Bulut, C.-C. Lee, E. A. Kazemzadeh et al., “Iemo-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "cap:\ninteractive emotional dyadic motion capture database,” Lan-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "guage Resources and Evaluation, 2008.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[15] X. Zhang, J. Wang, N. Cheng, and J. Xiao, “Voice conversion with",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "denoising diffusion probabilistic gan models,” in ADMA, 2023.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[16]\nI. Gulrajani, F. Ahmed, M. Arjovsky, V. Dumoulin, and A. C.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "Courville,\n“Improved\ntraining\nof wasserstein\ngans,” NeurIPS,",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "2017.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[17]\nS. Sahu, R. Gupta, and C. Espy-Wilson, “On enhancing speech",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "emotion recognition using generative adversarial networks,” in In-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "terspeech, 2018.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[18] A. Chatziagapi, G. Paraskevopoulos, D. Sgouropoulos, G. Panta-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "zopoulos, M. Nikandrou et al., “Data augmentation using gans for",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "speech emotion recognition.” in Interspeech, 2019.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[19] B. Fang, N. Michael, and V. N. Thang, “Cyclegan-based emotion",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "style transfer as data augmentation for speech emotion recogni-",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "tion.” in Interspeech, 2019.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[20] Y. Lu and M. Man-wai, “Adversarial data augmentation network",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "for speech emotion recognition,” in APSIPA ASC, 2019.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "[21]\nL. Yi and M. wai Mak, “Improving speech emotion recognition",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "with adversarial data augmentation network,”\nin IEEE TNNLS,",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        },
+        {
+          "7. Acknowledgments": "2022.",
+          "[22] H. Xiangheng, C. Junjie, R. Georgios, and S. B. W, “An improved": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM TASLP"
+    },
+    {
+      "citation_id": "3",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu"
+      ],
+      "year": "2021",
+      "venue": "IEEE J-STSP"
+    },
+    {
+      "citation_id": "4",
+      "title": "Selfsupervised speech representation learning: A review",
+      "authors": [
+        "A Mohamed",
+        "H Yi Lee",
+        "L Borgholt",
+        "J Havtorn"
+      ],
+      "year": "2022",
+      "venue": "IEEE J-STSP"
+    },
+    {
+      "citation_id": "5",
+      "title": "Reproducing whisper-style training using an open-source toolkit and publicly available data",
+      "authors": [
+        "Y Peng",
+        "J Tian",
+        "B Yan"
+      ],
+      "year": "2023",
+      "venue": "2023 IEEE Automatic Speech Recognition and Understanding Workshop"
+    },
+    {
+      "citation_id": "6",
+      "title": "Energy and policy considerations for deep learning in NLP",
+      "authors": [
+        "E Strubell",
+        "A Ganesh",
+        "A Mccallum"
+      ],
+      "year": "2019",
+      "venue": "Energy and policy considerations for deep learning in NLP"
+    },
+    {
+      "citation_id": "7",
+      "title": "Scaling laws for acoustic models",
+      "authors": [
+        "J Droppo",
+        "O Elibol"
+      ],
+      "year": "2021",
+      "venue": "Scaling laws for acoustic models"
+    },
+    {
+      "citation_id": "8",
+      "title": "Dataset distillation: A comprehensive review",
+      "authors": [
+        "R Yu",
+        "S Liu",
+        "X Wang"
+      ],
+      "year": "2023",
+      "venue": "IEEE TPAMI"
+    },
+    {
+      "citation_id": "9",
+      "title": "Retrieve: Coreset selection for efficient and robust semi-supervised learning",
+      "authors": [
+        "K Killamsetty",
+        "X Zhao",
+        "F Chen",
+        "R Iyer"
+      ],
+      "year": "2021",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "10",
+      "title": "Dataset distillation",
+      "authors": [
+        "T Wang",
+        "J.-Y Zhu",
+        "A Torralba",
+        "A Efros"
+      ],
+      "year": "2018",
+      "venue": "Dataset distillation"
+    },
+    {
+      "citation_id": "11",
+      "title": "Dataset condensation with gradient matching",
+      "authors": [
+        "B Zhao",
+        "K Mopuri",
+        "H Bilen"
+      ],
+      "year": "2021",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "12",
+      "title": "Dataset condensation with distribution matching",
+      "authors": [
+        "B Zhao",
+        "H Bilen"
+      ],
+      "year": "2023",
+      "venue": "Dataset condensation with distribution matching"
+    },
+    {
+      "citation_id": "13",
+      "title": "Cafe: Learning to condense dataset by aligning features",
+      "authors": [
+        "K Wang",
+        "B Zhao",
+        "X Peng",
+        "Z Zhu"
+      ],
+      "year": "2022",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "14",
+      "title": "Dataset quantization",
+      "authors": [
+        "D Zhou",
+        "K Wang",
+        "J Gu",
+        "X Peng",
+        "D Lian"
+      ],
+      "year": "2023",
+      "venue": "ICCV"
+    },
+    {
+      "citation_id": "15",
+      "title": "Iemocap: interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "E Kazemzadeh"
+      ],
+      "year": "2008",
+      "venue": "Iemocap: interactive emotional dyadic motion capture database"
+    },
+    {
+      "citation_id": "16",
+      "title": "Voice conversion with denoising diffusion probabilistic gan models",
+      "authors": [
+        "X Zhang",
+        "J Wang",
+        "N Cheng",
+        "J Xiao"
+      ],
+      "year": "2023",
+      "venue": "ADMA"
+    },
+    {
+      "citation_id": "17",
+      "title": "Improved training of wasserstein gans",
+      "authors": [
+        "I Gulrajani",
+        "F Ahmed",
+        "M Arjovsky",
+        "V Dumoulin",
+        "A Courville"
+      ],
+      "year": "2017",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "18",
+      "title": "On enhancing speech emotion recognition using generative adversarial networks",
+      "authors": [
+        "S Sahu",
+        "R Gupta",
+        "C Espy-Wilson"
+      ],
+      "year": "2018",
+      "venue": "On enhancing speech emotion recognition using generative adversarial networks"
+    },
+    {
+      "citation_id": "19",
+      "title": "Data augmentation using gans for speech emotion recognition",
+      "authors": [
+        "A Chatziagapi",
+        "G Paraskevopoulos",
+        "D Sgouropoulos",
+        "G Pantazopoulos",
+        "M Nikandrou"
+      ],
+      "year": "2019",
+      "venue": "Data augmentation using gans for speech emotion recognition"
+    },
+    {
+      "citation_id": "20",
+      "title": "Cyclegan-based emotion style transfer as data augmentation for speech emotion recognition",
+      "authors": [
+        "B Fang",
+        "N Michael",
+        "V Thang"
+      ],
+      "year": "2019",
+      "venue": "Cyclegan-based emotion style transfer as data augmentation for speech emotion recognition"
+    },
+    {
+      "citation_id": "21",
+      "title": "Adversarial data augmentation network for speech emotion recognition",
+      "authors": [
+        "Y Lu",
+        "M Man-Wai"
+      ],
+      "year": "2019",
+      "venue": "APSIPA ASC"
+    },
+    {
+      "citation_id": "22",
+      "title": "Improving speech emotion recognition with adversarial data augmentation network",
+      "authors": [
+        "L Yi",
+        "M Mak"
+      ],
+      "year": "2022",
+      "venue": "IEEE TNNLS"
+    },
+    {
+      "citation_id": "23",
+      "title": "An improved stargan for emotional voice conversion: Enhancing voice quality and data augmentation",
+      "authors": [
+        "H Xiangheng",
+        "C Junjie",
+        "R Georgios"
+      ],
+      "year": "2021",
+      "venue": "An improved stargan for emotional voice conversion: Enhancing voice quality and data augmentation"
+    },
+    {
+      "citation_id": "24",
+      "title": "A preliminary study on augmenting speech emotion recognition using a diffusion model",
+      "authors": [
+        "I Malik",
+        "S Latif",
+        "R Jurdak",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "A preliminary study on augmenting speech emotion recognition using a diffusion model"
+    },
+    {
+      "citation_id": "25",
+      "title": "Synthesizing informative training samples with gan",
+      "authors": [
+        "B Zhao",
+        "H Bilen"
+      ],
+      "year": "2022",
+      "venue": "NeurIPS 2022 Workshop on Synthetic Data for Empowering ML Research"
+    },
+    {
+      "citation_id": "26",
+      "title": "Dim: Distilling dataset into generative model",
+      "authors": [
+        "K Wang",
+        "J Gu",
+        "D Zhou",
+        "Z Zhu",
+        "W Jiang",
+        "Y You"
+      ],
+      "year": "2023",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "27",
+      "title": "Melgan: Generative adversarial networks for conditional waveform synthesis",
+      "authors": [
+        "K Kumar",
+        "R Kumar",
+        "T De Boissière"
+      ],
+      "year": "2019",
+      "venue": "Melgan: Generative adversarial networks for conditional waveform synthesis"
+    },
+    {
+      "citation_id": "28",
+      "title": "Hifi-gan: Generative adversarial networks for efficient and high fidelity speech synthesis",
+      "authors": [
+        "J Kong",
+        "J Kim",
+        "J Bae"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "29",
+      "title": "Diversitysensitive conditional generative adversarial networks",
+      "authors": [
+        "D Yang",
+        "S Hong",
+        "Y Jang",
+        "T Zhao",
+        "H Lee"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "30",
+      "title": "Superb: Speech processing universal performance benchmark",
+      "authors": [
+        "S Yang",
+        "P.-H Chi",
+        "Y.-S Chuang",
+        "C.-I Lai",
+        "K Lakhotia"
+      ],
+      "year": "2021",
+      "venue": "Superb: Speech processing universal performance benchmark"
+    },
+    {
+      "citation_id": "31",
+      "title": "Towards conditional adversarial training for predicting emotions from speech",
+      "authors": [
+        "J Han",
+        "Z Zhang",
+        "Z Ren",
+        "F Ringeval",
+        "B Schuller"
+      ],
+      "year": "2018",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "32",
+      "title": "Recent developments in opensmile, the munich open-source multimedia feature extractor",
+      "authors": [
+        "F Eyben",
+        "F Weninger",
+        "F Gross",
+        "B Schuller"
+      ],
+      "year": "2013",
+      "venue": "ACM Multimedia"
+    },
+    {
+      "citation_id": "33",
+      "title": "X-vectors: Robust dnn embeddings for speaker recognition",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "G Sell",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "34",
+      "title": "Disentangling voice and content with self-supervision for speaker recognition",
+      "authors": [
+        "T Liu",
+        "K Lee",
+        "Q Wang",
+        "H Li"
+      ],
+      "year": "2024",
+      "venue": "Advances in Neural Information Processing Systems"
+    }
+  ]
+}

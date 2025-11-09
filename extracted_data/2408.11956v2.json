@@ -1,0 +1,1717 @@
+{
+  "paper_id": "2408.11956v2",
+  "title": "The Whole Is Bigger Than The Sum Of Its Parts: Modeling Individual Annotators To Capture Emotional Variability",
+  "published": "2024-08-21T19:24:06Z",
+  "authors": [
+    "James Tavernor",
+    "Yara El-Tawil",
+    "Emily Mower Provost"
+  ],
+  "keywords": [
+    "speech recognition",
+    "emotion recognition",
+    "human-computer interaction",
+    "inter-annotator agreement"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Emotion expression and perception are nuanced, complex, and highly subjective processes. When multiple annotators label emotional data, the resulting labels contain high variability. Most speech emotion recognition tasks address this by averaging annotator labels as ground truth. However, this process omits the nuance of emotion and inter-annotator variability, which are important signals to capture. Previous work has attempted to learn distributions to capture emotion variability, but these methods also lose information about the individual annotators. We address these limitations by learning to predict individual annotators and by introducing a novel method to create distributions from continuous model outputs that permit the learning of emotion distributions during model training. We show that this combined approach can result in emotion distributions that are more accurate than those seen in prior work, in both within-and cross-corpus settings.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Expressions of emotion are nuanced and complex, and people perceive these expressions differently, adding to the complexity. Most emotion recognition models overlook this nuance  [1] . This is because most Speech Emotion Recognition (SER) datasets and tasks present the ground truth as a single label, which is the average of multiple annotations. In this work, we present novel approaches to both accurately learn the perceptions of individual annotators and aggregate these estimates to create distributions of annotator perception. In this way, the model retains information about individual annotator predictions while still being able to summarize the information accurately as a two-dimensional (2D) distribution.\n\nPrior work has investigated methods to retain information about variability and uncertainty. Research has included the prediction of measures such as unbiased annotator standard deviation  [2, 3] , the embedding of individual annotators to improve performance on the aggregated ground truth, with some investigation into how well the model annotator uncertainty correlates with real uncertainty  [4, 5, 6] , and the prediction of the distribution of annotations over a given utterance  [7] . Yet, gaps remain. Methods that summarize model information or predict uncertainty lose fine-grained information about individual annotators. On the other hand, methods that seek to learn annotators primarily do so to improve performance on the aggregated ground truth or investigate much smaller numbers of annotators than are generally used in these datasets.\n\nWe present a novel approach that predicts the annotations of individuals and includes a new differentiable method to au-tomatically learn distributions similar to  [7] , enabling the modeling of individual variation and the retention of the ability to summarize annotators. The model training involves an interleaved approach, alternating between different tasks: learning individual annotators and learning a distribution. We learn individual annotators by training a multi-task (MT) model to predict each annotator in the training set across the dimensions of valence and activation. We learn a distribution by upsampling the observations from the MT model and using Kernel Density Estimation (KDE) to produce a summarization of the model output as a distribution. We introduce differentiable KDE into the model training process to enable the use of gradient descent.\n\nWe present both within-and cross-corpus investigations. Within-corpus, we find that a model trained with the interleaved tasks of individual annotator perception and distribution learning can outperform a method that learns to predict the distribution alone  [7] , in terms of both the performance on consensus labels and the accuracy of the distribution itself, while providing individual annotations as well. We further show that the output of the annotator-specific models (trained only on annotator prediction) can be post-processed to create a distribution, rather than learning a distribution during model training, that outperforms the prior work of  [7] . In this case, an extra step is involved in which the output of the annotator-specific models is transformed into a distribution using either KDE as in  [7]  or using the differentiable KDE method presented in this work. We find that using differentiable KDE leads to significantly improved performance, even when only used in post-processing, pointing to the efficacy of this approach for either model learning or post-hoc output summarization. Cross-corpus, we demonstrate that annotator-specific models can be used zero-shot without knowledge about the annotators that labeled the new datasets. We find that the presented approach outperforms a distributiononly method across metrics that capture individual annotators and the accuracy of a given distribution in most cases. Future work will focus on investigating individual characteristics of annotators (e.g., personality) and how this information can also be considered when learning annotator-specific perception.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Previous work has developed soft-label methods that use multiple annotators per label. Dang et al.  [8]  use multi-rater Gaussian Mixture Regression to make temporal emotion predictions for a fixed set of consistent evaluators in their target dataset. Other approaches have captured both the uncertainty in annotator labels and model uncertainty  [9] . However, a gap remains at the intersection of predicting individual annotations for a variable number of annotators.\n\nInstead, we build on the label processing method devel-arXiv:2408.11956v2 [eess.AS] 15 Sep 2025 oped in previous work by Zhang et al.  [7] , which incorporated inter-annotator variance into machine learning models by creating new ground truth labels that incorporate this knowledge  [7] . They upsampled existing annotations by selecting random subsets of annotators for each utterance and took the mean across those annotations. They added random noise to the resulting means, such that x noise ∼ U (-std(x)",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "2",
+      "text": ", std(x)\n\n2\n\n)  1  , where x is activation or valence, std indicates the standard deviation of the annotator ratings for that utterance, and U is the uniform distribution. Kernel Density Estimation (KDE) via Diffusion was then calculated over the upsampled observations. They divided the KDE output grid into N bins for each dimension and took the mean over the KDE samples inside each bin. They converted this grid to a probability distribution by normalizing over the means. The authors investigated N = 2 and N = 4. The KDE step was essential to remove sensitivity to where boundaries were drawn. The authors then trained a model to predict these binned distributions. However, in this approach, the model loses information about individual annotators. Additionally, because the approach is not differentiable, it cannot be included in model training. We present an approach with a differentiable component that permits learning a binned distribution, implemented using sigmoid-based soft operations.\n\nPrevious work has investigated the prediction of individual annotators on subjective tasks such as emotion recognition and hate speech  [4, 5, 10] . Davani et al. introduced an encoderbased model with separate classification heads for each annotator. They trained this model for a binary categorical text emotion recognition task using a dataset that contained 82 annotators. At test time, they aggregated the individual annotator predictions and found that their model outperformed a baseline trained on majority ground truth labels. However, the performance of individual annotators was not discussed. Further, a limitation of this work is that many SER datasets include over 82 annotators, and the authors acknowledge that it would be too computationally expensive to train a model with separate heads for large numbers of annotators. Previous work has shown that clustering similar annotators can mitigate problems with large numbers of annotators  [11] . However, clustering annotators loses information about individual ratings. In our work, we enable only the relevant heads per batch, making training with a large number of annotators more computationally feasible.\n\nAn alternative approach to learning individual annotators is through annotator embeddings  [5] . Prior work from Kocoń et al. demonstrates that annotator-specific embeddings can be used to personalize model predictions and capture the bias of individual annotators. They introduced four methods for encoding annotator information into the model, including a one-hot annotator embedding. This embedding was a one-hot encoded vector of annotator ID that was concatenated to the model input. They found that this led to improved text-based emotion predictions but were focused on a consensus model rather than an individual-specific model. We use the one-hot model and investigate if the model can learn individual annotators.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Data Setup",
+      "text": "We use the MSP-Improv dataset for training and testing. It was labeled using crowdsourcing and has a relatively large number of evaluations per utterance  [7, 12] . Additionally, we use the IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the cross-corpus results of each method.\n\nMSP-Improv is an SER dataset consisting of acted improvised dialogue designed to evoke certain emotions  [12] . The dataset has 12 speakers evenly split between male and female actors across six sessions. We select a speaker-independent data split such that all annotators in the validation and test set have evaluated at least one utterance in the training set. Annotators will be present in the training set that do not appear in the validation or test set (for example, when the annotator annotated less than three samples). The resulting train, validation, and test split size is 5,851, 1,287, and 1,300 utterances, respectively  2  . The training set was evaluated by 1,434 individual crowdsourced annotators, with each sample receiving between 5 and 50 annotations (mean of 7.2). A subset of these annotators evaluated the validation and test set (1,305 and 1,197, respectively). Both validation and test set samples have between 5 and 37 evaluations per sample, with a mean of 7.3 and 7.6 annotators. In few samples (28) the same annotator has annotated more than once. In these cases we have averaged their annotations into one evaluation, and adjusted the mean ground truth for these samples.\n\nThe IEMOCAP dataset contains five dialogue sessions containing scripted and improvised interactions between two actors. There is one female and one male actor in each conversation  [13] . We remove utterances where individual annotations were partially missing or any annotator evaluations were not within the labeling range described in the data collection. After processing, the dataset consists of 9,999 samples. Six annotators labeled the dataset with an average of 2.13 annotators per sample. We test on the full dataset.\n\nMSP-Podcast is a dataset of speech taken from podcasts and then labeled  [14] . We use the predefined splits and evaluate on test set 1, which is comprised of 13,911 utterances and contains 9570 individual annotators. Each utterance was evaluated by 6.9 crowdsourced annotators on average. We use release 1.8, which does not contain transcripts, so we use Microsoft Azure automatic speech recognition to generate them.\n\nMuSE is a dataset of 28 college students recorded in two 45-minute sessions each, responding to emotional stimuli. One session was when the students were affected by an external stressor, and the other was without the stressor  [15] . Students were recorded using a lapel microphone. Crowdsourced annotators evaluated each utterance. There are 2,584 utterances comprised of 1,385 stressed and 1,199 non-stressed samples. The dataset provides labels annotated with or without context; we use the labels from the 160 individual annotators who labeled without context. Each sample was evaluated between 7 and 9 annotators, with 8 on average.\n\nDataset Preprocessing We process all datasets in the same way. We use min-max scaling on the annotator and consensus labels for activation and valence to restrict labels to the [-1, 1] range. We then use KDE to generate a 2D ground truth probability distributions as in  [7] . We use a KDE grid size of 512 as we assume this will be sufficiently large to ensure the probability is insensitive to the grid boundaries.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Model Architecture",
+      "text": "We present three models: a baseline, a MT model, and a one-hot model, all of which share the same base architecture but have different output head architectures (Figure  1 ). The model input includes the frozen mean-pooled final layers of Wav2Vec2  [16]  Wav2Vec2 (  768   and BERT  [17]  CLS embeddings as these have shown effectiveness in SER applications  [18, 19] . We apply dropout with probability 0.2 and concatenate the embeddings. The concatenated embedding is passed through a single linear layer of size 256 with ReLU activation. For each prediction (distribution, activation, or valence), the input will pass through two linear layers of size 256 with ReLU activations. The baseline model directly learns the generated KDE distribution (as in  [7] ), having a final linear layer output of 16 logits for the 4x4 discretized KDE distribution prediction case. The MT model has separate prediction layers for each annotator as in  [17] . Each annotator's continuous prediction of activation and valence is made via a linear layer with an output size of 1. We use the one-hot method, previously used for text emotion recognition  [20] . We use the same architecture as in the MT case but with only one annotator prediction head. The annotator ID is one-hot encoded and concatenated to the Wav2Vec2 and BERT embeddings on the model input. When training within corpus, we reduce computation cost by making predictions only for annotators in the batch input to the model.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Training Tasks",
+      "text": "In this section, we define three different training tasks. The Baseline model is trained with the Baseline task. MT and onehot models are trained by interleaving Tasks 1 and 2 (Task 1+2), defined below. We use stochastic gradient descent with a learning rate of 0.001, with a learning rate scheduler that adjusts the learning rate by a factor of 0.1 after five epochs of no reduction in validation metrics. We train models until early stopping triggers with a patience of 10 with a minimum of 30 epochs. Each model trains with a batch size of 32. For all methods we use the relevant task's validation losses.\n\nBaseline: We predict the flattened 2D distribution and use cross-entropy loss of the 16 logits output against the flattened 2D generated ground truth probability distributions  [7] .\n\nTask 1 -Annotator Training: We train annotator-specific predictions using the individual annotator ground truth. We use Lin's Concordance Correlation Coefficient (CCC) loss as our loss function since it better models dimensional attributes than other regression losses  [21] . The sets act, and val contain the ground truth labels from all annotators in a training batch. The sets mact and m val contain the model's estimates of these labels. The loss is 2 -CCC(mact, act) -CCC(m val , val).\n\nTask 2 -DiffKDE: We learn the probability distribution using the KDE-generated ground truth labels. The model must produce a probability distribution from the model's activation and valence predictions. However, the KDE method outlined by Zhang et al. in  [7]  is not immediately usable. KDE via diffusion starts with a histogram  [22] . For each annotation we must know if it is in a particular bin to increment the bin's histogram count. This operation is a binary operation and not differentiable. We introduce a differentiable approximation to this problem by instead calculating a confidence value that a given annotation is within a given bin. We modify an existing onedimensional (1D) soft-histogram 3  , as below, for the 2D data.\n\nWe use 64 bins for DiffKDE 4  . We first calculate the 1D center of each bin in the range -1 to 1. For each of the n annotations of activation, we subtract the center of each bin from the annotation, resulting in a 64 size vector, which we call x. The contribution to the 64 bins will then be calculated using an element-wise sigmoid on this vector, sigmoid(σ\n\n). The gradient of sigmoid is largest at zero, for values of x far from 0, the δ 2 term has less effect, and the bin value is close to 0. This function is maximized for values of x close to 0. We repeat this for valence to get two n × 64 matrices for activation and valence.\n\nIn the equation, σ is a scaling parameter; the larger the value, the more sharp the histogram is, and δ is the bin size. Since our data is in the range -1 to 1, and we use 64 bins, δ = 2 64 . We then matrix multiply these two n × 64 matrices by transposing one to get a 2D (64 × 64) matrix. We then normalize to get a final 4 × 4 probability distribution as in  [7] . There is a tradeoff where too large of a σ may lead to vanishing gradients, but too low may result in undersaturation  [23] . As such, we set σ relatively small at 8; lower values did not reduce loss. Future work could investigate the impact of modifying the σ parameter. The generation of probabilities in DiffKDE is done in float16 5 as it significantly speeds up calculations.\n\nWe base our work off an existing KDE via Diffusion library 6 , which we modify to use PyTorch and the soft histogram method from the previous paragraph. All code is available on our GitHub page 7 . This enables DiffKDE to be run on GPUs and parallelized into batches. DiffKDE Loss is the Cross-Entropy loss 8 of the DiffKDE output, compared with the generated ground-truth 2D labels. We first evaluate the ability of the proposed approaches to learn continuous predictions and then the ability of the system to learn distributions. The baseline cannot directly produce continuous ratings, while the proposed approaches can. In order to provide a fair comparison, we generate consensus predictions across all methods in the same manner: we sum along the activation/valence dimensions and then multiply this sum with [-1, -0.5, 0.5, 1]. We use CCC to measure the systems' ability to predict individual annotators' labels (note: we cannot evaluate the baseline for this task). Next, we evaluate the consensus predictions by comparing them to the averaged ground truth using CCC. Finally, we measure the differences between the learned and ground truth probability distributions using Total Variation Distance (TVD), and Jensen-Shannon Divergence (JSD)  [7]   9 . Test results are reported over five seeds. Significance asserted at a 5% confidence on a paired two-sided t-test.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Results",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Msp-Improv Results",
+      "text": "The MT approach predicts annotator-specific activation more accurately than the one-hot model (0.629 ± 0.002 vs. 0.349 ± 0.015, respectively) while the one-hot model has stronger performance for valence (0.393 ± 0.006 vs. 0.429 ± 0.007, respectively). The consensus output for both the MT and one-hot approaches show significant improvements in activation CCC compared to the baseline. In contrast, only the one-hot method significantly improves valence. Overall, we find that the MT model learns more accurate distributions compared to the baseline when using the soft-histogram across both metrics, showing signficant improvement over the baseline for TVD. The onehot method has comparable TVD and statistically significantly worse JSD than the baseline. See Table  1  for more details.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Ablation Results",
+      "text": "We investigate the importance of the interleaved training tasks for learning the distributions. In the previous experiments, we used DiffKDE during training and testing (Task 1+2). When using Task 1 alone, no distribution is used during training, so the best method to build the distribution is uncertain. We generated results for Task 1 alone using both KDE and DiffKDE to generate distributions. We find that when using DiffKDE there is a significant performance increase for TVD (0.553±0.003 to 0.500±0.003) and JSD (0.265±0.002 to 0.211±0.002). This is very similar to the performance of Task 1+2 (Table  1 ).",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Cross-Corpus Results",
+      "text": "In a cross-corpus (zero-shot) context, the model does not have information about all annotators in advance. Therefore, we use 9 We use natural logarithm for JSD instead of log 2 ). The outlier is Valence CCC, which generally decreases compared to the baseline. See Table  2 .\n\nThe MT models generally struggled with the valence dimension, showing significant decreases compared to the baseline. Given that we are using all annotators for zero-shot test time, it is likely many annotator predictions that did not learn valence well have influenced the valence dimension negatively. Ultimately, we believe that using all annotators as we have done in a zero-shot setting is not an upper bound for performance of these models. Instead, selecting a subset of trained annotators may significantly increase performance in the zero-shot setting.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "Learning individual annotators is challenging. The model must learn a very large number of annotators across both the dimensions of activation and valence. We have presented an approach that accurately predicts individual annotators and a differentiable KDE operation that can be applied to a multi-task annotator models to produce distributions more accurately than using KDE to generate the distributions. We find that a multitask model sufficiently learns the individual annotators to produce a probability distribution that outperforms methods that only learn distributions while retaining information about individual annotators. Furthermore, we have found significant improvement in multiple zero-shot settings when using the multitask model over the baseline. We believe these methods can potentially increase utility to the end-user by providing more information about model predictions retained in the model. Future work also includes improving the capability of the model to capture valence, which will likely improve the distribution performance as well. Additionally, we believe the method provides avenues into studying how emotion models can predict specific to groups of annotators or leverage the knowledge of annotators to improve zero-shot cross-corpus performance.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: ). The model input",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: Model Architectures. Layers in gray are the common architecture between models. In (b) and (c) the last two common layers",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1University of Michigan, USA": "tavernor@umich.edu,"
+        },
+        {
+          "1University of Michigan, USA": "Abstract"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "Emotion expression and perception are nuanced, complex,"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "and highly subjective processes. When multiple annotators la-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "bel emotional data,\nthe resulting labels contain high variabil-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "ity. Most speech emotion recognition tasks address this by av-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "eraging annotator\nlabels as ground truth. However,\nthis pro-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "cess omits the nuance of emotion and inter-annotator variabil-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "ity, which are important signals to capture. Previous work has"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "attempted to learn distributions to capture emotion variability,"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "but\nthese methods also lose information about\nthe individual"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "annotators. We address these limitations by learning to predict"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "individual annotators and by introducing a novel method to cre-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "ate distributions from continuous model outputs that permit the"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "learning of emotion distributions during model\ntraining. We"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "show that\nthis combined approach can result\nin emotion distri-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "butions that are more accurate than those seen in prior work, in"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "both within- and cross-corpus settings."
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "Index\nTerms:\nspeech\nrecognition,\nemotion\nrecognition,"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "human-computer interaction, inter-annotator agreement"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "1.\nIntroduction"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "Expressions of emotion are nuanced and complex,\nand peo-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "ple perceive these expressions differently, adding to the com-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "plexity. Most emotion recognition models overlook this nu-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "ance [1].\nThis is because most Speech Emotion Recognition"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "(SER) datasets and tasks present\nthe ground truth as a single"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "label, which is\nthe average of multiple annotations.\nIn this"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "work, we present novel approaches to both accurately learn the"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "perceptions of\nindividual annotators and aggregate these esti-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "mates\nto create distributions of annotator perception.\nIn this"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "way,\nthe model retains information about\nindividual annotator"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "predictions while still being able to summarize the information"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "accurately as a two-dimensional (2D) distribution."
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "Prior work has investigated methods to retain information"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "about variability and uncertainty.\nResearch has\nincluded the"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "prediction of measures such as unbiased annotator standard de-"
+        },
+        {
+          "1University of Michigan, USA": ""
+        },
+        {
+          "1University of Michigan, USA": "viation [2, 3],\nthe embedding of\nindividual annotators to im-"
+        },
+        {
+          "1University of Michigan, USA": "prove performance on the aggregated ground truth, with some"
+        },
+        {
+          "1University of Michigan, USA": "investigation into how well the model annotator uncertainty cor-"
+        },
+        {
+          "1University of Michigan, USA": "relates with real uncertainty [4, 5, 6], and the prediction of the"
+        },
+        {
+          "1University of Michigan, USA": "distribution of annotations over a given utterance [7]. Yet, gaps"
+        },
+        {
+          "1University of Michigan, USA": "remain. Methods that summarize model information or predict"
+        },
+        {
+          "1University of Michigan, USA": "uncertainty lose fine-grained information about\nindividual an-"
+        },
+        {
+          "1University of Michigan, USA": "notators. On the other hand, methods that seek to learn annota-"
+        },
+        {
+          "1University of Michigan, USA": "tors primarily do so to improve performance on the aggregated"
+        },
+        {
+          "1University of Michigan, USA": "ground truth or investigate much smaller numbers of annotators"
+        },
+        {
+          "1University of Michigan, USA": "than are generally used in these datasets."
+        },
+        {
+          "1University of Michigan, USA": "We present a novel approach that predicts the annotations"
+        },
+        {
+          "1University of Michigan, USA": "of individuals and includes a new differentiable method to au-"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "inter-annotator variance into machine learning models by creat-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "cross-corpus results of each method."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "ing new ground truth labels that incorporate this knowledge [7].",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "MSP-Improv is an SER dataset consisting of acted impro-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "They upsampled existing annotations by selecting random sub-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "vised dialogue designed to evoke certain emotions [12].\nThe"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "sets of annotators for each utterance and took the mean across",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "dataset has 12 speakers evenly split between male and female"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "those annotations.\nThey added random noise to the resulting",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "actors across six sessions. We select a speaker-independent data"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": ", std(x)\nmeans, such that x noise ∼ U (− std(x)\n)1, where x is",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "split such that all annotators in the validation and test set have"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "2\n2",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": ""
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "activation or valence, std indicates the standard deviation of the",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "evaluated at\nleast one utterance in the training set. Annotators"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "annotator ratings for\nthat utterance, and U is the uniform dis-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "will be present in the training set that do not appear in the valida-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "tribution. Kernel Density Estimation (KDE) via Diffusion was",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "tion or test set (for example, when the annotator annotated less"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "then calculated over the upsampled observations. They divided",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "than three samples). The resulting train, validation, and test split"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "the KDE output grid into N bins for each dimension and took",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "size is 5,851, 1,287, and 1,300 utterances,\nrespectively2. The"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "the mean over\nthe KDE samples inside each bin.\nThey con-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "training set was evaluated by 1,434 individual crowdsourced"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "verted this grid to a probability distribution by normalizing over",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "annotators, with each sample receiving between 5 and 50 an-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "the means. The authors investigated N = 2 and N = 4. The",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "notations (mean of 7.2). A subset of these annotators evaluated"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "KDE step was essential\nto remove sensitivity to where bound-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "the validation and test set (1,305 and 1,197, respectively). Both"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "aries were drawn.\nThe authors\nthen trained a model\nto pre-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "validation and test set samples have between 5 and 37 evalua-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "dict\nthese binned distributions. However,\nin this approach,\nthe",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "tions per sample, with a mean of 7.3 and 7.6 annotators. In few"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "model loses information about individual annotators. Addition-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "samples (28) the same annotator has annotated more than once."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "ally, because the approach is not differentiable, it cannot be in-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "In these cases we have averaged their annotations into one eval-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "cluded in model training. We present an approach with a differ-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "uation, and adjusted the mean ground truth for these samples."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "entiable component that permits learning a binned distribution,",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "The\nIEMOCAP dataset\ncontains five dialogue\nsessions"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "implemented using sigmoid-based soft operations.",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "containing scripted and improvised interactions between two"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "Previous work has investigated the prediction of individual",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "actors.\nThere is one female and one male actor\nin each con-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "annotators on subjective tasks such as emotion recognition and",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "versation [13]. We remove utterances where individual annota-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "hate speech [4, 5, 10].\nDavani et al.\nintroduced an encoder-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "tions were partially missing or any annotator evaluations were"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "based model with separate classification heads for each annota-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "not within the labeling range described in the data collection."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "tor. They trained this model for a binary categorical\ntext emo-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "After processing, the dataset consists of 9,999 samples. Six an-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "tion recognition task using a dataset\nthat contained 82 anno-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "notators labeled the dataset with an average of 2.13 annotators"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "tators. At\ntest\ntime,\nthey aggregated the individual annotator",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "per sample. We test on the full dataset."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "predictions and found that their model outperformed a baseline",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "MSP-Podcast\nis a dataset of speech taken from podcasts"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "trained on majority ground truth labels. However,\nthe perfor-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "and then labeled [14]. We use the predefined splits and evaluate"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "mance of\nindividual annotators was not discussed.\nFurther, a",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "on test set 1, which is comprised of 13,911 utterances and con-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "limitation of this work is that many SER datasets include over",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "tains 9570 individual annotators. Each utterance was evaluated"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "82 annotators, and the authors acknowledge that it would be too",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "by 6.9 crowdsourced annotators on average. We use release"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "computationally expensive to train a model with separate heads",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "1.8, which does not contain transcripts, so we use Microsoft"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "for large numbers of annotators. Previous work has shown that",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "Azure automatic speech recognition to generate them."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "clustering similar annotators can mitigate problems with large",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "MuSE is a dataset of 28 college students recorded in two"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "numbers of annotators\n[11].\nHowever,\nclustering annotators",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "45-minute sessions each, responding to emotional stimuli. One"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "loses information about individual ratings.\nIn our work, we en-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "session was when the students were affected by an external"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "able only the relevant heads per batch, making training with a",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "stressor, and the other was without\nthe stressor [15]. Students"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "large number of annotators more computationally feasible.",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "were recorded using a lapel microphone. Crowdsourced annota-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "An alternative approach to learning individual annotators",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "tors evaluated each utterance. There are 2,584 utterances com-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "is through annotator embeddings [5]. Prior work from Koco´n",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "prised of 1,385 stressed and 1,199 non-stressed samples. The"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "et al.\ndemonstrates that annotator-specific embeddings can be",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "dataset provides labels annotated with or without context; we"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "used to personalize model predictions and capture the bias of",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "use the labels from the 160 individual annotators who labeled"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "individual annotators. They introduced four methods for encod-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "without context. Each sample was evaluated between 7 and 9"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "ing annotator\ninformation into the model,\nincluding a one-hot",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "annotators, with 8 on average."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "annotator embedding. This embedding was a one-hot encoded",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "Dataset Preprocessing We process all datasets in the same"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "vector of annotator ID that was concatenated to the model\nin-",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "way. We use min-max scaling on the annotator and consensus"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "put. They found that\nthis led to improved text-based emotion",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "labels for activation and valence to restrict labels to the [−1, 1]"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "predictions but were focused on a consensus model rather than",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "range. We then use KDE to generate a 2D ground truth proba-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "an individual-specific model. We use the one-hot model and",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "bility distributions as in [7]. We use a KDE grid size of 512 as"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "investigate if the model can learn individual annotators.",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "we assume this will be sufficiently large to ensure the probabil-"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "ity is insensitive to the grid boundaries."
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "3. Experiments",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": ""
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "3.2. Model Architecture"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "3.1. Data setup",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": ""
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "We present three models: a baseline, a MT model, and a one-hot"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "We use the MSP-Improv dataset for training and testing. It was",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "model, all of which share the same base architecture but have"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "labeled using crowdsourcing and has a relatively large number",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "different output head architectures (Figure 1). The model input"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "of evaluations per utterance [7, 12]. Additionally, we use the",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "includes the frozen mean-pooled final layers of Wav2Vec2 [16]"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "1We also add ϵ = 1E−12 to this value to account for cases where",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "2The\ncode\nto\ncreate\nthe\ndata\nsplits\ncan\nbe\nfound\nat"
+        },
+        {
+          "oped in previous work by Zhang et al. [7], which incorporated": "standard deviation is 0.",
+          "IEMOCAP, MSP-Podcast, and MuSE datasets to evaluate the": "https://github.com/chailab-umich/ModelingIndividualEvaluators."
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "Repeat Prediction Layers for"
+        },
+        {
+          "Activation": "4x4 Distribution",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "Valence\nall evaluators\nActivation"
+        },
+        {
+          "Activation": "(a) Baseline model\n(b) MT Model",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "(c) One-hot Model"
+        },
+        {
+          "Activation": "Figure 1: Model Architectures. Layers in gray are the common architecture between models. In (b) and (c) the last two common layers",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "are duplicated as they split the model to two predictions.",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "and BERT [17] CLS embeddings as these have shown effec-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "and valence predictions. However,\nthe KDE method outlined"
+        },
+        {
+          "Activation": "tiveness in SER applications [18, 19]. We apply dropout with",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "by Zhang et al.\nin [7] is not\nimmediately usable. KDE via dif-"
+        },
+        {
+          "Activation": "probability 0.2 and concatenate the embeddings. The concate-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "fusion starts with a histogram [22].\nFor each annotation we"
+        },
+        {
+          "Activation": "nated embedding is passed through a single linear layer of size",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "must know if it is in a particular bin to increment the bin’s his-"
+        },
+        {
+          "Activation": "256 with ReLU activation.\nFor each prediction (distribution,",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "togram count. This operation is a binary operation and not dif-"
+        },
+        {
+          "Activation": "activation, or valence),\nthe input will pass through two linear",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "ferentiable. We introduce a differentiable approximation to this"
+        },
+        {
+          "Activation": "layers of size 256 with ReLU activations.",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "problem by instead calculating a confidence value that a given"
+        },
+        {
+          "Activation": "The baseline model directly learns the generated KDE dis-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "annotation is within a given bin. We modify an existing one-"
+        },
+        {
+          "Activation": "tribution (as in [7]), having a final linear layer output of 16 log-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "dimensional (1D) soft-histogram3, as below, for the 2D data."
+        },
+        {
+          "Activation": "its for the 4x4 discretized KDE distribution prediction case. The",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "We use 64 bins for DiffKDE4. We first calculate the 1D cen-"
+        },
+        {
+          "Activation": "MT model has separate prediction layers for each annotator as",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "ter of each bin in the range −1 to 1. For each of the n anno-"
+        },
+        {
+          "Activation": "in [17].\nEach annotator’s continuous prediction of activation",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "tations of activation, we subtract\nthe center of each bin from"
+        },
+        {
+          "Activation": "and valence is made via a linear\nlayer with an output size of",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "the annotation,\nresulting in a 64 size vector, which we call x."
+        },
+        {
+          "Activation": "1. We use the one-hot method, previously used for text emo-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "The contribution to the 64 bins will then be calculated using an"
+        },
+        {
+          "Activation": "tion recognition [20]. We use the same architecture as in the MT",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "element-wise sigmoid on this vector, sigmoid(σ ∗ (x + δ"
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "2 )) −"
+        },
+        {
+          "Activation": "case but with only one annotator prediction head. The annotator",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "sigmoid(σ ∗ (x − δ"
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "2 )). The gradient of sigmoid is largest at"
+        },
+        {
+          "Activation": "ID is one-hot encoded and concatenated to the Wav2Vec2 and",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "term has less effect, and\nzero, for values of x far from 0,\nthe δ"
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "2"
+        },
+        {
+          "Activation": "BERT embeddings on the model\ninput. When training within",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "the bin value is close to 0. This function is maximized for val-"
+        },
+        {
+          "Activation": "corpus, we reduce computation cost by making predictions only",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "ues of x close to 0. We repeat this for valence to get two n × 64"
+        },
+        {
+          "Activation": "for annotators in the batch input to the model.",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "matrices for activation and valence."
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "In the equation, σ is a scaling parameter;\nthe larger\nthe"
+        },
+        {
+          "Activation": "3.3. Training Tasks",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "value,\nthe more sharp the histogram is, and δ is the bin size."
+        },
+        {
+          "Activation": "In this\nsection, we define three different\ntraining tasks.\nThe",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "Since our data is in the range −1 to 1, and we use 64 bins,"
+        },
+        {
+          "Activation": "Baseline model is trained with the Baseline task. MT and one-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "δ = 2"
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "64 . We then matrix multiply these two n × 64 matrices by"
+        },
+        {
+          "Activation": "hot models are trained by interleaving Tasks 1 and 2 (Task 1+2),",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "transposing one to get a 2D (64 × 64) matrix. We then normal-"
+        },
+        {
+          "Activation": "defined below. We use stochastic gradient descent with a learn-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "ize to get a final 4 × 4 probability distribution as in [7]. There"
+        },
+        {
+          "Activation": "ing rate of 0.001, with a learning rate scheduler that adjusts the",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "is a tradeoff where too large of a σ may lead to vanishing gra-"
+        },
+        {
+          "Activation": "learning rate by a factor of 0.1 after five epochs of no reduction",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "dients, but too low may result in undersaturation [23]. As such,"
+        },
+        {
+          "Activation": "in validation metrics. We train models until early stopping trig-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "we set σ relatively small at 8; lower values did not reduce loss."
+        },
+        {
+          "Activation": "gers with a patience of 10 with a minimum of 30 epochs. Each",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "Future work could investigate the impact of modifying the σ"
+        },
+        {
+          "Activation": "model trains with a batch size of 32. For all methods we use the",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "parameter. The generation of probabilities in DiffKDE is done"
+        },
+        {
+          "Activation": "relevant task’s validation losses.",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "in float165 as it significantly speeds up calculations."
+        },
+        {
+          "Activation": "Baseline: We predict\nthe flattened 2D distribution and use",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "We base our work off an existing KDE via Diffusion li-"
+        },
+        {
+          "Activation": "cross-entropy loss of the 16 logits output against\nthe flattened",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "brary6, which we modify to use PyTorch and the soft histogram"
+        },
+        {
+          "Activation": "2D generated ground truth probability distributions [7].",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "method from the previous paragraph.\nAll\ncode\nis\navailable"
+        },
+        {
+          "Activation": "Task 1 - Annotator Training: We train annotator-specific",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "on our GitHub page7.\nThis\nenables DiffKDE to be\nrun on"
+        },
+        {
+          "Activation": "predictions using the individual annotator ground truth. We use",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "GPUs and parallelized into batches. DiffKDE Loss is the Cross-"
+        },
+        {
+          "Activation": "Lin’s Concordance Correlation Coefficient\n(CCC)\nloss as our",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "Entropy loss8 of the DiffKDE output, compared with the gener-"
+        },
+        {
+          "Activation": "loss function since it better models dimensional attributes than",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "ated ground-truth 2D labels."
+        },
+        {
+          "Activation": "other regression losses [21]. The sets act, and val contain the",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "ground truth labels from all annotators in a training batch. The",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "3https://discuss.pytorch.org/t/differentiable-torch-histc/25865/4"
+        },
+        {
+          "Activation": "sets mact and mval contain the model’s estimates of these la-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "4Note: smaller than 512 (used to generate target labels) for speed"
+        },
+        {
+          "Activation": "bels. The loss is 2 − CCC(mact, act) − CCC(mval, val).",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": ""
+        },
+        {
+          "Activation": "",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "5We use float64 during validation and testing for KDE accuracy."
+        },
+        {
+          "Activation": "Task 2 - DiffKDE: We learn the probability distribution us-",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "6https://pypi.org/project/KDE-diffusion/"
+        },
+        {
+          "Activation": "ing the KDE-generated ground truth labels.\nThe model must",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "7https://github.com/chailab-umich/ModelingIndividualEvaluators"
+        },
+        {
+          "Activation": "produce a probability distribution from the model’s activation",
+          "Valence\nLinear Layer (1)\nLinear Layer (1)": "8After normalization, we add ϵ = 1E−8 to avoid taking log of 0."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: MSP-Improv probability distribution results (*=sta- Table 2: Cross-corpus zero-shot Activation, Valence results,",
+      "data": [
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "tistical\nsignificant\nimprovement\ncompared\nto\nbaseline,",
+          "Table 2: Cross-corpus": "*,†,↑,↓ as in Table 1. P: MSP-Podcast, I: IEMOCAP, M: MuSE",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "†=statistical significant decline). ↑ indicates higher is better, ↓",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "indicates lower is better. Each metric’s best result is bolded.",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "Dataset Baseline",
+          "zero-shot Activation, Valence results,": "MT-1\nMT-12"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "P",
+          "zero-shot Activation, Valence results,": "0.601±0.003 0.507±0.002* 0.518±0.005*"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "Activation\nValence",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "TVD↓\nJSD↓\nModel",
+          "Table 2: Cross-corpus": "I",
+          "zero-shot Activation, Valence results,": "0.633±0.002 0.614±0.002* 0.613±0.002*"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "CCC↑\nCCC↑",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "M",
+          "zero-shot Activation, Valence results,": "0.530±0.004 0.484±0.007* 0.470±0.002*"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "Baseline\n.515±.004\n.213±.003\n.673±.008\n.573±.020",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "P",
+          "zero-shot Activation, Valence results,": "0.274±0.002 0.213±0.001* 0.220±0.003*"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": ".503±.001* .211±.001\nMT\n.741±.005* .571±.005",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "I",
+          "zero-shot Activation, Valence results,": "0.310±0.002 0.302±0.002* 0.302±0.002*"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "One-hot\n.518±.006\n.228±.004† .689±.014* .607±.017*",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "M",
+          "zero-shot Activation, Valence results,": "0.218±0.003 0.192±0.005* 0.182±0.002*"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "P",
+          "zero-shot Activation, Valence results,": "0.261±0.014 0.261±0.008\n0.235±0.012†"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "3.4. Evaluation Metrics",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "I",
+          "zero-shot Activation, Valence results,": "0.374±0.010 0.429±0.010* 0.381±0.015"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "We first evaluate the ability of the proposed approaches to learn",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "M",
+          "zero-shot Activation, Valence results,": "0.209±0.012*\n0.173±0.022 0.202±0.014"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "continuous predictions and then the ability of\nthe system to",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "learn distributions. The baseline cannot directly produce con-",
+          "Table 2: Cross-corpus": "P",
+          "zero-shot Activation, Valence results,": "0.368±0.003 0.332±0.009† 0.302±0.011†"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "tinuous ratings, while the proposed approaches can.\nIn order",
+          "Table 2: Cross-corpus": "I",
+          "zero-shot Activation, Valence results,": "0.321±0.011 0.255±0.007† 0.219±0.011†"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "to provide a fair comparison, we generate consensus predic-",
+          "Table 2: Cross-corpus": "M",
+          "zero-shot Activation, Valence results,": "0.198±0.017 0.202±0.013\n0.162±0.007†"
+        },
+        {
+          "Table 1: MSP-Improv probability distribution results (*=sta-": "tions across all methods in the same manner: we sum along",
+          "Table 2: Cross-corpus": "",
+          "zero-shot Activation, Valence results,": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "anced speech corpus by retrieving emotional speech from existing"
+        },
+        {
+          "6. Acknowledgements": "This material\nis\nbased\nin\npart\nupon work\nsupported\nby",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "podcast recordings,” IEEE Transactions on Affective Computing,"
+        },
+        {
+          "6. Acknowledgements": "the National Science Foundation (NSF IIS-RI 2230172 and",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "vol. 10, no. 4, pp. 471–483, October-December 2019."
+        },
+        {
+          "6. Acknowledgements": "IIS-RI\n2230172)\nand National\nInstitutes\nof Health\n(NIH",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[15] M.\nJaiswal,\nC.-P. Bara,\nY\n.\nLuo, M. Burzo,\nR. Mihalcea,"
+        },
+        {
+          "6. Acknowledgements": "R01MH130411).",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "and E. M. Provost,\n“MuSE:\na multimodal dataset of\nstressed"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "the Twelfth Language Resources\nemotion,”\nin Proceedings of"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "and Evaluation Conference, N. Calzolari, F. B´echet, P. Blache,"
+        },
+        {
+          "6. Acknowledgements": "7. References",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "K. Choukri,\nC. Cieri,\nT. Declerck,\nS. Goggi,\nH.\nIsahara,"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "B. Maegaard,\nJ. Mariani, H. Mazo, A. Moreno,\nJ. Odijk,"
+        },
+        {
+          "6. Acknowledgements": "[1]\nS. Labat, N. Ackaert, T. Demeester, and V. Hoste, “Variation in",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "and S. Piperidis, Eds.\nMarseille, France: European Language"
+        },
+        {
+          "6. Acknowledgements": "the expression and annotation of emotions:\na wizard of oz pilot",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "Resources Association, May\n2020,\npp.\n1499–1510.\n[Online]."
+        },
+        {
+          "6. Acknowledgements": "study,” in LREC 2022 Workshop: 1st Workshop on Perspectivist",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "Available: https://aclanthology.org/2020.lrec-1.187"
+        },
+        {
+          "6. Acknowledgements": "Approaches to NLP (NLPerspectives).\nEuropean Language Re-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "sources Association (ELRA), 2022, pp. 66–72.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[16] A. Baevski, Y. Zhou, A. Mohamed,\nand M. Auli,\n“wav2vec"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "2.0: A framework for self-supervised learning of speech repre-"
+        },
+        {
+          "6. Acknowledgements": "[2]\nJ. Han, Z. Zhang, M. Schmitt, M. Pantic, and B. Schuller, “From",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "sentations,” Advances in neural\ninformation processing systems,"
+        },
+        {
+          "6. Acknowledgements": "hard to soft: Towards more human-like emotion recognition by",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "vol. 33, pp. 12 449–12 460, 2020."
+        },
+        {
+          "6. Acknowledgements": "modelling the perception uncertainty,” in Proceedings of the 25th",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "ACM international conference on Multimedia, 2017, pp. 890–897.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[17]\nJ. Devlin, M.-W. Chang, K. Lee,\nand K. Toutanova,\n“Bert:"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "Pre-training\nof\ndeep\nbidirectional\ntransformers\nfor\nlanguage"
+        },
+        {
+          "6. Acknowledgements": "[3] N. R.\nPrabhu,\nG. Carbajal,\nN.\nLehmann-Willenbrock,\nand",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "the Association\nunderstanding,”\nin North American Chapter of"
+        },
+        {
+          "6. Acknowledgements": "T. Gerkmann, “End-to-end label uncertainty modeling for speech-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "for\nComputational\nLinguistics,\n2019.\n[Online].\nAvailable:"
+        },
+        {
+          "6. Acknowledgements": "based arousal recognition using bayesian neural networks,” arXiv",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "https://api.semanticscholar.org/CorpusID:52967399"
+        },
+        {
+          "6. Acknowledgements": "preprint arXiv:2110.03299, 2021.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[18]\nJ. Tavernor, M. Perez, and E. Mower Provost, “Episodic Memory"
+        },
+        {
+          "6. Acknowledgements": "[4] A. M. Davani, M. D´ıaz, and V. Prabhakaran, “Dealing with dis-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "For Domain-Adaptable, Robust Speech Emotion Recognition,” in"
+        },
+        {
+          "6. Acknowledgements": "agreements: Looking beyond the majority vote in subjective anno-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "Proc. INTERSPEECH 2023, 2023, pp. 656–660."
+        },
+        {
+          "6. Acknowledgements": "the Association for Computational Lin-\ntations,” Transactions of",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[19]\nJ. Wagner, A. Triantafyllopoulos, H. Wierstorf, M. Schmitt,"
+        },
+        {
+          "6. Acknowledgements": "guistics, vol. 10, pp. 92–110, 2022.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "F. Burkhardt, F. Eyben, and B. W. Schuller, “Dawn of the trans-"
+        },
+        {
+          "6. Acknowledgements": "[5]\nJ. Koco´n, M. Gruza, J. Bielaniewicz, D. Grimling, K. Kanclerz,",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "former era in speech emotion recognition:\nclosing the valence"
+        },
+        {
+          "6. Acknowledgements": "P. Miłkowski, and P. Kazienko, “Learning personal human biases",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "gap,” IEEE Transactions on Pattern Analysis and Machine Intel-"
+        },
+        {
+          "6. Acknowledgements": "and representations for subjective tasks in natural\nlanguage pro-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "ligence, 2023."
+        },
+        {
+          "6. Acknowledgements": "cessing,” in 2021 IEEE International Conference on Data Mining",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[20]\nJ. Koco´n, M. Gruza, J. Bielaniewicz, D. Grimling, K. Kanclerz,"
+        },
+        {
+          "6. Acknowledgements": "(ICDM), 2021, pp. 1168–1173.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "P. Miłkowski, and P. Kazienko, “Learning personal human biases"
+        },
+        {
+          "6. Acknowledgements": "[6] H.-C. Chou and C.-C. Lee,\n“Learning to recognize per-rater’s",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "and representations for subjective tasks in natural\nlanguage pro-"
+        },
+        {
+          "6. Acknowledgements": "emotion perception using co-rater training strategy with soft and",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "cessing,” in 2021 IEEE International Conference on Data Mining"
+        },
+        {
+          "6. Acknowledgements": "hard labels.” in INTERSPEECH, 2020, pp. 4108–4112.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "(ICDM).\nIEEE, 2021, pp. 1168–1173."
+        },
+        {
+          "6. Acknowledgements": "[7] B. Zhang, G. Essl, and E. Mower Provost, “Predicting the distri-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[21] B. T. Atmaja and M. Akagi, “Evaluation of error-and correlation-"
+        },
+        {
+          "6. Acknowledgements": "bution of emotion perception: capturing inter-rater variability,” in",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "based loss\nfunctions\nfor multitask learning dimensional\nspeech"
+        },
+        {
+          "6. Acknowledgements": "Proceedings of the 19th ACM International Conference on Multi-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "emotion recognition,” in Journal of Physics: Conference Series,"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "vol. 1896, no. 1.\nIOP Publishing, 2021, p. 012004."
+        },
+        {
+          "6. Acknowledgements": "modal Interaction, 2017, pp. 51–59.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[22]\nZ.\nI.\nBotev,\nJ.\nF. Grotowski,\nand D.\nP. Kroese,\n“Kernel"
+        },
+        {
+          "6. Acknowledgements": "[8]\nT. Dang, V. Sethu, and E. Ambikairajah, “Dynamic multi-rater",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "The\nAnnals\nof\ndensity\nestimation\nvia\ndiffusion,”\nStatistics,"
+        },
+        {
+          "6. Acknowledgements": "gaussian mixture regression incorporating temporal dependencies",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "vol.\n38,\nno.\n5,\npp.\n2916\n–\n2957,\n2010.\n[Online]. Available:"
+        },
+        {
+          "6. Acknowledgements": "of emotion uncertainty using kalman filters,” in 2018 IEEE Inter-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "https://doi.org/10.1214/10-AOS799"
+        },
+        {
+          "6. Acknowledgements": "national Conference on Acoustics, Speech and Signal Processing",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "(ICASSP), 2018, pp. 4929–4933.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "[23] H. H. Tan and K. H. Lim, “Vanishing gradient mitigation with"
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "deep learning neural network optimization,” in 2019 7th Interna-"
+        },
+        {
+          "6. Acknowledgements": "[9] W. Wu, C. Zhang, and P. Woodland, “Estimating the uncertainty in",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "tional Conference on Smart Computing & Communications (IC-"
+        },
+        {
+          "6. Acknowledgements": "emotion attributes using deep evidential regression,” in Proceed-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": "SCC), 2019, pp. 1–4."
+        },
+        {
+          "6. Acknowledgements": "ings of\nthe 61st Annual Meeting of\nthe Association for Compu-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "tational Linguistics (Volume 1: Long Papers), 2023, pp. 15 681–",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "15 695.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "[10]\nL. Stappen, L. Schumann, A. Batliner, and B. W. Schuller, “Em-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "bracing and exploiting annotator emotional subjectivity: An affec-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "tive rater ensemble model,” in 2021 9th International Conference",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "on Affective Computing and Intelligent Interaction Workshops and",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "Demos (ACIIW), 2021, pp. 01–08.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "[11]\nS. G. Upadhyay, W.-S. Chien, B.-H. Su, and C.-C. Lee, “Learn-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "ing with rater-expanded label space to improve speech emotion",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "recognition,” IEEE Transactions on Affective Computing, pp. 1–",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "15, 2024.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "[12] C. Busso,\nS.\nParthasarathy, A. Burmania, M. AbdelWahab,",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "N. Sadoughi, and E. M. Provost, “Msp-improv: An acted corpus",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "of dyadic interactions to study emotion perception,” IEEE Trans-",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "actions on Affective Computing, vol. 8, no. 1, pp. 67–80, 2017.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "[13] C.\nBusso,\nM.\nBulut,\nC.-C.\nLee,\nA.\nKazemzadeh,",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "E. Mower Provost, S. Kim, J. Chang, S. Lee, and S. Narayanan,",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "“IEMOCAP:\nInteractive\nemotional\ndyadic\nmotion\ncapture",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "Language Resources\ndatabase,”\nand Evaluation,\nvol.\n42,\npp.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        },
+        {
+          "6. Acknowledgements": "335–359, 12 2008.",
+          "[14] R. Lotfian and C. Busso, “Building naturalistic emotionally bal-": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Variation in the expression and annotation of emotions: a wizard of oz pilot study",
+      "authors": [
+        "S Labat",
+        "N Ackaert",
+        "T Demeester",
+        "V Hoste"
+      ],
+      "year": "2022",
+      "venue": "LREC 2022 Workshop: 1st Workshop on Perspectivist Approaches to NLP (NLPerspectives)"
+    },
+    {
+      "citation_id": "2",
+      "title": "From hard to soft: Towards more human-like emotion recognition by modelling the perception uncertainty",
+      "authors": [
+        "J Han",
+        "Z Zhang",
+        "M Schmitt",
+        "M Pantic",
+        "B Schuller"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 25th ACM international conference on Multimedia"
+    },
+    {
+      "citation_id": "3",
+      "title": "End-to-end label uncertainty modeling for speechbased arousal recognition using bayesian neural networks",
+      "authors": [
+        "N Prabhu",
+        "G Carbajal",
+        "N Lehmann-Willenbrock",
+        "T Gerkmann"
+      ],
+      "year": "2021",
+      "venue": "End-to-end label uncertainty modeling for speechbased arousal recognition using bayesian neural networks",
+      "arxiv": "arXiv:2110.03299"
+    },
+    {
+      "citation_id": "4",
+      "title": "Dealing with disagreements: Looking beyond the majority vote in subjective annotations",
+      "authors": [
+        "A Davani",
+        "M Díaz",
+        "V Prabhakaran"
+      ],
+      "year": "2022",
+      "venue": "Transactions of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "5",
+      "title": "Learning personal human biases and representations for subjective tasks in natural language processing",
+      "authors": [
+        "J Kocoń",
+        "M Gruza",
+        "J Bielaniewicz",
+        "D Grimling",
+        "K Kanclerz",
+        "P Miłkowski",
+        "P Kazienko"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE International Conference on Data Mining (ICDM)"
+    },
+    {
+      "citation_id": "6",
+      "title": "Learning to recognize per-rater's emotion perception using co-rater training strategy with soft and hard labels",
+      "authors": [
+        "H.-C Chou",
+        "C.-C Lee"
+      ],
+      "year": "2020",
+      "venue": "Learning to recognize per-rater's emotion perception using co-rater training strategy with soft and hard labels"
+    },
+    {
+      "citation_id": "7",
+      "title": "Predicting the distribution of emotion perception: capturing inter-rater variability",
+      "authors": [
+        "B Zhang",
+        "G Essl",
+        "E Provost"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 19th ACM International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "8",
+      "title": "Dynamic multi-rater gaussian mixture regression incorporating temporal dependencies of emotion uncertainty using kalman filters",
+      "authors": [
+        "T Dang",
+        "V Sethu",
+        "E Ambikairajah"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "9",
+      "title": "Estimating the uncertainty in emotion attributes using deep evidential regression",
+      "authors": [
+        "W Wu",
+        "C Zhang",
+        "P Woodland"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "10",
+      "title": "Embracing and exploiting annotator emotional subjectivity: An affective rater ensemble model",
+      "authors": [
+        "L Stappen",
+        "L Schumann",
+        "A Batliner",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "2021 9th International Conference on Affective Computing and Intelligent Interaction Workshops and Demos"
+    },
+    {
+      "citation_id": "11",
+      "title": "Learning with rater-expanded label space to improve speech emotion recognition",
+      "authors": [
+        "S Upadhyay",
+        "W.-S Chien",
+        "B.-H Su",
+        "C.-C Lee"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Msp-improv: An acted corpus of dyadic interactions to study emotion perception",
+      "authors": [
+        "C Busso",
+        "S Parthasarathy",
+        "A Burmania",
+        "M Abdelwahab",
+        "N Sadoughi",
+        "E Provost"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "13",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Provost",
+        "J Kim",
+        "S Chang",
+        "S Lee",
+        "Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "14",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "15",
+      "title": "MuSE: a multimodal dataset of stressed emotion",
+      "authors": [
+        "M Jaiswal",
+        "C.-P Bara",
+        "Y Luo",
+        "M Burzo",
+        "R Mihalcea",
+        "E Provost",
+        "N Calzolari",
+        "F Béchet",
+        "P Blache",
+        "K Choukri",
+        "C Cieri",
+        "T Declerck",
+        "S Goggi",
+        "H Isahara",
+        "B Maegaard",
+        "J Mariani",
+        "H Mazo"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the Twelfth Language Resources and Evaluation Conference"
+    },
+    {
+      "citation_id": "16",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "17",
+      "title": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Bert: Pre-training of deep bidirectional transformers for language understanding"
+    },
+    {
+      "citation_id": "18",
+      "title": "Episodic Memory For Domain-Adaptable, Robust Speech Emotion Recognition",
+      "authors": [
+        "J Tavernor",
+        "M Perez",
+        "E Provost"
+      ],
+      "year": "2023",
+      "venue": "Proc. INTERSPEECH 2023"
+    },
+    {
+      "citation_id": "19",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "20",
+      "title": "Learning personal human biases and representations for subjective tasks in natural language processing",
+      "authors": [
+        "J Kocoń",
+        "M Gruza",
+        "J Bielaniewicz",
+        "D Grimling",
+        "K Kanclerz",
+        "P Miłkowski",
+        "P Kazienko"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE International Conference on Data Mining (ICDM)"
+    },
+    {
+      "citation_id": "21",
+      "title": "Evaluation of error-and correlationbased loss functions for multitask learning dimensional speech emotion recognition",
+      "authors": [
+        "B Atmaja",
+        "M Akagi"
+      ],
+      "year": "2021",
+      "venue": "Journal of Physics: Conference Series"
+    },
+    {
+      "citation_id": "22",
+      "title": "Kernel density estimation via diffusion",
+      "authors": [
+        "Z Botev",
+        "J Grotowski",
+        "D Kroese"
+      ],
+      "year": "2010",
+      "venue": "The Annals of Statistics",
+      "doi": "10.1214/10-AOS799"
+    },
+    {
+      "citation_id": "23",
+      "title": "Vanishing gradient mitigation with deep learning neural network optimization",
+      "authors": [
+        "H Tan",
+        "K Lim"
+      ],
+      "year": "2019",
+      "venue": "2019 7th International Conference on Smart Computing & Communications"
+    }
+  ]
+}

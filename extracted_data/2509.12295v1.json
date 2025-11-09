@@ -1,0 +1,580 @@
+{
+  "paper_id": "2509.12295v1",
+  "title": "More Similar Than Dissimilar: Modeling Annotators For Cross-Corpus Speech Emotion Recognition",
+  "published": "2025-09-15T15:52:09Z",
+  "authors": [
+    "James Tavernor",
+    "Emily Mower Provost"
+  ],
+  "keywords": [
+    "speech analysis",
+    "emotion recognition",
+    "annotatorspecific modeling",
+    "cross-corpus modeling"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Speech emotion recognition systems often predict a consensus value generated from the ratings of multiple annotators. However, these models have limited ability to predict the annotation of any one person. Alternatively, models can learn to predict the annotations of all annotators. Adapting such models to new annotators is difficult as new annotators must individually provide sufficient labeled training data. We propose to leverage inter-annotator similarity by using a model pre-trained on a large annotator population to identify a similar, previously seen annotator. Given a new, previously unseen, annotator and limited enrollment data, we can make predictions for a similar annotator, enabling off-the-shelf annotation of unseen data in target datasets, providing a mechanism for extremely low-cost personalization. We demonstrate our approach significantly outperforms other off-the-shelf approaches, paving the way for lightweight emotion adaptation, practical for real-world deployment.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Speech Emotion Recognition (SER) is the automatic classification of emotion from speech  [1] . SER models are typically trained on datasets with labels that are aggregated from many distinct annotators. The benefit of working with aggregated labels is that it mitigates the variability across annotators. Yet, aggregation also removes critical information about an individual annotator's perception  [2] ,  [3] . Emotion recognition is an inherently subjective process, and differing opinions should not necessarily be aggregated into a single opinion. Previous work has demonstrated that using the variability within individual annotators can be useful for emotion prediction, as well improving within-corpus models  [2] ,  [4] -  [6] . An alternative approach is to create SER models that predict the perception of an individual annotator. Recent work has demonstrated the feasibility of such approaches  [6] . These techniques retain varied perception by modeling individual annotator labels. However, it is not clear if such models can be extended to a new dataset with new annotators without expensive model retraining.\n\nAnnotator-specific modeling approaches generally assume that there is sufficient data from each annotator to learn an accurate model for that annotator. When a dataset does not have sufficient annotations from individual annotators, additional data collection may be required. Even with sufficient data per annotator, finetuning such a model can be both costly and resource-intensive. We need an alternative approach: one that permits personalization while allowing for low-cost and generalizable deployment, particularly given the inherent subjectivity of the domain  [7] ,  [8] . Recent work has demonstrated that it is possible to accurately model a large number of sparse crowdsourced annotators  [6] ,  [9] . However, these works only briefly address cross-corpus performance, focusing only on the acoustic adaptation of the model to new data. To our knowledge only one work has considered annotator-specific adaptation to unseen annotators, and this work only considers further finetuning on within-corpus heldout annotators  [9] . There remains an open question centered on how to leverage the similarity between the perception of different annotators for low cost generalizable cross-corpus deployment. In this work we hypothesize that annotators have inherent similarities that can be leveraged. Thus, a new target annotator population is likely composed of annotators who are similar to those in an existing, or source, population. We can leverage the existing knowledge from similar source annotators to make personalized predictions for the new target annotators.\n\nWe present a novel lightweight cross-corpus annotatorspecific modeling framework and demonstrate the efficacy of our approach across multiple well-known SER datasets. We pre-train annotator-specific models on MSP-Podcast, a largescale emotion dataset with over 10,000 annotators  [10] , that serves as our source dataset. Then, for each annotator in a given target dataset (i.e., MSP-Improv  [11] , IEMOCAP  [12] , MuSE  [13] ), we identify the most similar source annotator pre-trained model. Our key assumption is that given a new annotator in a target dataset (\"target annotator\"), there exists an annotator in the source dataset (\"source annotator\") who perceives emotion similarly, independent of the specific speech segments they labeled. We assume that we have enrollment data for this new target annotator. We then assert that the \"most similar\" source annotator is the one whose pre-trained model performs most accurately, in an off-the-shelf fashion, on the target annotator's enrollment data. We use the pre-trained most similar source annotator model on the target annotator's held out test data. We compare our annotator-specific model to 1) an aggregate model trained to predict the average over all evaluations for a given sample (\"aggregate prediction\"), 2) the aggregate model finetuned for a single epoch (similar to having observed the enrollment data one time, as in our model), and 3) the aggregate model finetuned using all available training and validation data. The last approach is not a baseline, instead it provides an upper bound indicating what could be done given considerably more computation and labeled data.\n\nWe find that the proposed annotator-specific approach significantly outperforms aggregate prediction within-corpus, demonstrating the importance of considering annotatorspecific perceptions to improve SER performance. We then explore the extension from within-corpus annotators to new unseen annotators in cross-corpus settings and find that the proposed lightweight cross-corpus adaptation method significantly outperforms other off-the-shelf annotator-specific approaches across all datasets. This holds for both individual annotator performance and when predicting the conventional aggregated label by taking an average of the output of the multiple annotator-specific models. Further, using a small enrollment set for each annotator, one that is much smaller than that annotator's full set, retains similar performance to using the full set. Finally, we demonstrate the consistency in the pairing between source and target annotators, highlighting the stability of the approach.\n\nThis work highlights the potential of incorporating individual annotator predictions and perceptions to improve SER generalizability. Our approach is lightweight and can be deployed off-the-shelf, given a small enrollment set, making it particularly useful when capturing specific perceptual differences is necessary but full model retraining is impractical.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ii. Research Questions",
+      "text": "We consider five distinct research questions that provide insight into the ability and effectiveness of our approach to identify similar annotators.\n\nResearch Question 1 (RQ1): What is the relationship between annotator similarity and cross-corpus model performance? We measure similarity between a target annotator and source annotator by deploying the pre-trained source annotator prediction head on the training data (\"enrollment data\") for a given target annotator. We select the source annotator prediction head with the highest performance on the enrollment data as the most similar annotator. We hypothesize that the use of the most similar annotator will improve performance compared to a randomly selected pre-trained annotator prediction head. We investigate the relationship between the performance of the selected source annotator prediction head on a target annotator's enrollment data and the resulting performance on that annotator's test data, with poor enrollment data correlation suggesting that no similar annotator could be identified, while excellent enrollment data correlation suggests that a very similar annotator could be identified.\n\nResearch Question 2 (RQ2): What is the impact of source annotator prediction head accuracy with respect to performance on the target annotators? In this case, we ask if the \"quality\" of a source annotator prediction head (i.e., how well it captures the source annotator's patterns) impacts the performance on a target annotator population. For example, the correlation between the source annotator and target annotator may be high, but the prediction head of the source annotator was not accurately learned for that source annotator. We hypothesize that source annotators who are accurately learned will perform more accurately on target annotators, compared to those who are not accurately learned.\n\nResearch Question 3 (RQ3): What is the impact of enrollment data size on model performance? We test the relationship between cross-corpus model performance given differing amounts of enrollment data: N annotations per new annotator for N ∈  [5, 10, 15, 20, 25, 30] .\n\nResearch Question 4 (RQ4): How stable is the selection of a similar source annotator for each target annotator? We evaluate the proposed method over multiple cross-validation folds and across multiple random seeds. Each iteration provides one pairing between source and target annotators. We calculate the entropy of these pairings over all folds and seeds for each annotator. We assert that if a target annotator shares a similar perception with a source annotator, we should expect that this source annotator is selected above chance for individual target annotators.\n\nResearch Question 5 (RQ5): Can the prediction of individual annotators be merged to create an accurate aggregated label? The conventional approach in SER is to predict aggregate labels. In this final research question we ask whether we can use multiple annotator-specific predictions in a cross-corpus setting to predict the aggregate label in a low-cost manner. We anticipate that this approach will outperform an off-theshelf approach, one in which an aggregate model is learned on one dataset and applied to another. We do not anticipate that the proposed approach will outperform a model that is fine-tuned on those secondary corpora.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Related Work",
+      "text": "Previous work has focused on evaluating perceptual differences among annotators. In some previous work, the individual annotator labels are used to create new labels or define additional multi-task targets to improve the within-corpus model performance  [4] ,  [5] . More relevantly, some work has considered the prediction of annotators on subjective tasks. For example, previous work has considered grouping similar annotators to create a new multi-task learning target based on majority and minority perception classes  [14] . Some works have considered annotator-specific prediction  [6] ,  [9] ,  [15] -  [17]  or annotator-specific biases  [18]  in SER. Most relevantly, we expand on the multi-task frameworks of  [6] ,  [15] , where a separate classification head is used to make predictions for each annotator. This previous work has shown accurate performance across crowdsourced annotators within-corpus and cross-corpus. However, the cross-corpus experiments have been limited, focusing only on using all pre-trained annotators to make predictions rather than individual annotator predictions. We seek to use information provided by annotatorspecific predictions to improve cross-corpus performance without training the model.\n\nTo address generalizability in SER, prior work has investigated the importance of learning similar hidden representations for emotion expression across datasets  [19] ,  [20] . An alternative previous approach has been to augment or generate new data to help models be more generalizable  [21] ,  [22] . Ando et al. compare the performance of individual annotator models using finetuning (one model per annotator), auxiliary input (where annotator embeddings are input to an adapter layer), and sub-layer weighting (where each annotator has individual weights for later model layers)  [9] . The authors investigate both finetuning the full model and finetuning only an annotator embedding that is input to the model on adaptation data. The authors demonstrate the effectiveness of this adaptation for categorical emotion on within-corpus annotator adaptation. However, our focus is on deployment without any model training. Instead of finetuning on within-corpus heldout annotators, we investigate the feasibility of off-the-shelf deployment to completely unseen data.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iv. Datasets",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Data Description",
+      "text": "MSP-Podcast is a dataset of non-acted speech taken from podcasts  [10] . We use this dataset for model pre-training. We use release 1.11, which contains 12,913 different annotators in the training set. We pre-train on MSP-Podcast, as it is the largest and most naturalistic dataset, and because its large number of annotators increases the likelihood of finding similar annotators when comparing to target datasets  [23] .\n\nWe evaluate cross-corpus performance on three different SER datasets. We use MSP-Improv and IEMOCAP, which are acted datasets using both scripted and improvised sessions of dialogue between two speakers  [11] ,  [12] . MSP-Improv contains 1,496 different annotators, while IEMOCAP only contains six annotators. The final dataset used for adaptation is MuSE  [13] . MuSE consists of monologue speech in response to emotional stimuli of 28 college students, with sessions recorded in both stressed and unstressed conditions. We use the out-of-context label annotations (utterances annotated in random order) from 160 annotators.\n\nFor each dataset, during both pre-training and adaptation, we first remove all annotators that have not annotated at least 30 samples in the dataset to enable an accurate measurement of correlation  [24] ,  [25] . We then remove all annotators from the validation and test set who do not appear in the training sets. After processing, the MSP-Podcast dataset consists of 1,998 annotators and 134,088 samples. The exact number of annotators on the adaptation datasets varies for MSP-Improv and MuSE because the training set varies during crossvalidation. There are 513.4±47.399 and 70.8±2.713 annotators on MSP-Improv and MuSE respectively. IEMOCAP has a small number of annotators -the same four annotators are present in all folds. MSP-Improv, MuSE, and IEMOCAP have 8,438, 2,647 and 9,999 samples respectively.\n\nWe focus on dimensional emotion recognition, predicting activation (energy) and valence (positivity) from speech.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Dataset Preprocessing",
+      "text": "We preprocess labels for all datasets. We form two label sets: a) the individual annotator label and b) the aggregated label. The individual annotator label describes how an individual annotator evaluated a given piece of data (e.g., y val,i for the valence annotation for annotator i). The aggregate label is the average over all annotators who have evaluated the same piece of data (e.g., ȳval for valence). We transform both label sets using min-max scaling into a [-1, 1] range. The scaling parameters are determined over the entire annotator population and are not annotator-specific.\n\nFor each of the three target datasets, we perform five-fold cross-validation generating adaptation (training) and testing folds. For IEMOCAP and MSP-Improv we create sessionindependent folds to ensure speaker-independence and remove any risk of potential crosstalk. For MuSE we randomly generate speaker-independent validation folds 1  .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "V. Methods",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Model Architecture",
+      "text": "The input to the model is frozen BERT  [26]  CLS embeddings, as has previously been used for this task  [6] , and frozen WavLM  [27]  embeddings. Previous work used Wav2Vec2  [28]  embeddings  [6] ). WavLM has demonstrated relative performance improvement compared to Wav2Vec2 on SER  [29] . We concatenate the mean-pooled WavLM embedding and BERT CLS token after applying dropout. The concatenated embedding then goes through a linear layer. It is then passed through two linear layers for activation and a separate two linear layers for valence to get activation and valence embeddings. Finally, the activation and valence embeddings each pass through a final linear prediction layer. All layers before the prediction layer are size 256 and use ReLU activation.\n\nThe model predictions are either at the individual annotator level or at the aggregate level. The individual annotator model takes in an input speech sample and makes a prediction, pval,i , for each annotator, i, who annotated the sample. The prediction target is p val,i , that annotator's annotation of valence. The aggregated baseline model takes in the same input sample and makes a single prediction ŷval . The prediction target is y val ≡ i p val,i N (for N annotations on the sample), the average of all of the valence annotations for the input sample. The same definitions hold for activation. The individual annotator models have 1,998 prediction heads for each of activation and valence to predict each annotator (Section IV-A). The aggregate model has one prediction layer for each of activation and valence.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Within-Corpus Training",
+      "text": "We train the annotator-specific models on MSP-Podcast. The loss function is Lin's Concordance Correlation Coefficient (CCC)  [30]  loss, in line with previous works  [6] ,  [31] . In the individual annotator model, the loss function captures the difference between the individual predictions (e.g., pval,i ) and the known annotations of the individual annotators (e.g., p val,i ) over all annotators in the batch, as in  [6] . We use a multitask objective, equally weighting activation and valence  [6] ,  [32] . In the aggregate model, we equally weight valence and activation CCC (e.g., comparing ŷact and y act for each sample in the batch). The annotator-specific prediction heads are trained over six seeds. In each seed, we initialize the prediction heads by training an aggregate prediction for five epochs.\n\nC. Cross-Corpus Ind. Annotator Mapped (IA PT-Mapped)\n\nThe model with annotator-specific prediction heads trained on MSP-Podcast (Section V-B), is used, off-the-shelf, to predict the emotion perception of every sample of a given target annotator's enrollment data (the training data evaluated by a given annotator) to identify the prediction head associated with the pre-trained annotator that is most well-aligned with each target annotator over the three datasets. This is the proposed IA PT-Mapped model.\n\nWe identify similar source-target annotator pairs by identifying the source annotator prediction head that performs best on a target's enrollment data based on CCC (metrics are discussed in more detail in Section VI). We use this source annotator prediction head, without adaptation, to make predictions for the target annotator on the test partition of the dataset, and use only the target annotator labels to determine similarity.\n\nThe research questions analyze both the ability to predict the annotations of individual annotators and the ability to predict an aggregate label. The aggregate ground truth is an average of the original annotations for that sample. The IA PT-Mapped aggregate prediction is the average of the outputs of the chosen source annotator prediction heads.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "D. Cross-Corpus Individual Annotator Baselines",
+      "text": "Individual Random Map (IA PT-Random): We randomly assign each target annotator a source annotator prediction head. We create individual and aggregate predictions as in Section V-C. Individual Pre-trained (IA PT and IA PT-All): We evaluate IA PT within corpus. At the sample-level, we deploy the prediction heads associated with the subset of annotators who evaluated the given sample. Cross-corpus, we cannot deploy the model in this manner. The mapped and random models provide a method to select pre-trained source annotator prediction heads for a specific annotator population. However, this may not always be possible if a target dataset does not have training data available. Instead of making predictions using source annotators chosen for the target annotators of a given sample, we will use all 1,998 annotator-specific prediction heads. We then average the 1,998 estimates for each sample and assign this average as the prediction for each target annotator. We refer to this approach as IA PT-All.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "E. Cross-Corpus Aggregate Baseline",
+      "text": "Aggregate Baseline Pre-trained (Agg. PT): The model described in Section V-B is used in an off-the-shelf manner to predict the aggregated labels in the target dataset.\n\nAggregate Baseline Full (Agg. FT-Full): We finetune the Agg. PT model using the same method as described in Section V-B on the target dataset's training data until early stopping triggers on the target dataset's validation data using patience of 10. This baseline is an upper bound to our proposed non-finetuning approach as we allow the model to train as many epochs as required on the full training set. Further, the model is provided with additional data that our proposed method does not use in the form of the validation data. We present these results to provide context for the results of the lightweight off-the-shelf proposed approach. Aggregate Baseline Finetuned, One Epoch (Agg. FT-1):\n\nWe finetune the Agg. PT model in the same way as Agg. FT-Full on the target dataset's training data, but this time for one epoch only. The lightweight adaptation evaluates the training data once and this allows us to ask how a finetuning approach would do if offered a single chance to adapt with these data.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Aggregate Baseline Ground Truth (Agg. Ground Truth):",
+      "text": "The final baseline is an oracle method. We calculate the aggregate label over all annotators who annotated a given sample. We then assign this label to each annotator. If the Agg. Ground Truth model is effective, it suggests that individual annotators are well captured by an aggregate label. As such, this baseline allows us to understand when other baseline methods, particularly Agg. FT-Full, are likely to be effective.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Vi. Metrics",
+      "text": "The first metric is focused on the performance of a model prediction head for a single annotator. We call this metric CCC ind . We create two vectors for each annotator, their annotations and the model's prediction. We calculate the CCC between the two. We average this value over all annotators who annotated at least two samples.\n\nThe second metric is focused on the conventional aggregate annotations (the average of all annotators who annotated a given sample). We call this metric CCC agg . We create two vectors over all samples in a dataset, the ground truth aggregate annotations and a given model's predictions. We calculate the CCC between the two.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Vii. Results And Discussion",
+      "text": "For all applicable results we report significance using a paired t-test at a 95% confidence.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Within-Corpus Performance",
+      "text": "We first report the within-corpus CCC agg performance of the models described in Section V-B on MSP-Podcast. This provides a demonstration that, within-corpus, both models are able to accurately predict the aggregated annotations. We find that considering the individual annotator perceptions (IA PT) significantly outperforms the methods without annotatorspecific predictions except for CCC ind on valence, where performance is not significantly different (see Table  I ).\n\nThe first within-corpus result is the Individual Pre-trained (IA PT) model. This model generates predictions for each of the annotators for a given sample and then averages the result. The average is compared to the aggregate ground truth. The performance for valence and activation is comparable, at 0.658±0.003 and 0.647±0.002, respectively. The IA PT-All model does the same, except in this case it makes a prediction for each of the 1,998 prediction heads. This is the default in an unseen dataset. The results are statistically significantly lower, at 0.588±0.007 and 0.578±0.002, respectively. The Aggregate Baseline (Agg. PT) predicts the aggregate directly. The results are comparable to the IA PT-All model. The results highlight the benefit of aligning the prediction heads with the annotators who annotated a given sample (further discussed in RQ1).",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Cross-Corpus Performance",
+      "text": "We first evaluate CCC ind , which captures the ability of a model to predict annotators' annotations on unseen data. We observe that the IA PT-Mapped model (Section V-C) significantly outperforms all other approaches, except two cases (Table  II , valence on IEMOCAP and MSP-Improv).\n\nThe oracle Agg. Ground Truth model outperforms all other approaches, except for activation on MuSE, where IA PT-Mapped performs most accurately. The oracle performance shows that the aggregate label is well correlated with annotators and points to the relevance of the three aggregate models (Agg. PT, Agg. FT-1, and Agg. FT-Full) as baselines.\n\nIn valence classification for IEMOCAP and MSP-Improv, the finetuned aggregate models improve performance over all of the off-the-shelf models, including IA PT-Mapped. We anticipate that this is due to the strong relationship between the aggregate label and any single individual (Table  II ) and the relationship between valence and text  [31] ,  [33] . Further, IEMOCAP and MSP-Improv are both scripted and the crossvalidation folds are session-dependent, resulting in consistent text-emotion pairs over the folds. The model is likely learning to memorize the words associated with emotional valence.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "C. Research Questions",
+      "text": "As IEMOCAP only consists of a very small number of annotators, we focus our analyses on MuSE and MSP-Improv.\n\n1) Research Question 1 (RQ1): What is the relationship between annotator similarity and cross-corpus model performance?: We consider the best performing individual annotator model (IA PT-Mapped) on MSP-Improv and MuSE (IEMO-CAP has only four consistent annotators). We ask whether the performance on enrollment data is indicative of performance on test data. We first calculate the CCC ind over the enrollment data for each source-target pair that occurs throughout any -0 . of the folds and random seeds. We repeat this for the test data. We first present a histogram showing the relationship between the two values (Figure  1 , left), which suggests that as CCC on enrollment data increases, performance on the test data increases. Next, we calculate the Pearson's Correlation Coefficient (PCC) between both resulting vectors (Table  III ). We observe that there appears to be a relationship between this PCC value and the overall performance of the model (compare MSP-Improv and MuSE, valence and activation in Table  II ). However, we caution against overly strong conclusions given the focus on only two datasets.\n\n2) Research Question 2 (RQ2): What is the impact of source annotator prediction head accuracy with respect to performance on the target annotators?: We again restrict our analysis to MSP-Improv and MuSE. We analyze the relationship between the CCC ind of the selected source annotator prediction head on the target annotator's test data and the CCC ind observed for that source annotator during model training on the source dataset. We observe only a slight increase in performance when the source annotator was well learned for both valence and activation (Figure  1 , right). This may be because poorly learned source annotators were not selected. For example, the median CCC ind on the pre-training dataset (MSP-Podcast) of the selected source annotators for MSP-Improv and MuSE (considered together) was 0.457 and 0.384 for activation and valence, respectively (the three rightmost sets of bars in Figure  1 ).\n\n3) Research Question 3 (RQ3): What is the impact of enrollment data size on model performance?: We find that less than 30 samples per annotator are required to achieve performance comparable to the entire training set for IA PT-Mapped. Most approaches begin to reach similar performance with ∼15-20 annotations per annotator, much less than the full set of annotations. In some cases, for both CCC ind and CCC agg (MSP-Improv activation, MuSE activation, valence) using such a small set outperforms Agg. FT-1 even when providing the entire training set to Agg. FT-1, except for MuSE valence, Agg. FT-Full is also out performed in these same  cases (see Figure  2 ). 4) Research Question 4 (RQ4): How stable is the selection of a similar source annotator for each target annotator?: We measure stability by calculating the entropy over the selection of similar annotators. In every run, each target annotator selects one source annotator from the 1,998 MSP-Podcast annotators. We observe that the most unstable selection would involve choosing a different annotator at each selection point. We consider the six random seeds and five folds (a total of thirty repetitions). We calculate entropy using log 2 . Therefore, the most unstable selection results in an entropy of 4.906.\n\nConsidering only the new annotators that occur in all thirty repetitions, we find that the entropy of similar annotator selection is considerably lower: 2.478±0.736, 2.305±0.319, and 2.741±0.702 for MSP-Improv, IEMOCAP, and MuSE respectively. This highlights that even over different folds and seeds, we generally see the same source annotators selected.\n\n5) Research Question 5 (RQ5): Can the prediction of target annotators be merged to create an accurate aggregated label?: We evaluate CCC agg , which captures the ability of a model to predict an aggregate label. We average the sample-level predictions for all IA models (Sections V-C and V-D). We observe that IA PT-Mapped outperforms all off-the-shelf approaches across all datasets (including the off-the-shelf deployment of Agg. PT). It is generally outperformed by models finetuned on the target datasets. However, we remind that the off-the-shelf approaches do not finetune. It is therefore not surprising that the approaches finetuned on the aggregate labels of the target datasets outperfrom IA PT-Mapped at the same task.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Viii. Conclusion",
+      "text": "In this paper, we have demonstrated a novel adaptation method considering the correlation between pre-trained annotators and new annotators from the new unseen data. We have shown that by using a mapping method, an untrained annotator-specific method can outperform even trained aggregate models in many cases. Furthermore, we have shown that this method is effective even when using less than 30 annotations per new annotator, enabling adaptation to new annotator perceptions with very limited labeling required of the new annotators. Future work will include investigations into finetuning of the annotator-specific models (IA PT-Mapped), providing a new avenue for personalization.",
+      "page_start": 6,
+      "page_end": 6
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: CCCind performance over MuSE and MSP-Improv for all seeds and",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: , left), which suggests that",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: , right). This",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: Performance trends on each of the three datasets for CCCind and",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "",
+          "Column_10": "Activation\nValence",
+          "Column_11": "",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Speech emotion recognition: Two decades in a nutshell, benchmarks, and ongoing trends",
+      "authors": [
+        "B Schuller"
+      ],
+      "year": "2018",
+      "venue": "Communications of the ACM"
+    },
+    {
+      "citation_id": "2",
+      "title": "Predicting the distribution of emotion perception: capturing inter-rater variability",
+      "authors": [
+        "B Zhang",
+        "G Essl",
+        "E Provost"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 19th ACM International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "3",
+      "title": "From hard to soft: Towards more human-like emotion recognition by modelling the perception uncertainty",
+      "authors": [
+        "J Han",
+        "Z Zhang",
+        "M Schmitt",
+        "M Pantic",
+        "B Schuller"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 25th ACM international conference on Multimedia"
+    },
+    {
+      "citation_id": "4",
+      "title": "Predicting the distribution of emotion perception: capturing inter-rater variability",
+      "authors": [
+        "B Zhang",
+        "G Essl",
+        "E Provost"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 19th ACM International Conference on Multimodal Interaction, ser. ICMI '17",
+      "doi": "10.1145/3136755.3136792"
+    },
+    {
+      "citation_id": "5",
+      "title": "Estimating the uncertainty in emotion attributes using deep evidential regression",
+      "authors": [
+        "W Wu",
+        "C Zhang",
+        "P Woodland"
+      ],
+      "year": "2023",
+      "venue": "Estimating the uncertainty in emotion attributes using deep evidential regression",
+      "arxiv": "arXiv:2306.06760"
+    },
+    {
+      "citation_id": "6",
+      "title": "The whole is bigger than the sum of its parts: Modeling individual annotators to capture emotional variability",
+      "authors": [
+        "J Tavernor",
+        "Y El-Tawil",
+        "E Provost"
+      ],
+      "venue": "The whole is bigger than the sum of its parts: Modeling individual annotators to capture emotional variability"
+    },
+    {
+      "citation_id": "7",
+      "title": "of all things the measure is man\" automatic classification of emotions and inter-labeler consistency [speech-based emotion recognition]",
+      "authors": [
+        "S Steidl",
+        "M Levit",
+        "A Batliner",
+        "E Noth",
+        "H Niemann"
+      ],
+      "year": "2005",
+      "venue": "IEEE International Conference on Acoustics, Speech, and Signal Processing"
+    },
+    {
+      "citation_id": "8",
+      "title": "Embracing ambiguity and subjectivity using the all-inclusive aggregation rule for evaluating multi-label speech emotion recognition systems",
+      "authors": [
+        "H.-C Chou",
+        "H Wu",
+        "L Goncalves",
+        "S.-G Leem",
+        "A Salman",
+        "C Busso",
+        "H.-Y Lee",
+        "C.-C Lee"
+      ],
+      "year": "2024",
+      "venue": "2024 IEEE Spoken Language Technology Workshop"
+    },
+    {
+      "citation_id": "9",
+      "title": "Speech emotion recognition based on listener-dependent emotion perception models",
+      "authors": [
+        "A Ando",
+        "T Mori",
+        "S Kobashikawa",
+        "T Toda"
+      ],
+      "year": "2021",
+      "venue": "APSIPA Transactions on Signal and Information Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "11",
+      "title": "MSP-IMPROV: An acted corpus of dyadic interactions to study emotion perception",
+      "authors": [
+        "C Busso",
+        "S Parthasarathy",
+        "A Burmania",
+        "M Abdelwahab",
+        "N Sadoughi",
+        "E Provost"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "13",
+      "title": "Muse-ing on the impact of utterance ordering on crowdsourced emotion annotations",
+      "authors": [
+        "M Jaiswal",
+        "Z Aldeneh",
+        "C.-P Bara",
+        "Y Luo",
+        "M Burzo",
+        "R Mihalcea",
+        "E Provost"
+      ],
+      "year": "2019",
+      "venue": "ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "14",
+      "title": "Learning with rater-expanded label space to improve speech emotion recognition",
+      "authors": [
+        "S Upadhyay",
+        "W.-S Chien",
+        "B.-H Su",
+        "C.-C Lee"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Dealing with disagreements: Looking beyond the majority vote in subjective annotations",
+      "authors": [
+        "A Mostafazadeh Davani",
+        "M Díaz",
+        "V Prabhakaran"
+      ],
+      "year": "2022",
+      "venue": "Transactions of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "16",
+      "title": "Embracing and exploiting annotator emotional subjectivity: An affective rater ensemble model",
+      "authors": [
+        "L Stappen",
+        "L Schumann",
+        "A Batliner",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "2021 9th International Conference on Affective Computing and Intelligent Interaction Workshops and Demos"
+    },
+    {
+      "citation_id": "17",
+      "title": "Modeling subjective affect annotations with multi-task learning",
+      "authors": [
+        "H Hayat",
+        "C Ventura",
+        "A Lapedriza"
+      ],
+      "year": "2022",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "18",
+      "title": "Learning personal human biases and representations for subjective tasks in natural language processing",
+      "authors": [
+        "J Kocoń",
+        "M Gruza",
+        "J Bielaniewicz",
+        "D Grimling",
+        "K Kanclerz",
+        "P Miłkowski",
+        "P Kazienko"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE International Conference on Data Mining (ICDM)"
+    },
+    {
+      "citation_id": "19",
+      "title": "Improving cross-corpus speech emotion recognition with adversarial discriminative domain generalization (addog)",
+      "authors": [
+        "J Gideon",
+        "M Mcinnis",
+        "E Provost"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "20",
+      "title": "Domain adversarial for acoustic emotion recognition",
+      "authors": [
+        "M Abdelwahab",
+        "C Busso"
+      ],
+      "year": "2018",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "21",
+      "title": "A study on cross-corpus speech emotion recognition and data augmentation",
+      "authors": [
+        "N Braunschweiler",
+        "R Doddipatla",
+        "S Keizer",
+        "S Stoyanchev"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE Automatic Speech Recognition and Understanding Workshop"
+    },
+    {
+      "citation_id": "22",
+      "title": "Unsupervised learning in cross-corpus acoustic emotion recognition",
+      "authors": [
+        "Z Zhang",
+        "F Weninger",
+        "M Wöllmer",
+        "B Schuller"
+      ],
+      "year": "2011",
+      "venue": "2011 IEEE Workshop on Automatic Speech Recognition & Understanding"
+    },
+    {
+      "citation_id": "23",
+      "title": "Pre-finetuning for few-shot emotional speech recognition",
+      "authors": [
+        "M Chen",
+        "Z Yu"
+      ],
+      "venue": "Pre-finetuning for few-shot emotional speech recognition"
+    },
+    {
+      "citation_id": "24",
+      "title": "A concordance correlation coefficient to evaluate reproducibility",
+      "authors": [
+        "-K Lin"
+      ],
+      "year": "1989",
+      "venue": "Biometrics"
+    },
+    {
+      "citation_id": "25",
+      "title": "Assay validation using the concordance correlation coefficient",
+      "authors": [
+        "I Lawrence",
+        "K Lin"
+      ],
+      "year": "1992",
+      "venue": "Biometrics"
+    },
+    {
+      "citation_id": "26",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies"
+    },
+    {
+      "citation_id": "27",
+      "title": "Wavlm: Large-scale self-supervised pretraining for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao",
+        "J Wu",
+        "L Zhou",
+        "S Ren",
+        "Y Qian",
+        "Y Qian",
+        "J Wu",
+        "M Zeng",
+        "X Yu",
+        "F Wei"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "28",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "29",
+      "title": "Peft-ser: On the use of parameter efficient transfer learning approaches for speech emotion recognition using pretrained speech models",
+      "authors": [
+        "T Feng",
+        "S Narayanan"
+      ],
+      "year": "2023",
+      "venue": "2023 11th International Conference on Affective Computing and Intelligent Interaction (ACII)"
+    },
+    {
+      "citation_id": "30",
+      "title": "A concordance correlation coefficient to evaluate reproducibility",
+      "authors": [
+        "I Lawrence",
+        "K Lin"
+      ],
+      "year": "1989",
+      "venue": "Biometrics"
+    },
+    {
+      "citation_id": "31",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "32",
+      "title": "Efficient finetuning for dimensional speech emotion recognition in the age of transformers",
+      "authors": [
+        "A Sampath",
+        "J Tavernor",
+        "E Provost"
+      ],
+      "year": "2025",
+      "venue": "ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "33",
+      "title": "Affect detection: An interdisciplinary review of models, methods, and their applications",
+      "authors": [
+        "R Calvo",
+        "S Mello"
+      ],
+      "year": "2010",
+      "venue": "IEEE Transactions on affective computing"
+    }
+  ]
+}

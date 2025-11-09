@@ -1,0 +1,927 @@
+{
+  "paper_id": "2312.10201v3",
+  "title": "Carat: Contrastive Feature Reconstruction And Aggregation For Multi-Modal Multi-Label Emotion Recognition",
+  "published": "2023-12-15T20:58:05Z",
+  "authors": [
+    "Cheng Peng",
+    "Ke Chen",
+    "Lidan Shou",
+    "Gang Chen"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Multi-modal multi-label emotion recognition (MMER) aims to identify relevant emotions from multiple modalities. The challenge of MMER is how to effectively capture discriminative features for multiple labels from heterogeneous data. Recent studies are mainly devoted to exploring various fusion strategies to integrate multi-modal information into a unified representation for all labels. However, such a learning scheme not only overlooks the specificity of each modality but also fails to capture individual discriminative features for different labels. Moreover, dependencies of labels and modalities cannot be effectively modeled. To address these issues, this paper presents ContrAstive feature Reconstruction and Ag-gregaTion (CARAT) for the MMER task. Specifically, we devise a reconstruction-based fusion mechanism to better model fine-grained modality-to-label dependencies by contrastively learning modal-separated and label-specific features. To further exploit the modality complementarity, we introduce a shuffle-based aggregation strategy to enrich co-occurrence collaboration among labels. Experiments on two benchmark datasets CMU-MOSEI and M3ED demonstrate the effectiveness of CARAT over state-of-the-art methods. Code is available at https://github.com/chengzju/CARAT.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Multi-modal Multi-label Emotion Recognition (MMER) aims to identify multiple emotions (e.g., happiness and sadness) from multiple heterogeneous modalities  (e.g., text, visual, and audio) . Over the last decades, MMER has fueled research in many communities, such as online chatting (Galik and Rank 2012), news analysis  (Zhu, Li, and Zhou 2019)  and dialogue systems  (Ghosal et al. 2019) .\n\nDifferent from single-modal tasks, multi-modal learning synergistically processes heterogeneous information from various sources, which introduces a challenge of how to capture discriminative representations from multiple modalities. To this end, recent works propose various advanced multimodal fusion strategies to bridge the modality gap and learn effective representations  (Ramachandram and Taylor 2017) . According to the fusion manner, methods can be roughly divided into three categories: aggregation-based, alignmentbased, and the mixture of them  (Baltrušaitis, Ahuja, and   Morency 2019). The aggregation-based fusion employs averaging  (Hazirbas et al. 2017) , concatenation  (Ngiam et al. 2011)  or attention  (Zadeh et al. 2018a ) to integrate multimodal features. The alignment-based fusion  (Pham et al. 2018 (Pham et al. , 2019) )  adopts the cross-modal adaptation to align latent information of different modalities. However, unifying multiple modalities into one identical representation can inevitably neglect the specificity of each modality, thus losing the rich discriminative features. Although recent works  (Hazarika, Zimmermann, and Poria 2020; Zhang et al. 2022)  attempt to learn modality-specific representations, they still utilize attention to fuse these representations into one. Therefore, a key challenge of MMER is how to effectively represent multi-modal data while maintaining modality specificity and integrating complementary information.\n\nAs a multi-label task  (Zhang and Zhou 2013) , MMER also needs to deal with complex dependencies among labels. Nowadays, massive studies attempt various methods to explore label correlation, such as label similarity  (Xiao et al. 2019 ) and co-occurrence label graph  (Ma et al. 2021 ). However, these static correlations cannot reflect the collaborative relationship among labels. On the other hand, another tricky conundrum for MMER is how to learn dependencies between labels and modalities. Commonly, different modalities have inconsistent emotional expressions, and conversely, different emotions focus on different modalities, which means that inferring each potential label largely depends on the different contributions of different modalities. As shown in Figure  1 , we can infer sadness more easily from the visual modality, while disgust can be predicted from both textual and visual modalities. Therefore, another challenge of MMER is how to effectively model both label-to-label and modality-to-label dependencies.\n\nTo address these issues, we propose ContrAstive feature Reconstruction and AggregaTion for MMER (CARAT), which coordinates representation learning and dependency modeling in a coherent and synergistic framework. Specifically, our framework CARAT encapsulates three key components. First, we adopt the label-wise attention mechanism to extract label-specific representations within each modality severally, which is intended to capture relevant discriminative features of each label while maintaining modality specificity. Second, to reconcile the complementarity and specificity of multi-modal information, we develop an ingenious reconstruction-based fusion strategy that attempts to generate features of any modality by exploiting the information from multiple modalities. We leverage contrastive learning  (Khosla et al. 2020) , which is unexplored in previous MMER literature, to facilitate the learning of modalseparated and label-specific features. Third, based on the reconstructed embeddings, we propose a novel samplewise and modality-wise shuffle strategy to enrich the cooccurrence dependencies among labels. After shuffled, embeddings are aggregated to finetune a robust discriminator. Moreover, as for modeling the modality-to-label dependency, we employ a max pooling-like network to discover the most relevant modalities for different emotions per sample, and then impel these corresponding representations to be more discriminative.  1  The main contributions of this paper can be summarized as follows:\n\n• A novel framework, ContrAstive feature Reconstruction and AggregaTion, is proposed. To the best of our knowledge, this work pioneers the exploitation of contrastive learning to facilitate a multi-modal fusion mechanism based on feature reconstruction. As an integral part of our method, we also introduce a shuffle-based feature aggregation strategy, which uses the reconstructed embeddings to better leverage multi-modal complementarity.\n\n• To preserve the modality specificity, CARAT independently extracts label-specific representations from different modalities via label-wise attention. Then a max pooling-like network is involved to select the most relevant modal representation per emotion to explore potential dependencies between modalities and labels.\n\n• We conduct experiments on two benchmark datasets CMU-MOSEI and M 3 ED. The experimental results demonstrate that our proposed method outperforms previous methods and achieves state-of-the-art performance.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Works",
+      "text": "Multi-modal Learning aims to build models that can process and relate information from multiple modalities (Baltrušaitis, Ahuja, and Morency 2019). A fundamental challenge is how to effectively fuse multi-modal information.\n\nAccording to the fusion manner, methods can be roughly divided into three categories: aggregation-based, alignmentbased, and hybrid methods. Aggregation-based methods use concatenation  (Ngiam et al. 2011) , tensor fusion  (Zadeh et al. 2017; Liu et al. 2018 ) and attention  (Zadeh et al. 2018a)  to combine multiple modalities, but suffer from the modality gap. To bridge the gap, alignment-based fusion  (Pham et al. 2018 (Pham et al. , 2019) )  exploits latent cross-modal adaptation by constructing a joint embedding space. However, alignmentbased fusion neglects the specificity of each modality, resulting in the omission of discriminative information.\n\nMulti-label Emotion Recognition is a foundational multilabel (ML) task and ML approaches can be quickly applied. BR  (Boutell et al. 2004 ) decomposes the ML task into multiple binary classification ones while ignoring label correlations. To exploit the correlations, LP  (Tsoumakas and Katakis 2006) , CC  (Read et al. 2011 ) and Seq2Seq  (Yang et al. 2018 ) are proposed. To further explore label relationships, recent works leverage reinforced approach  (Yang et al. 2019) , multi-task pattern  (Tsai and Lee 2020) , and GCN model  (Chen et al. 2019b) . Another important task is to learn effective label representations. To compensate for the inability of a single representation to capture discriminative information of all labels, recent works  (Chen et al. 2019a,b)  utilize label-specific representations to capture the most relevant features for each label, which has been successfully applied to many studies  (Huang et al. 2016; Xiao et al. 2019) .\n\nContrastive learning (CL) is an effective self-supervised learning technique  (Li et al. 2021; Oord, Li, and Vinyals 2018; Hjelm et al. 2019)  . CL aims to learn a discriminative latent space where similar samples are pulled together and dissimilar samples are pushed apart. Motivated by the successful application of CL in unsupervised learning  (Oord, Li, and Vinyals 2018; He et al. 2020) , Supervised Contrastive Learning (SCL)  (Khosla et al. 2020 ) is devised to promote a series of supervised tasks. Recently, CL has been applied to multi-modal tasks to strengthen the interaction between features of different modalities  (Zheng et al. 2022; Franceschini et al. 2022; Zolfaghari et al. 2021) . However, there has been no exploration of contrastive learning on multi-modal tasks in the multi-label scenario.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methodology",
+      "text": "In this section, we describe our CARAT framework, which comprises three sequential components (in Figure  2 ).",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Problem Definition",
+      "text": "We define notations for MMER. Let X t ∈ R nt×dt , X v ∈ R nv×dv and X a ∈ R na×da be the heterogeneous feature spaces for textual (t), visual (v) and acoustic (a) modality respectively, where n m and d m denotes the sequence length and modality dimension respectively (m ∈ {t, v, a} is used to represent any modality). And Y is the label space with C labels. Given a training dataset D = {(X {t,v,a} i , y i )} N i=1 , MMER aims to learn a function F : X t × X v × X a → Y to predict relevant emotions for each video. Concretely, X m i ∈ X m are asynchronous coordinated utterance sequences and\n\nC is the multi-hot label vector, where sign y i,j = 1 indicates that sample i belongs to class j, otherwise y i,j = 0.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Uni-Modal Label-Specific Feature Extraction",
+      "text": "As the first step, this component aims to extract the relevant discriminative features for each label in each modality.\n\nTransformer-based Extractor. For each modality m, we use an independent Transformer Encoder  (Vaswani et al. 2017)  to map raw feature sequences X m ∈ R nm×dm into high-level embedding sequences H m ∈ R nm×d . Each encoder is composed of l m identical layers, where each layer consists of two sub-layers: a multi-head self-attention sublayer and a position-wise feed-forward sub-layer. The residual connection  (He et al. 2016 ) is employed around each of the two sub-layers, followed by layer normalization.\n\nMulti-label Attention. Considering that each emotion is usually expressed by the most relevant part of the utterance, we generate label-specific representations for each emotion to capture the most critical information. After obtaining embedding sequences H m , we compute the combination of these embeddings for each label j under each modality m through a label-wise attention network. Formally, we represent the hidden state of each embedding as\n\n). The attentional representation u m j is obtained as:\n\nwhere w m j ∈ R d denotes the attention parameter for the jth label and α m ij is the normalized coefficient of h m i . It is worth noting that attention networks between modalities are still independent of each other, thus generating label-specific representations U m o ∈ R C×d separately.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Contrastive Reconstruction-Based Fusion",
+      "text": "The second component aims to utilize information from multiple modalities to restore the features of any modality.\n\nMulti-modal Feature Reconstruction. Considering that fusing multi-modal information into an identical representation can ignore the modality specificity, we propose a reconstruction-based fusion mechanism, which restores features of any modality with the feature distribution in the current modality and the semantic information in other modalities. We first use three modality-specific encoders En m (•) to project U m o into latent vectors Z m o ∈ R C×dz in the latent space S z . From the space S z , we calculate the intrinsic vectors D m = {d m j ∈ R dz } C j=1 to reflect the feature distribution of each label j in different modalities (explained in the next sub-section). Then, three modality-specific decoders De m (•) transform vectors Z m o and D m back to decoded vectors Ũ m o , Dm ∈ R C×d respectively. To realize cross-modal feature fusion, we employ a twolevel reconstruction process with three networks f va2t (•), f ta2v (•) and f tv2a (•) (detailed analysis in Appendix A). Taking the modality t as an example, we first concatenate the intrinsic features Dt and semantic features Ũ {v,a} o in a certain modality order, where the former reflects the feature distribution of the current modality (t) and the latter provides semantic information of other modalities (v, a). The concatenated vectors are input into f va2t (•) to obtain the firstlevel reconstruction representations (FRR) U t α ∈ R C×d . Then, U m α of all modalities are concatenated and feed into f va2t (•) to generate the second-level reconstruction representations (SRR) U t β ∈ R C×d . The reconstruction-based fusion process of all modalities is expressed as,\n\n(2) To ensure that the reconstructed feature vectors can restore the original information, we use the mean square error to formulate the reconstruction loss as:\n\nwhere ∥ • ∥ F returns the Frobenius norm of the matrix. Due to the modality heterogeneity, different modalities express each emotion with different contributions. Therefore, we introduce a Max Pooling-like network to impel each label to focus on its most relevant modality. Specifically, we utilize three modality-specific classifiers h {t,v,a} (•) on U m o , U m α , U m β to calculate label prediction for {t, v, a} modalities, respectively. Then, we connect a Max-Pooling layer on these predictions to filter the most relevant modality of each label. Taking U m o as an example, the final output via the above network is calculated as,\n\nIn the same way, we can also obtain s α and s β . Finally, we calculate the binary cross entropy (BCE) losses as,\n\nwhere l is the BCE loss and γ o,α,β are trade-off parameters.\n\nContrastive Representation Learning. To enable intrinsic vectors D m to reflect the feature distribution of each label in different modalities, we utilize contrastive learning to learn a distinguishable latent embedding space S z . For samples in a batch of size B, after obtaining\n\nrespectively. We follow the SCL  (Khosla et al. 2020 ) and additionally maintain a queue storing the most current latent embeddings, and we update the queue chronologically. Thus, we have the contrastive embedding\n\nGiven an anchor embedding e ∈ E, the contrastive loss is defined by contrasting its positive set with the remainder of the pool E as,\n\nexp (e ⊤ e ′ /τ ) ,\n\n(6) where P (e) is the positive set and E(e) = E\\{e} . τ ∈ R + is the temperature. The contrastive loss of the batch is:\n\nTo construct the positive set, considering the purpose of learning the modality-specific feature distribution of each label, we redefine the label for each e. According to the modality m, label category j and label polarity k, the new label is defined as ỹ = l m j,k , m ∈ {t, v, a}, j ∈ [C], k ∈ {pos, neg}. Thus, the positive examples are selected as P (e) = {e ′ |e ′ ∈ E(e), ỹ′ = ỹ}, where ỹ′ is the label for e ′ . In other words, the positive set is those embeddings from the same modality with the same label category and polarity. Importantly, we keep a prototype embedding µ m j,k ∈ R dz corresponding to each class l m j,k , which can be deemed as a set of representative embedding vectors. To reduce the computational toll and training latency, we update the classconditional prototype vector in a moving-average style as,\n\n) where the momentum prototype µ m j,k is defined by the moving average of the normalized embedding whose defined class conforms to l m j,k . ϕ is a hyperparameter. During training, we leverage prototypes to obtain the intrinsic vectors\n\nwhile during prediction, the hard-max pattern is used as,\n\nwhere\n\nis the indicator function.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Shuffle-Based Feature Aggregation",
+      "text": "Although exploiting the most relevant modality is sufficient to find discriminative features, multi-modal fusion can use complementary information to obtain more robust representations. Therefore, we design a shuffle-based aggregation to exploit cross-modal information, which includes sample-and modality-wise shuffle processes. The motivations of the sample-and modality-wise shuffle are to enrich the co-occurrence relations of labels and realize random cross-modal aggregation, respectively. As shown in Figure  3 , after obtaining the SRR of a batch of samples, two shuffle processes are performed sequentially and independently. Specifically, we stack the vectors U m β of the batch as\n\n, where M is the number of modalities. Firstly, on each modality m, we perform the sample-wise shuffle (sws) as,\n\nwhere {r i } B\n\n1 are new indices of samples. Then, for each sample, the modality-wise shuffle (mws) is performed as,\n\nwhere {r i } M 1 are new indices of modalities. Then, V and V are concatenated on the label dimension, respectively, as,\n\n(13) It is worth noting that unlike q m i , which is concatenated by features from a single modality and a single sample, the features constituting qm i are randomly sampled from 1 to M modalities and 1 to C samples. Finally, the Q and Q are used to fine-tune a classifier h c (•) with the BCE loss as,\n\nwhere γ sf is the trade-off parameter. Combing the Equation 3, 5, 7 and 14, the final objective function is formulated as,\n\nwhere γ s , γ r are trade-off parameters. During prediction, to utilize both the most relevant modality and multi-modal fusion, the prediction of the test sample i ′ is obtained as,",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Experiments",
+      "text": "Experimental Settings\n\nDataset and Evaluation Metrics. We evaluate CARAT on two benchmark MMER datasets (CMU-MOSEI  (Zadeh et al. 2018b ) and M 3  ED  (Zhao et al. 2022 )), which maintained settings in the public SDK 23 . Four evaluation metrics are employed: Accuracy (Acc), Micro-F1, Precision (P), and Recall (R). More detailed descriptions and preprocessing of datasets are shown in Appendix B.\n\nBaselines. We compare CARAT with various approaches of two groups. The first group is Multi-Label Classification (MLC) methods. Specifically, in these approaches, the multi-modal inputs are early fused (simply concatenated) as a new input. For classic methods: (1) BR  (Boutell et al. 2004 ) transforms MLC into multiple binary classifications while ignoring label correlations. (  2",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Experimental Results",
+      "text": "Performance Comparison. We show performance comparisons on CMU-MOSEI and M 3 ED (only partial multi-   1 ,2, and observations are as follows: 1) CARAT significantly outperforms all rivals by a significant margin. Although MISA has a prominent recall, its precision drops to a poor value and its performance is far inferior to CARAT on more important metrics (Micro-F1 and accuracy). Furthermore, CARAT still maintains a decent performance boost in the unaligned setting, which proves that CARAT can break the barrier of the modality gap better than others. 2) Among uni-modal approaches, the superior performance of deep-based methods, i.e. SGM, LSAN and ML-GCN, over classic methods, i.e. BR, CC and LP, indicates that deep representation can better capture semantic features and label correlations help to capture more meaningful information. 3) Compared with unimodal approaches, multi-modal methods typically exhibit better performance, which shows the necessity of modeling multi-modal interactions. 4) Among all baselines, TAILOR achieves competitive performance, which validates the effectiveness of leveraging commonality and diversity among modalities to obtain the discriminative label representations.\n\nAblation Study. To demonstrate the importance of each component, we compare CARAT with various ablated variants. As shown in Table  3 , we can see: 1) Effect of exploiting both specificity and complementarity: By using both features of the most relevant modality (MRM) and aggregated features (AGG), (1) is better than (2) and (3), which indicates the significance of binding modality specificity and complementarity.\n\n2) Effect of the contrastive representation learning: Without conducting the loss L scl , (4) is worse than CARAT, which illustrates the significance of leveraging contrastive  learning to learn distinguishable representations. Further, by removing the process of encoding and decoding, (  5 ) is worse than (4), which validates the rationality of exploring the intrinsic embeddings in the latent space.\n\n3) Effect of the two-level feature reconstruction: First, (  6 ) is worse than CARAT, which reveals the effectiveness of using loss L rec to constrain feature reconstruction. Removing the first-and second-level reconstruction processes, (7) and (  8 ) have different degrees of performance degradation compared to CARAT. When the entire reconstruction process is removed, the performance of (  9 ) is further reduced than (  7 ) and (  8 ), which confirms the effectiveness of multi-level feature reconstruction to achieve multi-modal fusion.\n\n4) Effect of different shuffling operations: Excluding any round of the shuffling process, (  10 ) and (  11 ) are worse than CARAT, and (  12 ) is even worse when both shuffling pro-   Case Study. To further demonstrate the effectiveness of CARAT, Figure  4  (b) presents two cases. 1) Emotions expressed by different modalities are not consistent, which reflects the modality specificity. E.g., in Case 2, emotion angry can be mined intuitively from the visual and audio, but not the text. 2) HHMPN wrongly omitted relevant labels due to neglecting modality specificity, which results in the inability to capture richer semantic information. In contrast, TAI-LOR gives wrong related labels. Since TAILOR uses selfattention that can only explore label correlations within each sample, global information cannot be exploited. Overall, our CARAT achieves the best performance.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we propose ContrAstive feature Reconstruction and AggregaTion (CARAT) for MMER, which integrates effective representation learning and multiple dependency modeling into a unified framework. We propose a reconstruction-based fusion mechanism by contrastively learning modal-separated and label-specific features to model fine-grained modality-to-label dependencies. To further exploit the modality complementarity, we introduce a shuffle-based aggregation strategy to enrich co-occurrence collaboration among labels. Experiments on benchmark datasets CMU-MOSEI and M 3 ED demonstrate the effectiveness of CARAT over state-of-the-art methods.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "A. Analysis Of The Reconstruction-Based Fusion Mechanism",
+      "text": "A.1 Further Explanation of the Two-level Feature Reconstruction\n\nWhy reconstruction is set to two-level? First of all, the proposed feature reconstruction operation is a novel multimodal fusion strategy different from the aggregation-and alignment-based methods, which intends to utilize the feature distribution information and the information of other modalities to restore the semantic features of the current modality. Experimental results show the effectiveness of the proposed method. The proposed reconstruction-based strategy ensures that the model can better capture the unique feature distribution information of each modality, while also implicitly integrating key semantic information of other modalities. The former is the focus of the first-level reconstruction process, while the latter is the focus of the secondlevel reconstruction process.\n\nCompared with the one-level reconstruction process, we believe that the two-level reconstruction process can better learn the mutual reconstruction process across multiple modalities. In the first-level reconstruction process, we use the feature distribution information learned from the latent space and the semantic information of other modalities to restore the representation of the current modality to preserve the characteristic information of each modality. To obtain a better label-specific representation, we add the secondlevel reconstruction process to further strengthen the learning of the reconstruction network. This stacked reconstruction process is inspired by the design of stacked deep neural networks. Experimentally, the ablation study strongly confirmed the effectiveness of the devised two-level reconstruction process.\n\nWhat's the essential difference between the two reconstruction features U t,v,a α and U t,v,a β ? First of all, we want to explain that the learning process of the three reconstruction networks is mainly affected by L rec and L lsr cls . L rec is used to ensure that the reconstructed representation is close to the original label-specific representation, thus preserving modality specificity. L lsr cls is to introduce supervised information so that the reconstructed representation has the correct label polarity, which can be used for label correlation prediction. L rec is only implemented in the first-level reconstruction process, to strengthen the retention of the information of the respective modality characteristics and weaken the role of cross-modal fusion. In the second-level reconstruction process, without the constraints of L rec , U t,v,a β can fuse information from other modalities to a relatively large extent. However, since the three reconstructed networks have been constrained to restore the representation of the corresponding modality in the first-level reconstruction process, the three networks can still maintain this property in the second-level reconstruction process, but the purpose of implicit multi-modal fusion is amplified. As a result, the reconstructed U t,v,a α and U t,v,a β have different characteristics and usage purposes.\n\nThis explains why Eq. 16 uses s β and not s α . During the training process, utilizing s α to calculate BCE loss is to better constrain U t,v,a α to maintain the correct label polarity, which is beneficial to downstream learning. In the prediction process, only using s β is based on two considerations: First, as answered in Question 2.2), we believe that through the two-level feature reconstruction operation, the deeper U t,v,a β has better semantic representation than U t,v,a α , which can lead to better prediction performance. Second, because the learning of U t,v,a α is also constrained by the loss L rec during the training process, the prediction performance of s α calculated by U t,v,a α will be affected to a certain extent.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A.2 Analysis Of The Parameters",
+      "text": "To better explain the reasons for setting different weights for each parameter in the training loss, we give more experimental results to show the impact of setting different values for them. Experiments are implemented on the CMU-MOSEI dataset of the data-aligned setting. As shown in Table  4 , ID 0 is the final hyperparameter setting used in our paper, which is the baseline for comparison with other settings. Compared with ID 0, ID 1-18 only changes the weight of a certain hyperparameter.\n\n(1) First of all, it can be seen that ID 0 maintains optimal performance, and other settings have a certain degree of performance degradation.\n\n(2) For each hyperparameter, the greater the difference from the preset value in ID 0, the greater the degree of performance degradation, which can prove that the value set in ID 0 is relatively reasonable.\n\n(3) Comparing the experimental results of ID 1-9, it can be found that the change of γ o , γ α , γ β values gradually increases the impact on the results, which indicates that the three have different importance, and also confirms the reason why we use different weights for them.\n\n(4) The experimental results on ID 10-18 also show that γ sf , γ s , γ r have different effects on performance. When the weight is set to 0, the large performance gap justifies the use of corresponding losses.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B. Dataset",
+      "text": "Here we give an additional description of two datasets.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B.1 Cmu-Mosei",
+      "text": "The dataset contains 22,856 utterance-level video clips segmented from 3,229 full-long videos with 1000 distinct speakers. Each video clip is annotated with multiple labels from 6 discrete emotions {f ear, happiness, sadness, anger, disgust, surprise}, according to three modalities, i.e., the textual, visual, and acoustic modalities. The average words of video clips are 19.1 and the average number of emotion labels per sample is 1.6. Table  5  summarizes the statistics of the samples with multiple labels. The training, validation, and test data are all the same size as the video clips in the public SDK 4  , with approximate size 16.3K, 1.9K, and 4.7K, respectively. Follow  (Zhang et al. 2022; Ju et al. 2020)",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "B.2 M 3 Ed",
+      "text": "M 3 ED is a large-scale Multi-modal Multi-scene and Multilabel Emotional Dialogue dataset. Considering that M 3 ED is a dialog corpus, each dialog instance is composed of multiple single-label sentences. But the entire dialogue can be regarded as a multi-label instance, which can be applied to the MMER task. In addition, M 3 ED is a data-aligned dataset. M 3 ED contains 990 dialogues, 9,082 turns, 24,449 utterances derived from 56 different TV series (about 500 episodes), which ensures the scale and diversity of the dataset. M 3 ED adopts the TV-independent data split manner in order to avoid any TV-dependent bias, which means there is no overlap of TV series across training, validation, and testing sets. The basic statistics are similar across these three data splits. There are rich emotional interaction phenomena in the M 3 ED, for example, 5,396 and 2,696 inter-turn emotion-shift and emotion-inertia scenarios respectively, and 2,879 and 10,891 intra-turn emotion-shift and emotioninertia scenarios.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "C. Implementation Of Ablation Variants",
+      "text": "C.1 The key details of MRM+AGG \"MRM\" and \"AGG\" respectively denote using features of the most relevant modality and aggregated features. Their specific implementation methods are as follows: Firstly, both of them obtain label-specific representations U t,v,a o via unimodal label-specific feature extraction, but remove the following two steps in CARAT, i.e. contrastive multi-modal feature reconstruction and shuffle-based feature aggregation. MRM connects a Max Pooling-like network to discover the representation in the most relevant modality of each label to measure the correlation. AGG directly concatenates labelspecific representations of multiple modalities for each label and then uses the aggregated features to calculate the correlation. MRM+AGG uses both MRM and AGG to obtain a more comprehensive correlation prediction.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "C.2 The Influence Of Removing En And De On The Following Shuffle And Prediction Process",
+      "text": "Removing En and De means removing the encoding and decoding of label-specific representations and the process of contrastive learning. This operation will only affect the firstlevel feature reconstruction process, where Eq. 2 is partially replaced with,\n\nThe calculation flow from the second-level feature reconstruction to the end will not change.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "D. Comparison Of Different Fusion",
+      "text": "To demonstrate the effectiveness of reconstruction-based fusion, we compare it with alignment-and aggregation-based fusions. To highlight the performance difference caused by different fusion methods, we simplify CARAT by only retaining the extraction and fusion components. As shown in Table  8 , the superior performance of (3) over (1) and (2) illustrates the effectiveness of reconstruction-based fusion that considers modality complementarity and specificity. As shown in Figure  6 , we design different models for three fusion mechanisms, which simplify the CARAT framework by removing the rest except the uni-modal feature extraction and multi-modal fusion components, so as to better highlight the differences of multiple fusion mechanisms. Specifically, the difference between the three models is mainly reflected in the fusion process after the uni-modal",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "E. Visualization Of Modality-To-Label Correlation",
+      "text": "To better reveal the correlation between labels and modalities, we present the correlation visualization of 50 random test samples, which roughly conform to the correlation rule in Figure  4  (a). As shown in Figure  7 , we can observe that: 1) Within each sample, different labels pay different attention to each modality. 2) The most relevant modality for each label will also vary from sample to sample. 3) According to all samples, each label has its own preferred modality, for example: surprise is highly correlated with the visual modality, and sad tends to rely on the textual modality. All these modality-to-label correlations fit our expectations.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: An example of MMER (left) and correlations be-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: , we can infer sadness more easily from",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: The overall structure of CARAT with three sequential steps (up). Detailed implementations of two-level feature",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: The semantic diagram of shuffle. The shuffle is conducted in both batch and modality dimensions. Different colors",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: , after obtaining the SRR of a batch of samples, two",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: (a) The visualization of modality-to-label dependencies, indicating the correlation of labels in each row to modality",
+      "page": 7
+    },
+    {
+      "caption": "Figure 5: t-SNE visualization of embeddings without/with",
+      "page": 7
+    },
+    {
+      "caption": "Figure 5: , without CL (left sub-",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: (a), each label focuses on",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: (b) presents two cases. 1) Emotions ex-",
+      "page": 7
+    },
+    {
+      "caption": "Figure 6: , we design different models",
+      "page": 12
+    },
+    {
+      "caption": "Figure 6: Model structure of three different fusion mech-",
+      "page": 12
+    },
+    {
+      "caption": "Figure 4: (a). As shown in Figure 7, we can observe that: 1)",
+      "page": 12
+    },
+    {
+      "caption": "Figure 7: The visualization of modality-to-label correlations indicates the attention of labels in each row to modality in each",
+      "page": 13
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: ,2, and observations are as fol-",
+      "data": [
+        {
+          "Approaches\nMethods": "",
+          "Aligned": "P\nR\nAcc\nMicro-F1",
+          "Unaligned": "P\nR\nAcc\nMicro-F1"
+        },
+        {
+          "Approaches\nMethods": "BR\nClassical\nLP\nCC",
+          "Aligned": "0.222\n0.309\n0.515\n0.386\n0.159\n0.231\n0.377\n0.286\n0.225\n0.306\n0.523\n0.386",
+          "Unaligned": "0.233\n0.321\n0.545\n0.404\n0.185\n0.252\n0.427\n0.317\n0.235\n0.320\n0.550\n0.404"
+        },
+        {
+          "Approaches\nMethods": "SGM\nLSAN\nDeep-based\nML-GCN",
+          "Aligned": "0.455\n0.595\n0.467\n0.523\n0.393\n0.550\n0.459\n0.501\n0.411\n0.546\n0.476\n0.509",
+          "Unaligned": "0.449\n0.584\n0.476\n0.524\n0.403\n0.582\n0.460\n0.514\n0.437\n0.573\n0.482\n0.524"
+        },
+        {
+          "Approaches\nMethods": "MulT\nMISA\nMMS2S\nHHMPN\nMulti-modal\nTAILOR\nAMP\nCARAT",
+          "Aligned": "0.445\n0.619\n0.465\n0.531\n0.430\n0.453\n0.582\n0.509\n0.475\n0.629\n0.504\n0.560\n0.459\n0.602\n0.496\n0.556\n0.488\n0.641\n0.512\n0.569\n0.484\n0.643\n0.511\n0.569\n0.494\n0.661\n0.518\n0.581",
+          "Unaligned": "0.423\n0.636\n0.445\n0.523\n0.398\n0.371\n0.571\n0.450\n0.447\n0.619\n0.462\n0.529\n0.434\n0.591\n0.476\n0.528\n0.460\n0.639\n0.452\n0.529\n0.462\n0.642\n0.459\n0.535\n0.466\n0.652\n0.466\n0.544"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 1: ,2, and observations are as fol-",
+      "data": [
+        {
+          "Approaches": "(1) MRM + AGG\n(2) only MRM\n(3) only AGG",
+          "Acc\nP\nR\nMicro-F1": "0.475\n0.647\n0.507\n0.569\n0.474\n0.641\n0.502\n0.563\n0.472\n0.639\n0.506\n0.565"
+        },
+        {
+          "Approaches": "(4) w/o Lscl\n(5) w/o En, De",
+          "Acc\nP\nR\nMicro-F1": "0.481\n0.640\n0.515\n0.571\n0.475\n0.638\n0.514\n0.569"
+        },
+        {
+          "Approaches": "(6) w/o Lrec\n(7) w/o α-recon\n(8) w/o β-recon\n(9) w/o α&β-recon",
+          "Acc\nP\nR\nMicro-F1": "0.482\n0.644\n0.516\n0.573\n0.483\n0.636\n0.520\n0.572\n0.482\n0.631\n0.513\n0.566\n0.475\n0.619\n0.503\n0.555"
+        },
+        {
+          "Approaches": "(10) w/o sw-shf\n(11) w/o mw-shf\n(12) w/o shf",
+          "Acc\nP\nR\nMicro-F1": "0.491\n0.659\n0.511\n0.575\n0.490\n0.656\n0.514\n0.576\n0.489\n0.658\n0.509\n0.574"
+        },
+        {
+          "Approaches": "(13) CARAT",
+          "Acc\nP\nR\nMicro-F1": "0.494\n0.661\n0.518\n0.581"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 7: presents the single",
+      "data": [
+        {
+          "ID": "0",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0.01\n0.1\n1\n0.1\n1\n1",
+          "Micro-F1\nP\nR\nAcc": "0.581\n0.661\n0.518\n0.494"
+        },
+        {
+          "ID": "1\n2\n3",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0\n0.1\n1\n0.1\n1\n1\n0.001\n0.1\n1\n0.1\n1\n1\n0.1\n0.1\n1\n0.1\n1\n1",
+          "Micro-F1\nP\nR\nAcc": "0.577\n0.657\n0.514\n0.491\n0.578\n0.658\n0.516\n0.492\n0.578\n0.657\n0.516\n0.492"
+        },
+        {
+          "ID": "4\n5\n6",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0.01\n0\n1\n0.1\n1\n1\n0.01\n0.01\n1\n0.1\n1\n1\n0.01\n1\n1\n0.1\n1\n1",
+          "Micro-F1\nP\nR\nAcc": "0.576\n0.658\n0.512\n0.489\n0.577\n0.659\n0.513\n0.490\n0.576\n0.657\n0.513\n0.489"
+        },
+        {
+          "ID": "7\n8\n9",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0.01\n0.1\n0\n0.1\n1\n1\n0.01\n0.1\n0.1\n0.1\n1\n1\n0.01\n0.1\n2\n0.1\n1\n1",
+          "Micro-F1\nP\nR\nAcc": "0.560\n0.650\n0.492\n0.483\n0.572\n0.653\n0.509\n0.491\n0.578\n0.661\n0.513\n0.488"
+        },
+        {
+          "ID": "10\n11\n12",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0.01\n0.1\n1\n0\n1\n1\n0.01\n0.1\n1\n0.01\n1\n1\n0.01\n0.1\n1\n1\n1\n1",
+          "Micro-F1\nP\nR\nAcc": "0.574\n0.658\n0.509\n0.489\n0.576\n0.654\n0.514\n0.492\n0.577\n0.655\n0.516\n0.490"
+        },
+        {
+          "ID": "13\n14\n15",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0.01\n0.1\n1\n0.1\n0\n1\n0.01\n0.1\n1\n0.1\n0.1\n1\n0.01\n0.1\n1\n0.1\n2\n1",
+          "Micro-F1\nP\nR\nAcc": "0.571\n0.640\n0.515\n0.481\n0.574\n0.652\n0.513\n0.488\n0.573\n0.651\n0.512\n0.488"
+        },
+        {
+          "ID": "16\n17\n18",
+          "γo\nγα\nγs\nγr\nγβ\nγsf": "0.01\n0.1\n1\n0.1\n1\n0\n0.01\n0.1\n1\n0.1\n1\n0.1\n0.01\n0.1\n1\n0.1\n1\n2",
+          "Micro-F1\nP\nR\nAcc": "0.573\n0.644\n0.516\n0.482\n0.574\n0.652\n0.513\n0.487\n0.572\n0.657\n0.507\n0.488"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table 7: presents the single",
+      "data": [
+        {
+          "Multi-label": "None",
+          "Number": "12240",
+          "Emotion": "Happiness"
+        },
+        {
+          "Multi-label": "One",
+          "Number": "1892",
+          "Emotion": "Surprise"
+        },
+        {
+          "Multi-label": "Two",
+          "Number": "5918",
+          "Emotion": "Sadness"
+        },
+        {
+          "Multi-label": "Three",
+          "Number": "4933",
+          "Emotion": "Anger"
+        },
+        {
+          "Multi-label": "Four",
+          "Number": "3680",
+          "Emotion": "Disgust"
+        },
+        {
+          "Multi-label": "Five",
+          "Number": "2286",
+          "Emotion": "Fear"
+        },
+        {
+          "Multi-label": "Six",
+          "Number": "−",
+          "Emotion": "−"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table 7: presents the single",
+      "data": [
+        {
+          "aligned": "unaligned",
+          "16, 326\nNtrain\n1, 871\nNvalid\n4, 659\nNtest": "16, 326\nNtrain\n1, 871\nNvalid\n4, 659\nNtest",
+          "35\ndv\n74\nda\n300\ndt": "35\ndv\n74\nda\n300\ndt",
+          "60\nnv\n60\nna\n60\nnt": "500\nnv\n500\nna\n50\nnt"
+        }
+      ],
+      "page": 11
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Multimodal machine learning: A survey and taxonomy",
+      "authors": [
+        "T Baltrušaitis",
+        "C Ahuja",
+        "L.-P Morency"
+      ],
+      "year": "2019",
+      "venue": "Trans. Pattern Anal. Mach. Intell"
+    },
+    {
+      "citation_id": "2",
+      "title": "Openface: an open source facial behavior analysis toolkit",
+      "authors": [
+        "T Baltrušaitis",
+        "P Robinson",
+        "L.-P Morency"
+      ],
+      "year": "2016",
+      "venue": "In WACV"
+    },
+    {
+      "citation_id": "3",
+      "title": "Learning multi-label scene classification. Pattern recognition",
+      "authors": [
+        "M Boutell",
+        "J Luo",
+        "X Shen",
+        "C Brown"
+      ],
+      "year": "2004",
+      "venue": "Learning multi-label scene classification. Pattern recognition"
+    },
+    {
+      "citation_id": "4",
+      "title": "Learning semantic-specific graph representation for multi-label image recognition",
+      "authors": [
+        "T Chen",
+        "M Xu",
+        "X Hui",
+        "H Wu",
+        "L Lin"
+      ],
+      "year": "2019",
+      "venue": "ICCV"
+    },
+    {
+      "citation_id": "5",
+      "title": "Multi-label image recognition with graph convolutional networks",
+      "authors": [
+        "Z.-M Chen",
+        "X.-S Wei",
+        "P Wang",
+        "Y Guo"
+      ],
+      "year": "2019",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "6",
+      "title": "COVAREP-A collaborative voice analysis repository for speech technologies",
+      "authors": [
+        "G Degottex",
+        "J Kane",
+        "T Drugman",
+        "T Raitio",
+        "S Scherer"
+      ],
+      "year": "2014",
+      "venue": "COVAREP-A collaborative voice analysis repository for speech technologies"
+    },
+    {
+      "citation_id": "7",
+      "title": "Multimodal Emotion Recognition with Modality-Pairwise Unsupervised Contrastive Loss",
+      "authors": [
+        "R Franceschini",
+        "E Fini",
+        "C Beyan",
+        "A Conti",
+        "F Arrigoni",
+        "E Ricci"
+      ],
+      "year": "2022",
+      "venue": "ICPR"
+    },
+    {
+      "citation_id": "8",
+      "title": "Modelling emotional trajectories of individuals in an online chat",
+      "authors": [
+        "M Galik",
+        "S Rank"
+      ],
+      "year": "2012",
+      "venue": "MATES"
+    },
+    {
+      "citation_id": "9",
+      "title": "Learning Robust Multi-Modal Representation for Multi-Label Emotion Recognition via Adversarial Masking and Perturbation",
+      "authors": [
+        "S Ge",
+        "Z Jiang",
+        "Z Cheng",
+        "C Wang",
+        "Y Yin",
+        "Q Gu"
+      ],
+      "year": "2023",
+      "venue": "Learning Robust Multi-Modal Representation for Multi-Label Emotion Recognition via Adversarial Masking and Perturbation"
+    },
+    {
+      "citation_id": "10",
+      "title": "Dialoguegcn: A graph convolutional neural network for emotion recognition in conversation",
+      "authors": [
+        "D Ghosal",
+        "N Majumder",
+        "S Poria",
+        "N Chhaya",
+        "A Gelbukh"
+      ],
+      "year": "2019",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "11",
+      "title": "Misa: Modality-invariant and-specific representations for multimodal sentiment analysis",
+      "authors": [
+        "D Hazarika",
+        "R Zimmermann",
+        "S Poria"
+      ],
+      "year": "2020",
+      "venue": "MM"
+    },
+    {
+      "citation_id": "12",
+      "title": "Fusenet: Incorporating depth into semantic segmentation via fusion-based cnn architecture",
+      "authors": [
+        "C Hazirbas",
+        "L Ma",
+        "C Domokos",
+        "D Cremers"
+      ],
+      "year": "2017",
+      "venue": "ACCV"
+    },
+    {
+      "citation_id": "13",
+      "title": "Momentum contrast for unsupervised visual representation learning",
+      "authors": [
+        "K He",
+        "H Fan",
+        "Y Wu",
+        "S Xie",
+        "R Girshick"
+      ],
+      "year": "2020",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "14",
+      "title": "Deep residual learning for image recognition",
+      "authors": [
+        "K He",
+        "X Zhang",
+        "S Ren",
+        "J Sun"
+      ],
+      "year": "2016",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "15",
+      "title": "Learning deep representations by mutual information estimation and maximization",
+      "authors": [
+        "R Hjelm",
+        "A Fedorov",
+        "S Lavoie-Marchildon",
+        "K Grewal",
+        "P Bachman",
+        "A Trischler",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "16",
+      "title": "Learning label-specific features and class-dependent labels for multilabel classification",
+      "authors": [
+        "J Huang",
+        "G Li",
+        "Q Huang",
+        "X Wu"
+      ],
+      "year": "2016",
+      "venue": "Trans. Knowl. Data Eng"
+    },
+    {
+      "citation_id": "17",
+      "title": "Transformerbased label set generation for multi-modal multi-label emotion detection",
+      "authors": [
+        "X Ju",
+        "D Zhang",
+        "J Li",
+        "G Zhou"
+      ],
+      "year": "2020",
+      "venue": "MM"
+    },
+    {
+      "citation_id": "18",
+      "title": "Supervised contrastive learning",
+      "authors": [
+        "P Khosla",
+        "P Teterwak",
+        "C Wang",
+        "A Sarna",
+        "Y Tian",
+        "P Isola",
+        "A Maschinot",
+        "C Liu",
+        "D Krishnan"
+      ],
+      "year": "2020",
+      "venue": "Supervised contrastive learning"
+    },
+    {
+      "citation_id": "19",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2014",
+      "venue": "Adam: A method for stochastic optimization"
+    },
+    {
+      "citation_id": "20",
+      "title": "Prototypical contrastive learning of unsupervised representations",
+      "authors": [
+        "J Li",
+        "P Zhou",
+        "C Xiong",
+        "S Hoi"
+      ],
+      "year": "2021",
+      "venue": "Prototypical contrastive learning of unsupervised representations"
+    },
+    {
+      "citation_id": "21",
+      "title": "Efficient low-rank multimodal fusion with modality-specific factors",
+      "authors": [
+        "Z Liu",
+        "Y Shen",
+        "V Lakshminarasimhan",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "22",
+      "title": "Label-specific dual graph neural network for multi-label text classification",
+      "authors": [
+        "Q Ma",
+        "C Yuan",
+        "W Zhou",
+        "S Hu"
+      ],
+      "year": "2021",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "23",
+      "title": "Multimodal deep learning",
+      "authors": [
+        "J Ngiam",
+        "A Khosla",
+        "M Kim",
+        "J Nam",
+        "H Lee",
+        "A Ng"
+      ],
+      "year": "2011",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "24",
+      "title": "Representation learning with contrastive predictive coding",
+      "authors": [
+        "A Oord",
+        "Y Li",
+        "O Vinyals"
+      ],
+      "year": "2018",
+      "venue": "Representation learning with contrastive predictive coding",
+      "arxiv": "arXiv:1807.03748"
+    },
+    {
+      "citation_id": "25",
+      "title": "Glove: Global vectors for word representation",
+      "authors": [
+        "J Pennington",
+        "R Socher",
+        "C Manning"
+      ],
+      "year": "2014",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "26",
+      "title": "Found in translation: Learning robust joint representations by cyclic translations between modalities",
+      "authors": [
+        "H Pham",
+        "P Liang",
+        "T Manzini",
+        "L.-P Morency",
+        "B Póczos"
+      ],
+      "year": "2019",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "27",
+      "title": "Seq2seq2sentiment: Multimodal sequence to sequence models for sentiment analysis",
+      "authors": [
+        "H Pham",
+        "T Manzini",
+        "P Liang",
+        "B Poczos",
+        "D Ramachandram",
+        "G Taylor"
+      ],
+      "year": "2017",
+      "venue": "Signal Process. Mag",
+      "arxiv": "arXiv:1807.03915"
+    },
+    {
+      "citation_id": "28",
+      "title": "Classifier chains for multi-label classification",
+      "authors": [
+        "J Read",
+        "B Pfahringer",
+        "G Holmes",
+        "E Frank"
+      ],
+      "year": "2011",
+      "venue": "Classifier chains for multi-label classification"
+    },
+    {
+      "citation_id": "29",
+      "title": "Order-free learning alleviating exposure bias in multi-label classification",
+      "authors": [
+        "C.-P Tsai",
+        "H.-Y Lee"
+      ],
+      "year": "2020",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "30",
+      "title": "Multimodal transformer for unaligned multimodal language sequences",
+      "authors": [
+        "Y.-H Tsai",
+        "S Bai",
+        "P Liang",
+        "J Kolter",
+        "L.-P Morency",
+        "R Salakhutdinov"
+      ],
+      "year": "2019",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "31",
+      "title": "Multi-label classification: An overview international journal of data warehousing and mining. The label powerset algorithm is called PT3, 3(3). Van der",
+      "authors": [
+        "G Tsoumakas",
+        "I Katakis",
+        "L Maaten",
+        "G Hinton"
+      ],
+      "year": "2006",
+      "venue": "Journal of machine learning research"
+    },
+    {
+      "citation_id": "32",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "NIPS"
+    },
+    {
+      "citation_id": "33",
+      "title": "Labelspecific document representation for multi-label text classification",
+      "authors": [
+        "L Xiao",
+        "X Huang",
+        "B Chen",
+        "L Jing"
+      ],
+      "year": "2019",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "34",
+      "title": "A deep reinforced sequence-to-set model for multi-label classification",
+      "authors": [
+        "P Yang",
+        "F Luo",
+        "S Ma",
+        "J Lin",
+        "X Sun"
+      ],
+      "year": "2019",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "35",
+      "title": "SGM: sequence generation model for multi-label classification",
+      "authors": [
+        "P Yang",
+        "X Sun",
+        "W Li",
+        "S Ma",
+        "W Wu",
+        "H Wang"
+      ],
+      "year": "2018",
+      "venue": "COLING"
+    },
+    {
+      "citation_id": "36",
+      "title": "Tensor fusion network for multimodal sentiment analysis",
+      "authors": [
+        "A Zadeh",
+        "M Chen",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2017",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "37",
+      "title": "Multi-attention recurrent network for human communication comprehension",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "P Vij",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "38",
+      "title": "Multimodal language analysis in the wild: Cmu-mosei dataset and interpretable dynamic fusion graph",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "39",
+      "title": "Multi-modal multi-label emotion detection with modality and label dependence",
+      "authors": [
+        "D Zhang",
+        "X Ju",
+        "J Li",
+        "S Li",
+        "Q Zhu",
+        "G Zhou"
+      ],
+      "year": "2020",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "40",
+      "title": "Multi-modal multi-label emotion recognition with heterogeneous hierarchical message passing",
+      "authors": [
+        "D Zhang",
+        "X Ju",
+        "W Zhang",
+        "J Li",
+        "S Li",
+        "Q Zhu",
+        "G Zhou"
+      ],
+      "year": "2021",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "41",
+      "title": "A review on multilabel learning algorithms",
+      "authors": [
+        "M.-L Zhang",
+        "Z.-H Zhou"
+      ],
+      "year": "2013",
+      "venue": "Trans. Knowl. Data Eng"
+    },
+    {
+      "citation_id": "42",
+      "title": "Tailor versatile multi-modal learning for multi-label emotion recognition",
+      "authors": [
+        "Y Zhang",
+        "M Chen",
+        "J Shen",
+        "C Wang"
+      ],
+      "year": "2022",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "43",
+      "title": "M3ED: Multi-modal multi-scene multi-label emotional dialogue database",
+      "authors": [
+        "J Zhao",
+        "T Zhang",
+        "J Hu",
+        "Y Liu",
+        "Q Jin",
+        "X Wang",
+        "H Li"
+      ],
+      "year": "2022",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "44",
+      "title": "PromptLearner-CLIP: Contrastive Multi-Modal Action Representation Learning with Context Optimization",
+      "authors": [
+        "Z Zheng",
+        "G An",
+        "S Cao",
+        "Z Yang",
+        "Q Ruan"
+      ],
+      "year": "2022",
+      "venue": "ACCV"
+    },
+    {
+      "citation_id": "45",
+      "title": "Adversarial attention modeling for multi-dimensional emotion regression",
+      "authors": [
+        "S Zhu",
+        "S Li",
+        "G Zhou"
+      ],
+      "year": "2019",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "46",
+      "title": "Crossclr: Cross-modal contrastive learning for multi-modal video representations",
+      "authors": [
+        "M Zolfaghari",
+        "Y Zhu",
+        "P Gehler",
+        "T Brox"
+      ],
+      "year": "2021",
+      "venue": "ICCV"
+    }
+  ]
+}

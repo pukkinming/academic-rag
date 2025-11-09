@@ -1,0 +1,1944 @@
+{
+  "paper_id": "2309.03978v1",
+  "title": "Lanser: Language-Model Supported Speech Emotion Recognition",
+  "published": "2023-09-07T19:21:08Z",
+  "authors": [
+    "Taesik Gong",
+    "Josh Belanich",
+    "Krishna Somandepalli",
+    "Arsha Nagrani",
+    "Brian Eoff",
+    "Brendan Jou"
+  ],
+  "keywords": [
+    "speech emotion recognition",
+    "large language models",
+    "weakly-supervised learning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Speech emotion recognition (SER) models typically rely on costly human-labeled data for training, making scaling methods to large speech datasets and nuanced emotion taxonomies difficult. We present LanSER, a method that enables the use of unlabeled data by inferring weak emotion labels via pre-trained large language models through weakly-supervised learning. For inferring weak labels constrained to a taxonomy, we use a textual entailment approach that selects an emotion label with the highest entailment score for a speech transcript extracted via automatic speech recognition. Our experimental results show that models pre-trained on large datasets with this weak supervision outperform other baseline models on standard SER datasets when fine-tuned, and show improved label efficiency. Despite being pre-trained on labels derived only from text, we show that the resulting representations appear to model the prosodic content of speech.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "In conversations, humans rely on both what is said (i.e., lexical content), and how it is said (i.e., prosody), to infer the emotion expressed by a speaker. State-of-the-art methods in speech emotion recognition (SER) leverage the interplay of these two components for modeling emotional expression in speech. However, such methods still show limitations on in-the-wild scenarios due to the variability in natural speech, and the reliance on human ratings using limited emotion taxonomies. Extending model training to large, natural speech datasets labeled by humans for nuanced emotion taxonomies is expensive and is further complicated by the subjective nature of emotion perception.\n\nDespite both lexical content and prosody being complementary for emotion perception, the two components are correlated, and in many cases the content is predictive of the prosody. For example, when someone says, \"I won the lottery\" -an upbeat and lively prosody would sound congruent, and one might perceive the emotional expression as elation or triumphant. In this work, we investigate how we might leverage the emotions congruent with lexical content in large unlabeled speech datasets to serve as weak supervision for developing SER models.\n\nWe turn to Large Language Models (LLMs) to infer expressed emotion categories in textual content. Due to the knowledge they embed from pre-training on large text corpora  [1, 2] , LLMs have demonstrated capabilities in numerous downstream tasks  [3] , including a few subjective tasks such as social and * Equal contribution. emotion reasoning  [4] . In domains such as computer vision, LLMs were explored to reduce the need for labeled data, e.g., for visual question answering  [5] . However, to our knowledge, they have not been studied for emotion recognition tasks, particularly from natural speech. We propose LanSER, that uses LLMs to infer emotion categories from speech content i.e., transcribed text, which serve as weak labels for SER (Figure  1 ). Overall, LanSER enables pretraining a SER model on large speech datasets without human labels by (1) extracting text transcripts from utterances using automatic speech recognition (ASR), (2) using pre-trained LLMs to infer weak emotion labels with an engineered prompt and predetermined taxonomy, and (3) pre-training the SER model with the weak labels. We demonstrate that LanSER improves SER performance and label efficiency by fine-tuning on benchmark datasets. Moreover, we show that despite the emotion labels being derived from speech content only, LanSER captures speech prosody information that is relevant to SER.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "SER with LLMs: Recently, LLMs were used to generate pseudo-labels for semi-supervised learning for speech sentiment analysis  [6] . Here, LLMs were fine-tuned on a labeled sentiment dataset to explore narrow sentiment classes of negative, positive, and neutral. In contrast, our work avoids finetuning LLMs on task-specific datasets by inferring weak labels via textual entailment, enabling exploration with wider emotion taxonomies. In the context of multi-modal emotion recognition, MEmoBERT  [7]  used audio, visual, and text information with prompt learning for unsupervised emotion recognition. Herein, the visual model is pre-trained on a large labeled emotion dataset. In contrast, in our work, pre-training on large human-annotated emotion datasets is not necessary. Self-supervised learning: Self-supervised learning has become a popular method using large amounts of unlabeled speech data  for pre-training  [8, 9] . Recent studies found that large pretrained models via self-supervised learning show effectiveness in various downstream speech tasks  [10] , including many paralinguistic tasks  [9] . We view self-supervised learning and our weak supervision from LLMs as complementary, since the two methodologies can be combined for training SER models.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Methodology",
+      "text": "An overview of the training and inference process of LanSER in shown in Figure  1 . During pre-training, we use ASR to generate transcripts from speech utterances, which are fed into a LLM with appropriate prompt to extract weak emotion labels in predetermined taxonomy via textual entailment. These labels are used to pre-train a SER model via weakly-supervised learning. The pre-trained SER model can then either be used directly to output emotion predictions according to the emotion taxonomy used to extract weak labels, or can be adapted for a different taxonomy or dataset by fine-tuning.\n\nWe note that the emotions inferred using LLMs from speech content are proxies for the emotion being expressed, and may not capture the larger context or intent of the speaker. Thus, we treat them as \"weak\" emotion labels in our work.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Weak Label Generation Via Textual Entailment",
+      "text": "There are multiple ways to use LLMs for extracting weak emotion labels. Two dominant approaches in the literature are (i) text generation  [2]  and (ii) filling mask  [11, 1, 7] . Figure  2  demonstrates the behaviors of text generation and filling mask for weak emotion label prediction. We used representative LLMs for each approach: GPT-2 for text generation and BERT  [11]  for filling mask. While these approaches show some success, the common limitation in a zero-shot setting is that they often output undesirable \"noise\", like irrelevant words (text generation), or non-emotional responses (e.g., \"himself\" in filling mask in the Fig.  2 ).\n\nThus, we want to constrain the LLM model to output only words relevant to emotion perception. To this end, we use textual entailment  [12]  to generate weak labels that also allows us to constrain the emotion taxonomy apriori. Figure  2  illustrates the entailment-based weak emotion label generation; at a high-level, this method calculates the entailment scores between an input transcript (called hypothesis) and prompts with candidate labels from the taxonomy (called premise), and then selects the item with the highest score as the weak label. Formally, let x ∈ X denote ASR transcripts from speech and y ∈ Y denote a candidate label in taxonomy Y. A prompting function g(•) prepends a predefined prompt to the given input. f (x, g(y)) denotes the entailment score between a hypothesis x and a prompted label g(y). The resulting weak emotion label ŷ for a given transcript x is calculated as:\n\nThe entailment scoring function f is a function typically parameterized by a neural network and fine-tuned on the entailment task. In our case, we use RoBERTa  [13]  fine-tuned on the Multi-genre Natural Language Inference (MNLI)  [14]  dataset. The MNLI dataset is composed of hypothesis and premise pairs for diverse genres, which is specialized for the textual entailment approach, and do not explicitly focus on emotion-related concepts.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Prompt Engineering",
+      "text": "Prompt engineering is a task-specific description embedded in inputs to LLMs (e.g., a question format)  [15] . It is a critical component affecting zero-shot performance of LLMs on various downstream tasks  [1, 16, 17] . In Section 4.2 we explore various prompts in order to understand the impact of prompt engineering for the entailment task. Ultimately, we found that the prompt \"The emotion of the conversation is {}.\" performed best, and we use this prompt throughout our experiments.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Taxonomy",
+      "text": "The choice of emotion taxonomy is critical in developing SER models as emotion perception and expression is nuanced. Common SER benchmarks typically use 4-6 emotion categories  [18, 19] , which do not capture the variability in emotion perception  [20] . Thus we experiment with BRAVE-43, a finergrained taxonomy  [21] . We adopted and modified the BRAVE taxonomy which originally contains 42 self-reported emotions labels. We converted several two-word emotions to one-word emotions for simplicity and added \"shock\" to capture a negative version of \"surprise\", resulting in a total of 43 categories. Note this taxonomy is not speech-specific. We investigate the impact of taxonomy selection in Section 4.5. We expect fine-grained taxonomies to help learn effective representations by using the high degree of the expressiveness of LLMs.",
+      "page_start": 2,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experiments",
+      "text": "Our overarching hypothesis is that, given a sufficiently large amount of data, pre-training speech-only models on weak emotion labels derived from text improves performance on SER tasks. As such, throughout this paper, we focus on speech-only emotion recognition models. Additionally, our goal is not to obtain state-of-the-art results on downstream tasks but to assess, given a fixed model capacity, whether models pre-trained via LanSER achieve improved performance.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Data Preparation",
+      "text": "Pre-training data: We investigate two large-scale speech datasets for LanSER pre-training: People's Speech  [22]  and Condensed Movies  [23] . People's Speech is currently the largest English speech recognition corpus, containing 30K hours of general speech. Condensed Movies is comprised of 1,000 hours of video clips from 3,000 movies, where we use only the audio. We explore these two large-scale speech datasets to understand the impact of the amount of data and their distributions; while People's Speech has more samples from less emotional data sources (e.g., government, interview, health, etc.), Condensed Movies has fewer samples from a more emotional data source (movies). We use Whisper ASR  [24]  (\"small\" variant) to segment and generate transcripts for People's Speech and Condensed Movies datasets, resulting in 4,321,002 and 1,030,711 utterances, respectively. Downstream tasks: We use two common SER benchmarks for downstream tasks: IEMOCAP  [18]  and CREMA-D  [19] .\n\nIEMOCAP is an acted, multi-speaker database containing 5,531 audio clips from 12 hours of speech. We follow the commonly used four-class (anger, happiness, sadness, and neutral) setup  [7, 25, 10, 9]  and use speaker-independent train:val:test splits. CREMA-D has 7,441 audio clips collected from 91 actors. An important characteristic of CREMA-D is that it is linguistically constrained, having only 12 sentences each presented using six different emotions (anger, disgust, fear, happy, neutral, and sad). We use CREMA-D to validate that our models indeed learn prosodic representations, and do not just learn to use language to predict the emotional expression.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Baselines",
+      "text": "We compare LanSER models fine-tuned on downstream datasets with the following four baselines: Majority: Output the most prevalent class in the dataset  [12] . GT Transcript + Word2Vec  [26] : Each word in a ground-truth transcript is converted to a Word2Vec embedding. We compute the cosine similarity between the averaged transcript embedding and each class label, outputting the class with the highest similarity.\n\nGT Transcript + LLM + Entailment  [12] : Using the same methodology for producing weak labels, we process the groundtruth transcript with an LLM and entailment to output a classification according to the dataset's taxonomy. Supervised: Supervised learning using the same model architecture as LanSER but without pre-training. We include two language-based methods (Word2Vec and Entailment) to better understand how LanSER compares with models using lexical content alone. Note that the language baselines assume GT transcripts are available. In practice, these baselines would require an ASR pipeline to get transcripts, which may involve additional computational and developmental cost.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Implementation",
+      "text": "We extracted mel-spectrogram features (frame length 32ms, frame steps 25ms, 50 bins from 60-3600Hz) from the audio waveforms as input to the model and used ResNet-50  [27]  as the backbone network for training. For both pre-training and fine-tuning, we minimized the cross-entropy loss with the Adam  [28]  optimizer and implemented in TensorFlow  [29] .\n\nFor pre-training, we adopted a warm-up learning rate schedule where the rate warmed up for the initial 5% of updates to a peak of 5 × 10 -4 and then linearly decayed to zero. We used a batch size of 256 and trained for 100K iterations.\n\nFor fine-tuning on the downstream tasks, we loaded the pretrained weights and used a fixed learning rate of 10 -4 . We set the batch size as 64 and trained for 10K iterations. We split the downstream datasets into a 6:2:2 (train:valid:test) ratio, and selected the best model on the validation set for testing.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Prompts",
+      "text": "Acc. This example is {}.\n\n42.0% I am {}.  [7]  39.9% I feel {}.\n\n41.8% I am feeling {}.\n\n45.0% This person is expressing {} emotion.\n\n43.7% A speech seems to express a feeling like {}.  [16]  38.0% A transcript seems to express a feeling like {}.  [16]  38.9% A conversation seems to express some feelings like {}.  [16]  39.0% The emotion of the conversation is {}.\n\n45.6% The emotion of the previous conversation is {}.\n\n44.1% The overall emotion of the conversation is {}.\n\n45.1%",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Prompt Engineering",
+      "text": "We investigated the impact of various prompts to infer weak emotion labels using IEMOCAP. We chose IEMOCAP because it has transcripts and human-rated labels with majority agreement referred here as \"ground-truth\". To evaluate the prompts, we compute accuracy by comparing the weak labels with the ground-truth. We also examined prompts used in previous emotion recognition studies  [16, 7]  and modified a few visionspecific prompts  [16]  for our study by replacing words such as \"photo\" or \"image\" with \"speech\". Table  1  shows the accuracy for each prompt. The prompt (\"I am {}.)\" used in the related sentiment work  [7]  was not as effective at capturing emotional signals. Similarly, adapting vision-specific prompts  [16]  was ineffective. This suggests that it is worthwhile to tailor the prompt to the SER task. Among the prompts we explored, \"The emotion of the conversation is {}.\" had the highest accuracy. We adopt this prompt to infer weak labels in all our experiments. We leave additional prompt tuning  [30]  as future work.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Fine-Tuning",
+      "text": "We fine-tune all models on the downstream tasks to evaluate their label efficiency and performance. To measure label efficiency, we varied the percentage of seen training data from 10% to 100% for each dataset. Table  2  shows the result. \"LanSER (People's Speech)\" means pre-training with Peoples Speech, while \"LanSER (Condensed Movies)\" refers to pre-training with Condensed Movies. In all cases, we used the BRAVE taxonomy (see Sec. 3.3) as the label space.\n\nFirst, NLP baselines (Word2Vec and Entailment) fail on CREMA-D, as they only use lexical speech content. Interestingly, LanSER's results on CREMA-D suggest that the model can learn prosodic representations via weak supervision from LLMs. We attribute this result to pre-training with large-scale data, and it offers evidence to our hypothesis that speech and text emotions are correlated enough that SER models can learn to use prosodic features even with labels from text only given a sufficiently large amount of data.\n\nOverall, LanSER outperforms the NLP and majority class baselines. Notably, LanSER pre-trained with the Condensed Movies showed improved accuracy than with the People's Speech. While People's Speech is comprised of fairly neutral speech data (e.g., government, interviews, etc.), Condensed Movies is comprised of movies having more expressive speech; from the emotion recognition perspective, Peoples Speech might introduce more noise than Condensed Movies.\n\nTo assess that performance improvements are being driven by the emotion labels inferred using LLMs, and not just the scale of the pre-training data, we compare the fine-tuning performance of LanSER to a model pre-trained on Condensed  47.6% IEMOCAP  [18]  LanSER (weak labels) 54.5% LanSER (random labels) 50.6% CREMA-D  [19]  LanSER (weak labels) 58.7% Movies using random uniformly sampled labels. As shown in Table  3 , models pre-trained with weak labels outperform ones trained with random labels suggesting that the weak emotion labels inferred using LLMs are meaningful.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Zero-Shot Classification Accuracy",
+      "text": "A unique advantage of LanSER over self-supervised learning  [8, 9]  is that it enables SER models to support zero-shot classification. Table  4  shows the zero-shot classification accuracy: for LanSER, SER models were pre-trained with the taxonomy of the downstream dataset instead of BRAVE and evaluated in a zero-shot setting. We use models with randomly initialized weights and no training as a lower-bound of performance, referred to as \"Scratch\". Overall, LanSER shows higher accuracy than the baseline, although not as good as fine-tuning. These results suggest the potential of training large SER models that can perform well on various downstream tasks, without further fine-tuning. Improving zero-shot performance further using our proposed framework is part of our future work.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Impact Of Taxonomy",
+      "text": "Figure  3  shows the impact of taxonomy selection. We compared the BRAVE taxonomy with downstream task's taxonomies. \"PS\" and \"CM\" refers to People's Speech and Condensed Movies, respectively. \"IEMOCAP\", \"CREMA-D\", and \"BRAVE\" means taxonomy used to generate weak labels. As shown, pre-training with the finer taxonomy (BRAVE) shows generally better accuracy when fine-tuned, with 4.2% accuracy improvement on average. This indicates that a fine-grained taxonomy is beneficial to learn effective representations by lever-  aging the high degree of the expressiveness of LLMs.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Caveats",
+      "text": "Developing machine perception models of apparent emotional expression remains an open area of investigation. The models in this work do not aim to infer the internal emotional state of individuals, but rather model proxies from speech utterances. This is especially true when training on the output of LLMs, since LLMs may not take into account prosody, cultural background, situational or social context, personal history, and other cues relevant to human emotion perception. ASR transcription errors add another layer of noise.\n\nThe benchmark datasets we use in this work are relatively small and are labeled with limited emotion taxonomies. CREMA-D, while useful for its fixed lexical content, is an acted dataset where the emotional expression of its utterances may not well-represent natural speech.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion And Future Work",
+      "text": "In this work, we proposed LanSER, a novel language-model supported speech emotion recognition method that leverages large unlabeled speech datasets by generating weak labels via textual entailment using LLMs. Our experimental results showed that LanSER can learn effective emotional representations including prosodic features.\n\nWe note several possible areas of future work. It may be possible to reduce the weak label noise via filtering mechanisms, or by modifying prompts to include more conversational context, like the previous and next utterances, or scene descriptions. Additionally, using LLMs to generate weak labels in an open-set taxonomy may better leverage their expressiveness. Finally, while in this work we used ResNet-50 as our backbone model, higher capacity models like Conformers  [9]  might better capture the complex relationship between speech and emotion on the pre-training datasets we explored. We believe that the initial investigation and findings of this work provide valuable insights for future SER research on large-scale unlabeled data.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: The overview of LanSER. LLMs and textual entail-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: ). Overall, LanSER enables pre-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: Comparison of three weak label generation ap-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: During pre-training, we use ASR to gen-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 3: shows the impact of taxonomy selection. We com-",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Impact of taxonomy selection for pre-training.",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "1. Weak label generation"
+        },
+        {
+          "[Training]": "LLM"
+        },
+        {
+          "[Training]": "Predicted emotion \nTextual\nASR\nTranscript\nPrompt\nSpeech"
+        },
+        {
+          "[Training]": "(weak label)\nEntailment"
+        },
+        {
+          "[Training]": "Taxonomy"
+        },
+        {
+          "[Training]": "2. Weakly-supervised learning"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "Speech\nPredicted emotion\nWeak label\nSER model"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "[Fine-tuning / Inference]"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "Speech\nSER model\nPredicted emotion\nGrouth-truth labels"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "Figure 1: The overview of LanSER. LLMs and textual entail-"
+        },
+        {
+          "[Training]": "ment are used to infer weak emotion labels from speech content"
+        },
+        {
+          "[Training]": "which are used to pre-train a SER model."
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "emotion reasoning [4].\nIn domains such as computer vision,"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "LLMs were explored to reduce the need for labeled data, e.g.,"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "for visual question answering [5]. However,\nto our knowledge,"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "they have not been studied for emotion recognition tasks, par-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "ticularly from natural speech."
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "We propose LanSER, that uses LLMs to infer emotion cate-"
+        },
+        {
+          "[Training]": "gories from speech content i.e., transcribed text, which serve as"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "weak labels for SER (Figure 1). Overall, LanSER enables pre-"
+        },
+        {
+          "[Training]": "training a SER model on large speech datasets without human"
+        },
+        {
+          "[Training]": "labels by (1) extracting text transcripts from utterances using au-"
+        },
+        {
+          "[Training]": "tomatic speech recognition (ASR), (2) using pre-trained LLMs"
+        },
+        {
+          "[Training]": "to infer weak emotion labels with an engineered prompt and"
+        },
+        {
+          "[Training]": "predetermined taxonomy, and (3) pre-training the SER model"
+        },
+        {
+          "[Training]": "with the weak labels. We demonstrate that LanSER improves"
+        },
+        {
+          "[Training]": "SER performance and label efficiency by fine-tuning on bench-"
+        },
+        {
+          "[Training]": "mark datasets. Moreover, we show that despite the emotion la-"
+        },
+        {
+          "[Training]": "bels being derived from speech content only, LanSER captures"
+        },
+        {
+          "[Training]": "speech prosody information that is relevant to SER."
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "2. Related Work"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "SER with LLMs:\nRecently, LLMs were used to generate"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "pseudo-labels\nfor\nsemi-supervised learning for\nspeech senti-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "ment analysis [6]. Here, LLMs were fine-tuned on a labeled"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "sentiment dataset\nto explore narrow sentiment classes of neg-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "ative, positive, and neutral.\nIn contrast, our work avoids fine-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "tuning LLMs on task-specific datasets by inferring weak labels"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "via textual entailment, enabling exploration with wider emo-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "tion taxonomies.\nIn the context of multi-modal emotion recog-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "nition, MEmoBERT [7] used audio, visual, and text\ninforma-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "tion with prompt\nlearning for unsupervised emotion recogni-"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "tion. Herein,\nthe visual model\nis pre-trained on a large labeled"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "emotion dataset.\nIn contrast,\nin our work, pre-training on large"
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "human-annotated emotion datasets is not necessary."
+        },
+        {
+          "[Training]": ""
+        },
+        {
+          "[Training]": "Self-supervised learning: Self-supervised learning has become"
+        },
+        {
+          "[Training]": "a popular method using large amounts of unlabeled speech data"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Input: “Stop. I hate you. Do you hear me?”\n“This person is expressing”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Outputs:"
+        },
+        {
+          "Transcript Prompt\nText generation": "1.\n“disgust with me? I'm not that dumb. I hate you because of me…”"
+        },
+        {
+          "Transcript Prompt\nText generation": "2.\n“her hatred, what for? All I did was say. 'You're not just some angry…”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "3.\n“personal anger against you. I don't know what to think about that's you…”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Filling mask"
+        },
+        {
+          "Transcript Prompt\nText generation": "Input: “Stop. I hate you. Do you hear me?”\n“This person is expressing {MASK}.”"
+        },
+        {
+          "Transcript Prompt\nText generation": "Outputs:"
+        },
+        {
+          "Transcript Prompt\nText generation": "1.\n“hate”"
+        },
+        {
+          "Transcript Prompt\nText generation": "2.\n“pain”"
+        },
+        {
+          "Transcript Prompt\nText generation": "3.\n“himself”"
+        },
+        {
+          "Transcript Prompt\nText generation": "Textual entailment"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Hypothesis: “Stop. I hate you. Do you hear me?”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Premise 1: “This person is expressing anger.”\nentailment score"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Premise 2: “This person is expressing happiness.”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Output: “anger”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Comparison\nof\nthree weak\nlabel\ngeneration\nap-\nFigure\n2:"
+        },
+        {
+          "Transcript Prompt\nText generation": "proaches: text generation, filling mask, and textual entailment."
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "for pre-training [8, 9].\nRecent\nstudies\nfound that\nlarge pre-"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "trained models via self-supervised learning show effectiveness"
+        },
+        {
+          "Transcript Prompt\nText generation": "in various downstream speech tasks [10],\nincluding many par-"
+        },
+        {
+          "Transcript Prompt\nText generation": "alinguistic tasks [9]. We view self-supervised learning and our"
+        },
+        {
+          "Transcript Prompt\nText generation": "weak supervision from LLMs as complementary, since the two"
+        },
+        {
+          "Transcript Prompt\nText generation": "methodologies can be combined for training SER models."
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "3. Methodology"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "An overview of the training and inference process of LanSER"
+        },
+        {
+          "Transcript Prompt\nText generation": "in shown in Figure 1. During pre-training, we use ASR to gen-"
+        },
+        {
+          "Transcript Prompt\nText generation": "erate transcripts from speech utterances, which are fed into a"
+        },
+        {
+          "Transcript Prompt\nText generation": "LLM with appropriate prompt\nto extract weak emotion labels"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "in predetermined taxonomy via textual entailment.\nThese la-"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "bels are used to pre-train a SER model via weakly-supervised"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "learning. The pre-trained SER model can then either be used"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "directly to output emotion predictions according to the emotion"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "taxonomy used to extract weak labels, or can be adapted for a"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "different taxonomy or dataset by fine-tuning."
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "We\nnote\nthat\nthe\nemotions\ninferred\nusing LLMs\nfrom"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "speech content are proxies for the emotion being expressed, and"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "may not capture the larger context or intent of the speaker. Thus,"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "we treat them as “weak” emotion labels in our work."
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "3.1. Weak label generation via textual entailment"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "There are multiple ways to use LLMs for extracting weak emo-"
+        },
+        {
+          "Transcript Prompt\nText generation": "tion labels.\nTwo dominant\napproaches\nin the\nliterature\nare"
+        },
+        {
+          "Transcript Prompt\nText generation": "(i)\ntext generation [2] and (ii) filling mask [11, 1, 7].\nFig-"
+        },
+        {
+          "Transcript Prompt\nText generation": "ure 2 demonstrates\nthe behaviors of\ntext generation and fill-"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "ing mask for weak emotion label prediction. We used repre-"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "sentative LLMs for each approach: GPT-2 for\ntext generation"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "and BERT [11] for filling mask. While these approaches show"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "some success,\nthe common limitation in a zero-shot setting is"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "that they often output undesirable “noise”, like irrelevant words"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "(text generation), or non-emotional\nresponses (e.g., “himself”"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "in filling mask in the Fig. 2)."
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "Thus, we want\nto constrain the LLM model\nto output only"
+        },
+        {
+          "Transcript Prompt\nText generation": "words relevant\nto emotion perception. To this end, we use tex-"
+        },
+        {
+          "Transcript Prompt\nText generation": ""
+        },
+        {
+          "Transcript Prompt\nText generation": "tual entailment\n[12]\nto generate weak labels\nthat also allows"
+        },
+        {
+          "Transcript Prompt\nText generation": "us to constrain the emotion taxonomy apriori.\nFigure 2 illus-"
+        },
+        {
+          "Transcript Prompt\nText generation": "trates the entailment-based weak emotion label generation; at"
+        },
+        {
+          "Transcript Prompt\nText generation": "a high-level,\nthis method calculates the entailment scores be-"
+        },
+        {
+          "Transcript Prompt\nText generation": "tween an input\ntranscript (called hypothesis) and prompts with"
+        },
+        {
+          "Transcript Prompt\nText generation": "candidate labels from the taxonomy (called premise), and then"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "ous prompts. {} indicates the masked position."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "Prompts\nAcc."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "This example is {}.\n42.0%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "I am {}. [7]\n39.9%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "I feel {}.\n41.8%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "I am feeling {}.\n45.0%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "This person is expressing {} emotion.\n43.7%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "A speech seems to express a feeling like {}. [16]\n38.0%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "A transcript seems to express a feeling like {}. [16]\n38.9%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "A conversation seems to express some feelings like {}. [16]\n39.0%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "45.6%\nThe emotion of the conversation is {}."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "The emotion of the previous conversation is {}.\n44.1%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "The overall emotion of the conversation is {}.\n45.1%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "4.2. Prompt engineering"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "We investigated the impact of various prompts to infer weak"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "emotion labels using IEMOCAP. We chose IEMOCAP because"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "it has transcripts and human-rated labels with majority agree-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "ment referred here as “ground-truth”. To evaluate the prompts,"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "we compute accuracy by comparing the weak labels with the"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "ground-truth.\nWe\nalso examined prompts used in previous"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "emotion recognition studies [16, 7] and modified a few vision-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "specific prompts [16] for our study by replacing words such as"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "“photo” or “image” with “speech”."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "Table 1 shows the accuracy for each prompt. The prompt"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "(“I am {}.)”\nused in the related sentiment work [7] was not"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "as effective at capturing emotional signals. Similarly, adapting"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "vision-specific prompts [16] was ineffective. This suggests that"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "it\nis worthwhile to tailor the prompt\nto the SER task. Among"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "the prompts we explored, “The emotion of the conversation is"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "{}.”\nhad the highest accuracy. We adopt\nthis prompt\nto infer"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "weak labels in all our experiments. We leave additional prompt"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "tuning [30] as future work."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "4.3. Fine-tuning"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "We fine-tune all models on the downstream tasks to evaluate"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "their\nlabel efficiency and performance. To measure label effi-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "ciency, we varied the percentage of seen training data from 10%"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "to 100% for each dataset. Table 2 shows the result.\n“LanSER"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "(People’s Speech)” means pre-training with Peoples Speech,"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "while\n“LanSER (Condensed Movies)”\nrefers\nto pre-training"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "with Condensed Movies. In all cases, we used the BRAVE tax-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "onomy (see Sec. 3.3) as the label space."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "First, NLP baselines\n(Word2Vec and Entailment)\nfail on"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "CREMA-D, as they only use lexical speech content.\nInterest-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "ingly, LanSER’s results on CREMA-D suggest\nthat\nthe model"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "can learn prosodic representations via weak supervision from"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "LLMs. We attribute this result\nto pre-training with large-scale"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": ""
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "data, and it offers evidence to our hypothesis that speech and"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "text emotions are correlated enough that SER models can learn"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "to use prosodic features even with labels from text only given a"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "sufficiently large amount of data."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "Overall, LanSER outperforms the NLP and majority class"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "baselines.\nNotably, LanSER pre-trained with the Condensed"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "Movies\nshowed\nimproved\naccuracy\nthan with\nthe People’s"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "Speech. While People’s Speech is comprised of\nfairly neu-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "tral\nspeech\ndata\n(e.g.,\ngovernment,\ninterviews,\netc.), Con-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "densed Movies\nis comprised of movies having more expres-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "sive speech; from the emotion recognition perspective, Peoples"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "Speech might introduce more noise than Condensed Movies."
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "To assess that performance improvements are being driven"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "by the emotion labels\ninferred using LLMs, and not\njust\nthe"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "scale of the pre-training data, we compare the fine-tuning per-"
+        },
+        {
+          "Table 1: Accuracy of extracted weak emotion labels with vari-": "formance of LanSER to a model pre-trained on Condensed"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 3: Unweighted accuracy (%) for fine-tuning on down-",
+      "data": [
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": "50%, 70%, and 100%). Bold fonts indicate the highest accuracy."
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": "Downstream task"
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": "IEMOCAP [18]"
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": "CREMA-D [19]"
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        },
+        {
+          "Table 2: Unweighted accuracy (%) of fine-tuning for downstream tasks with varying the percentage of fine-tuning data (10%, 30%,": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 3: Unweighted accuracy (%) for fine-tuning on down-",
+      "data": [
+        {
+          "Supervised": "",
+          "37.8%": "35.5%",
+          "43.2%": "48.2%",
+          "48.2%\n53.4%": "51.5%\n52.7%",
+          "57.2%": "55.8%"
+        },
+        {
+          "Supervised": "",
+          "37.8%": "43.7%",
+          "43.2%": "49.9%",
+          "48.2%\n53.4%": "52.2%\n53.6%",
+          "57.2%": "58.7%"
+        },
+        {
+          "Supervised": "Table 3: Unweighted accuracy (%)",
+          "37.8%": "",
+          "43.2%": "",
+          "48.2%\n53.4%": "IEMOCAP",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "",
+          "37.8%": "60",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "stream tasks. LanSER (random labels) is pre-trained on Con-",
+          "37.8%": "",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "",
+          "37.8%": "50",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "densed Movies with BRAVE taxonomy",
+          "37.8%": "40",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "domly.",
+          "37.8%": "Classification error (%)\n30",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "",
+          "37.8%": "",
+          "43.2%": "",
+          "48.2%\n53.4%": "LanSER (PS/IEMOCAP)",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "",
+          "37.8%": "",
+          "43.2%": "",
+          "48.2%\n53.4%": "LanSER (CM/IEMOCAP)",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "Downstream task\nMethod",
+          "37.8%": "20",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "",
+          "37.8%": "",
+          "43.2%": "",
+          "48.2%\n53.4%": "LanSER (PS/BRAVE)",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "LanSER (random labels)",
+          "37.8%": "10",
+          "43.2%": "",
+          "48.2%\n53.4%": "LanSER (CM/BRAVE)",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "IEMOCAP [18]",
+          "37.8%": "",
+          "43.2%": "",
+          "48.2%\n53.4%": "",
+          "57.2%": ""
+        },
+        {
+          "Supervised": "LanSER (weak labels)",
+          "37.8%": "0",
+          "43.2%": "10%",
+          "48.2%\n53.4%": "30%\n50%\n70%\n100%",
+          "57.2%": "10%"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "pose diversified prompts for image emotion classification,” CoRR,"
+        },
+        {
+          "7. References": "[1] A. Radford et al., “Learning transferable visual models from nat-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "vol. abs/2201.10963, 2022."
+        },
+        {
+          "7. References": "the 38th Interna-\nural\nlanguage supervision,” in Proceedings of",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "tional Conference on Machine Learning, ser. Proceedings of Ma-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[17]\nT. Gao, A. Fisch, and D. Chen, “Making pre-trained language"
+        },
+        {
+          "7. References": "chine Learning Research, vol. 139.\nPMLR, 18–24 Jul 2021, pp.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "the 59th An-\nmodels better few-shot\nlearners,” in Proceedings of"
+        },
+        {
+          "7. References": "8748–8763.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "nual Meeting of\nthe Association for Computational Linguistics"
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "and the 11th International Joint Conference on Natural Language"
+        },
+        {
+          "7. References": "[2]\nT. Brown et al., “Language models are few-shot learners,” in Ad-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Processing (Volume 1: Long Papers).\nAssociation for Computa-"
+        },
+        {
+          "7. References": "vances in Neural Information Processing Systems, H. Larochelle,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "tional Linguistics, Aug. 2021, pp. 3816–3830."
+        },
+        {
+          "7. References": "M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, Eds., vol. 33.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "Curran Associates, Inc., 2020, pp. 1877–1901.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,"
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "S. Kim,\nJ. N. Chang, S. Lee, and S. S. Narayanan, “Iemocap:"
+        },
+        {
+          "7. References": "[3]\nP. Liang et al., “Holistic evaluation of language models,” CoRR,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Interactive emotional dyadic motion capture database,” Language"
+        },
+        {
+          "7. References": "vol. abs/2211.09110, 2022.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "resources and evaluation, vol. 42, no. 4, pp. 335–359, 2008."
+        },
+        {
+          "7. References": "[4] M. Sap, H. Rashkin, D. Chen, R. L. Bras, and Y. Choi, “Social",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "IQa: Commonsense reasoning about social\ninteractions,” in Pro-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[19] H. Cao, D. G. Cooper, M. K. Keutmann, R. C. Gur, A. Nenkova,"
+        },
+        {
+          "7. References": "ceedings of the 2019 Conference on Empirical Methods in Natural",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "and R. Verma, “Crema-d: Crowd-sourced emotional multimodal"
+        },
+        {
+          "7. References": "Language Processing and the 9th International Joint Conference",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "actors dataset,” IEEE Transactions on Affective Computing, vol. 5,"
+        },
+        {
+          "7. References": "on Natural Language Processing, EMNLP-IJCNLP 2019, Hong",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "no. 4, pp. 377–390, 2014."
+        },
+        {
+          "7. References": "Kong, China, November 3-7, 2019.\nAssociation for Computa-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[20] A. S. Cowen and D. Keltner, “Self-report captures 27 distinct cat-"
+        },
+        {
+          "7. References": "tional Linguistics, 2019, pp. 4462–4472.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "egories of emotion bridged by continuous gradients,” Proceedings"
+        },
+        {
+          "7. References": "[5] A. Yang, A. Miech, J. Sivic, I. Laptev, and C. Schmid, “Just ask:",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "of the national academy of sciences, vol. 114, no. 38, pp. E7900–"
+        },
+        {
+          "7. References": "Learning to answer questions from millions of narrated videos,”",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "E7909, 2017."
+        },
+        {
+          "7. References": "in 2021 IEEE/CVF International Conference on Computer Vision,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[21] A. Cowen et al., “How emotion is experienced and expressed in"
+        },
+        {
+          "7. References": "ICCV 2021, Montreal, QC, Canada, October 10-17, 2021.\nIEEE,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "multiple cultures: a large-scale experiment,” 2021."
+        },
+        {
+          "7. References": "2021, pp. 1666–1677.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[22] D. Galvez, G. Diamos, J. M. C. Torres, J. F. Cer´on, K. Achorn,"
+        },
+        {
+          "7. References": "[6]\nS. Shon, P. Brusco, J. Pan, K. J. Han, and S. Watanabe, “Leverag-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "A. Gopi, D. Kanter, M. Lam, M. Mazumder, and V.\nJ. Reddi,"
+        },
+        {
+          "7. References": "ing Pre-Trained Language Model for Speech Sentiment Analysis,”",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "“The people’s speech: A large-scale diverse english speech recog-"
+        },
+        {
+          "7. References": "in Proc. Interspeech 2021, 2021, pp. 3420–3424.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "nition dataset\nfor commercial usage,” in Thirty-fifth Conference"
+        },
+        {
+          "7. References": "[7]\nJ. Zhao, R. Li, Q.\nJin, X. Wang,\nand H. Li,\n“Memobert:",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "on Neural Information Processing Systems Datasets and Bench-"
+        },
+        {
+          "7. References": "Pre-training model with prompt-based learning for multimodal",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "marks Track (Round 1), 2021."
+        },
+        {
+          "7. References": "emotion recognition,”\nin ICASSP 2022 - 2022 IEEE Interna-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[23] M. Bain, A. Nagrani, A. Brown,\nand A. Zisserman,\n“Con-"
+        },
+        {
+          "7. References": "tional Conference on Acoustics, Speech and Signal Processing",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "densed movies:\nStory based retrieval with contextual\nembed-"
+        },
+        {
+          "7. References": "(ICASSP), 2022, pp. 4703–4707.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "the Asian Conference on Computer Vi-\ndings,” in Proceedings of"
+        },
+        {
+          "7. References": "[8] A. Baevski, Y. Zhou, A. Mohamed, and M. Auli, “wav2vec 2.0:",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "sion (ACCV), November 2020."
+        },
+        {
+          "7. References": "A framework for self-supervised learning of speech representa-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[24] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and"
+        },
+        {
+          "7. References": "tions,” in Advances\nInformation Processing Systems,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "I. Sutskever, “Robust speech recognition via large-scale weak su-"
+        },
+        {
+          "7. References": "vol. 33.\nCurran Associates, Inc., 2020, pp. 12 449–12 460.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "pervision,” Tech. Rep., Technical\nreport, OpenAI, Tech. Rep.,"
+        },
+        {
+          "7. References": "[9]\nJ. Shor, A. Jansen, W. Han, D. Park, and Y. Zhang, “Universal",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "2022."
+        },
+        {
+          "7. References": "paralinguistic speech representations using self-supervised con-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "formers,” in ICASSP 2022 - 2022 IEEE International Conference",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[25]\nJ. Zhao, R. Li, and Q. Jin, “Missing modality imagination net-"
+        },
+        {
+          "7. References": "on Acoustics, Speech and Signal Processing (ICASSP), 2022, pp.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "work for emotion recognition with uncertain missing modalities,”"
+        },
+        {
+          "7. References": "3169–3173.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "in Proceedings of the 59th Annual Meeting of the Association for"
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Computational Linguistics and the 11th International Joint Con-"
+        },
+        {
+          "7. References": "[10]\nS. Yang et al.,\n“SUPERB:\nspeech processing universal perfor-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "ference on Natural Language Processing (Volume 1:\nLong Pa-"
+        },
+        {
+          "7. References": "mance benchmark,” in Interspeech 2021, 22nd Annual Conference",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "pers).\nOnline: Association for Computational Linguistics, Aug."
+        },
+        {
+          "7. References": "of\nthe International Speech Communication Association, Brno,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "2021, pp. 2608–2618."
+        },
+        {
+          "7. References": "Czechia, 30 August - 3 September 2021.\nISCA, 2021, pp. 1194–",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "1198.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[26]\nT. Mikolov,\nI. Sutskever, K. Chen, G. Corrado,\nand J. Dean,"
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "“Distributed representations of words and phrases and their com-"
+        },
+        {
+          "7. References": "[11]\nJ. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, “BERT: Pre-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "the 26th International Confer-\npositionality,” in Proceedings of"
+        },
+        {
+          "7. References": "training of deep bidirectional\ntransformers\nfor\nlanguage under-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "ence on Neural Information Processing Systems - Volume 2, ser."
+        },
+        {
+          "7. References": "standing,” in NAACL.\nMinneapolis, Minnesota: Association for",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "NIPS’13.\nRed Hook, NY, USA: Curran Associates Inc., 2013,"
+        },
+        {
+          "7. References": "Computational Linguistics, Jun. 2019, pp. 4171–4186.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "p. 3111–3119."
+        },
+        {
+          "7. References": "[12] W. Yin, J. Hay, and D. Roth, “Benchmarking zero-shot\ntext clas-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "sification: Datasets, evaluation and entailment approach,” in Pro-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[27] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for"
+        },
+        {
+          "7. References": "ceedings of\nthe 2019 Conference on Empirical Methods in Natu-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "image recognition,” in 2016 IEEE Conference on Computer Vision"
+        },
+        {
+          "7. References": "ral Language Processing and the 9th International Joint Confer-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "and Pattern Recognition (CVPR).\nLos Alamitos, CA, USA: IEEE"
+        },
+        {
+          "7. References": "ence on Natural Language Processing (EMNLP-IJCNLP).\nHong",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Computer Society, jun 2016, pp. 770–778."
+        },
+        {
+          "7. References": "Kong, China: Association for Computational Linguistics, Nov.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[28] D. P. Kingma\nand\nJ. Ba,\n“Adam:\nA method\nfor\nstochastic"
+        },
+        {
+          "7. References": "2019, pp. 3914–3923.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "3rd\nInternational Conference\non\nLearning\noptimization,”\nin"
+        },
+        {
+          "7. References": "[13] Y. Liu, M. Ott, N. Goyal,\nJ. Du, M.\nJoshi, D. Chen, O. Levy,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Representations,\nICLR 2015,\nSan Diego, CA, USA, May 7-9,"
+        },
+        {
+          "7. References": "M. Lewis,\nL. Zettlemoyer,\nand V.\nStoyanov,\n“Roberta:\nA",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "2015, Conference Track Proceedings, Y. Bengio and Y. LeCun,"
+        },
+        {
+          "7. References": "robustly\noptimized BERT pretraining\napproach,”\nCoRR,\nvol.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Eds., 2015. [Online]. Available: http://arxiv.org/abs/1412.6980"
+        },
+        {
+          "7. References": "abs/1907.11692, 2019.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[29] M. Abadi et al., “TensorFlow: Large-scale machine learning on"
+        },
+        {
+          "7. References": "[14] A. Williams, N. Nangia, and S. Bowman, “A broad-coverage chal-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "heterogeneous\nsystems,” 2015,\nsoftware available from tensor-"
+        },
+        {
+          "7. References": "lenge corpus\nfor\nsentence understanding through inference,” in",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "flow.org."
+        },
+        {
+          "7. References": "NAACL.\nAssociation for Computational Linguistics, 2018, pp.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "[30] B. Lester, R. Al-Rfou, and N. Constant, “The power of scale for"
+        },
+        {
+          "7. References": "1112–1122.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "parameter-efficient prompt\ntuning,”\nin Proceedings of EMNLP."
+        },
+        {
+          "7. References": "[15]\nP. Liu, W. Yuan,\nJ. Fu, Z.\nJiang, H. Hayashi,\nand G. Neubig,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Online and Punta Cana, Dominican Republic: Association for"
+        },
+        {
+          "7. References": "“Pre-train, prompt, and predict: A systematic survey of prompt-",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": "Computational Linguistics, Nov. 2021, pp. 3045–3059."
+        },
+        {
+          "7. References": "ing methods in natural language processing,” ACM Comput. Surv.,",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        },
+        {
+          "7. References": "vol. 55, no. 9, pp. 195:1–195:35, 2023.",
+          "[16]\nS. Deng, L. Wu, G. Shi, L. Xing, and M. Jian, “Learning to com-": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "A Radford"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 38th International Conference on Machine Learning, ser. Proceedings of Machine Learning Research"
+    },
+    {
+      "citation_id": "3",
+      "title": "Language models are few-shot learners",
+      "authors": [
+        "T Brown"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "4",
+      "title": "Holistic evaluation of language models",
+      "authors": [
+        "P Liang"
+      ],
+      "year": "2022",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "5",
+      "title": "Social IQa: Commonsense reasoning about social interactions",
+      "authors": [
+        "M Sap",
+        "H Rashkin",
+        "D Chen",
+        "R Bras",
+        "Y Choi"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing, EMNLP-IJCNLP 2019"
+    },
+    {
+      "citation_id": "6",
+      "title": "Just ask: Learning to answer questions from millions of narrated videos",
+      "authors": [
+        "A Yang",
+        "A Miech",
+        "J Sivic",
+        "I Laptev",
+        "C Schmid"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE/CVF International Conference on Computer Vision, ICCV 2021"
+    },
+    {
+      "citation_id": "7",
+      "title": "Leveraging Pre-Trained Language Model for Speech Sentiment Analysis",
+      "authors": [
+        "S Shon",
+        "P Brusco",
+        "J Pan",
+        "K Han",
+        "S Watanabe"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "8",
+      "title": "Memobert: Pre-training model with prompt-based learning for multimodal emotion recognition",
+      "authors": [
+        "J Zhao",
+        "R Li",
+        "Q Jin",
+        "X Wang",
+        "H Li"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022 -2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "9",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "10",
+      "title": "Universal paralinguistic speech representations using self-supervised conformers",
+      "authors": [
+        "J Shor",
+        "A Jansen",
+        "W Han",
+        "D Park",
+        "Y Zhang"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022 -2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "11",
+      "title": "SUPERB: speech processing universal performance benchmark",
+      "authors": [
+        "S Yang"
+      ],
+      "year": "2021",
+      "venue": "Interspeech 2021, 22nd Annual Conference of the International Speech Communication Association"
+    },
+    {
+      "citation_id": "12",
+      "title": "BERT: Pretraining of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "13",
+      "title": "Benchmarking zero-shot text classification: Datasets, evaluation and entailment approach",
+      "authors": [
+        "W Yin",
+        "J Hay",
+        "D Roth"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)"
+    },
+    {
+      "citation_id": "14",
+      "title": "Roberta: A robustly optimized BERT pretraining approach",
+      "authors": [
+        "Y Liu",
+        "M Ott",
+        "N Goyal",
+        "J Du",
+        "M Joshi",
+        "D Chen",
+        "O Levy",
+        "M Lewis",
+        "L Zettlemoyer",
+        "V Stoyanov"
+      ],
+      "year": "1907",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "15",
+      "title": "A broad-coverage challenge corpus for sentence understanding through inference",
+      "authors": [
+        "A Williams",
+        "N Nangia",
+        "S Bowman"
+      ],
+      "year": "2018",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "16",
+      "title": "Pre-train, prompt, and predict: A systematic survey of prompting methods in natural language processing",
+      "authors": [
+        "P Liu",
+        "W Yuan",
+        "J Fu",
+        "Z Jiang",
+        "H Hayashi",
+        "G Neubig"
+      ],
+      "year": "2023",
+      "venue": "ACM Comput. Surv"
+    },
+    {
+      "citation_id": "17",
+      "title": "Learning to compose diversified prompts for image emotion classification",
+      "authors": [
+        "S Deng",
+        "L Wu",
+        "G Shi",
+        "L Xing",
+        "M Jian"
+      ],
+      "year": "2022",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "18",
+      "title": "Making pre-trained language models better few-shot learners",
+      "authors": [
+        "T Gao",
+        "A Fisch",
+        "D Chen"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing"
+    },
+    {
+      "citation_id": "19",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "20",
+      "title": "Crema-d: Crowd-sourced emotional multimodal actors dataset",
+      "authors": [
+        "H Cao",
+        "D Cooper",
+        "M Keutmann",
+        "R Gur",
+        "A Nenkova",
+        "R Verma"
+      ],
+      "year": "2014",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "21",
+      "title": "Self-report captures 27 distinct categories of emotion bridged by continuous gradients",
+      "authors": [
+        "A Cowen",
+        "D Keltner"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the national academy of sciences"
+    },
+    {
+      "citation_id": "22",
+      "title": "How emotion is experienced and expressed in multiple cultures: a large-scale experiment",
+      "authors": [
+        "A Cowen"
+      ],
+      "year": "2021",
+      "venue": "How emotion is experienced and expressed in multiple cultures: a large-scale experiment"
+    },
+    {
+      "citation_id": "23",
+      "title": "The people's speech: A large-scale diverse english speech recognition dataset for commercial usage",
+      "authors": [
+        "D Galvez",
+        "G Diamos",
+        "J Torres",
+        "J Cerón",
+        "K Achorn",
+        "A Gopi",
+        "D Kanter",
+        "M Lam",
+        "M Mazumder",
+        "V Reddi"
+      ],
+      "venue": "Thirty-fifth Conference on Neural Information Processing Systems Datasets and Benchmarks Track"
+    },
+    {
+      "citation_id": "24",
+      "title": "Condensed movies: Story based retrieval with contextual embeddings",
+      "authors": [
+        "M Bain",
+        "A Nagrani",
+        "A Brown",
+        "A Zisserman"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the Asian Conference on Computer Vision (ACCV)"
+    },
+    {
+      "citation_id": "25",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "T Xu",
+        "G Brockman",
+        "C Mcleavey",
+        "I Sutskever"
+      ],
+      "year": "2022",
+      "venue": "Robust speech recognition via large-scale weak supervision"
+    },
+    {
+      "citation_id": "26",
+      "title": "Missing modality imagination network for emotion recognition with uncertain missing modalities",
+      "authors": [
+        "J Zhao",
+        "R Li",
+        "Q Jin"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing"
+    },
+    {
+      "citation_id": "27",
+      "title": "Distributed representations of words and phrases and their compositionality",
+      "authors": [
+        "T Mikolov",
+        "I Sutskever",
+        "K Chen",
+        "G Corrado",
+        "J Dean"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the 26th International Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "28",
+      "title": "Deep residual learning for image recognition",
+      "authors": [
+        "K He",
+        "X Zhang",
+        "S Ren",
+        "J Sun"
+      ],
+      "year": "2016",
+      "venue": "2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "29",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "3rd International Conference on Learning Representations, ICLR 2015"
+    },
+    {
+      "citation_id": "30",
+      "title": "TensorFlow: Large-scale machine learning on heterogeneous systems",
+      "authors": [
+        "M Abadi"
+      ],
+      "year": "2015",
+      "venue": "TensorFlow: Large-scale machine learning on heterogeneous systems"
+    },
+    {
+      "citation_id": "31",
+      "title": "The power of scale for parameter-efficient prompt tuning",
+      "authors": [
+        "B Lester",
+        "R Al-Rfou",
+        "N Constant"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of EMNLP. Online and Punta Cana"
+    }
+  ]
+}

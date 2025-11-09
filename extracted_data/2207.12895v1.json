@@ -1,0 +1,1753 @@
+{
+  "paper_id": "2207.12895v1",
+  "title": "Multimodal Speech Emotion Recognition Using Cross Attnention With Aligned Audio And Text",
+  "published": "2022-07-26T13:44:07Z",
+  "authors": [
+    "Yoonhyung Lee",
+    "Seunghyun Yoon",
+    "Kyomin Jung"
+  ],
+  "keywords": [
+    "speech emotion recognition",
+    "multimodal learning",
+    "deep learning",
+    "attention mechanism"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In this paper, we propose a novel speech emotion recognition model called Cross Attention Network (CAN) that uses aligned audio and text signals as inputs. It is inspired by the fact that humans recognize speech as a combination of simultaneously produced acoustic and textual signals. First, our method segments the audio and the underlying text signals into equal number of steps in an aligned way so that the same time steps of the sequential signals cover the same time span in the signals. Together with this technique, we apply the cross attention to aggregate the sequential information from the aligned signals. In the cross attention, each modality is aggregated independently by applying the global attention mechanism onto each modality. Then, the attention weights of each modality are applied directly to the other modality in a crossed way, so that the CAN gathers the audio and text information from the same time steps based on each modality. In the experiments conducted on the standard IEMOCAP dataset, our model outperforms the stateof-the-art systems by 2.66% and 3.18% relatively in terms of the weighted and unweighted accuracy.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "In developing human-computer interaction systems, Speech Emotion Recognition (SER) technology is considered as an essential element to provide proper response depending on a user's emotional state  [1] . Many machine learning models have been built for SER, in which the models are trained to predict an emotion among the candidates such as happy, sad, angry, or neutral for a given speech  [2, 3, 4, 5] . Recently, researchers have adopted multimodal approaches in SER considering that emotions can be expressed in various ways such as facial expressions, gestures, texts, or speech  [6, 7] . In particular, the text modality has been frequently used in addition to the speech in many SER studies, because human speech inherently consists of the acoustic features and the linguistic contents that can be expressed using text  [8, 9] .\n\nThe major issue in SER using both the audio and text modalities is how to extract and combine the information that each audio and text carries. For example, if someone says, \"Thank you for being with me.\" in a very calm voice, the emotional information is contained mostly in the linguistic contents while it sounds neutral based on the acoustic features. Previous studies have approached this issue by designing their models to encode the audio and text independently and fuse the results using attention mechanisms, which help their models effectively capture the locally salient regions from given signals. In these attention mechanisms, the separately encoded audio and text information operated as each other's query and key-value pair. Yoon et al.  [8]  used the last hidden state of a recurrent modality encoder as a query and used the other encoded modality as a key-value pair in the attention mechanism. In another research, Xu et al.  [9]  designed their model to learn the alignment between the audio and text by itself from the attention mechanism. However, letting the model learn the complex interaction between the different modalities without any constraints can make the training more difficult. Using the last hidden state of a recurrent encoder as a query as in  [8]  can lead to temporal information loss in the attention as pointed out in  [5] . Besides, learning the alignment between the audio and text signals relying on the attention mechanism as in  [9]  is a challenging task unless additional prior knowledge is provided as in  [10, 11] .\n\nTo overcome these limitations, we propose a novel SER model called Cross Attention Network (CAN) that effectively combines the information obtained from aligned audio and text signals. Inspired by how humans recognize speech, we design our model to regard the audio and text as temporarily aligned signals. In the CAN, each audio and text input is separately encoded through its own recurrent encoder. Then, the hidden states obtained from each encoder are independently aggregated by applying the global attention mechanism onto each modality. Furthermore, the attention weights extracted from each modality are directly applied to each other's hidden states in a crossed way, so that the information at the same time steps is aggregated with the same weights.\n\nIn order to make the cross attention work properly, we propose an aligned segmentation technique that divides each audio and text signal into the same number of parts in an aligned way. In the aligned segmentation technique, the text signal is segmented into words. Following the text, the audio signal is segmented using alignment information as shown in Table  1 , where the start-and end-time for each word are used to determine the partitioning points in the audio signal. The aligned segmen-arXiv:2207.12895v1 [eess.AS] 26 Jul 2022 tation technique enables our model to successfully combine the information from the aligned audio and text signals without having to learn the complex attention between different modalities as in the previous works.\n\nTo evaluate the performance of the proposed method, we conduct experiments on the IEMOCAP dataset. Firstly, we compare the CAN with other state-of-the-art SER models that use additional text modality. The results show that our model outperforms the other models in both weighted and unweighted accuracy by 2.66% and 3.18% relatively. Furthermore, ablation studies are conducted to see the actual effectiveness of the components such as aligned segmentation, stop-gradient operator, and additional loss. In the ablation studies, we observe the independent contribution of each component for improving the model performance.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "After the classical machine learning models such as the hidden markov model or the support vector machine  [2, 3] , models using neural networks have been actively studied in Speech Emotion Recognition (SER). To improve the model performance, researchers proposed various methods to effectively capture the locally salient regions over the time axis from a given speech. Bertero et al.  [12]  proposed a model consisting of the convolutional neural network (CNN) that captures local information from given acoustic feature frames. Mirsamadi et al.  [5]  used the global attention mechanism to make their model learn where to attend to capture the locally salient features. Sahoo et al.  [13]  proposed to train a CNN-based model with audio segments that are segmented from an utterance with equal length, which improved the model by forcing it to learn to capture the locally salient emotional features in a more elaborated manner.\n\nRecently, multimodal models that use the audio and text together for SER have attracted much attention  [8, 9, 14, 15] . Since the audio and text signals contain different information, it has been a major issue of how to design the models to effectively extract information from each modality and combine them. In the previous studies, attention mechanisms were frequently used to combine the information  [8, 9] , where the hidden states obtained separately from the audio and text signals were used as each other's query or key-value pair. The attention mechanisms were expected to help their models learn to combine the information of each modality by themselves. However, none of these studies used proper constraints of prior knowledge to ease the difficulty of learning the complex interaction between the audio and text signals.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methodology",
+      "text": "In this section, we propose a novel Speech Emotion Recognition (SER) model called Cross Attention Network (CAN). First, we explain a preprocessing of the text and audio data, which is necessary for the CAN to work properly. The purpose of the preprocessing is to make the text and audio have the same number of time steps while the same time steps of the sequential signals cover the same time span. Then the CAN is explained, which is a model utilizing the cross attention mechanism that enables the CAN to focus on the salient features of the aligned text and audio signals with a different perspective of each modality.  In this study, we consider a text input as a word sequence, so the text input is represented as X = {x1, x2, ..., xL}, X ∈ R L×V , where L is the number of words, V is the size of the vocabulary, and each xi is a one-hot vector representing the corresponding word. Then, E (T ) ∈ R L×De , an embedded text input, is obtained after the X passes through a trainable Glove embedding layer  [16] , where De is the dimension of the embedding layer.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Audio Data",
+      "text": "Let Y = {y1, y2, ..., yT }, Y ∈ R T be the 1-dimensional audio data and D = {d1, d2, ..., dL} be its alignment information, where T is the audio length and each di = (si, ei) represents the start and the end of each word. To prevent information loss about the correlation, we make the neighboring dis have 10% overlap.\n\nUsing the Y and D, we obtain a segmented audio data E (A) ∈ R L×(T ×D f ) ; the audio Y is first segmented into audio segments Y = {ys 1 :e 1 , ys 2 :e 2 , ..., ys L :e L }, and then each segment is converted into a MFCC feature and stacked into the E (A) with zero-padding. Here, D f is the number of the MFCC coefficients and T is the length of the longest MFCC.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Model Architecture",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Text Encoder",
+      "text": "The embedded text data E (T ) is fed into the text encoder consisting of the bidirectional long short-term memory (BLSTM)  [17]  as represented at the left side of Figure  1 , which leads to the hidden states H (T ) ∈ R L×D h obtained from the equations below: where f θ , f θ are the forward and backward LSTMs having D h hidden units with parameter θ. Additionally, hi represents the hidden state at i-th time step and E (T ) i represents the i-th embedded word vector of the text data.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Audio Encoder",
+      "text": "The audio encoder consists of two bidirectional LSTM layers as represented at the right side of Figure  1 . The bottom LSTM layer encodes each MFCC segment E (A) i ∈ R T ×D f independently and outputs a vector from each segment using average pooling. The BLSTM modules inside the dotted box in Figure  1  share their weights. The upper LSTM layer encodes the audio features obtained from the bottom layer and outputs the hidden states H (A) ∈ R L×D h , which has the same time steps L with the H (T ) .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Cross Attention",
+      "text": "In the cross attention, attention weights obtained from one modality are used to aggregate the other modality as shown in Figure  2 , while conforming to the constraint that the audio and text are temporarily aligned. Since the salient regions can be different depending on what modality the prediction is based on, the aggregation of the modalities happens twice based on each modality in the cross attention as follows:\n\nwhere q (T ) and q (A) are the global queries used to decide which parts of the aligned signals to focus on based on each modality perspective. Additionally, c (xy) s are context vectors, where the x represents the modality used as a query and the y represents the modality used as a key-value pair. To prevent the CAN from learning attention based on the other modality, we introduce a function sg; stop-gradient operator as shown in the equations (  7 ) and (  9 ). It cuts the gradient flow through its argument during the backpropagation.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Training Objective",
+      "text": "In the training, the CAN makes three different predictions using the context vectors.\n\nŷ = softmax([c (T T ) ; c (T A) ; c (AA) ; c (AT ) ]) W + b), (  10 )\n\nwhere the Ws and bs are trainable weights. ŷ is made based on all the context vectors and each ŷ(T ) and ŷ(A) is made based on a context vector that uses either the text or the audio modality.\n\nUsing the predictions, we calculate loss terms as follows:\n\nwhere CE represents the cross-entropy loss, y is the true emotion labels, and α is a weight for the additional loss term L align , of which optimal value is found using the validation dataset. The additional loss terms in L align are added to help the global attention attend to the salient features based on each modality better.\n\nAfter the training, the final prediction ŷfinal is calculated following the equation (15).",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experiments",
+      "text": "In this section, we describe the experimental setup and the results conducted on the IEMOCAP dataset. First, we compare the CAN to other SER models for the weighted accuracy (WA) and the unweighted accuracy (UA), where the CAN shows the best performance. In addition, we conduct several analyses on our model to see how each component described in Section 3 affects the performance of the CAN.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Dataset",
+      "text": "In the experiments, we use the Interactive Emotional Dyadic Motion Capture (IEMOCAP)  [18]  dataset which provides the speech and text dataset including the alignment information as represented in Table  1 . Each utterance in the dataset is labeled as one of the 10-class emotions, where we do not use the classes with too few data instances (fear, disgust, other) so the final dataset contains 7,486 utterances in total (1,103 angry, 1,040 excite, 595 happy, 1,084 sad, 1,849 frustrated, 107 surprise and 1,708 neutral). In the experiments, we perform 10-fold crossvalidation, and in each validation, the total dataset is split into 8:1:1 training set, validation set, and test set, respectively.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "For text input, we use a sequence of words in Table  1  as our text input and the 300-dimensional GloVe word vectors  [16]  are used as the embedding vectors. In this step, we remove the special tokens such as ' s ', ' sil ', ' /s ' and their durations are equally divided into the neighboring words. For audio input, we use the zero-padded MFCC segments as our audio input, which are obtained as described in Section 3.1.2. In the MFCC conversion, we use 40 MFCC coefficients and the frames are extracted while sliding the hamming window with 25ms frame size and 10ms hopping. We use the bidirectional LSTMs with 128 hidden units followed by the dropout layer with 0.3 dropout probability. For the cross attention, multi-head global attention with four heads is used to view the inputs from various perspectives so enrich the aggregated information  [19] . During the training, we use the validation dataset as a criterion of early stopping with the patience 10. We use the batch size of 64 and use the Adam optimizer  [20]  with a learning rate of 1e-3, and the gradients are clipped with a norm value of 1.0. The weight of the additional loss term α is set to 0.1, which is obtained from the cross-validation.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Results",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Performance Comparison",
+      "text": "Table  2 : Comparison of the models. The accuracy values are represented as an average of the 10-fold validations and the standard deviations are written next to them.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Model Wa Ua",
+      "text": "TextModel  [5]  0.513 ± 0.015 0.443 ± 0.015 AudioModel  [5]  0.431 ± 0.017 0.323 ± 0.015 Yoon et al.  [8]  0.564 ± 0.020 0.472 ± 0.017 Xu et al.  [9]  0.560 ± 0.028 0.450 ± 0.028 CAN (ours) 0.579 ± 0.019 0.487 ± 0.017\n\nTable  2  shows the performance of the CAN and the other SER models. Each 'TextModel' and 'AudioModel' uses a single modality by encoding it with a simple bidirectional LSTM with the global attention following  [5] . The other two multimodal models are  [8]  and  [9]  proposed in the previous studies, where the attention weights are obtained based on the interaction between the audio and the text modalities. In the experiments, we re-implement all the models and obtain the accuracy values as described in Section 4.2. As the Table  2  shows, our CAN outperforms the other models for both WA and UA including the previous state-of-the-art model  [8] . To analyze the causes of the performance gain, we conduct further experiments to see the effectiveness of the components in our methodology, which are described in the next sections.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Segmentation Policy",
+      "text": "In order to demonstrate the superiority of the aligned segmentation, we compare it to the segmentation where a 1-dimensional audio signal is segmented into the segments of equal length, which has been widely used in the previous studies  [13, 21] . In the experiment, the aligned segmentation outperforms the equal segmentation for both WA and UA. The results in Table  3  imply that our aligned segmentation actually has effectiveness in combining the information in the cross attention. As supportive evidence of the components in our model, we conduct ablation studies for four variant models while removing each of the components in Section 3. When we remove the stopgradient operator and additional loss term L align , the accuracy of the CAN decreases and the worst performance for the WA is observed when both components are removed. Furthermore, we even remove the whole cross attention in the CAN, where the prediction is based only on a concatenation of the c (TT) and c (AA) and the stop-gradient operator and the L align are not used. In that case, the performance decreases even more compared to the other variants.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Ablation Study",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we propose a Cross Attention Network (CAN) for Speech Emotion Recognition (SER) task. It uses the cross attention to combine information from the aligned audio and text signals. Inspired by the way humans recognize speech, we align the text and audio signals so that the CAN regards each modality to have the same time resolution. In the experiments conducted on the IEMOCAP dataset, the proposed system outperforms the state-of-the-art systems by 2.66% and 3.18% relatively for the weighted and unweighted accuracy. To the best of our knowledge, this is the first study that shows the improvement using the aligned audio and text signals in SER. In order to apply our system to the real-world scenario where only the speech signal is available, the text and alignment information are required for the CAN to work properly. In future work, we plan to extend our research by integrating the CAN with the automatic speech recognition system which outputs the text and alignment information given a speech signal.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Text encoder and Audio encoder. The BLSTM mod-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: , which leads to",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Cross Attention Network. The scissors represent the",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: The bottom LSTM",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: share their weights. The upper LSTM layer encodes the audio",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: , while conforming to the constraint that the audio and",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Seoul National University, Seoul, South Korea": "cpi1234@snu.ac.kr,\nmysmilesh@snu.ac.kr,\nkjung@snu.ac.kr"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "the alignment\ninformation provided in\nTable 1: An example of"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "Abstract"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "the IEMOCAP dataset. The numbers in the table represent\nthe"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "In this paper, we propose a novel speech emotion recognition"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "timing when the each uttering of\nthe words begins and ends in"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "model called Cross Attention Network (CAN) that uses aligned"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "the speech.\nThe values are expressed in 10 milliseconds unit."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "audio and text signals as inputs.\nIt\nis inspired by the fact\nthat"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "tokens meaning the start and\n(cid:104)s(cid:105), (cid:104)/s(cid:105), and (cid:104)sil(cid:105) are special"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "humans recognize speech as a combination of simultaneously"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "end of a sentence, and the silence."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "produced acoustic and textual signals.\nFirst, our method seg-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ments the audio and the underlying text signals into equal num-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "start\nend\nword"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ber of steps in an aligned way so that\nthe same time steps of"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "the sequential signals cover the same time span in the signals."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "(cid:104)s(cid:105)\n0\n51"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "Together with this technique, we apply the cross attention to ag-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "52\n75\ni"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "gregate the sequential\ninformation from the aligned signals.\nIn"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "76\n88\nlike"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "the cross attention, each modality is aggregated independently"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "(cid:104)sil(cid:105)\n89\n140"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "by applying the global attention mechanism onto each modal-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "141\n143\napple"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ity.\nThen,\nthe attention weights of each modality are applied"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "(cid:104)/s(cid:105)\n144\n177"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "directly to the other modality in a crossed way, so that the CAN"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "gathers the audio and text information from the same time steps"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "based on each modality.\nIn the experiments conducted on the"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "Yoon et al. [8] used the last hidden state of a recurrent modality"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "standard IEMOCAP dataset, our model outperforms the state-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "encoder as a query and used the other encoded modality as a"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "of-the-art systems by 2.66% and 3.18% relatively in terms of"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "key-value pair in the attention mechanism. In another research,"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "the weighted and unweighted accuracy."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "Xu et al.\n[9] designed their model\nto learn the alignment be-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "Index Terms:\nspeech emotion recognition, multimodal\nlearn-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "tween the audio and text by itself from the attention mechanism."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ing, deep learning, attention mechanism"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "However,\nletting the model\nlearn the complex interaction"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "between the different modalities without any constraints can"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "1.\nIntroduction"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "make the training more difﬁcult. Using the last hidden state"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "of a recurrent encoder as a query as in [8] can lead to temporal\nIn\ndeveloping\nhuman-computer\ninteraction\nsystems,\nSpeech"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "information loss in the attention as pointed out in [5]. Besides,\nEmotion Recognition (SER)\ntechnology is\nconsidered as\nan"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "learning the alignment between the audio and text signals rely-\nessential element\nto provide proper\nresponse depending on a"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ing on the attention mechanism as in [9] is a challenging task\nuser’s emotional state [1]. Many machine learning models have"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "unless additional prior knowledge is provided as in [10, 11].\nbeen built for SER,\nin which the models are trained to predict"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "To overcome these limitations, we propose a novel SER\nan emotion among the candidates such as happy, sad, angry, or"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "model called Cross Attention Network (CAN)\nthat effectively\nneutral\nfor a given speech [2, 3, 4, 5].\nRecently,\nresearchers"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "combines the information obtained from aligned audio and text\nhave adopted multimodal approaches in SER considering that"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "signals.\nInspired by how humans recognize speech, we design\nemotions can be expressed in various ways such as facial ex-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "our model\nto regard the audio and text as temporarily aligned\npressions, gestures, texts, or speech [6, 7]. In particular, the text"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "signals.\nIn the CAN, each audio and text\ninput\nis separately\nmodality has been frequently used in addition to the speech in"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "encoded through its own recurrent encoder. Then,\nthe hidden\nmany SER studies, because human speech inherently consists"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "states obtained from each encoder are independently aggregated\nof the acoustic features and the linguistic contents that can be"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "by applying the global attention mechanism onto each modality.\nexpressed using text [8, 9]."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "Furthermore,\nthe attention weights extracted from each modal-\nThe major\nissue\nin SER using both the\naudio and text"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ity are directly applied to each other’s hidden states in a crossed\nmodalities is how to extract and combine the information that"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "way, so that the information at the same time steps is aggregated\neach audio and text carries.\nFor example,\nif\nsomeone says,"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "with the same weights.\n“Thank you for being with me.” in a very calm voice, the emo-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "tional information is contained mostly in the linguistic contents\nIn order to make the cross attention work properly, we pro-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "while it sounds neutral based on the acoustic features. Previous\npose an aligned segmentation technique that divides each audio"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "studies have approached this issue by designing their models to\nand text signal into the same number of parts in an aligned way."
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "encode the audio and text independently and fuse the results us-\nIn the aligned segmentation technique,\nthe text signal\nis seg-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "ing attention mechanisms, which help their models effectively\nmented into words. Following the text,\nthe audio signal\nis seg-"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "capture the locally salient regions from given signals.\nIn these\nmented using alignment information as shown in Table 1, where"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "attention mechanisms, the separately encoded audio and text in-\nthe start- and end-time for each word are used to determine the"
+        },
+        {
+          "Seoul National University, Seoul, South Korea": "formation operated as each other’s query and key-value pair.\npartitioning points in the audio signal.\nThe aligned segmen-"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "tation technique enables our model to successfully combine the": "information from the aligned audio and text signals without hav-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "ing to learn the complex attention between different modalities"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "as in the previous works."
+        },
+        {
+          "tation technique enables our model to successfully combine the": "To evaluate the performance of\nthe proposed method, we"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "conduct experiments on the IEMOCAP dataset.\nFirstly, we"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "compare the CAN with other state-of-the-art SER models that"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "use additional\ntext modality. The results show that our model"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "outperforms the other models in both weighted and unweighted"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "accuracy by 2.66% and 3.18% relatively.\nFurthermore, abla-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "tion studies are conducted to see the actual effectiveness of the"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "components such as aligned segmentation, stop-gradient opera-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "tor, and additional\nloss.\nIn the ablation studies, we observe the"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "independent contribution of each component for improving the"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "model performance."
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "2. Related work"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "After the classical machine learning models such as the hidden"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "markov model or the support vector machine [2, 3], models us-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "ing neural networks have been actively studied in Speech Emo-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "tion Recognition (SER). To improve the model performance,"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "researchers proposed various methods to effectively capture the"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "locally salient regions over the time axis from a given speech."
+        },
+        {
+          "tation technique enables our model to successfully combine the": "Bertero et al.\n[12] proposed a model consisting of the convo-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "lutional neural network (CNN) that captures local\ninformation"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "from given acoustic feature frames. Mirsamadi et al.\n[5] used"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "the global attention mechanism to make their model learn where"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "to attend to capture the locally salient features. Sahoo et al. [13]"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "proposed to train a CNN-based model with audio segments that"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "are segmented from an utterance with equal\nlength, which im-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "proved the model by forcing it\nto learn to capture the locally"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "salient emotional features in a more elaborated manner."
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "Recently, multimodal models\nthat use the audio and text"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "together\nfor SER have attracted much attention [8, 9, 14, 15]."
+        },
+        {
+          "tation technique enables our model to successfully combine the": "Since the audio and text signals contain different\ninformation,"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "it has been a major\nissue of how to design the models to ef-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "fectively extract\ninformation from each modality and combine"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "them.\nIn the previous studies, attention mechanisms were fre-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "quently used to combine the information [8, 9], where the hid-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "den states obtained separately from the audio and text signals"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "were used as each other’s query or key-value pair. The attention"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "mechanisms were expected to help their models learn to com-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "bine the information of each modality by themselves. However,"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "none of\nthese studies used proper constraints of prior knowl-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": "edge to ease the difﬁculty of\nlearning the complex interaction"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "between the audio and text signals."
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "3. Methodology"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "In this section, we propose a novel Speech Emotion Recognition"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "(SER) model called Cross Attention Network (CAN). First, we"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        },
+        {
+          "tation technique enables our model to successfully combine the": "explain a preprocessing of the text and audio data, which is nec-"
+        },
+        {
+          "tation technique enables our model to successfully combine the": ""
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "x represents the modality used as a query and the y represents"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "the modality used as a key-value pair. To prevent the CAN from"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "learning attention based on the other modality, we introduce a"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "function sg; stop-gradient operator as shown in the equations"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "(7) and (9). It cuts the gradient ﬂow through its argument during"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "the backpropagation."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "3.3. Training objective"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "In the training, the CAN makes three different predictions using"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "the context vectors."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "(cid:124)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "W + b),\ny = softmax([c(T T ); c(T A); c(AA); c(AT )])\n(10)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "(cid:124)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "W(T ) + b(T ) ),\ny(T ) = softmax((c(T T ))\n(11)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "(cid:124)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "W(A) + b(A) ),\ny(A) = softmax((c(AA))\n(12)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "where the Ws and bs are trainable weights. ˆy is made based on"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "all the context vectors and each ˆy(T ) and ˆy(A) is made based on"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "a context vector that uses either the text or the audio modality."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "Using the predictions, we calculate loss terms as follows:"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "(13)\nLalign = CE(ˆy(T ), y) + CE(ˆy(A), y),"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "(14)\nLtotal = CE(ˆy, y) + α · Lalign,"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "where CE represents the cross-entropy loss, y is the true emo-"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "tion labels, and α is a weight for the additional loss term Lalign,"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "of which optimal value is found using the validation dataset."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "The additional loss terms in Lalign are added to help the global"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "attention attend to the salient features based on each modality"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "better."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "yﬁnal = (ˆy) · (ˆy(T ))α · (ˆy(A))α\n(15)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "After the training, the ﬁnal prediction ˆyﬁnal\nis calculated follow-"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "ing the equation (15)."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "4. Experiments"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "In this section, we describe the experimental setup and the re-"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "sults conducted on the IEMOCAP dataset.\nFirst, we compare"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "the CAN to other SER models for the weighted accuracy (WA)"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "and the unweighted accuracy (UA), where the CAN shows the"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "best performance.\nIn addition, we conduct several analyses on"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "our model\nto see how each component described in Section 3"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "affects the performance of the CAN."
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "4.1. Dataset"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "In the experiments, we use the Interactive Emotional Dyadic"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "Motion Capture (IEMOCAP)\n[18] dataset which provides the"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "speech and text dataset\nincluding the alignment\ninformation as"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "represented in Table 1. Each utterance in the dataset\nis labeled"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "as one of the 10-class emotions, where we do not use the classes"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "with too few data instances\n(fear, disgust, other)\nso the ﬁnal"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "dataset contains 7,486 utterances in total\n(1,103 angry, 1,040"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": ""
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "excite, 595 happy, 1,084 sad, 1,849 frustrated, 107 surprise and"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "1,708 neutral).\nIn the experiments, we perform 10-fold cross-"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "validation, and in each validation,\nthe total dataset\nis split\ninto"
+        },
+        {
+          "perspective. Additionally, c(xy)s are context vectors, where the": "8:1:1 training set, validation set, and test set, respectively."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: as our Inordertodemonstratethesuperiorityofthealignedsegmenta-",
+      "data": [
+        {
+          "ability. For the cross attention, multi-head global attention with": ""
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "four heads is used to view the inputs from various perspectives"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "so enrich the aggregated information [19]. During the training,"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "we use the validation dataset as a criterion of early stopping"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "with the patience 10. We use the batch size of 64 and use the"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": ""
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "Adam optimizer [20] with a learning rate of 1e-3, and the gra-"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "dients are clipped with a norm value of 1.0. The weight of the"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "loss term α is set\nto 0.1, which is obtained from the"
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": "cross-validation."
+        },
+        {
+          "ability. For the cross attention, multi-head global attention with": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 1: as our Inordertodemonstratethesuperiorityofthealignedsegmenta-",
+      "data": [
+        {
+          "4.2. Experimental setup": "For\ntext\ninput, we use a sequence of words in Table 1 as our",
+          "4.3.2.\nSegmentation policy": "In order to demonstrate the superiority of the aligned segmenta-"
+        },
+        {
+          "4.2. Experimental setup": "text input and the 300-dimensional GloVe word vectors [16] are",
+          "4.3.2.\nSegmentation policy": "tion, we compare it to the segmentation where a 1-dimensional"
+        },
+        {
+          "4.2. Experimental setup": "used as the embedding vectors. In this step, we remove the spe-",
+          "4.3.2.\nSegmentation policy": "audio signal\nis\nsegmented into the segments of equal\nlength,"
+        },
+        {
+          "4.2. Experimental setup": "cial\ntokens such as ‘(cid:104)s(cid:105)’, ‘(cid:104)sil(cid:105)’, ‘(cid:104)/s(cid:105)’ and their durations are",
+          "4.3.2.\nSegmentation policy": "which has been widely used in the previous studies [13, 21]. In"
+        },
+        {
+          "4.2. Experimental setup": "equally divided into the neighboring words. For audio input, we",
+          "4.3.2.\nSegmentation policy": "the experiment, the aligned segmentation outperforms the equal"
+        },
+        {
+          "4.2. Experimental setup": "use the zero-padded MFCC segments as our audio input, which",
+          "4.3.2.\nSegmentation policy": "segmentation for both WA and UA. The results in Table 3 im-"
+        },
+        {
+          "4.2. Experimental setup": "are obtained as described in Section 3.1.2. In the MFCC conver-",
+          "4.3.2.\nSegmentation policy": "ply that our aligned segmentation actually has effectiveness in"
+        },
+        {
+          "4.2. Experimental setup": "sion, we use 40 MFCC coefﬁcients and the frames are extracted",
+          "4.3.2.\nSegmentation policy": "combining the information in the cross attention."
+        },
+        {
+          "4.2. Experimental setup": "while sliding the hamming window with 25ms frame size and",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "10ms hopping. We use the bidirectional LSTMs with 128 hid-",
+          "4.3.2.\nSegmentation policy": "4.3.3. Ablation study"
+        },
+        {
+          "4.2. Experimental setup": "den units followed by the dropout layer with 0.3 dropout prob-",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "ability. For the cross attention, multi-head global attention with",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "Table 4: Accuracy comparison in the ablation studies"
+        },
+        {
+          "4.2. Experimental setup": "four heads is used to view the inputs from various perspectives",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "so enrich the aggregated information [19]. During the training,",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "we use the validation dataset as a criterion of early stopping",
+          "4.3.2.\nSegmentation policy": "Model\nWA\nUA"
+        },
+        {
+          "4.2. Experimental setup": "with the patience 10. We use the batch size of 64 and use the",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "0.579 ± 0.019\n0.487 ± 0.017\nCAN"
+        },
+        {
+          "4.2. Experimental setup": "Adam optimizer [20] with a learning rate of 1e-3, and the gra-",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "dients are clipped with a norm value of 1.0. The weight of the",
+          "4.3.2.\nSegmentation policy": "- stop-gradient\n0.570 ± 0.018\n0.469 ± 0.023"
+        },
+        {
+          "4.2. Experimental setup": "additional\nloss term α is set\nto 0.1, which is obtained from the",
+          "4.3.2.\nSegmentation policy": "0.573 ± 0.015\n0.484 ± 0.017\n- Lalign"
+        },
+        {
+          "4.2. Experimental setup": "cross-validation.",
+          "4.3.2.\nSegmentation policy": "0.563 ± 0.015\n0.479 ± 0.024\n- stop-gradient, Lalign"
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "- cross attention\n0.556 ± 0.013\n0.458 ± 0.015"
+        },
+        {
+          "4.2. Experimental setup": "4.3. Results",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "As supportive evidence of the components in our model, we"
+        },
+        {
+          "4.2. Experimental setup": "4.3.1. Performance comparison",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "conduct ablation studies for four variant models while removing"
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "each of the components in Section 3. When we remove the stop-"
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "gradient operator and additional loss term Lalign, the accuracy"
+        },
+        {
+          "4.2. Experimental setup": "the models. The accuracy values are\nTable 2: Comparison of",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "of\nthe CAN decreases and the worst performance for\nthe WA"
+        },
+        {
+          "4.2. Experimental setup": "represented as an average of\nthe 10-fold validations and the",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "is observed when both components are removed. Furthermore,"
+        },
+        {
+          "4.2. Experimental setup": "standard deviations are written next to them.",
+          "4.3.2.\nSegmentation policy": ""
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "we even remove the whole cross attention in the CAN, where"
+        },
+        {
+          "4.2. Experimental setup": "",
+          "4.3.2.\nSegmentation policy": "the prediction is based only on a concatenation of the c(TT) and"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 1: as our Inordertodemonstratethesuperiorityofthealignedsegmenta-",
+      "data": [
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "standard deviations are written next to them.",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "Model",
+          "the 10-fold validations and the": "UA"
+        },
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "TextModel [5]",
+          "the 10-fold validations and the": "0.443 ± 0.015"
+        },
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        },
+        {
+          "represented as an average of": "AudioModel [5]",
+          "the 10-fold validations and the": "0.323 ± 0.015"
+        },
+        {
+          "represented as an average of": "Yoon et al. [8]",
+          "the 10-fold validations and the": "0.472 ± 0.017"
+        },
+        {
+          "represented as an average of": "Xu et al. [9]",
+          "the 10-fold validations and the": "0.450 ± 0.028"
+        },
+        {
+          "represented as an average of": "CAN (ours)",
+          "the 10-fold validations and the": "0.487 ± 0.017"
+        },
+        {
+          "represented as an average of": "",
+          "the 10-fold validations and the": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[9] H. Xu, H. Zhang, K. Han, Y. Wang, Y. Peng, and X. Li, “Learn-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "ing alignment for multimodal emotion recognition from speech,”"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "arXiv preprint arXiv:1909.05645, 2019."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[10] C. Raffel, M.-T. Luong, P. J. Liu, R. J. Weiss, and D. Eck, “Online"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "and linear-time attention by enforcing monotonic alignments,” in"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "Proceedings of\nthe 34th International Conference on Machine"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "Learning-Volume 70.\nJMLR. org, 2017, pp. 2837–2846."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[11]\nE. Battenberg,\nR.\nSkerry-Ryan,\nS. Mariooryad, D.\nStanton,"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "D. Kao, M. Shannon,\nand T. Bagby,\n“Location-relative\natten-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "tion mechanisms for\nrobust\nlong-form speech synthesis,” arXiv"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "preprint arXiv:1910.10288, 2019."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[12] D. Bertero and P. Fung, “A ﬁrst\nlook into a convolutional neu-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "ral network for speech emotion detection,” in 2017 IEEE inter-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "national conference on acoustics,\nspeech and signal processing"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "(ICASSP).\nIEEE, 2017, pp. 5115–5119."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[13]\nS. Sahoo, P. Kumar, B. Raman, and P. P. Roy, “A segment\nlevel"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "approach to speech emotion recognition using transfer learning,”"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "in Asian Conference on Pattern Recognition.\nSpringer, 2019, pp."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "435–448."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[14]\nJ. Sebastian and P. Pierucci,\n“Fusion techniques\nfor utterance-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "level emotion recognition combining speech and transcripts,” in"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "Proc. Interspeech, 2019, pp. 51–55."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[15]\nJ. Liang, S. Chen,\nJ. Zhao, Q. Jin, H. Liu, and L. Lu, “Cross-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "culture multimodal emotion recognition with adversarial\nlearn-"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "ing,”\nin ICASSP 2019-2019 IEEE International Conference on"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "Acoustics, Speech and Signal Processing (ICASSP).\nIEEE, 2019,"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "pp. 4000–4004."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[16]\nJ. Pennington, R. Socher, and C. Manning, “Glove: Global vectors"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "the 2014 conference\nfor word representation,” in Proceedings of"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "on empirical methods in natural\nlanguage processing (EMNLP),"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "2014, pp. 1532–1543."
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "[17]\nS. Hochreiter and J. Schmidhuber, “Long short-term memory,”"
+        },
+        {
+          "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.": "Neural computation, vol. 9, no. 8, pp. 1735–1780, 1997."
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "S. Kim,\nJ. N. Chang, S. Lee, and S. S. Narayanan, “Iemocap:"
+        },
+        {
+          "7. References": "[1] A. Kołakowska, A. Landowska, M. Szwoch, W. Szwoch,\nand",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "Interactive emotional dyadic motion capture database,” Language"
+        },
+        {
+          "7. References": "M. R. Wrobel,\n“Emotion recognition and its\napplications,”\nin",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "resources and evaluation, vol. 42, no. 4, p. 335, 2008."
+        },
+        {
+          "7. References": "Human-Computer Systems Interaction: Backgrounds and Appli-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "cations 3.\nSpringer, 2014, pp. 51–62.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "[19] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N."
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,”"
+        },
+        {
+          "7. References": "[2]\nT. L. Nwe, S. W. Foo,\nand L. C. De Silva,\n“Speech emotion",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "in Advances in neural\ninformation processing systems, 2017, pp."
+        },
+        {
+          "7. References": "recognition using hidden markov models,” Speech communica-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "5998–6008."
+        },
+        {
+          "7. References": "tion, vol. 41, no. 4, pp. 603–623, 2003.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "[20] D. P. Kingma and J. Ba, “Adam: A method for stochastic opti-"
+        },
+        {
+          "7. References": "[3] Y. Chavhan, M. Dhore, and P. Yesaware, “Speech emotion recog-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "mization,” arXiv preprint arXiv:1412.6980, 2014."
+        },
+        {
+          "7. References": "International Journal of\nnition using support vector machine,”",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "[21]\nS. Mao, P. Ching, and T. Lee, “Deep learning of segment-level fea-"
+        },
+        {
+          "7. References": "Computer Applications, vol. 1, no. 20, pp. 6–9, 2010.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "ture representation with multiple instance learning for utterance-"
+        },
+        {
+          "7. References": "[4] Q. Mao, M. Dong, Z. Huang, and Y. Zhan, “Learning salient fea-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "level\nspeech emotion recognition,” Proc.\nInterspeech 2019, pp."
+        },
+        {
+          "7. References": "tures for speech emotion recognition using convolutional neural",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": "1686–1690, 2019."
+        },
+        {
+          "7. References": "networks,” IEEE transactions on multimedia, vol. 16, no. 8, pp.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "2203–2213, 2014.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[5]\nS. Mirsamadi, E. Barsoum,\nand C. Zhang,\n“Automatic speech",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "emotion recognition using recurrent neural networks with local",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "attention,” in 2017 IEEE International Conference on Acoustics,",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Speech and Signal Processing (ICASSP).\nIEEE, 2017, pp. 2227–",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "2231.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[6] G. Castellano, L. Kessous, and G. Caridakis, “Emotion recogni-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "tion through multiple modalities:\nface, body gesture, speech,” in",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Affect and emotion in human-computer interaction.\nSpringer,",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "2008, pp. 92–103.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[7]\nS. Yoon, S. Dey, H. Lee, and K. Jung, “Attentive modality hopping",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "mechanism for\nspeech emotion recognition,”\nin ICASSP 2020-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "2020 IEEE International Conference on Acoustics, Speech and",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Signal Processing (ICASSP).\nIEEE, 2020, pp. 3362–3366.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[8]\nS. Yoon, S. Byun, S. Dey, and K. Jung, “Speech emotion recogni-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "tion using multi-hop attention mechanism,” in ICASSP 2019-2019",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "IEEE International Conference on Acoustics, Speech and Signal",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Processing (ICASSP).\nIEEE, 2019, pp. 2822–2826.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[9] H. Xu, H. Zhang, K. Han, Y. Wang, Y. Peng, and X. Li, “Learn-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "ing alignment for multimodal emotion recognition from speech,”",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "arXiv preprint arXiv:1909.05645, 2019.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[10] C. Raffel, M.-T. Luong, P. J. Liu, R. J. Weiss, and D. Eck, “Online",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "and linear-time attention by enforcing monotonic alignments,” in",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Proceedings of\nthe 34th International Conference on Machine",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Learning-Volume 70.\nJMLR. org, 2017, pp. 2837–2846.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[11]\nE. Battenberg,\nR.\nSkerry-Ryan,\nS. Mariooryad, D.\nStanton,",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "D. Kao, M. Shannon,\nand T. Bagby,\n“Location-relative\natten-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "tion mechanisms for\nrobust\nlong-form speech synthesis,” arXiv",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "preprint arXiv:1910.10288, 2019.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[12] D. Bertero and P. Fung, “A ﬁrst\nlook into a convolutional neu-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "ral network for speech emotion detection,” in 2017 IEEE inter-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "national conference on acoustics,\nspeech and signal processing",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "(ICASSP).\nIEEE, 2017, pp. 5115–5119.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[13]\nS. Sahoo, P. Kumar, B. Raman, and P. P. Roy, “A segment\nlevel",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "approach to speech emotion recognition using transfer learning,”",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "in Asian Conference on Pattern Recognition.\nSpringer, 2019, pp.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "435–448.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[14]\nJ. Sebastian and P. Pierucci,\n“Fusion techniques\nfor utterance-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "level emotion recognition combining speech and transcripts,” in",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Proc. Interspeech, 2019, pp. 51–55.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[15]\nJ. Liang, S. Chen,\nJ. Zhao, Q. Jin, H. Liu, and L. Lu, “Cross-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "culture multimodal emotion recognition with adversarial\nlearn-",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "ing,”\nin ICASSP 2019-2019 IEEE International Conference on",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Acoustics, Speech and Signal Processing (ICASSP).\nIEEE, 2019,",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "pp. 4000–4004.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[16]\nJ. Pennington, R. Socher, and C. Manning, “Glove: Global vectors",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "the 2014 conference\nfor word representation,” in Proceedings of",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "on empirical methods in natural\nlanguage processing (EMNLP),",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "2014, pp. 1532–1543.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "[17]\nS. Hochreiter and J. Schmidhuber, “Long short-term memory,”",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        },
+        {
+          "7. References": "Neural computation, vol. 9, no. 8, pp. 1735–1780, 1997.",
+          "[18] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E. Mower,": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Emotion recognition and its applications",
+      "authors": [
+        "A Kołakowska",
+        "A Landowska",
+        "M Szwoch",
+        "W Szwoch",
+        "M Wrobel"
+      ],
+      "year": "2014",
+      "venue": "Human-Computer Systems Interaction: Backgrounds and Applications 3"
+    },
+    {
+      "citation_id": "3",
+      "title": "Speech emotion recognition using hidden markov models",
+      "authors": [
+        "T Nwe",
+        "S Foo",
+        "L Silva"
+      ],
+      "year": "2003",
+      "venue": "Speech emotion recognition using hidden markov models"
+    },
+    {
+      "citation_id": "4",
+      "title": "Speech emotion recognition using support vector machine",
+      "authors": [
+        "Y Chavhan",
+        "M Dhore",
+        "P Yesaware"
+      ],
+      "year": "2010",
+      "venue": "International Journal of Computer Applications"
+    },
+    {
+      "citation_id": "5",
+      "title": "Learning salient features for speech emotion recognition using convolutional neural networks",
+      "authors": [
+        "Q Mao",
+        "M Dong",
+        "Z Huang",
+        "Y Zhan"
+      ],
+      "year": "2014",
+      "venue": "IEEE transactions on multimedia"
+    },
+    {
+      "citation_id": "6",
+      "title": "Automatic speech emotion recognition using recurrent neural networks with local attention",
+      "authors": [
+        "S Mirsamadi",
+        "E Barsoum",
+        "C Zhang"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "7",
+      "title": "Emotion recognition through multiple modalities: face, body gesture, speech",
+      "authors": [
+        "G Castellano",
+        "L Kessous",
+        "G Caridakis"
+      ],
+      "year": "2008",
+      "venue": "Affect and emotion in human-computer interaction"
+    },
+    {
+      "citation_id": "8",
+      "title": "Attentive modality hopping mechanism for speech emotion recognition",
+      "authors": [
+        "S Yoon",
+        "S Dey",
+        "H Lee",
+        "K Jung"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "9",
+      "title": "Speech emotion recognition using multi-hop attention mechanism",
+      "authors": [
+        "S Yoon",
+        "S Byun",
+        "S Dey",
+        "K Jung"
+      ],
+      "year": "2019",
+      "venue": "ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Learning alignment for multimodal emotion recognition from speech",
+      "authors": [
+        "H Xu",
+        "H Zhang",
+        "K Han",
+        "Y Wang",
+        "Y Peng",
+        "X Li"
+      ],
+      "year": "2019",
+      "venue": "Learning alignment for multimodal emotion recognition from speech",
+      "arxiv": "arXiv:1909.05645"
+    },
+    {
+      "citation_id": "11",
+      "title": "Online and linear-time attention by enforcing monotonic alignments",
+      "authors": [
+        "C Raffel",
+        "M.-T Luong",
+        "P Liu",
+        "R Weiss",
+        "D Eck"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 34th International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "12",
+      "title": "Location-relative attention mechanisms for robust long-form speech synthesis",
+      "authors": [
+        "E Battenberg",
+        "R Skerry-Ryan",
+        "S Mariooryad",
+        "D Stanton",
+        "D Kao",
+        "M Shannon",
+        "T Bagby"
+      ],
+      "year": "2019",
+      "venue": "Location-relative attention mechanisms for robust long-form speech synthesis",
+      "arxiv": "arXiv:1910.10288"
+    },
+    {
+      "citation_id": "13",
+      "title": "A first look into a convolutional neural network for speech emotion detection",
+      "authors": [
+        "D Bertero",
+        "P Fung"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE international conference on acoustics, speech and signal processing (ICASSP)"
+    },
+    {
+      "citation_id": "14",
+      "title": "A segment level approach to speech emotion recognition using transfer learning",
+      "authors": [
+        "S Sahoo",
+        "P Kumar",
+        "B Raman",
+        "P Roy"
+      ],
+      "year": "2019",
+      "venue": "Asian Conference on Pattern Recognition"
+    },
+    {
+      "citation_id": "15",
+      "title": "Fusion techniques for utterancelevel emotion recognition combining speech and transcripts",
+      "authors": [
+        "J Sebastian",
+        "P Pierucci"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "16",
+      "title": "Crossculture multimodal emotion recognition with adversarial learning",
+      "authors": [
+        "J Liang",
+        "S Chen",
+        "J Zhao",
+        "Q Jin",
+        "H Liu",
+        "L Lu"
+      ],
+      "year": "2019",
+      "venue": "ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "17",
+      "title": "Glove: Global vectors for word representation",
+      "authors": [
+        "J Pennington",
+        "R Socher",
+        "C Manning"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the 2014 conference on empirical methods in natural language processing"
+    },
+    {
+      "citation_id": "18",
+      "title": "Long short-term memory",
+      "authors": [
+        "S Hochreiter",
+        "J Schmidhuber"
+      ],
+      "year": "1997",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "19",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "20",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "21",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2014",
+      "venue": "Adam: A method for stochastic optimization",
+      "arxiv": "arXiv:1412.6980"
+    },
+    {
+      "citation_id": "22",
+      "title": "Deep learning of segment-level feature representation with multiple instance learning for utterancelevel speech emotion recognition",
+      "authors": [
+        "S Mao",
+        "P Ching",
+        "T Lee"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    }
+  ]
+}

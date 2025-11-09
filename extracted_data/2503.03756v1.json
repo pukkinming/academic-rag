@@ -1,0 +1,518 @@
+{
+  "paper_id": "2503.03756v1",
+  "title": "Efficient Finetuning For Dimensional Speech Emotion Recognition In The Age Of Transformers",
+  "published": "2025-02-17T22:34:08Z",
+  "authors": [
+    "Aneesha Sampath",
+    "James Tavernor",
+    "Emily Mower Provost"
+  ],
+  "keywords": [
+    "speech emotion recognition",
+    "wav2vec 2.0",
+    "efficiency",
+    "finetuning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Accurate speech emotion recognition is essential for developing human-facing systems. Recent advancements have included finetuning large, pretrained transformer models like Wav2Vec 2.0. However, the finetuning process requires substantial computational resources, including high-memory GPUs and significant processing time. As the demand for accurate emotion recognition continues to grow, efficient finetuning approaches are needed to reduce the computational burden. Our study focuses on dimensional emotion recognition, predicting attributes such as activation (calm to excited) and valence (negative to positive). We present various finetuning techniques, including full finetuning, partial finetuning of transformer layers, finetuning with mixed precision, partial finetuning with caching, and lowrank adaptation (LoRA) on the Wav2Vec 2.0 base model. We find that partial finetuning with mixed precision achieves performance comparable to full finetuning while increasing training speed by 67%. Caching intermediate representations further boosts efficiency, yielding an 88% speedup and a 71% reduction in learnable parameters. We recommend finetuning the final three transformer layers in mixed precision to balance performance and training efficiency, and adding intermediate representation caching for optimal speed with minimal performance trade-offs. These findings lower the barriers to finetuning speech emotion recognition systems, making accurate emotion recognition more accessible to a broader range of researchers and practitioners.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Speech emotion recognition plays a critical role in enabling systems to detect the emotional state of users. Recent advancements in speech emotion recognition have centered on the finetuning of pretrained transformer models  [1]  such as Wav2Vec 2.0  [2] . However, finetuning large models requires substantial computational resources, including significant memory and processing time, which are not easily available to many researchers and practitioners. As the demand for emotion recognition grows, there is an increasing need for more efficient finetuning approaches to reduce the computational burden.\n\nMost prior work in finetuning Wav2Vec 2.0 for dimensional speech emotion recognition, which focuses on predicting continuous emotion attributes such as activation (ranging from calm to active) and valence (ranging from negative to positive)  [3] -  [5] , sets the training batch size to at least 32  [1] ,  [6] . The combination of this batch size and the large parameter count of Wav2Vec 2.0 demands substantial GPU memory. Yet, a large batch size is essential because the standard loss function for dimensional emotion recognition is batch-dependent. Common GPUs such as the NVIDIA GTX 1080 Ti and RTX 2080 Ti yield \"out-of-memory\" errors when finetuning Wav2Vec 2.0 base with the standard training configurations. Therefore, finetuning even the base model is not possible without significant computational resources, limiting its use to practitioners with high-end GPUs. This highlights the critical need for exploration of efficient finetuning techniques that can maintain performance while alleviating the computational demands.\n\nIn this work, we present a comprehensive comparison of finetuning methods for Wav2Vec 2.0. To the best of our knowledge, this is the first work to systematically evaluate and compare partial finetuning of transformer layers, mixed precision training  [7] , caching intermediate representations, and LoRA (Low-Rank Adaptation)  [8]  within a single study for dimensional speech emotion recognition, offering guidelines on resource requirements to achieve state-of-the-art results. We find that partial finetuning of the Wav2Vec 2.0 base model achieves comparable performance to full finetuning, showing no statistically significant differences. Furthermore, we find that combining partial finetuning with mixed-precision training results in no significant difference compared to full finetuning with a 67% speedup. We combine this approach with caching to further speedup training by 88% over full finetuning. Notably, the partial finetuning approach can be executed on GPUs with lower memory, making it accessible to a wider range of researchers and practitioners.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ii. Related Work",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Dimensional Emotion Recognition",
+      "text": "We focus on finetuning Wav2Vec 2.0 for dimensional emotion recognition. The dimensional emotion theory posits that emotion can be described by core attributes like valence (negative to positive) and activation (calm to active)  [3] ,  [4] .\n\nB. Wav2Vec 2.0 Wav2Vec 2.0 is a transformer-based model that learns contextualized representations from unlabeled raw audio data through self-supervised learning  [2] . It consists of a CNNbased feature encoder, transformer-based context network, and quantization module to discretize the feature encoder output, with a convolution layer before the transformer layers to learn positional embeddings  [2] . Wav2Vec 2.0 has been finetuned for tasks beyond automatic speech recognition, including speaker recognition  [9] ,  [10] , speaker verification  [11] ,  [12] , and speech emotion recognition  [1] ,  [12] -  [14] . Wav2Vec 2.0 embeddings have been shown to outperform traditional, non-deep-learning-based speech-emotion features  [13] , such as eGeMAPS  [15]  and spectograms. As a result, deep embeddings have become the foundation for many modern speech emotion recognition systems  [1] ,  [12] -  [14] .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "C. Efficient Transformer Model Finetuning",
+      "text": "Pretraining allows models to learn general knowledge, such as language and syntax, through a task-agnostic objective. Finetuning adjusts pretrained model parameters for specific tasks. However, finetuning Wav2Vec 2.0 base (95M parameters) is computationally expensive and often impractical on common GPUs due to the high memory demands of raw audio input. Understanding the roles of individual layers can provide a foundation for exploring efficient finetuning strategies.\n\nPasad et al. performed a layer-wise analysis of Wav2Vec 2.0, showing that the early transformer layers encode acoustics, middle layers capture phonetics, and upper layers focus on semantics  [16] . When finetuning Wav2Vec 2.0 base for automatic speech recognition, they found that the early layers remained highly correlated with the pretrained checkpoint, while the final 3 to 4 layers encoded task-specific information. This supports an analysis into partial, rather than full, finetuning.\n\nPrior work has explored modifications to the Wav2Vec 2.0 architecture to improve speed and performance in speech recognition  [17] . Additionally, prior work has explored the partial finetuning of Wav2Vec 2.0 by freezing the CNN feature encoder and finetuning only the transformer layers  [12] , as recommended by the Wav2Vec 2.0 authors  [2] . Wagner et al. found that freezing the transformer layers and training only the output heads resulted in a substantial decrease in emotion performance, indicating that finetuning the transformer layers is necessary for achieving state-of-the-art results  [1] . To the best of our knowledge, this is the first work to examine the effect of partial finetuning within the transformer layers and, more generally, efficient training techniques, for dimensional speech emotion recognition. For the remainder of the paper, we freeze the CNN feature encoder and define \"partial finetuning\" as the selective freezing of transformer layers.\n\nMixed precision training  [7]  has become a common approach for efficiently finetuning large models. It involves storing weights, gradients, and activations in half-precision, but maintaining single-precision copies of weights to accumulate gradients. Previous work has combined mixed precision with other techniques to reduce GPU memory requirements for Wav2Vec 2.0 training in automatic speech recognition  [18] . To the best of our knowledge, this is the first work to apply mixed precision training to dimensional speech emotion recognition.\n\nWe also explore the Parameter-Efficient Finetuning technique LoRA (low-rank approximation), which freezes all pretrained model weights and adds small rank decompositional matrices to model layers (typically attention layers) during training  [8] . Feng et al. found that LoRA finetuning was beneficial for categorical speech emotion classification  [19] . To the best of our knowledge, this is the first work to explore LoRA finetuning for dimensional speech emotion recognition.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "D. Gradient Checkpointing",
+      "text": "Gradient checkpointing reduces memory consumption by storing only a subset of model outputs at designated checkpoints, rather than all intermediate outputs. These are recomputed during the backward pass  [20] . While checkpointing does not affect training accuracy, it increases training time by about 30% compared to full finetuning  [21] . Therefore, we do not compare gradient checkpointing, and instead investigate faster methods, such as caching intermediate model outputs from frozen layers during partial finetuning (Section IV-C).",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Dataset",
+      "text": "The MSP-Podcast dataset contains emotional, non-acted speech from podcasts, annotated for categorical emotions and dimensions of activation, valence, and dominance  [5] . We focus on predicting activation and valence, using release 1.11 (May 31, 2023), which includes 151,654 segments from 2,172 speakers across 237 hours of audio. We train on the 'Train' split and evaluate on the 'Test1' split, and select the model with the best performance on the 'Development' split. We scale the labels from 1 to 7 to 0 to 1, as in  [1] . We use the original lengths of the speech samples for all predictions.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iv. Method",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Architecture",
+      "text": "In all approaches, we use the standard Wav2Vec 2.0 architecture. We freeze the CNN feature extractor, as suggested by the Wav2Vec 2.0 authors  [2] , and use Huggingface checkpoint facebook/wav2vec2-base 1  . We apply mean pooling over the hidden states of the final transformer layer  [1] , apply dropout (p = 0.2), and pass the output into a multitask output consisting of two task-specific heads (activation and valence).",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Finetuning Approaches",
+      "text": "In the full finetune, we finetune all 12 transformer layers. In the mixed precision full finetune, we finetune all 12 transformer layers with mixed precision. In the partial finetune, we freeze the first 12 -n and finetune the final n transformer layers, where 1 ≤ n ≤ 3 (Figure  1a ). In the mixed precision partial finetune, we finetune the final n transformer layers with mixed precision. In the LoRA finetune, we freeze all pretrained model weights and apply LoRA to the query and value projections in all 12 transformer layers, with LoRA paramaters rank = 8, alpha = 16, dropout = 0.1.\n\nIn these experimental setups, audio samples are processed in batches. Thus, we must zero-pad the audio, which adds silence to the end of the raw waveforms so that all samples in a batch are equal in length. For non-caching experiments, we follow Fig.  1 : Non-caching vs caching approach for partial finetuning (three-layer). The blue layers with the snowflake are frozen layers, whereas the orange layers with the fire are trainable layers. 'FC' represents fully connected layers.\n\nthe standard protocol of zero-padding audio before it enters the model, shown in Figure  1a . We discuss zero-padding for caching experiments in Section IV-C.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Caching",
+      "text": "Due to the large number of parameters in Wav2Vec 2.0, the computation time is significant even when most layers are frozen. However, it is important to note that the output of frozen layers does not change for a given input audio sample. Therefore, we propose storing the model output from the frozen layers for a one-time cost. In this case, we exchange increased disk usage for decreased computation time and memory usage. Additionally, we must freeze the positional embedding layer in the caching approach since it occurs before transformer layers (Figure  1b ). This involves three steps: 1) process each audio sample individually (batch size = 1), creating and caching representations of that sample up to the final frozen layer (e.g., layer 9 in Figure  1b ), 2) when preparing to train the model, create batches by loading subsets of the cached representations, 3) train the system as in the non-caching setup. Like in the non-caching case, samples in a batch must be of the same length. But, in this case, we do not know the length in advance. Therefore, we create a special caching padding strategy. Instead of zero-padding an audio sample before it enters the model, we must zero-pad its cached representation. However, Wav2Vec 2.0 base processes zero-padding without an attention mask, meaning the model does not differentiate between padding and silence. This is not a problem when the data are processed from raw audio, but may introduce performance changes when the representations are zero-padded in the middle of a set of transformer layers. We investigate the effects of this on downstream performance by presenting both the efficiency of caching and the performance of the resulting systems.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "D. Model Training",
+      "text": "We compute the loss separately for valence and activation and average them. We train the model for five epochs, and select the model with the best performance on the development set. We use the AdamW optimizer  [22]  with Concordance Correlation Coefficient (CCC) loss  [23] , the standard loss for dimensional emotion recognition  [1] ,  [6] ,  [24] , and a fixed learning rate of 1e-4 with batch size 32, as in  [1] .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "E. System Configuration",
+      "text": "We run caching experiments on a single NVIDIA RTX 2080 Ti and all other experiments on a high-performance cluster with a single NVIDIA A40. We cannot perform caching experiments on the high-performance cluster on the A40 since the caching approach requires significant disk space (113GB per cached layer). We test for out-of-memory errors on the NVIDIA GTX 1080 Ti, in addition to the RTX and A40. We train for one epoch on an GTX 1080 Ti (11GB), RTX 2080 Ti (11GB), and A40 (48GB), and report if the finetuning approaches result in out-of-memory errors.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "V. Results",
+      "text": "We run each training configuration across five random seeds. We report the mean performance and standard deviation, and test statistical significance. We assert significance when p < 0.05. We first compare the results over the different finetuning methods, focusing only on non-caching experiments. We use a one-way ANOVA to determine if performance differences across finetuning approaches are significant. If so, we follow this analysis with t-tests across the non-caching experiments, using the Bonferroni correction. Next, we compare noncaching to caching experiments to assess whether caching significantly hampers emotion recognition performance. Since this involves a single comparison (e.g., partial finetuning with or without caching), the Bonferroni correction is not applied.\n\nWe discuss all approaches across both activation and valence. We report CCC and the associated training time in hours in Table  I . The results for standard finetuning, 12-layer finetune in single-precision (the baseline), are shaded.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Full And Partial Finetune: Single Precision",
+      "text": "Our experiments show that finetuning the final three transformer layers is as effective as full finetuning, as seen in Table  I  in the 'SP' rows. There is no significant difference between the two approaches for either activation or valence. This finding aligns with prior work, which showed that the final layers of Wav2Vec 2.0 base encode task-specific information, while the initial layers remain highly correlated with the pretrained checkpoint  [16] . Importantly, the three-layer approach is more efficient, as it requires training only about 28% of the Wav2Vec 2.0 base parameters, compared to 96% in full finetuning.\n\nWe find that finetuning only one or two layers results in a significant decrease in valence performance compared to full finetuning. However, the difference in activation performance is not significant. This suggests that finetuning one or two transformer layers is sufficient for activation, but not valence. TABLE I: Results and training time for the number of transformer layers trained ('Layers'), activation ('Act') and valence ('Val') CCC, wall-clock training time in hours for 5 epochs ('Time'), and trainable parameters ('Params'), for single precision (SP) and mixed precision (MP). Non-caching results are compared to full finetuning SP (shaded). Caching results are compared to the non-caching equivalent. † indicates significant decrease. 'NS' (not significant) shows that caching had no significant impact on performance. Experiments were conducted on NVIDIA A40 (non-caching) and RTX 2080 Ti (caching) GPUs.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Non-Caching Results",
+      "text": "Caching",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Full And Partial Finetune: Mixed Precision",
+      "text": "The results in the previous section demonstrated that partial finetuning is as effective as full finetuning. In this section, we speed up training with mixed precision and investigate the how the performance of the system changes. The results are in the 'MP' rows in Table  I . We find that mixed precision partial finetuning of the final three layers does not significantly affect either activation or valence performance, compared to full finetuning, and offers a 67% speedup. As with singleprecision, finetuning only one or two transformer layers in mixed precision is sufficient for activation, but not for valence.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Lora Finetune",
+      "text": "LoRA finetuning has the fewest trainable parameters (300K vs. 90M in full finetuning). Activation performance shows no significant difference between full and LoRA finetuning, despite the large reduction in trainable parameters. Valence performance is significantly worse (0.064 CCC decrease).",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "D. Proposed Partial Finetune: Caching With Single Precision And Mixed Precision",
+      "text": "The caching approach showed the largest speedup compared to the full finetune ('Caching Results' in Table  I ). Mixed precision caching approaches also offer a greater than 64% speedup compared to relative non-caching approaches. We find that in one and two layer partial finetuning with caching, the performance of both activation and valence is not significantly different from non-caching in both single and mixed precision (Table  I , NS indicates not significant). However, it is significantly worse than non-caching in the three-layer partial finetune for activation in mixed precision (0.016 CCC decrease), and for valence in single precision (0.007 CCC decrease). This is likely due to the caching padding strategy, which has propagating effects as it is applied to subsequent trainable layers. The difference in performance could also result from using different GPUs (due to the different system configuration needs, A40 for non-caching and RTX 2080 Ti for caching). However, the relatively similar performance of the models suggests efficiency can be added to the training process, with only minor changes in performance.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "E. Out-Of-Memory",
+      "text": "All proposed training approaches, except full finetuning, can be executed on lower-memory GPUs without causing out-ofmemory errors, as shown in Table  II . Specifically, the threelayer mixed precision partial finetuning approach is feasible on 11GB memory GPUs, making state-of-the-art performance more accessible, even with limited computational resources.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Vi. Conclusion",
+      "text": "In this paper, we explore efficent methods for finetuning Wav2Vec 2.0 base for dimensional speech emotion recognition, including full finetuning, partial finetuning of transformer layers, mixed precision training, LoRA finetuning, and caching intermediate representations. Partial finetuning of the final three transformer layers performs comparably to full finetuning. When combined with mixed precision, it offers similar performance, with a 67% speedup, and can be executed on lower-memory GPUs. Caching intermediate representations further accelerates mixed precision partial finetuning by 88% compared to full finetuning. Notably, all setups except full finetuning can run on lower-memory GPUs (e.g., RTX 2080 Ti). Our results suggest that partial finetuning, combined with strategies like mixed precision training and caching, is effective for achieving state-of-the-art performance while being fast and resource-efficient. Future work will include finetuning focused on the differences between activation and valence performance, and can validate our findings in other popular pretrained models commonly used for speech emotion recognition, such as WavLM  [25]  and HuBERT  [26] .",
+      "page_start": 5,
+      "page_end": 5
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: a). In the mixed",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: Non-caching vs caching approach for partial finetuning",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: a. We discuss zero-padding for",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Non-Caching Results\nLayers\nPrecision\nAct\nVal\nTime (h)\nParams": "LoRA\nSP\n0.623±0.02\n0.506±0.01†\n2.476±0.02\n300K",
+          "Caching Results\nAct\nVal\nTime (h)\nParams": "–\n–\n–\n–"
+        },
+        {
+          "Non-Caching Results\nLayers\nPrecision\nAct\nVal\nTime (h)\nParams": "SP\n0.622±0.02\n0.458±0.01†\n2.443±0.002\n1\n12M\nMP\n0.625±0.01\n0.462±0.01†\n0.965±0.01",
+          "Caching Results\nAct\nVal\nTime (h)\nParams": "NS\nNS\n0.353±0.002\n7M\nNS\nNS\n0.155±0.01"
+        },
+        {
+          "Non-Caching Results\nLayers\nPrecision\nAct\nVal\nTime (h)\nParams": "SP\n0.638±0.01\n0.508±0.01†\n2.477±0.01\n2\n19M\nMP\n0.645±0.01\n0.507±0.004†\n0.982±0.003",
+          "Caching Results\nAct\nVal\nTime (h)\nParams": "NS\nNS\n0.689±0.002\n14M\nNS\nNS\n0.253±0.002"
+        },
+        {
+          "Non-Caching Results\nLayers\nPrecision\nAct\nVal\nTime (h)\nParams": "SP\n0.648±0.01\n0.565±0.002\n2.519±0.02\n3\n26M\nMP\n0.655±0.01\n0.568±0.01\n0.991±0.003",
+          "Caching Results\nAct\nVal\nTime (h)\nParams": "NS\n0.558±0.003†\n1.023±0.002\n21M\n0.639±0.01†\nNS\n0.353±0.002"
+        },
+        {
+          "Non-Caching Results\nLayers\nPrecision\nAct\nVal\nTime (h)\nParams": "SP\n0.637±0.01\n0.567±0.02\n2.980±0.01\n12\n90M\nMP\n0.641±0.01\n0.566±0.01\n1.145±0.01",
+          "Caching Results\nAct\nVal\nTime (h)\nParams": "–\n–\n–\n–"
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "2",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems (NeurIPS)"
+    },
+    {
+      "citation_id": "3",
+      "title": "On the importance of both dimensional and discrete models of emotion",
+      "authors": [
+        "E Harmon-Jones",
+        "C Harmon-Jones",
+        "E Summerell"
+      ],
+      "year": "2017",
+      "venue": "Behavioral sciences"
+    },
+    {
+      "citation_id": "4",
+      "title": "Affective space is bipolar",
+      "authors": [
+        "J Russell"
+      ],
+      "year": "1979",
+      "venue": "Journal of personality and social psychology"
+    },
+    {
+      "citation_id": "5",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "6",
+      "title": "Probing speech emotion eecognition transformers for linguistic knowledge",
+      "authors": [
+        "A Triantafyllopoulos",
+        "J Wagner",
+        "H Wierstorf",
+        "M Schmitt",
+        "U Reichel",
+        "F Eyben",
+        "F Burkhardt",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Probing speech emotion eecognition transformers for linguistic knowledge"
+    },
+    {
+      "citation_id": "7",
+      "title": "Mixed precision training",
+      "authors": [
+        "P Micikevicius",
+        "S Narang",
+        "J Alben",
+        "G Diamos",
+        "E Elsen",
+        "D Garcia",
+        "B Ginsburg",
+        "M Houston",
+        "O Kuchaiev",
+        "G Venkatesh"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "8",
+      "title": "Lora: Low-rank adaptation of large language models",
+      "authors": [
+        "E Hu",
+        "Y Shen",
+        "P Wallis",
+        "Z Allen-Zhu",
+        "Y Li",
+        "S Wang",
+        "L Wang",
+        "W Chen"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "9",
+      "title": "Fine-tuning wav2vec2 for speaker recognition",
+      "authors": [
+        "N Vaessen",
+        "D Van Leeuwen"
+      ],
+      "year": "2022",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Applying wav2vec2. 0 to speech recognition in various low-resource languages",
+      "authors": [
+        "C Yi",
+        "J Wang",
+        "N Cheng",
+        "S Zhou",
+        "B Xu"
+      ],
+      "year": "2020",
+      "venue": "Applying wav2vec2. 0 to speech recognition in various low-resource languages",
+      "arxiv": "arXiv:2012.12121"
+    },
+    {
+      "citation_id": "11",
+      "title": "Large-scale self-supervised speech representation learning for automatic speaker verification",
+      "authors": [
+        "Z Chen",
+        "S Chen",
+        "Y Wu",
+        "Y Qian",
+        "C Wang",
+        "S Liu",
+        "Y Qian",
+        "M Zeng"
+      ],
+      "year": "2022",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "12",
+      "title": "A fine-tuned wav2vec 2.0/hubert benchmark for speech emotion recognition, speaker verification and spoken language understanding",
+      "authors": [
+        "Y Wang",
+        "A Boumadane",
+        "A Heba"
+      ],
+      "year": "2021",
+      "venue": "A fine-tuned wav2vec 2.0/hubert benchmark for speech emotion recognition, speaker verification and spoken language understanding",
+      "arxiv": "arXiv:2111.02735"
+    },
+    {
+      "citation_id": "13",
+      "title": "Emotion recognition from speech using wav2vec 2.0 embeddings",
+      "authors": [
+        "L Pepino",
+        "P Riera",
+        "L Ferrer"
+      ],
+      "year": "2021",
+      "venue": "Emotion recognition from speech using wav2vec 2.0 embeddings"
+    },
+    {
+      "citation_id": "14",
+      "title": "Exploring wav2vec 2.0 fine tuning for improved speech emotion recognition",
+      "authors": [
+        "L.-W Chen",
+        "A Rudnicky"
+      ],
+      "year": "2023",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "15",
+      "title": "The geneva minimalistic acoustic parameter set (gemaps) for voice research and affective computing",
+      "authors": [
+        "F Eyben",
+        "K Scherer",
+        "B Schuller",
+        "J Sundberg",
+        "E André",
+        "C Busso",
+        "L Devillers",
+        "J Epps",
+        "P Laukka",
+        "S Narayanan"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Layer-wise analysis of a selfsupervised speech representation model",
+      "authors": [
+        "A Pasad",
+        "J.-C Chou",
+        "K Livescu"
+      ],
+      "year": "2021",
+      "venue": "IEEE Automatic Speech Recognition and Understanding Workshop (ASRU)"
+    },
+    {
+      "citation_id": "17",
+      "title": "Performance-efficiency trade-offs in unsupervised pre-training for speech recognition",
+      "authors": [
+        "F Wu",
+        "K Kim",
+        "J Pan",
+        "K Han",
+        "K Weinberger",
+        "Y Artzi"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "18",
+      "title": "Sustainable self-supervised learning for speech representations",
+      "authors": [
+        "L Lugo",
+        "V Vielzeuf"
+      ],
+      "year": "2024",
+      "venue": "Sustainable self-supervised learning for speech representations",
+      "arxiv": "arXiv:2406.07696"
+    },
+    {
+      "citation_id": "19",
+      "title": "Peft-ser: On the use of parameter efficient transfer learning approaches for speech emotion recognition using pretrained speech models",
+      "authors": [
+        "T Feng",
+        "S Narayanan"
+      ],
+      "year": "2023",
+      "venue": "2023 11th International Conference on Affective Computing and Intelligent Interaction (ACII)"
+    },
+    {
+      "citation_id": "20",
+      "title": "Checkpointing in practice for memoryefficient training on the edge,\" in 2019 IEEE 21st International Conference on High Performance Computing and Communications",
+      "authors": [
+        "E Naveen",
+        "P Kumar"
+      ],
+      "year": "2019",
+      "venue": "Smart City; IEEE 5th International Conference on Data Science and Systems"
+    },
+    {
+      "citation_id": "21",
+      "title": "Low-memory neural network training: A technical report",
+      "authors": [
+        "N Sohoni",
+        "C Aberger",
+        "M Leszczynski",
+        "J Zhang",
+        "C Ré"
+      ],
+      "year": "2019",
+      "venue": "Low-memory neural network training: A technical report",
+      "arxiv": "arXiv:1904.10631"
+    },
+    {
+      "citation_id": "22",
+      "title": "Decoupled weight decay regularization",
+      "authors": [
+        "I Loshchilov",
+        "F Hutter"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "23",
+      "title": "A concordance correlation coefficient to evaluate reproducibility",
+      "authors": [
+        "I Lawrence",
+        "K Lin"
+      ],
+      "year": "1989",
+      "venue": "Biometrics"
+    },
+    {
+      "citation_id": "24",
+      "title": "Jointly predicting arousal, valence and dominance with multi-task learning",
+      "authors": [
+        "S Parthasarathy",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "Jointly predicting arousal, valence and dominance with multi-task learning"
+    },
+    {
+      "citation_id": "25",
+      "title": "Wavlm: Large-scale self-supervised pretraining for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "26",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM transactions on audio, speech, and language processing"
+    }
+  ]
+}

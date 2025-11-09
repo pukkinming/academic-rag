@@ -1,0 +1,849 @@
+{
+  "paper_id": "2407.17716v1",
+  "title": "Describe Where You Are: Improving Noise-Robustness For Speech Emotion Recognition With Text Description Of The Environment",
+  "published": "2024-07-25T02:30:40Z",
+  "authors": [
+    "Seong-Gyun Leem",
+    "Daniel Fulford",
+    "Jukka-Pekka Onnela",
+    "David Gard",
+    "Carlos Busso"
+  ],
+  "keywords": [
+    "Speech emotion recognition",
+    "noise-robustness",
+    "text-guided training",
+    "multi-modal"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Speech emotion recognition (SER) systems often struggle in real-world environments, where ambient noise severely degrades their performance. This paper explores a novel approach that exploits prior knowledge of testing environments to maximize SER performance under noisy conditions. To address this task, we propose a text-guided, environment-aware training where an SER model is trained with contaminated speech samples and their paired noise description. We use a pre-trained text encoder to extract the text-based environment embedding and then fuse it to a transformer-based SER model during training and inference. We demonstrate the effectiveness of our approach through our experiment with the MSP-Podcast corpus and real-world additive noise samples collected from the Freesound repository. Our experiment indicates that the text-based environment descriptions processed by a large language model (LLM) produce representations that improve the noise-robustness of the SER system. In addition, our proposed approach with an LLM yields better performance than our environment-agnostic baselines, especially in low signal-to-noise ratio (SNR) conditions. When testing at -5dB SNR level, our proposed method shows better performance than our best baseline model by 31.8 % (arousal), 23.5% (dominance), and 9.5% (valence).",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Speech emotion recogntion (SER) systems have highly improved with the help of pre-trained speech representation models  [1, 2, 3]  and the creation of larger emotional speech databases  [4, 5, 6, 7] . Recently, there has been increased interest in deploying SER systems in real-world applications, opening opportunities across many domains, such as digital assistants  [8] , health care applications  [9] , and security and defense. One important barrier in this direction is the degradation of SER performance in real-world environments caused by multiple types of non-stationary background noise  [10] .\n\nSeveral solutions have been proposed to improve the robustness of SER systems against acoustic noise. The solutions include data augmentation  [11, 12] , feature enhancement  [13, 14] , feature selection  [15, 16] , and domain adaptation approaches  [17, 18] . Since transformer-based speech representation models have been successfully used in speech problems  [1, 2, 3] , many studies have also worked on increasing the noise robustness of SER systems built with pre-trained speech representation models  [19, 20] . These approaches can increase the performance of transformer-based SER models in target noisy conditions. However, it is challenging to use these models in scenarios with multiple noisy environments since a transformer-based SER model requires important resources to adapt and store its parameters for each target environment. To address multiple noise types in a single SER model, Leem et al.  [21]  proposed environment-agnostic and -specific adapters. Their work showed that leveraging the prior knowledge of the testing condition is important for an SER model's adaptation to multiple noisy environments.\n\nThis paper focuses on how to effectively use the prior knowledge of a testing condition for an SER model that is adapted to multiple environments. The prior knowledge is used as a mechanism for zero-shot learning in new environments with types of noises not considered while training the models. It also provides the mechanism to indirectly identify similar environmental conditions during training (e.g., noise in a bus station and a train station). Exploring this problem, we investigate using text-based environment descriptions as the prior knowledge for a noise-robust SER system. Using natural language prompts during training has shown potential in image classification  [22] , sound event classification  [23] , and several speech processing downstream tasks, including keyword spotting, and speaker counting  [24] . Natural language supervision is also applicable to SER tasks  [25, 26] . All these studies indicate that exploiting text information is a promising strategy to SER systems. We propose a text-guided environment-aware training (TG-EAT) strategy to improve the noise robustness of an SER model with text descriptions. We focus on the prediction of arousal (calm to active), valence (negative to positive), and dominance (weak to strong). TG-EAT uses noisy speech and its text-based environmental description to adapt the SER model. We use a pre-trained text encoder to extract the representation of text-based environment descriptions. This representation is combined with a transformer-based SER model. During adaptation, the SER model learns appropriate denoising functions with respect to the given environment description. During inference, we only need to change the template sentence to guide the SER model with testing environment information. We expect that the pre-trained text encoder can capture similar semantic information from environmental conditions included in the train set, allowing zero-shot environment learning for the SER model. This approach is expected to generalize the SER performance when tested in environmental conditions that are not included in the training process.\n\nOur experiment with the MSP-Podcast corpus shows that using text description of the testing environment can highly improve the SER performance, especially with large language model (LLM). In the -5dB signal-to-noise ratio (SNR) condition, our method improves the original SER model built with a self-supervised learning (SSL) representation by 163.6% for arousal, 200.0% for dominance, and 91.6% for valence. When we compare the proposed SER model with our best baseline, we observe improvements of 31.8 % for arousal, 23.5% for dominance, and 9.5% for valence (-5dB SNR level). With the text encoder from CLAP, pre-trained with paired audio, the SER model can achieve the best performance in the low SNR condition. Compared with freezing the text encoder, the fine-tuning approach improves performance by 72.2% for arousal, 91.6% for dominance, and 21.0% for valence under the -5dB SNR condition. Our solution is highly applicable to SER systems deployed in real-world applications. For example, systems can infer the testing environment from the global positioning system (GPS) information by using geological information service (GIS) mashups, such as OpenStreetMap  [27] . The main contributions of this study are:\n\n• We explore using text embedding for an SER model to increase noise robustness in unseen conditions by explicitly leveraging the environment information.\n\n• We show the benefits of using LLM to improve SER performance under noisy conditions over using a pre-trained environment classifier, especially in a low SNR condition.\n\n• We show that fine-tuning the text encoder of CLAP can improve SER performance, leading to the possibility of using a paired audio encoder to deal with unknown testing environments.\n\nOur paper is organized as follows. Section 2 describes studies relevant to SER in noisy conditions and text-guided training strategies. Section 3 describes the proposed approach, emphasizing the motivations and insights behind the TG-EAT framework. Section 4 provides the experimental setting, including the database, baselines, and implementation details. Section 5 presents the results, discussing the clear benefits of the proposed strategy. Finally, Section 6 concludes the paper, summarizing our study and providing future research directions inspired by the proposed approach.\n\n2 Previous Work",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Speech Emotion Recognition Under Noisy Environments",
+      "text": "Increasing the noise robustness of an SER system is an essential task when deploying it in real-world applications.\n\nPrevious studies have mainly focused on improving acoustic features for the SER model. Triantafyllopoulos et al.  [14]  proposed to enhance noisy low-level descriptors (LLDs) for an SER model by using a convolutional neural network (CNN) with residual blocks. Pandharipande et al.  [28] proposed to discard noisy frames to increase the noise robustness of an SER model by using a voice activity detection module. Leem et al.  [29]  proposed to select noise-robust LLDs by addressing the performance and robustness of each single LLD.\n\nMore recently, SER studies have mainly focused on using transformer-based speech representation models  [30, 31, 32, 33, 34, 35] , including Wav2Vec2.0  [1] , HuBERT  [2] , and WavLM  [3] . Such models have shown higher robustness against the small perturbation on the input speech than the traditional SER model with a Mel-spectrogram  [32] . Despite this trend, they still show performance differences from the ones tested in a clean environment. For this reason, studies are currently exploring strategies to improve the noise robustness of the pre-trained speech representation model. A common approach to address this issue is noise-aware training, where the clean training set is augmented with the noise sound during environment adaptation. Mitra et al.  [19]  demonstrated that training a HuBERT-based SER model with noisy speech can highly improve the performance in low signal-to-noise ratio (SNR) conditions. Leem et al.  [20]  proposed a contrastive teacher-student learning strategy to address the catastrophic forgetting issue when training a fine-tuned SER model with noisy speech. Wu et al.  [12]  proposed to dynamically change the distortion level of the augmented speech during adaptation based on the distortion metrics.\n\nThe aforementioned methods focused on increasing the SER model's robustness against a single target environment. They might not be the optimal solution for an SER model deployed on a real-world application since it is highly likely that this system will encounter multiple types of environmental noises. We focus on adapting a single transformer-based SER model to multiple noisy environments to efficiently deal with multiple types of environments. To address this issue, Leem et al.  [21]  proposed to adapt the transformer-based SER model to multiple types of noises with skip connection adapters. They not only trained the SER model with multiple environments but also focused on leveraging the environmental information of the testing conditions to improve SER performance under noisy conditions. The results showed that using the environment-agnostic and -specific adapters with respect to the testing condition can improve the SER performance under noisy conditions. Such prior knowledge could be achieved using domain knowledge or global positioning system (GPS) information. Their result showed that using environmental information during inference is important for a SER model to perform well under noisy conditions. This work indicates that leveraging the prior knowledge of the testing condition is also important for a noise-robust SER model, as well as training it with multiple types of noises. This is beneficial for an SER model deployed on real-world applications where the system can exploit the domain knowledge of the testing environment and the global positioning system (GPS) information.\n\nThis paper also explores the multi-condition training approach where the fine-tuned SER model is adapted to multiple types of noise. Different from other methods, our strategy relies on a text embedding that describes the testing environment to deal with multiple unseen environments.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Text-Guided Training",
+      "text": "As we discussed in Section 2.1, exploiting environmental information can improve SER performance in a noisy environment. This paper mainly focuses on using text prompts to infuse environmental information into an SER model. Using natural language prompts does not require the recognition model to use a fixed set of predetermined labels during training. Contrastive language-image pre-training (CLIP) is a good example of this approach  [22] . It consists of an image encoder and a text encoder, trained with pairs of images and their corresponding text descriptions. These encoders are trained in a contrastive learning manner, which maximizes the similarity of both representations if the image and the description are paired and minimizes the similarity if they are unpaired. After training, these encoders can perform zero-shot classification by checking the similarity between the given image and the candidate prompts.\n\nThe study of Radford et al.  [22]  used the following prompt template: \"A photo of a {label}\". They calculate the similarity between the representation from the given image and the representations from the prompts with different {label}, selecting the {label} that shows the maximum similarity.\n\nThe contrastive pre-training strategy with natural language supervision is also successful in universal audio and speech processing. Wu et al.  [23]  demonstrated that pre-training audio and text encoder with natural language guidance could improve audio classification performance. The study of Elizalde et al.  [24]  showed that such natural language guidance can improve speech processing tasks, including keyword spotting, speaker counting, and SER tasks.\n\nPrevious studies have found that natural language supervision can apply to SER tasks. Stanley et al.  [25]  used word embeddings to encode emotional labels for SER model. Gong et al.  [26]  used large language model (LLM) to infer weak emotion labels for unlabeled data for weakly-supervised learning of an SER model. All these findings have shown that exploiting text information is highly applicable to SER systems. To the best knowledge of the authors, the use of natural language supervision to address SER robustness against unknown noisy environments is a novel research direction.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Proposed Method",
+      "text": "This paper proposes text-guided environment-aware training (TG-EAT), which leverages environmental information to improve an SER model in noisy conditions. Figure  1  illustrates our proposed TG-EAT framework, which uses a pair of noisy speech and its corresponding environmental description. The text embedding extracted from the environmental description is combined with the acoustic representation in the SER model, allowing it to denoise the representation for the given environmental description.\n\nThe key contribution of this study is how we use the text description from the target environment. We used prompts to generate the text description where the target environment is changed. As a preliminary experiment, we tested different prompts to describe the target environment such as \"The type of background noise is {environment},\" or \"The input is recorded with a sound of {environment}.\" We change {environment} in the prompts according to the target environment during training and testing. We found that all the prompts showed similar emotion recognition performance for all the attributes. Therefore, we consistently use the following prompt in this study: \"This speech is recorded in {environment}.\" We extract the text-based environment embedding from this text description using a pre-trained text encoder. We test two different text representations: contrastive learning (CL)-based representation and LLM-based representation. For the CL-based representation, we use the text encoder pre-trained with the contrastive language audio pre-training (CLAP) strategy  [23, 24] . CLAP consists of an audio encoder and a text encoder. It uses a pair of acoustic events and their text description during pre-training (e.g., bird chirping sound with the description, \"Bird is chirping in the given audio\"). With these audio-text pairs, the training objective is to maximize the similarity between the audio and text representation if they are from the same pair and minimize it if they are from a different pair. Since CLAP uses an audio-text pair during pre-training, we assume that its text encoder can generate an appropriate representation from the given environment description coherent with the target acoustic condition. This paper uses the pre-trained text encoder from the unfused CLAP model proposed in the study of Wu et al.  [23] . For the LLM-based representation, we use the encoder from the pre-trained RoBERTa model  [36] . RoBERTa is pre-trained with masked language modeling (MLM) and next sentence prediction (NSP) tasks. RoBERTa has shown good performance in various benchmarks for evaluating natural language understanding systems, such as GLUE  [37] . Although it is not pre-trained with audio data, we assume that its encoder can extract enriched semantic information from the given prompt. We use RoBERTa-large, which has 24 transformer layers. For each text encoder, we use the same tokenizer used in its pre-training to tokenize the text description of the environment. We extract token-level text embeddings from the tokenized prompt and then apply average pooling, resulting in a single representation vector for each prompt.\n\nAfter the environmental representation is obtained, the next step is to introduce this information into the model. We mainly focus on a transformer-based SER model, which has shown good performance in SER tasks  [38, 32] . An important task is to fine-tune the model with clean and emotional speech data. We first fine-tune the SER model with clean speech to maximize the concordance correlation coefficient (CCC) between the predicted and the ground-truth emotional attribute scores of arousal, dominance, and valence. After fine-tuning with clean speech, the SER model is continuously updated with the training set contaminated with multiple types of noise and their corresponding text description. We insert the text representation from the given environment description into the fine-tuned transformerbased SER model. We achieve this goal by combining the text embedding with the acoustic representation, which is the output of the convolutional encoder. We apply trainable linear projection to the text embedding to match its dimension to the acoustic representation embeddings. We concatenate the projected text embedding to the acoustic representation embeddings along the time axis, then feed them into the transformer encoder. We update the transformer encoder and the downstream head with the concatenated embeddings. We use the same training objective as the one used when training with clean speech. From this framework, we want to evaluate if the SER model can learn the denoising function given a noisy acoustic representation with its text embedding.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experimental Settings",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Data Preparation",
+      "text": "Our experiment uses the MSP-Podcast corpus, which consists of natural and diverse emotional speech samples from various podcast recordings  [6] . The audios do not include background music or overlapped speech, and their predicted SNR is above 20 dB. We consider this corpus a clean emotion speech database for these reasons. This study focuses on predicting the emotional attributes of arousal (calm to active), dominance (weak to strong), and valence (negative to positive). Labels for these attributes were annotated by at least five raters using a seven-point Likert scale. We average the scores provided by raters for each sample to establish its ground truth values. This paper uses version 1.10 of the corpus, which consists of 104,267 annotated utterances. We use the train set to fine-tune the pre-trained speech representation model, using it as the original SER model. We use samples from the development set to select the best model during the fine-tuning process.\n\nWe simulate real-world noisy environments by collecting noise sounds from the Freesound repository  [39] , which contains publicly available ambient noise sounds. We use diverse queries related to each environment to collect noise sounds, including indoor, outdoor, and in-vehicle conditions. We use 20 noisy environments to contaminate the training and development set, consisting of {mall, restaurant, office, airport, station, city, park, street, traffic, home, kitchen, living room, bathroom, bedroom, metro, bus, car, construction site, pedestrian, beach}. For the evaluation, we use six environments, including {plaza, garden, school, tram, sea, boat}. Although these noise sounds are not used during adaptation, they have common characteristics with the noise sounds used during adaptation (e.g. indoor, outdoor, or in-vehicle conditions). We want to evaluate if our proposed method can capture this semantic similarity during the inference. We randomly pick the noise sounds to contaminate the Test1 set of the clean MSP-Podcast corpus. We repeat this process 10 times, creating 10 different sets for three different SNR levels, 5dB, 0dB, and -5dB.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Fine-Tuning Transformer-Based Architecture",
+      "text": "We implement our proposed approach with two different pre-trained speech representation models: wav2vec2-largerobust  [40]  and the wavlm-base-plus models  [3] . The wav2vec2-large-robust model has shown good performance in the emotional attribute prediction task  [32] . The wavlm-base-plus model has shown good performance for emotion recognition in the speech processing universal performance benchmark (SUPERB)  [41] . This model is pre-trained with noise, creating representations that are expected to be more robust to noise than other SSL representations. We fine-tune the transformer encoder of the pre-trained speech representation model and the downstream head with the clean version of the MSP-Podcast corpus. For wav2vec2-large-robust, we remove the top 12 transformer layers from the model to preserve the recognition performance with fewer parameters  [32] . We import the pre-trained models from the HuggingFace library  [42] . We use two fully connected layers for the downstream head, where each layer has 512 nodes, layer normalization, and the rectified linear unit (ReLU) as the activation function. We use dropout in all the hidden layers to increase regularization, with a rate set to p = 0.5. We use a linear output layer with three nodes to predict emotional attribute scores, where each node predicts the scores for arousal, dominance, and valence. We apply average pooling on top of the last transformer layer's representation to feed it to the downstream head.\n\nDuring fine-tuning, we apply Z-normalization to the raw waveform by using the mean and standard deviation estimated over the training set and min-max normalization to the emotional labels, mapping them to the range of 0 to 1. We use 32 utterances per mini-batch and update the model for ten epochs. We use the Adam optimizer  [43]  with a learning rate warmup scheduling, which shows good performance when fine-tuning a pre-trained transformer architecture  [44] . For the first 1,000 mini-batches, we linearly increase the learning rate from 1e -8 to 1e -5 . After the 1,000 mini-batches, we fix the learning rate to 1e -5 . All of our experiments are conducted on a single NVIDIA GeForce RTX 3090.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Text-Guided Environment-Aware Training",
+      "text": "After fine-tuning with the clean speech, we adapt the SER model to the noisy environmental conditions. We randomly select one of the 20 noise conditions for each mini-batch during adaptation. We then use 32 different noise samples in the selected condition to contaminate 32 clean speech samples from the training set of the MSP-Podcast corpus.\n\nWe build text prompts with respect to the picked environment for each mini-batch, as described in Section 3. In real-world applications, it is difficult to assume the exact SNR level of the testing condition. Therefore, we introduce an SER mismatch between our experiment's adaptation and testing stages. We randomly select the SNR level for the adaptation of the models among these options: {2.5, 7.5, 12.5}dB. We use the same hyperparameters as the ones used for fine-tuning the SER model with clean speech during adaptation. We tested two variations of our proposed text-guided environment-aware training: the CL-based representation TG-EAT-CL, and the LLM-based representation TG-EAT-LLM.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Baselines",
+      "text": "Original: This model fine-tunes the model with clean emotional speech, with no adaptation to the noisy conditions.\n\nRetrain the original model with noisy speech (RT): This baseline updates the transformer encoder and the downstream head of the Original model with noisy speech. It does not use environmental information during adaptation and inference. As described in Section 4.1, it uses 20 environmental conditions for adaptation. The evaluation uses six other environmental conditions.  [45] , we test a domain adversarial training strategy to adapt an SER model to multiple noisy conditions. Along with the downstream head for the SER task, we attach an environment classifier on top of the average-pooled transformer representations. The environment classifier has the same architecture as the downstream head for the SER task. The environment classifier is trained to minimize the cross-entropy loss between the predicted and the ground-truth noise types. We applied a gradient reversal layer (GRL) between the environment classifier and the transformer encoder to train the transformer encoder to normalize the environment information in the resulting representations. Like the RT baseline, this baseline does not use environmental information during inference. Table  1 : Average CCC of the ten experiments for the proposed text-guided environment-aware methods and the baselines. We report the performance with models implemented using either the wav2vec2-large-robust or wavlm-base-plus feature vectors. We denote with * , † , and ⋆ when a model shows significantly better performance than the Original, RT, and DAT models, respectively. We highlight in bold the best performance per condition.",
+      "page_start": 6,
+      "page_end": 11
+    },
+    {
+      "section_name": "Domain Adversarial Training (Dat): Inspired By Huang Et Al. 'S Work",
+      "text": "",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Snr",
+      "text": "",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "Emotion Recognition Performance",
+      "text": "We report the SER performance of our text-guided environment-aware training with our baselines. As described in Section 4.1, we use ten different evaluation sets for three SNR levels. We report the average CCC of ten experiments for each SNR level. We conduct a one-tailed Welch's t-test between the baselines and our proposed models to assess if the training strategy shows significantly better SER performance in noisy conditions. We assert significance at p-value < 0.05.\n\nTable  1  illustrates the SER performance of each model in noisy testing environments. When comparing our baselines (RT, DAT) with the original model, they do not consistently yield performance improvement for all the attributes. RT does not improve the performance neither for arousal and dominance with the wav2vec2-large-robust feature vector, nor for valence with the wavlm-base-plus feature vector. Although the DAT shows significant performance improvement with wavlm-base-plus feature vector, it fails to improve arousal and dominance prediction performance with wav2vec2-large-robust feature vector. Since these baselines do not use environmental information, we can observe the importance of using environmental information when adapting the SER model to multiple noisy environments. Compared with the baselines, our proposed TG-EAT-LLM performs best when using the wav2vec2-large-robust feature vector. In the 5dB condition, TG-EAT-LLM improves the original model's performance by 6.7 % (arousal), 3.9% (dominance), and 17.5% (valence). It does not yield the best performance with the wavlm-base-plus feature vector in the 5dB conditions. However, as the SNR level decreases, TG-EAT-LLM shows higher performance than the baselines. In -5dB condition, TG-EAT-LLM shows performance gains of 31.8% (arousal), 23.5% (dominance), and 9.5% (valence) compared to the best baseline, DAT. In spite of having a mismatch in SNR and environment conditions, TG-EAT-LLM shows robust results under all the conditions. These results indicate that guiding the SER model with LLM-based representation can improve the noise-robustness for the SER task. It shows good generalization to unknown environments. Although the DAT approach is effective when using the wavlm-base-plus model for noise conditions above 0dB SNR, using LLM-based representation is more helpful when dealing with low SNR conditions.\n\nWhen we compare the TG-EAT-CL and TG-EAT-LLM models, we conclude that the CL-based representation does not show a performance improvement over the original SER model, especially with the wav2vec2-large-robust feature vector. We can clearly see that the TG-EAT-CL model does not improve the performance for arousal and dominance in the 0dB and -5dB conditions. This result indicates that pre-training the text encoder to have enriched semantic information is more helpful for the noise-robust SER model than pre-training the text encoder with a audio-text pair.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Embedding Analysis",
+      "text": "Section 5.1 demonstrated that the TG-EAT-LLM approach shows better performance than the environment-agnostic baselines and the TG-EAT-CL approach. Our initial assumption is that the proposed TG-EAT-LLM can learn appropriate denoising functions for the transformer encoder. To verify this assumption, we analyze the difference between the clean and noisy representations (Fig.  2(a) ). We use the wavlm-base-plus feature vector and the noisy speech from the -5dB condition for this analysis. The first analysis compares the clean and noisy representation extracted from each model. We want to assess with this analysis if the model has robustness between clean and noisy speech. The second analysis compares the clean representation from the Original framework and the noisy representation from each of the models (Fig.  2(b) ). In this analysis, we want to assess if the model can keep the knowledge of the original SER model. We extract the representations from the first and the last transformer encoder layers and then calculate the mean square difference between clean and noisy representations for each layer.\n\nFigure  2  illustrates our analysis results. When extracting clean and noisy representations from the same model, we can first see that DAT shows the lowest difference in the last transformer layer. On the contrary, it shows the highest difference when extracting the clean representation from the original model. This result demonstrates the risk of catastrophic forgetting when using the DAT method. Although it can normalize the environmental difference in the adapted model, its representation can deviate from the original SER model's representation. However, our TG-EAT method does not highly increase the difference compared to the original model's clean representation. This result Table  2 : Average CCC of the ten experiments for the seen environment. The environmental conditions for the train set and the test set are the same. We compare the proposed method with the baselines by using the wavlm-base-plus model. Compared with the TG-EAT-LLM method, TG-EAT-CL shows a higher representation difference in the first layer. When comparing the clean and noisy representations from the same model, TG-EAT-LLM shows 7.7% less representation difference than the TG-EAT-CL method in the first transformer layer. However, TG-EAT-CL shows less representation difference than the TG-EAT-LLM in the last layer. Even though the downstream head uses the representation from the last transformer layer, TG-EAT-CL shows worse performance than the TG-EAT-LLM approach. LLM-based representation can better denoise the acoustic representation than the CL-based representation. In addition, we speculate that the embedding difference in the lower transformer layer might be the crucial factor for increasing the noise-robustness of the SER system.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Snr",
+      "text": "We also investigate if the proposed text-based environment embedding clusters similar environments together, which it the key premise of the proposed approach to deal with unseen environments. First, we extract the 26 different text embeddings using the different templates to describe each environmental condition. We project these embeddings into the 2D space to visualize the embedding space using the uniform manifold approximation and projection (UMAP) method  [46] . Figure  3  illustrates the text embedding space of TG-EAT-CL and TG-EAT-LLM. The figure shows that both frameworks cluster environmental conditions that are semantically similar together. For example, we observe the embeddings for \"boat\" and \"sea,\" together. We also observe the ones for \"subway\" and \"station\" clustered together. Both encoders cluster the house environments (house, home, kitchen) and the vehicle environments (bus, taxi, car), which indicates that the text encoder can cluster acoustically similar environments. This analysis implies that our proposed frameworks can deal with unseen environments by clustering acoustically and semantically similar environments. Our proposed method uses the embedding extracted from the text encoder to represent the testing environmental condition. To verify the benefits of using a text-based environmental embedding, we compare it with three different types of environmental embedding: one-hot encoding (One-hot), global vectors for word representation (GloVe)  [47] , and audio spectrogram transformer representation (AST)  [48] . One-hot uses 20-dimension binary vectors, where 1 represents the target environment condition, and 0 represents the others. Each dimension corresponds to the environmental condition of the training set. This embedding fully represents a seen environment with a simple vector; however, it cannot represent unseen environments, which is inappropriate for real-world services. GloVe is a word-level vector representation extracted from the regression model that considers the co-occurrences of words. We import the pre-trained GloVe vector collections consisting of 2.2 million vocabularies. We select the word vector representation that corresponds to the target noisy environment. The resulting representation is a 300-dimension vector. This representation can deal with unseen environments using text description, but it is semantically limited compared to our proposed text encoders. AST uses a transformer architecture to map the spectrogram patches into an audio-level representation. The model is fine-tuned with sound event classification tasks by using AudioSet, which is the same noise sound corpus for our training set. This model can automatically capture the acoustic characteristics from the audio-only input. However, it cannot explicitly use the semantic information of the testing environment.\n\nWe compare our proposed method with One-hot in the seen environment scenario (Table  2 ) and with the other baselines in the unseen environment scenario (Table  3 ). For the seen environment scenario, we used the same environmental condition as the train set to contaminate the clean test set but with different audio samples. We use ten different test sets and report the average CCC for both cases. Table  2  and 3 report the results for the seen and unseen environments, respectively. In the seen environment, our proposed method and the one-hot environment encoding model improve the original SER performance for all the conditions and attributes. Both models show similar performances in the seen environments. However, the one-hot encoding cannot cover unseen environments. This result demonstrates that the proposed text embedding can deal with both seen and unseen environments. Compared to the model that uses GloVe embeddings, our proposed method shows better SER performances in 0dB and -5dB conditions. It also shows a better performance for valence in the 10dB condition. The GloVe model only considers word co-occurrence to get a word embedding, while our proposed text encoder model is pre-trained to understand the semantic information of a sentence. This result implies the importance of pre-training the text encoder with language modeling to get a robust environment embedding for performance improvement. The AST strategy shows better performance for valence than our proposed model under the 5dB and 0dB conditions. In comparison, our proposed model performs better for all the emotional attributes under the -5dB conditions. AST does not use semantic information from the testing environment to get environmental embedding; instead, it extracts the environmental information from the given audio. Considering that the -5dB SNR level is not presented while training the model, the result demonstrates that the AST works well for the seen SNR level but not for the unseen SNR level. In contrast, our proposed method works well for the unseen SNR level since the text description is independent of the SNR level. This result demonstrates that our proposed method is robust against the unseen SNR level, which is practical for real-world scenarios. Our results demonstrate that using the text encoder pre-trained with the CLAP strategy shows worse SER performance than using the pre-trained LLM. Despite this observation, we assume that this type of text encoder should have the potential to improve since the text encoder is pre-trained with the audio modality. Our assumption is that jointly fine-tuning the text encoder with the SER model could further improve the performance. Therefore, we compare the performance of an SER model by either freezing the text encoder or updating the encoder while adapting the SER model with the text-based environment embedding. We refer to the models that fine-tune the text encoder of the TG-EAT-CL and TG-EAT-LLM approaches during adaptation as TG-EAT-CL-FT and TG-EAT-LLM-FT, respectively.\n\nTable  4  reports the average CCC of ten different test sets for each model. When comparing the TG-EAT-LLM and TG-EAT-LLM-FT implementations, they do not show significantly different performance. However, the TG-EAT-CL-FT approach shows meaningful performance improvement over the TG-EAT-CL implementation. For the -5dB conditions, it even reaches the best performance among all the models. This observation illustrates the importance of compensating the embedding space gap between the pre-trained text encoder space and the acoustic embedding. Although jointly fine-tuning the text encoder and the SER model can cost more memory space and computation time for the adaptation, this strategy can fully utilize the potential of the text encoder pre-trained with the audio modality.",
+      "page_start": 9,
+      "page_end": 11
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "We proposed the TG-EAT method, which uses a text description of the testing environment for noise-robust SER. This approach inserts a text-based environment representation into an SER model, leading it to denoise the speech representation with respect to the given environmental information. Our experiment demonstrated that the LLM-based representation can improve SER performance under noisy conditions, especially when dealing with low SNR conditions. Our analysis indicates that the pre-trained text encoder can cluster acoustically and semantically similar environments into the same embedding, which is crucial for generalizing the models for unseen environments. Our result also shows that the CLAP-based text encoder can be highly improved by updating the text encoder. This result demonstrates the importance of minimizing the embedding space gap between the text encoder and the acoustic embedding.\n\nWe plan to expand this approach to cases where we cannot obtain information on the testing environment. We assume that the CL-based representation can address the scenario when the noise information is not provided by introducing its audio encoder. CLAP trains the audio encoder to have a similar representation to the ones from the text encoder, which could be useful for extracting environmental information from the audio. For this reason, we plan to investigate how we can improve the noise-robustness of the SER model with a CLAP encoder.",
+      "page_start": 11,
+      "page_end": 11
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Our proposed text-guided environment-aware training framework. The environment representation is",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: illustrates our proposed TG-EAT framework, which uses a pair of",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Embedding differences in the first and the last transformer encoder layers using clean and noisy speech in the",
+      "page": 8
+    },
+    {
+      "caption": "Figure 2: (a)). We use the wavlm-base-plus feature vector and the noisy speech from the -5dB",
+      "page": 8
+    },
+    {
+      "caption": "Figure 2: (b)). In this analysis, we want to assess if the model can keep the knowledge of the original SER model. We",
+      "page": 8
+    },
+    {
+      "caption": "Figure 2: illustrates our analysis results. When extracting clean and noisy representations from the same model, we",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: Visualization of text-based environment embeddings. We use UMAP to project text embeddings into 2D",
+      "page": 9
+    },
+    {
+      "caption": "Figure 3: illustrates the text embedding space of TG-EAT-CL and TG-EAT-LLM. The figure shows that",
+      "page": 9
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "wav2vec2-large-robust": "0.59\n0.51\n0.40\n0.60\n0.52\n0.45∗\n0.61\n0.5\n0.45∗\n0.62∗\n0.52\n0.46∗\n0.63∗\n0.53∗\n0.47∗"
+        },
+        {
+          "wav2vec2-large-robust": "0.53\n0.47\n0.33\n0.56∗\n0.46\n0.4∗\n0.54\n0.44\n0.4∗\n0.52\n0.42\n0.4∗\n0.57∗⋆\n0.48†⋆\n0.41∗"
+        },
+        {
+          "wav2vec2-large-robust": "0.27\n0.25\n0.14\n0.24\n0.22\n0.19∗\n0.24\n0.22\n0.16∗\n0.21\n0.2\n0.18 ∗\n0.29∗†⋆\n0.27∗†⋆\n0.21∗†⋆"
+        },
+        {
+          "wav2vec2-large-robust": "wavlm-base-plus"
+        },
+        {
+          "wav2vec2-large-robust": "0.53\n0.46\n0.45\n0.57∗\n0.48∗\n0.41\n0.59∗\n0.49∗\n0.48∗†\n0.57∗\n0.47\n0.47∗†\n0.58∗\n0.48∗\n0.45†"
+        },
+        {
+          "wav2vec2-large-robust": "0.40\n0.32\n0.35\n0.53∗\n0.43∗\n0.34\n0.45∗\n0.42∗†\n0.53∗\n0.42∗†\n0.52∗\n0.43∗\n0.55∗†⋆\n0.45∗†\n0.40∗†"
+        },
+        {
+          "wav2vec2-large-robust": "0.11\n0.07\n0.12\n0.19∗\n0.12∗\n0.13\n0.22∗†\n0.17∗†\n0.21∗†\n0.18∗\n0.12∗\n0.19∗†\n0.29∗†⋆\n0.21∗†⋆\n0.23∗†⋆"
+        }
+      ],
+      "page": 7
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "2",
+      "title": "HuBERT: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "Y.-H Bolte",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "3",
+      "title": "WavLM: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao",
+        "J Wu",
+        "L Zhou",
+        "S Ren",
+        "Y Qian",
+        "Y Qian",
+        "J Wu",
+        "M Zeng",
+        "X Yu",
+        "F Wei"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "4",
+      "title": "The MSP-conversation corpus",
+      "authors": [
+        "L Martinez-Lucas",
+        "M Abdelwahab",
+        "C Busso"
+      ],
+      "year": "2020",
+      "venue": "Interspeech 2020"
+    },
+    {
+      "citation_id": "5",
+      "title": "Hybrid dataset for speech emotion recognition in Russian language",
+      "authors": [
+        "N Kondratenko",
+        "A Karpov",
+        "N Sokolov",
+        "O Savushkin",
+        "F Kutuzov",
+        "Minkin"
+      ],
+      "year": "2023",
+      "venue": "ISCA Interspeech 2023"
+    },
+    {
+      "citation_id": "6",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "7",
+      "title": "An intelligent infrastructure toward large scale naturalistic affective speech corpora collection",
+      "authors": [
+        "S Upadhyay",
+        "W.-S Chien",
+        "B.-H Su",
+        "L Goncalves",
+        "Y.-T Wu",
+        "A Salman",
+        "C Busso",
+        "C.-C Lee"
+      ],
+      "year": "2023",
+      "venue": "International Conference on Affective Computing and Intelligent Interaction (ACII 2023)"
+    },
+    {
+      "citation_id": "8",
+      "title": "Real-time speech emotion analysis for smart home assistants",
+      "authors": [
+        "R Chatterjee",
+        "S Mazumdar",
+        "R Sherratt",
+        "R Halder",
+        "T Maitra",
+        "D Giri"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Consumer Electronics"
+    },
+    {
+      "citation_id": "9",
+      "title": "Smartphone sensing of social interactions in people with and without schizophrenia",
+      "authors": [
+        "D Fulford",
+        "J Mote",
+        "R Gonzalez",
+        "S Abplanalp",
+        "Y Zhang",
+        "J Luckenbaugh",
+        "J.-P Onnela",
+        "C Busso",
+        "D Gard"
+      ],
+      "year": "2021",
+      "venue": "Journal of Psychiatric Research"
+    },
+    {
+      "citation_id": "10",
+      "title": "Deep representation learning for affective speech signal analysis and processing: Preventing unwanted signal disparities",
+      "authors": [
+        "C.-C Lee",
+        "K Sridhar",
+        "J.-L Li",
+        "W.-C Lin",
+        "B.-H Su",
+        "C Busso"
+      ],
+      "year": "2021",
+      "venue": "IEEE Signal Processing Magazine"
+    },
+    {
+      "citation_id": "11",
+      "title": "On the robustness of speech emotion recognition for human-robot interaction with deep neural networks",
+      "authors": [
+        "E Lakomkin",
+        "M Zamani",
+        "C Weber",
+        "S Magg",
+        "S Wermter"
+      ],
+      "year": "2018",
+      "venue": "IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS 2018)"
+    },
+    {
+      "citation_id": "12",
+      "title": "MetricAug: A distortion metric-lead augmentation strategy for training noise-robust speech emotion recognizer",
+      "authors": [
+        "Y.-T Wu",
+        "C.-C Lee"
+      ],
+      "year": "2023",
+      "venue": "ISCA Interspeech 2023"
+    },
+    {
+      "citation_id": "13",
+      "title": "Improving noise robustness of speech emotion recognition system",
+      "authors": [
+        "L Juszkiewicz"
+      ],
+      "year": "2014",
+      "venue": "Intelligent Distributed Computing VII, ser. International Symposium on Intelligent Distributed Computing (IDC 2013"
+    },
+    {
+      "citation_id": "14",
+      "title": "Towards robust speech emotion recognition using deep residual networks for speech enhancement",
+      "authors": [
+        "A Triantafyllopoulos",
+        "G Keren",
+        "J Wagner",
+        "I Steiner",
+        "B Schuller"
+      ],
+      "year": "2019",
+      "venue": "Towards robust speech emotion recognition using deep residual networks for speech enhancement"
+    },
+    {
+      "citation_id": "15",
+      "title": "Emotion recognition in the noise applying large acoustic feature sets",
+      "authors": [
+        "B Schuller",
+        "D Arsic",
+        "F Wallhoff",
+        "G Rigoll"
+      ],
+      "year": "2006",
+      "venue": "ISCA Speech Prosody"
+    },
+    {
+      "citation_id": "16",
+      "title": "Not all features are equal: Selection of robust features for speech emotion recognition in noisy environments",
+      "authors": [
+        "S.-G Leem",
+        "D Fulford",
+        "J.-P Onnela",
+        "D Gard",
+        "C Busso"
+      ],
+      "year": "2022",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP 2022)"
+    },
+    {
+      "citation_id": "17",
+      "title": "Towards noise robust speech emotion recognition using dynamic layer customization",
+      "authors": [
+        "A Wilf",
+        "E Provost"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Affective Computing and Intelligent Interaction (ACII 2021)"
+    },
+    {
+      "citation_id": "18",
+      "title": "Separation of emotional and reconstruction embeddings on ladder network to improve speech emotion recognition robustness in noisy conditions",
+      "authors": [
+        "S.-G Leem",
+        "D Fulford",
+        "J.-P Onnela",
+        "D Gard",
+        "C Busso"
+      ],
+      "year": "2021",
+      "venue": "Interspeech 2021"
+    },
+    {
+      "citation_id": "19",
+      "title": "Pre-trained model representations and their robustness against noise for speech emotion analysis",
+      "authors": [
+        "V Mitra",
+        "V Kowtha",
+        "H.-Y Chien",
+        "E Azemi",
+        "C Avendano"
+      ],
+      "year": "2023",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP 2023)"
+    },
+    {
+      "citation_id": "20",
+      "title": "Adapting a self-supervised speech representation for noisy speech emotion recognition by using contrastive teacher-student learning",
+      "authors": [
+        "S.-G Leem",
+        "D Fulford",
+        "J.-P Onnela",
+        "D Gard",
+        "C Busso"
+      ],
+      "year": "2023",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP 2023), Rhodes island"
+    },
+    {
+      "citation_id": "21",
+      "title": "Computation and memory efficient noise adaptation of Wav2Vec2.0 for noisy speech emotion recognition with skip connection adapters",
+      "year": "2023",
+      "venue": "Interspeech 2023"
+    },
+    {
+      "citation_id": "22",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "C Hallacy",
+        "A Ramesh",
+        "G Goh",
+        "S Agarwal",
+        "G Sastry",
+        "A Askell",
+        "P Mishkin",
+        "J Clark",
+        "G Krueger",
+        "I Sutskever"
+      ],
+      "year": "2021",
+      "venue": "International Conference on Machine Learning (ICML 2021"
+    },
+    {
+      "citation_id": "23",
+      "title": "Large-scale contrastive language-audio pretraining with feature fusion and keyword-to-caption augmentation",
+      "authors": [
+        "Y Wu",
+        "K Chen",
+        "T Zhang",
+        "Y Hui",
+        "T Berg-Kirkpatrick",
+        "S Dubnov"
+      ],
+      "year": "2023",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP 2023)"
+    },
+    {
+      "citation_id": "24",
+      "title": "CLAP learning audio concepts from natural language supervision",
+      "authors": [
+        "B Elizalde",
+        "S Deshmukh",
+        "M Ismail",
+        "H Wang"
+      ],
+      "year": "2023",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP 2023)"
+    },
+    {
+      "citation_id": "25",
+      "title": "Emotion label encoding using word embeddings for speech emotion recognition",
+      "authors": [
+        "E Stanley",
+        "E Demattos",
+        "A Klementiev",
+        "P Ozimek",
+        "G Clarke",
+        "M Berger",
+        "D Palaz"
+      ],
+      "year": "2023",
+      "venue": "ISCA Interspeech 2023"
+    },
+    {
+      "citation_id": "26",
+      "title": "LanSER: Language-model supported speech emotion recognition",
+      "authors": [
+        "T Gong",
+        "J Belanich",
+        "K Somandepalli",
+        "A Nagrani",
+        "B Eoff",
+        "B Jou"
+      ],
+      "year": "2023",
+      "venue": "ISCA Interspeech 2023"
+    },
+    {
+      "citation_id": "27",
+      "title": "OpenStreetMap: Challenges and opportunities in machine learning and remote sensing",
+      "authors": [
+        "J Vargas-Munoz",
+        "S Srivastava",
+        "D Tuia",
+        "A Ao"
+      ],
+      "year": "2021",
+      "venue": "IEEE Geoscience and Remote Sensing Magazine"
+    },
+    {
+      "citation_id": "28",
+      "title": "An unsupervised frame selection technique for robust emotion recognition in noisy speech",
+      "authors": [
+        "M Pandharipande",
+        "R Chakraborty",
+        "A Panda",
+        "S Kopparapu"
+      ],
+      "year": "2018",
+      "venue": "European Signal Processing Conference"
+    },
+    {
+      "citation_id": "29",
+      "title": "Selective acoustic feature enhancement for speech emotion recognition with noisy speech",
+      "authors": [
+        "S.-G Leem",
+        "D Fulford",
+        "J.-P Onnela",
+        "D Gard",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "IEEE/ACM Transactions on Audio, Speech and Language Processing"
+    },
+    {
+      "citation_id": "30",
+      "title": "Odyssey 2024 -speech emotion recognition challenge: Dataset, baseline framework, and results",
+      "authors": [
+        "L Goncalves",
+        "A Salman",
+        "A Reddy Naini",
+        "L Moro-Velazquez",
+        "T Thebaud",
+        "P Garcia",
+        "N Dehak",
+        "B Sisman",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "The Speaker and Language Recognition Workshop"
+    },
+    {
+      "citation_id": "31",
+      "title": "Emotion recognition from speech using Wav2vec 2.0 embeddings",
+      "authors": [
+        "L Pepino",
+        "P Riera",
+        "L Ferrer"
+      ],
+      "year": "2021",
+      "venue": "Interspeech 2021"
+    },
+    {
+      "citation_id": "32",
+      "title": "Dawn of the transformer era in speech emotion recognition: Closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "33",
+      "title": "Unsupervised domain adaptation for speech emotion recognition using K-Nearest neighbors voice conversion",
+      "authors": [
+        "P Mote",
+        "B Sisman",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "Interspeech 2024, Kos Island"
+    },
+    {
+      "citation_id": "34",
+      "title": "Bridging emotions across languages: Low rank adaptation for multilingual speech emotion recognition",
+      "authors": [
+        "L Goncalves",
+        "D Robinson",
+        "E Richerson",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "Interspeech 2024, Kos Island"
+    },
+    {
+      "citation_id": "35",
+      "title": "A layer-anchoring strategy for enhancing cross-lingual speech emotion recognition",
+      "authors": [
+        "S Upadhyay",
+        "C Busso",
+        "C.-C Lee"
+      ],
+      "year": "2024",
+      "venue": "Interspeech 2024, Kos Island"
+    },
+    {
+      "citation_id": "36",
+      "title": "RoBERTa: A robustly optimized BERT pretraining approach",
+      "authors": [
+        "Y Liu",
+        "M Ott",
+        "N Goyal",
+        "J Du",
+        "M Joshi",
+        "D Chen",
+        "O Levy",
+        "M Lewis",
+        "L Zettlemoyer",
+        "V Stoyanov"
+      ],
+      "year": "2019",
+      "venue": "RoBERTa: A robustly optimized BERT pretraining approach",
+      "arxiv": "arXiv:1907.11692"
+    },
+    {
+      "citation_id": "37",
+      "title": "GLUE: A multi-task benchmark and analysis platform for natural language understanding",
+      "authors": [
+        "A Wang",
+        "A Singh",
+        "J Michael",
+        "F Hill",
+        "O Levy",
+        "S Bowman"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Learning Representations (ICLR 2019)"
+    },
+    {
+      "citation_id": "38",
+      "title": "Acoustic features and neural representations for categorical emotion recognition from speech",
+      "authors": [
+        "A Keesing",
+        "Y Koh",
+        "M Witbrock"
+      ],
+      "year": "2021",
+      "venue": "Interspeech 2021"
+    },
+    {
+      "citation_id": "39",
+      "title": "Freesound datasets: a platform for the creation of open audio datasets",
+      "authors": [
+        "E Fonseca",
+        "J Pons Puig",
+        "X Favory",
+        "F Font",
+        "D Corbera",
+        "A Bogdanov",
+        "S Ferraro",
+        "A Oramas",
+        "X Porter",
+        "Serra"
+      ],
+      "year": "2017",
+      "venue": "International Society for Music Information Retrieval"
+    },
+    {
+      "citation_id": "40",
+      "title": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training",
+      "authors": [
+        "W.-N Hsu",
+        "A Sriram",
+        "A Baevski",
+        "T Likhomanenko",
+        "Q Xu",
+        "V Pratap",
+        "J Kahn",
+        "A Lee",
+        "R Collobert",
+        "G Synnaeve",
+        "M Auli"
+      ],
+      "year": "2021",
+      "venue": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training",
+      "arxiv": "arXiv:2104.01027"
+    },
+    {
+      "citation_id": "42",
+      "title": "SUPERB: Speech Processing Universal PERformance Benchmark",
+      "authors": [
+        "P.-H Yang",
+        "Y.-S Chi",
+        "C.-I Chuang",
+        "K Lai",
+        "Y Lakhotia",
+        "A Lin",
+        "J Liu",
+        "X Shi",
+        "G.-T Chang",
+        "T.-H Lin",
+        "W.-C Huang",
+        "K.-T Tseng",
+        "D.-R Lee",
+        "Z Liu",
+        "S Huang",
+        "S.-W Dong",
+        "S Li",
+        "A Watanabe",
+        "H.-Y Mohamed",
+        "Lee"
+      ],
+      "year": "2021",
+      "venue": "SUPERB: Speech Processing Universal PERformance Benchmark"
+    },
+    {
+      "citation_id": "43",
+      "title": "HuggingFace's transformers: State-of-the-art natural language processing",
+      "authors": [
+        "T Wolf",
+        "L Debut",
+        "V Sanh",
+        "J Chaumond",
+        "C Delangue",
+        "A Moi",
+        "P Cistac",
+        "T Rault",
+        "R Louf",
+        "M Funtowicz",
+        "J Davison",
+        "S Shleifer",
+        "P Von Platen",
+        "C Ma",
+        "Y Jernite",
+        "J Plu",
+        "C Xu",
+        "T Scao",
+        "S Gugger",
+        "M Drame",
+        "A Rush"
+      ],
+      "year": "2019",
+      "venue": "HuggingFace's transformers: State-of-the-art natural language processing",
+      "arxiv": "arXiv:1910.03771v5"
+    },
+    {
+      "citation_id": "44",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "45",
+      "title": "Training tips for the transformer model",
+      "authors": [
+        "M Popel",
+        "O Bojar"
+      ],
+      "year": "2018",
+      "venue": "The Prague Bulletin of Mathematical Linguistics"
+    },
+    {
+      "citation_id": "46",
+      "title": "Improving distortion robustness of self-supervised speech processing tasks with domain adaptation",
+      "authors": [
+        "K Huang",
+        "Y.-K Fu",
+        "Y Zhang",
+        "H.-Y Lee"
+      ],
+      "year": "2022",
+      "venue": "ISCA Interspeech 2022"
+    },
+    {
+      "citation_id": "47",
+      "title": "UMAP: Uniform manifold approximation and projection",
+      "authors": [
+        "L Mcinnes",
+        "J Healy",
+        "N Saul",
+        "L Großberger"
+      ],
+      "year": "2018",
+      "venue": "Journal of Open Source Software"
+    },
+    {
+      "citation_id": "48",
+      "title": "GloVe: Global vectors for word representation",
+      "authors": [
+        "J Pennington",
+        "R Socher",
+        "C Manning"
+      ],
+      "year": "2014",
+      "venue": "Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "49",
+      "title": "AST: Audio spectrogram transformer",
+      "authors": [
+        "Y Gong",
+        "Y.-A Chung",
+        "J Glass"
+      ],
+      "year": "2021",
+      "venue": "ISCA Interspeech 2021"
+    }
+  ]
+}

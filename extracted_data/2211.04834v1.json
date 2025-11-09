@@ -1,0 +1,3204 @@
+{
+  "paper_id": "2211.04834v1",
+  "title": "Distribution-Based Emotion Recognition In Conversation",
+  "published": "2022-11-09T12:16:28Z",
+  "authors": [
+    "Wen Wu",
+    "Chao Zhang",
+    "Philip C. Woodland"
+  ],
+  "keywords": [
+    "automatic emotion recognition",
+    "emotion recognition in conversation",
+    "Dirichlet prior network",
+    "IEMOCAP"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Automatic emotion recognition in conversation (ERC) is crucial for emotion-aware conversational artificial intelligence. This paper proposes a distribution-based framework that formulates ERC as a sequence-to-sequence problem for emotion distribution estimation. The inherent ambiguity of emotions and the subjectivity of human perception lead to disagreements in emotion labels, which is handled naturally in our framework from the perspective of uncertainty estimation in emotion distributions. A Bayesian training loss is introduced to improve the uncertainty estimation by conditioning each emotional state on an utterance-specific Dirichlet prior distribution. Experimental results on the IEMOCAP dataset show that ERC outperformed the single-utterance-based system, and the proposed distribution-based ERC methods have not only better classification accuracy, but also show improved uncertainty estimation.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Emotion understanding is a key attribute of conversational artificial intelligence (AI). Although significant progress has been made in developing deep-learning-based automatic emotion recognition (AER) systems over the past several years  [1, 2, 3, 4, 5] , most studies have focused on modelling and evaluating each utterance separately. However, emotions are known to be dependent on cross-utterance contextual information and persist across multiple utterances in dialogues  [6] . This motivates the study of AER in conversation (ERC).\n\nEmotion annotation is challenging due to the fact that emotion is inherently complex and ambiguous, and its expression and perception are highly personal and subjective. This causes uncertainty in the manual references used for emotional data. Although it is common to handle AER as a classification problem based on the majority agreed labels among several annotators  [7, 8, 9, 10] , it can cause two major problems. First, utterances without majority agreed labels have to be discarded, which makes the dialogue context noncontiguous in both training and test. Second, replacing the (possibly different) original labels from human annotators by the majority vote label also removes the inherent uncertainty associated with emotion perception in the data labelling procedure. To this end, alternative methods to using the majority vote label are required for ERC.\n\nMotivated by these problems, this paper proposes a novel distribution-based framework for ERC, which trains a dialogue-level Transformer model  [11]  to maximise the probability of generating a Wen Wu is supported by a Cambridge International Scholarship from the Cambridge Trust. This work has been performed using resources provided by the Cambridge Tier-2 system operated by the University of Cambridge Research Computing Service (www.hpc.cam.ac.uk) funded by EPSRC Tier-2 capital grant EP/T022159/1. sequence of emotion distributions associated with a sequence of utterances. Each time step of the Transformer represents an utterance in the dialogue, and its corresponding input feature vector is the fusion of audio and text representations for that utterance derived using Wav2Vec 2.0 (W2V2)  [12]  and bidirectional encoder representations from Transformers (BERT)  [13]  respectively. The predicted emotion distribution of each utterance relies on all previous predictions as well as the audio and text features in the dialogue. By considering an emotion distribution as a continuous-valued categorical distribution, the original emotion class labels provided by the annotators can be viewed as samples drawn from the underlying true emotion distribution of the utterance. The proposed distribution-based ERC system then learns the true emotion distribution sequence in a conversation given the observed label samples. A novel training loss based on utterance-specific Dirichlet priors predicted by a Dirichlet prior network (DPN) is applied  [14] , which improves distribution modelling performance by retaining the uncertainty in the original labels. Furthermore, by considering emotion as distributions, no utterances need to be discarded in either training or test, which keeps the dialogue context contiguous.\n\nThe rest of the paper is organised as follows. Section 2 provides background to ERC and the modelling of emotion ambiguity. Section 3 introduces distribution-based ERC. Section 4 describes the use of representations derived by self-supervised learning (SSL) and the fusion of audio and text representations. The results and analysis are given in Section 5, followed by conclusions.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Emotion Recognition In Conversation",
+      "text": "Emotion states can be described by discrete emotion categories (i.e., anger, happiness, neutral, sadness, etc.)  [15]  or continuous emotion attributes (i.e., valence-arousal)  [16, 17] . This work focuses on classification-based AER using discrete emotion categories. Much work has been published in classification-based AER using deeplearning-based methods  [2, 4, 5, 18] . While good recognition performance has been achieved, the focus is on modelling information of each target utterance independently without considering the crossutterance contextual information. Incorporating such information from both speakers in a dyadic conversation has been shown to improve AER performance  [19] .\n\nThe conversational memory network (CMN)  [20]  was one of the first ERC approaches that used separate memory networks for both interlocutors participating in a dyadic conversation. Built on the CMN, the interaction-aware attention network (IANN)  [21]  integrates distinct memories of each speaker using an attention mechanism. Recently, the graph convolutional network was introduced to explore the relations between utterances in a dialogue  [22, 23, 24]  where the representation of each utterance is treated as nodes and the 978-1-6654-7189-3/22/$31.00 ©2023 IEEE arXiv:2211.04834v1 [cs.CL] 9 Nov 2022 relations between the utterances are the edges. Most of these models integrated a fixed-length context rather than the complete dialogue history. Moreover, while contextual information was incorporated by including features of context utterances as inputs, the dependency of the output emotion states was not considered.\n\nSeveral alternative structures have been proposed in response to the above two issues. The DialogRNN  [25]  approach uses a hierarchical recurrent neural network framework to recurrently model the emotion of the current utterance by considering the speaker states and the emotions of preceding utterances. The Transformer encoder structure has been adopted for ERC with a data augmentation method based on random utterance concatenation  [26] . Another approach is to introduce an extra dialogue-level model on top of the single-utterance-based AER classifier. In the emotion interaction and transition method  [27] , the emotion probability of each utterance is re-estimated using the previous utterance and currently estimated posteriors using an additional long short-term memory network. The dialogical emotion decoding (DED) method  [28]  treats a dialogue as a sequence and consecutively decodes the emotion states of each utterance over time with a given recognition engine.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Modelling Emotion Ambiguity",
+      "text": "The methods reviewed in Section 2.1 only used utterances that have majority agreed emotion labels. However, emotion is inherently ambiguous and its perception is highly subjective, which leads to a large degree of uncertainty in labels. Different human annotators may assign different emotion labels to the same utterance and a considerable amount of data does not have majority agreed labels from the human annotators. Majority voting results among the original labels are usually taken as the ground-truth label by AER datasets  [7, 8, 9, 10] . Data without majority agreed labels are usually excluded from both training and test in classification-based AER, as they cannot be evaluated without ground-truth labels. In ERC, data exclusion can cause non-contiguous dialogue contexts for both training and test. More importantly, the majority voting strategy considerably changes the uncertainty properties of the emotion states of the speaker  [14] . Therefore, alternative methods for emotion state modelling are required. Soft labels have been used as targets in singleutterance-based AER  [29, 30] , which averages the original emotion class labels provided by the annotators. Such soft labels can be interpreted as the intensities of each emotion class and can allow all utterances to have a training label. Despite the use of soft labels, the systems were evaluated based on classification accuracy with the utterances with majority agreed labels, which results in a mismatch between the training loss and the evaluation metric  [31] . In this work, we propose a distribution-based method that allows the use of all utterances and all original labels for ERC. Eqn. (  1 ) differs from single-utterance-based AER  [1, 2, 3, 4, 5]  by conditioning yn+1 not only on x1:N but also on y1:n, which reflects the fact that emotional states often persist across multiple utterances in a dialogue  [6] .",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Distribution-Based Erc",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A Transformer For Online Erc",
+      "text": "In Eqn. (1), p(yn+1|y1:n, x1:N ) not only depends on the current and previous utterances x1:n+1, but also on future utterances xn+2:N , which is not suitable for online AER applications. Hence, an independence approximation between yn+1 and xn+2:N can be made:\n\nwhich is used throughout this paper.\n\nIn this paper, Eqn. (  2 ) is implemented with a Transformer encoder-decoder model  [11] , the schematic of the proposed system is shown in Fig.  1 . Teacher-forcing  [32]  is commonly used when training an auto-regressive decoder structure where the output of the current time step depends on outputs of previous time steps. When making a prediction yn at a time step n, teacher-forcing uses the ground-truth label history t1:n-1 during training, and uses the previous predictions output by the model ŷ1:n-1 during test. Teacher-forcing forces the decoder to over-fit to the ground-truthlabel-based history and leads to a discrepancy between training and test. Such a discrepancy can yield errors that propagate and accumulate quickly along the generated sequence.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Avoid Over-Fitting To Oracle History With Scheduled Sampling",
+      "text": "To alleviate the discrepancy caused by teacher-forcing, scheduled sampling  [33]  is used during training in this paper. A teacher-forcing ratio i is introduced to randomly decide, during training, whether to use tn-1 or ŷn-1:\n\nwhere ptf is sampled from a uniform distribution between 0 and 1 (ptf ∼ U(0, 1)), i denotes the i th mini-batch. i gradually decreases as the training progresses, which changes the training process from a fully guided scheme based on previous ground-truth labels towards a less guided scheme based on previous model outputs. Commonly used schedules decrease i as a function of i, which include a linear decay, an exponential decay and a inverse sigmoid decay  [33] .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Emotion Distribution Modelling Using Dpn",
+      "text": "Denote the underlying true emotion distribution of an utterance x as a categorical distribution µ = [p(ω1|µ), . . . , p(ωK |µ)] T , where K is the number of emotion classes. Emotion class labels ω k from human annotators are samples drawn from this categorical distribution. Soft labels, as an approximation to the underlying true distribution, correspond to the maximum likelihood estimate (MLE) of µ given the observed label samples {µ (1) , . . . , µ (M ) }:\n\nAlthough soft labels enable contiguous dialogue contexts to be modelled by ERC, the MLE is a good approximation to the true distribution only if a large number of original labels are available for each utterance, which cannot usually be satisfied in practice due to labelling difficulty and cost. Here, we use the Dirichlet prior network (DPN)  [34, 35, 14]  to resolve the label sparsity issue, which is a Bayesian approach modelling p(µ|x) by predicting the parameters of its Dirichlet prior distribution.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Emotion Recognition With A Dirichlet Prior",
+      "text": "The Dirichlet distribution, as the conjugate prior of the categorical distribution, is parameterised by its concentration parameter α = [α1, . . . , αK ] T . A Dirichlet distribution Dir(µ|α) is\n\nwhere Γ(•) is the gamma function defined as\n\nIn the Dirichlet process, given α, a categorical emotion distribution µ is drawn from Dir(µ|α), and an emotion class label ω k is sampled from µ.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Dpn For Emotion Recognition",
+      "text": "A DPN is a neural network modelling p(µ|x, Λ) by predicting the concentration parameter α of the Dirichlet prior, where Λ is the collection of model parameters. For each utterance x, the DPN predicts\n\nwhere f Λ (.) is the DPN model. Note that the predicted α depends on, and is specific to, each input utterance x. By predicting α separately for each utterance, the DPN makes the Dirichlet prior \"utterance-specific\" and thus suitable for ERC tasks.\n\nThe predictive distribution of the DPN is the expected categorical distribution under Dir(µ|α)  [34] :\n\nwhich makes the DPN a normal neural network model with a softmax output activation function during test.\n\nDPN training is performed by maximising the likelihood of sampling the original labels (one-hot categorical distributions) from their relevant utterance-specific Dirichlet priors. Given an utterance x with M original labels {µ (1) , . . . , µ (M ) }, a DPN is trained to minimise the negative log likelihood\n\nIn contrast to soft labels that retain only the proportion of occurrences of each emotion class, the DPN preserves the information about each single occurrence of the emotion classes and also resolves the label sparsity issue with Dirichlet priors. However, Ldpn is not directly applicable to an auto-regressive ERC system. This is because, in such a system, the targets of the previous time step are required for training (whether using teacherforcing or scheduled sampling). In a DPN system, the output of the network is the hyperparameter α and the targets associated with α of the previous time step is unknown. Therefore, Ldpn was added as an extra term to the Kullback-Leibler (KL) divergence Lkl between the soft labels and the DPN predictive distributions. That is,\n\nLdpn-kl = Ldpn + λ Lkl.\n\nThe targets of the previous time step are the soft labels. This is a major difference from  [14] , which treats the DPN loss as the main loss to model the uncertainty of emotions for each utterance independently without taking the previous emotion predictions into account.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Evaluating Distribution-Based Erc",
+      "text": "Since classification accuracy cannot be applied to the utterances without majority agreed labels, it is no longer suitable to be the primary measure for evaluating distribution-based ERC system. The area under the precision-recall curve (AUPR) is used as an alternative metric  [14]  at test-time. A precision-recall (PR) curve is obtained by calculating the precision and recall for different decision thresholds where the x-axis of a PR curve is the recall, the y-axis is the precision. The AUPR is the average of precision across all recall values computed as the area under the PR curve. Compared to classification accuracy, AUPR can be applied to all test utterances and also quantify the model's ability to estimate uncertainty. In this paper, the curve is drawn by detecting utterances without majority agreed labels based on the model prediction. Utterances with majority agreed labels are selected as positive class and utterances without majority agreed labels are chosen as the negative class. Two threshold measures representing the confidence encapsulated in the prediction can be used as the threshold for AUPR:\n\n• The entropy of the predictive distribution (Ent.), defined as -K k=1 p (ω k |x, Λ) ln p (ω k |x, Λ) that measures the flatness of the emotion distribution, where x is an utterance, ω k is the k-th class and Λ is the model.\n\n• The max probability (Max.P), max k p(ω k |x, Λ) measuring the confidence of the predicted emotion class.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Ssl Representations For Audio And Text",
+      "text": "Representations extracted from pre-trained universal models have recently attracted wide attention. These models are trained on a wide range of data at scale and can be fine-tuned to various downstream tasks and are sometimes referred to as foundation models  [36] . Selfsupervised learning (SSL) is one of the most common approaches to train a foundation model as it does not require any labels from human annotators. It uses information extracted only from the input data itself in order to learn representations useful for downstream tasks, thus allowing the use of a large amount of unlabelled data for model training. Models pre-trained by SSL have achieved great successes in natural language processing (e.g. BERT  [13] , GPT-2  [37]  and GPT-3  [38] ) and computer vision (e.g. ViT  [39]  and iGPT  [40] ), and have attracted increasing attention in speech processing  [41]  (e.g. ACPC  [42] , W2V2  [12] , Hubert  [43] , and WavLM  [44]  etc.). The large amount of unlabelled data leveraged by SSL can cover many linguistic and para-linguistic phenomena, and therefore could help to alleviate the data sparsity issue in AER  [45, 46, 47, 48] . This paper used two SSL models: W2V2  [12]  for the audio modality and BERT  [13]  for the text modality 1 .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Features Derived From W2V2 And Bert",
+      "text": "W2V2 is a type of contrastive  [49]  SSL model which learns representations by distinguishing a target sample (positive) from distractor samples (negatives) given an anchor representation. It takes as input a waveform and uses a convolutional feature encoder followed by a transformer network. This paper uses the \"wav2vec2-base\" model 2 which contains 12 transformer blocks with model dimension 768, inner dimension 3,072 and 8 attention heads and is pre-trained using 960 hours of audio from Librispeech corpus  [50] . W2V2 representations were extracted from the output of the last Transformer block and averaged across each utterance.\n\nBERT is a type of predictive SSL model which learns representations by predicting the masked tokens in a sentence. This paper uses the \"bert-base-uncased\" model 3 which contains 12 transformer blocks with a model dimension of 768, inner dimension 3,072 and 12 attention heads and was pre-trained using a large amount of text.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Bilinear-Pooling-Based Feature Fusion",
+      "text": "Bilinear pooling  [51]  is a commonly used approach for the expressive fusion of multimodal representations  [52] , which models the multiplicative interactions between all possible element pairs. It computes the outer product of the Q-dimensional (-dim) audio and text representations, e1 and e2, into a Q 2 -dim joint representation and then projects it into an O-dim space with a linear transform. In practice, bilinear pooling often suffers from a data sparsity issue caused by the high dimensionality of Q 2 . Therefore, decomposition techniques are usually required in order to estimate the associated parameters properly and efficiently. In this paper, the W2V2 and BERT features were fused using a modified multimodal low-rank bilinear attention network with shortcut connections  [53] :\n\n1 The proposed system can be viewed as a dialogue-level audio-text multimodal adaptor for emotions in the foundation model paradigm. The process is illustrated in Fig.  2 . In this paper, e1, e2 are the W2V2 and BERT derived vectors to be combined, and are both 768dim. D and O are both 256-dim, c is the 256-dim combined vector, U1, U2 are both 768×256-dim matrices, b is a 256-dim bias vector, P is a 256×256-dim linear projection, V1, V2 are both 256×768dim, and is the Hadamard product.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Dataset",
+      "text": "The IEMOCAP  [7]  corpus is used in this paper, which is one of the most widely used datasets for verbal emotion classification. It consists of 5 dyadic conversational sessions performed by 10 professional actors with a session being a conversation between two speakers. There are in total 151 dialogues including 10,039 utterances. Each utterance was annotated by three human annotators for emotion class labels (neutral, happy, sad, and angry etc.). Each annotator was allowed to tag more than one emotion category for each sentence if they perceived a mixture of emotions, giving utterances 3.12 labels on average. Ground-truth labels were determined by majority vote Following prior work  [1, 2, 3] , the reference transcriptions from IEMOCAP were used for the text modality. Leave-one-session-out 5-fold cross validation (5-CV) was performed and the average results are reported.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Data Augmentation",
+      "text": "In the dialogue-level ERC system, the number of training samples is equal to the number of dialogues in the dataset, which is often very limited (e.g. 151 in IEMOCAP). To mitigate training data sparsity issues, sub-sequence randomisation  [54]  was used to augment the training data, which samples sub-sequences (xs:e, ys:e) from each full training sequence as the augmented training samples, where s and e are the randomly selected start and end utterance indexes.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Training Specifications",
+      "text": "The Transformer architecture  [11]  used for ERC contains 4 encoder blocks and 4 decoder blocks with a dimension of 256. The multihead attention contains 4 heads. Masking was applied to ensure Table  1 . 5-fold CV classification results (mean± standard deviation across folds) for 4-way utterance and dialogue baseline systems on IEMOCAP. IANN  [21]  and DED  [28]     [21]  64.7 66.3 DED  [28]  69.0 70.1 that predictions for the current utterance depend only on previous input utterances and known outputs. Sinusoidal positional embeddings  [11]  were added to the input features. A dropout rate of 10% was applied to all parameters. The model was implemented using PyTorch. Scheduled sampling with an exponential scheduler was used during training. The Adam optimiser was used with a variable learning rate with linear warm-up for the first 2,000 training updates and then linearly decreasing. 4",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Aer With 4-Way Classification",
+      "text": "The most common setup on IEMOCAP  [2, 4, 18, 21, 28, 22]  only uses utterances with majority agreed labels belonging to \"angry\", \"happy\", \"excited\" (merged with \"happy\"), \"sad\", and \"neutral\" for a 4-way classification, which results in 5,531 utterances. For comparison, 4-way emotion classification systems using this setup were first built as baselines. Since the test sets are slightly imbalanced between different emotion categories, both weighted accuracy (WA) and unweighted accuracy (UA) are reported for classification experiments. WA corresponds to the overall accuracy while UA corresponds to the mean of class-wise accuracy.\n\nThe \"wav2vec2-base\" model was fine-tuned for single-utterancebased 4-way classification by adding a 128-d fully connected layer and an output layer with softmax activation on top of the pre-trained model. The fine-tuning experiment results are shown as \"utterance-W2V2ft\" in Table  1 . The Transformer ERC model was then trained using the fine-tuned W2V2 features (\"dialogue-W2V2ft\"), BERT features (\"dialogue-BERT\"), and the fusion of BERT and the finetuned W2V2 features (\"dialogue-W2V2ft+BERT\") as input. Comparing \"utterance-W2V2ft\" and \"dialogue-W2V2ft\" in Table  1 , dialogue-based AER performs better than single-utterance-based AER. The fusion of audio and text features further improves the performance.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Iemocap Data Analysis And Motivation For Distributionbased Systems",
+      "text": "Statistics for the IEMOCAP corpus are summarized in Fig.  3 . The 4-way classification setup discards 45% of the data in IEMOCAP that belongs to the following two categories:\n\n• Utterances without majority agreed emotion labels (2,507 utterances);\n\n• Utterances whose majority agreed labels do not belong to the selected four emotion classes in the 4-way setup (2,001 utterances).  This strategy not only causes a loss of nearly half of the emotion data, which are highly valuable, but also causes the dialogue contexts modelled by the Transformer to be non-contiguous. Furthermore, among the utterances with majority agreed labels, only 31.6% have all annotators agreed on the same emotion class label. When majority voting is applied, an utterance with labels \"happy\", \"happy\", \"happy\" and an utterance with labels \"happy\", \"happy\", \"sad\" have the same ground-truth label \"happy\", even though an annotator has assigned a different label to the latter utterance. The use of majority voting therefore changes the true emotion distributions and causes the inherent uncertainty that exists in the annotations to be discarded.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Erc With Distribution Modelling",
+      "text": "In this section, the training targets for each utterance were revised from a single discrete label to a continuous-valued categorical distribution over five emotion classes. The five classes correspond to the previous four emotion classes plus an extra class \"others\" that includes all the other emotions that exist in IEMOCAP. This not only allows all data in IEMOCAP to be used for ERC, regardless of whether majority agreed label exists and whether it belongs to the 4 classes, but also avoids the problem that not all of the original labels are represented by majority voting. Three systems were evaluated:\n\n• HARD: A system trained by 5-way classification. When training the HARD system, all utterances in a dialogue were taken as input while the loss was only computed for utterances that have majority agreed labels.\n\n• SOFT: A KL-only system trained by minimising Lkl in Eqn.  (9) .\n\n• DPN-KL: A system trained by minimising the combined loss Ldpn-kl in Eqn.  (10)  with λ = 20.\n\nAll systems were first evaluated by 5-way classification accuracy on test utterances with majority agreed labels, as well as by 4-way classification accuracy on test utterances whose majority agreed labels belong to the 4 classes, and then evaluated by the average AUPR (Max.P) and AUPR (Ent.) on all test utterances. As shown by the results in Table  2 , both the SOFT and DPN-KL systems outperform the HARD system on all evaluation metrics. A possible explanation lies in the fact that emotion assignment errors in the hard classification setup (HARD system) are more likely to propagate through the dialogue with the auto-regressive Transformer decoder. The DPN-KL system produces the highest AUPR among all of the systems, which shows that it has the best performance in modelling emotion distributions as it gives the best prediction of utterances without majority agreed labels. For the convenience of visualisation, the 5th fold (trained on Session 1-4 and tested on Session 5) was taken as an example and the PR curves of test utterances for all three systems are shown in Fig.  5 . It can be seen that the     DPN-KL system gives the largest area under the PR curve, showing its superior uncertainty estimation performance.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Analysis",
+      "text": "This section gives a case study to better understand uncertainty variation of emotion distributions in a dialogue. Fig.  4  shows the trend of uncertainty change in emotion estimation (measured by the entropy of the predicted emotion distribution) in a sub-dialogue selected from the dialogue \"Ses05F impro04\" in IEMOCAP Session 5 between a female and a male speaker. The results were produced by the DPN-KL system trained on Session 1-4. For each sentence, the bar chart shows the soft label and the line on the bar chart shows the prediction. Labels provided by the three annotators are shown in the grey box.\n\nFrom Fig.  4 , utterance Female-1 has two annotators that each provided two labels, indicating the uncertainty of the emotional content of the utterance. The uncertainty of emotion estimation is reflected by the high entropy. Although utterances Female-2 and Female-3 have the same emotion class labels found by majority voting, their underlying emotion distributions are different. As the dialogue progressed (from Female-1 to Female-3), the annotators gradually became more certain that the female speaker got frustrated (shown by the soft labels), and the predicted distribution changed accordingly. Given the same label samples (i.e., Female-3 and Female-4; Male-1, Male-2 and Male-4), the entropy decreases as the dialogue progressed, indicating that the model is becoming more confident about its predictions. The reductions of uncertainty in this example demonstrates the advantage of using cross-utterance contextual information in our proposed distribution-based ERC framework. Moreover, another example is the emotional shift that occurs from utterance Male-2 to Male-3. Due to emotional inertia, the model predicts a higher probability of \"others\" while still retaining some probability for \"neutral\". The larger entropy reveals that the model is uncertain about this prediction.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we propose a distribution-based ERC framework, which formulates ERC as a special sequence-to-sequence problem for distribution estimation. The emotion state of an utterance is represented by a categorical distribution which depends on the context information and emotion states of the previous utterances in the dialogue. Each input vector of a dialogue sequence input to the Transformer dialogue model is formed by fusing representations extracted from SSL models W2V2 and BERT, which makes the system also a dialogue-level audio-text multimodal task adaptor for AER. The system is trained by minimising the KL divergence combined with the DPN loss which conditions the categorical distribution on an utterance-specific Dirichlet prior distribution, which is evaluated by AUPR with the task of detecting utterances without majority agreed labels. This approach not only allows utterances without majority agreed labels to be used, but also leads to better performance in modelling the uncertainty variations in ERC.",
+      "page_start": 6,
+      "page_end": 6
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Schematic of the proposed distribution-based ERC system",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: Teacher-forcing [32] is commonly used when",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Schematic of bilinear pooling with shortcut combination. ⊙",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: In this paper, e1, e2 are the",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Distribution of data in IEMOCAP. (a) Proportion of anno-",
+      "page": 5
+    },
+    {
+      "caption": "Figure 5: It can be seen that the",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: Entropy of the predicted emotion distribution of each utterance in a sub-dialogue. The DPN-KL system trained on Session 1-4 was",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: PR curves of the three systems using (a) Max.P and (b) Ent.",
+      "page": 6
+    },
+    {
+      "caption": "Figure 4: shows the trend",
+      "page": 6
+    },
+    {
+      "caption": "Figure 4: , utterance Female-1 has two annotators that each",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "sequence of emotion distributions associated with a sequence of ut-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "terances. Each time step of the Transformer represents an utterance"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "in the dialogue, and its corresponding input feature vector is the fu-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "sion of audio and text representations for that utterance derived using"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "Wav2Vec 2.0 (W2V2) [12] and bidirectional encoder representations"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "from Transformers (BERT) [13] respectively. The predicted emotion"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "distribution of each utterance relies on all previous predictions as"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "well as the audio and text features in the dialogue. By considering"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "an emotion distribution as a continuous-valued categorical distribu-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "tion,\nthe original emotion class\nlabels provided by the annotators"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "can be viewed as samples drawn from the underlying true emotion"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "distribution of the utterance. The proposed distribution-based ERC"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "system then learns the true emotion distribution sequence in a con-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "versation given the observed label samples. A novel\ntraining loss"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "based on utterance-speciﬁc Dirichlet priors predicted by a Dirichlet"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "prior network (DPN)\nis applied [14], which improves distribution"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "modelling performance by retaining the uncertainty in the original"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "labels. Furthermore, by considering emotion as distributions, no ut-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "terances need to be discarded in either training or test, which keeps"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "the dialogue context contiguous."
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "The rest of the paper is organised as follows. Section 2 provides"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "background to ERC and the modelling of emotion ambiguity. Sec-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "tion 3 introduces distribution-based ERC. Section 4 describes the use"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "of representations derived by self-supervised learning (SSL) and the"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "fusion of audio and text representations. The results and analysis are"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "given in Section 5, followed by conclusions."
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "2. RELATED WORK"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "2.1. Emotion recognition in conversation"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "Emotion states can be described by discrete emotion categories (i.e.,"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "anger, happiness, neutral,\nsadness,\netc.)\n[15] or continuous emo-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "tion attributes (i.e., valence-arousal) [16, 17]. This work focuses on"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "classiﬁcation-based AER using discrete emotion categories. Much"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "work has been published in classiﬁcation-based AER using deep-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "learning-based methods [2, 4, 5, 18]. While good recognition perfor-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "mance has been achieved,\nthe focus is on modelling information of"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "each target utterance independently without considering the cross-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "utterance contextual\ninformation.\nIncorporating such information"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "from both speakers in a dyadic conversation has been shown to im-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "prove AER performance [19]."
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "The conversational memory network (CMN)\n[20] was one of"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "the ﬁrst ERC approaches that used separate memory networks for"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "both interlocutors participating in a dyadic conversation. Built on"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "the CMN,\nthe interaction-aware attention network (IANN) [21] in-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "tegrates distinct memories of each speaker using an attention mech-"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "anism. Recently,\nthe graph convolutional network was introduced"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "to explore the relations between utterances in a dialogue [22, 23, 24]"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": "where the representation of each utterance is treated as nodes and the"
+        },
+        {
+          "Department of Engineering, University of Cambridge, Trumpington St., Cambridge, UK.": ""
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "distribution"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "integrated a ﬁxed-length context rather than the complete dialogue",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "…\nc1\nc2\ncN\ny1\ny2\nyN"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "history. Moreover, while contextual\ninformation was incorporated",
+          "Emotion": "…"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "by including features of context utterances as inputs, the dependency",
+          "Emotion": "Bilinear"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "⨀⨁"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "of the output emotion states was not considered.",
+          "Emotion": "pooling\nTransformer"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "Transformer"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "xN"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "Several alternative structures have been proposed in response to",
+          "Emotion": "decoder blocks\nencoder blocks"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "the above two issues. The DialogRNN [25] approach uses a hierar-",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "chical recurrent neural network framework to recurrently model the",
+          "Emotion": "…\n…"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "emotion of\nthe current utterance by considering the speaker states",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "and the emotions of preceding utterances.\nThe Transformer en-",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "coder structure has been adopted for ERC with a data augmentation",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "W2V2N\nBERTN"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "method based on random utterance concatenation [26].\nAnother",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "x1\nx2\nxN\ny0\ny1\nyN−1"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "approach is\nto introduce an extra dialogue-level model on top of",
+          "Emotion": "⨀⨁\nFig. 1.\nSchematic of\nthe proposed distribution-based ERC system"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "the single-utterance-based AER classiﬁer.\nIn the emotion interac-",
+          "Emotion": "with a Transformer, where xn is an utterance and yn is the corre-"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "tion and transition method\n[27],\nthe emotion probability of each",
+          "Emotion": "sponding emotion distribution. Bilinear pooling is used to fuse the"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "utterance is re-estimated using the previous utterance and currently",
+          "Emotion": "audio and text features derived from W2V2 and BERT."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "estimated posteriors using an additional\nlong short-term memory",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "network.\nThe dialogical\nemotion decoding (DED) method [28]",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "chain rule, p(y1:N |x1:N ) can be calculated efﬁciently as:"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "treats a dialogue as a sequence and consecutively decodes the emo-",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "tion states of\neach utterance over\ntime with a given recognition",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "engine.",
+          "Emotion": "N(cid:89) n\n(1)\np(y1:N |x1:N ) = p(y1|x1:N )\np(yn+1|y1:n, x1:N )."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "=1"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "2.2. Modelling emotion ambiguity",
+          "Emotion": "Eqn. (1) differs from single-utterance-based AER [1, 2, 3, 4, 5] by"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "conditioning yn+1 not only on x1:N but also on y1:n, which reﬂects"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "The methods reviewed in Section 2.1 only used utterances that have",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "the fact that emotional states often persist across multiple utterances"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "majority agreed emotion labels.\nHowever,\nemotion is\ninherently",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "in a dialogue [6]."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "ambiguous and its perception is highly subjective, which leads to",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "a large degree of uncertainty in labels.\nDifferent human annota-",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "3.1.1. A Transformer for online ERC"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "tors may assign different emotion labels to the same utterance and",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "a considerable amount of data does not have majority agreed la-",
+          "Emotion": "In Eqn. (1), p(yn+1|y1:n, x1:N ) not only depends on the current and"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "bels from the human annotators. Majority voting results among the",
+          "Emotion": "previous utterances x1:n+1, but also on future utterances xn+2:N ,"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "original\nlabels are usually taken as the ground-truth label by AER",
+          "Emotion": "which is not suitable for online AER applications. Hence, an inde-"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "datasets [7, 8, 9, 10]. Data without majority agreed labels are usually",
+          "Emotion": "pendence approximation between yn+1 and xn+2:N can be made:"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "excluded from both training and test in classiﬁcation-based AER, as",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "they cannot be evaluated without ground-truth labels.\nIn ERC, data",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "N(cid:89) n\n(2)\np(yn+1|y1:n, x1:n+1),\np(y1:N |x1:N ) ≈ p(y1|x1)"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "exclusion can cause non-contiguous dialogue contexts for both train-",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "=1"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "ing and test. More importantly,\nthe majority voting strategy consid-",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "erably changes the uncertainty properties of the emotion states of the",
+          "Emotion": "which is used throughout this paper."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "speaker [14]. Therefore, alternative methods for emotion state mod-",
+          "Emotion": "In\nthis\npaper, Eqn.\n(2)\nis\nimplemented with\na Transformer"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "elling are required. Soft\nlabels have been used as targets in single-",
+          "Emotion": "encoder-decoder model [11],\nthe schematic of the proposed system"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "utterance-based AER [29, 30], which averages the original emotion",
+          "Emotion": "is shown in Fig. 1.\nTeacher-forcing [32]\nis commonly used when"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "class labels provided by the annotators. Such soft\nlabels can be in-",
+          "Emotion": "training an auto-regressive decoder\nstructure where the output of"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "terpreted as the intensities of each emotion class and can allow all",
+          "Emotion": "the current\ntime step depends on outputs of previous\ntime steps."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "utterances to have a training label. Despite the use of soft\nlabels,",
+          "Emotion": "a\ntime\nstep n,\nteacher-forcing\nWhen making a prediction yn at"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "the systems were evaluated based on classiﬁcation accuracy with the",
+          "Emotion": "uses the ground-truth label history t1:n−1 during training, and uses"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "utterances with majority agreed labels, which results in a mismatch",
+          "Emotion": "the previous predictions output by the model ˆy1:n−1 during test."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "between the training loss and the evaluation metric\n[31].\nIn this",
+          "Emotion": "Teacher-forcing forces the decoder\nto over-ﬁt\nto the ground-truth-"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "work, we propose a distribution-based method that allows the use of",
+          "Emotion": "label-based history and leads\nto a discrepancy between training"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "all utterances and all original labels for ERC.",
+          "Emotion": "and test.\nSuch a discrepancy can yield errors\nthat propagate and"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "accumulate quickly along the generated sequence."
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "3. DISTRIBUTION-BASED ERC",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "3.1.2. Avoid over-ﬁtting to oracle history with scheduled sampling"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "3.1. ERC as a sequence-to-sequence problem",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "To alleviate the discrepancy caused by teacher-forcing,\nscheduled"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "sampling [33] is used during training in this paper. A teacher-forcing"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "Consider a dialogue with N utterances, let xn and yn be an utterance",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "ratio (cid:15)i is introduced to randomly decide, during training, whether to"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "and its emotion state in terms of a probability distribution, ERC can",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "use tn−1 or ˆyn−1:"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "be formulated as a special sequence-to-sequence problem,\nin which",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "the input utterance sequence x1:N and output emotion state sequence",
+          "Emotion": "(cid:26) tn−1,\nptf ≤ (cid:15)i"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "lengths and each output distribution represents the\ny1:N have equal",
+          "Emotion": "(3)\nyn−1 ="
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "",
+          "Emotion": "yn−1,\nptf > (cid:15)i"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "emotion state of the corresponding input utterance. Training can be",
+          "Emotion": ""
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "the likelihood of generat-\nperformed by maximising p(y1:N |x1:N ),",
+          "Emotion": "is sampled from a uniform distribution between 0 and 1\nwhere ptf"
+        },
+        {
+          "relations between the utterances are the edges. Most of these models": "ing the emotion states based on the input utterances. Based on the",
+          "Emotion": "(ptf ∼ U(0, 1)), i denotes the ith mini-batch. (cid:15)i gradually decreases"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "as the training progresses, which changes the training process from a": "fully guided scheme based on previous ground-truth labels towards",
+          "which makes the DPN a normal neural network model with a soft-": "max output activation function during test."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "a less guided scheme based on previous model outputs. Commonly",
+          "which makes the DPN a normal neural network model with a soft-": "DPN training is performed by maximising the likelihood of sam-"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "used schedules decrease (cid:15)i as a function of i, which include a linear",
+          "which makes the DPN a normal neural network model with a soft-": "pling the original labels (one-hot categorical distributions) from their"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "decay, an exponential decay and a inverse sigmoid decay [33].",
+          "which makes the DPN a normal neural network model with a soft-": "relevant utterance-speciﬁc Dirichlet priors.\nGiven an utterance x"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "with M original labels {µ(1), . . . , µ(M )}, a DPN is trained to min-"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "3.2. Emotion distribution modelling using DPN",
+          "which makes the DPN a normal neural network model with a soft-": "imise the negative log likelihood"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "Denote the underlying true emotion distribution of an utterance x as",
+          "which makes the DPN a normal neural network model with a soft-": "(cid:88)M"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "1 M\nln p(µ(m)|x, Λ)\n(8)\nLdpn = −"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "a categorical distribution µ = [p(ω1|µ), . . . , p(ωK |µ)]T, where K",
+          "which makes the DPN a normal neural network model with a soft-": "m=1"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "is the number of emotion classes. Emotion class labels ωk from hu-",
+          "which makes the DPN a normal neural network model with a soft-": "(cid:88)M"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "1 M\n= −\nln Dir(µ(m)|fΛ(x))."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "man annotators are samples drawn from this categorical distribution.",
+          "which makes the DPN a normal neural network model with a soft-": "m=1"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "Soft\nlabels, as an approximation to the underlying true distribution,",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "correspond to the maximum likelihood estimate (MLE) of µ given",
+          "which makes the DPN a normal neural network model with a soft-": "In contrast\nto soft\nlabels that\nretain only the proportion of occur-"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "the observed label samples {µ(1), . . . , µ(M )}:",
+          "which makes the DPN a normal neural network model with a soft-": "rences of each emotion class,\nthe DPN preserves\nthe information"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "about each single occurrence of the emotion classes and also resolves"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "the label sparsity issue with Dirichlet priors."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "1 M\nM(cid:88) m\nµ = arg max\nln p(µ(1), . . . , µ(M )|µ) =\nµ(m).\n(4)",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "µ",
+          "which makes the DPN a normal neural network model with a soft-": "is not directly applicable to an auto-regressive\nHowever, Ldpn"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "=1",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "ERC system. This is because,\nin such a system,\nthe targets of\nthe"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "Although soft labels enable contiguous dialogue contexts to be mod-",
+          "which makes the DPN a normal neural network model with a soft-": "previous time step are required for training (whether using teacher-"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "elled by ERC, the MLE is a good approximation to the true distribu-",
+          "which makes the DPN a normal neural network model with a soft-": "forcing or scheduled sampling).\nIn a DPN system, the output of the"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "tion only if a large number of original\nlabels are available for each",
+          "which makes the DPN a normal neural network model with a soft-": "network is the hyperparameter α and the targets associated with α"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "utterance, which cannot usually be satisﬁed in practice due to la-",
+          "which makes the DPN a normal neural network model with a soft-": "of the previous time step is unknown. Therefore, Ldpn was added as"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "belling difﬁculty and cost. Here, we use the Dirichlet prior network",
+          "which makes the DPN a normal neural network model with a soft-": "an extra term to the Kullback-Leibler (KL) divergence Lkl between"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "(DPN)\n[34, 35, 14]\nto resolve the label sparsity issue, which is a",
+          "which makes the DPN a normal neural network model with a soft-": "the soft labels and the DPN predictive distributions. That is,"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "Bayesian approach modelling p(µ|x) by predicting the parameters",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "of its Dirichlet prior distribution.",
+          "which makes the DPN a normal neural network model with a soft-": "(cid:88)K\n(cid:88)K"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "(9)\n−¯µk ln p(ωk|x, Λ) +\nµk ln ¯µk\nLkl ="
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "k=1\nk=1"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "3.2.1. Emotion recognition with a Dirichlet prior",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "The Dirichlet distribution, as the conjugate prior of the categorical",
+          "which makes the DPN a normal neural network model with a soft-": "(10)\nLdpn-kl = Ldpn + λ Lkl."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "distribution,\nis parameterised by its concentration parameter α =",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "The targets of\nthe previous time step are the soft\nlabels. This is a"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "[α1, . . . , αK ]T. A Dirichlet distribution Dir(µ|α) is",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "major difference from [14], which treats the DPN loss as the main"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "Γ (α0)",
+          "which makes the DPN a normal neural network model with a soft-": "loss to model the uncertainty of emotions for each utterance indepen-"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "K(cid:89) k\nDir(µ|α) =\nµαk−1\n,\n(5)",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "k\n(cid:81)K",
+          "which makes the DPN a normal neural network model with a soft-": "dently without taking the previous emotion predictions into account."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "k=1 Γ (αk)\n=1",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "3.3. Evaluating distribution-based ERC"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "K(cid:88) k\nα0 =\nαk,\nαk > 0,",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "=1",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "Since\nclassiﬁcation accuracy cannot be\napplied to the utterances"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "where Γ(·) is the gamma function deﬁned as",
+          "which makes the DPN a normal neural network model with a soft-": "without majority agreed labels,\nit\nis no longer\nsuitable to be the"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "(cid:90) ∞",
+          "which makes the DPN a normal neural network model with a soft-": "primary measure\nfor\nevaluating\ndistribution-based ERC system."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "zαk−1e−z dz.\n(6)\nΓ (αk) =",
+          "which makes the DPN a normal neural network model with a soft-": "The\narea under\nthe precision-recall\ncurve\n(AUPR)\nis used as\nan"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "0",
+          "which makes the DPN a normal neural network model with a soft-": "alternative metric [14] at test-time. A precision-recall (PR) curve is"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "In the Dirichlet process, given α, a categorical emotion distribution",
+          "which makes the DPN a normal neural network model with a soft-": "obtained by calculating the precision and recall for different decision"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "µ is drawn from Dir(µ|α), and an emotion class label ωk is sampled",
+          "which makes the DPN a normal neural network model with a soft-": "thresholds where the x-axis of a PR curve is the recall,\nthe y-axis"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "from µ.",
+          "which makes the DPN a normal neural network model with a soft-": "is the precision.\nThe AUPR is the average of precision across all"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "recall values computed as the area under the PR curve. Compared"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "to classiﬁcation accuracy, AUPR can be applied to all test utterances"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "3.2.2. DPN for emotion recognition",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "and also quantify the model’s ability to estimate uncertainty."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "A DPN is a neural network modelling p(µ|x, Λ) by predicting the",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "In this paper, the curve is drawn by detecting utterances without"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "concentration parameter α of the Dirichlet prior, where Λ is the col-",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "majority agreed labels based on the model prediction. Utterances"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "lection of model parameters. For each utterance x, the DPN predicts",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "with majority agreed labels are selected as positive class and utter-"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "the\nα = exp[fΛ(x)], where fΛ(.) is the DPN model. Note that",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "ances without majority agreed labels are chosen as the negative class."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "predicted α depends on, and is speciﬁc to, each input utterance x.",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "Two threshold measures representing the conﬁdence encapsulated in"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "By predicting α separately for each utterance,\nthe DPN makes the",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "the prediction can be used as the threshold for AUPR:"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "Dirichlet prior “utterance-speciﬁc” and thus suitable for ERC tasks.",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "• The entropy of\nthe predictive distribution (Ent.), deﬁned as"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "The predictive distribution of the DPN is the expected categori-",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "− (cid:80)K"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "cal distribution under Dir(µ|α) [34]:",
+          "which makes the DPN a normal neural network model with a soft-": "that measures\nthe ﬂat-\nk=1 p (ωk|x, Λ) ln p (ωk|x, Λ)"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "",
+          "which makes the DPN a normal neural network model with a soft-": "ness of the emotion distribution, where x is an utterance, ωk"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "p(ωk|x, Λ) = Ep(µ|x,Λ) [p (ωk|µ)]",
+          "which makes the DPN a normal neural network model with a soft-": "is the k-th class and Λ is the model."
+        },
+        {
+          "as the training progresses, which changes the training process from a": "αk",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "=\n(7)\n= softmax[fΛ(x)]k,",
+          "which makes the DPN a normal neural network model with a soft-": "• The max probability (Max.P), maxk p(ωk|x, Λ) measuring"
+        },
+        {
+          "as the training progresses, which changes the training process from a": "(cid:80)K",
+          "which makes the DPN a normal neural network model with a soft-": ""
+        },
+        {
+          "as the training progresses, which changes the training process from a": "k(cid:48) =1 αk(cid:48)",
+          "which makes the DPN a normal neural network model with a soft-": "the conﬁdence of the predicted emotion class."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "⨁\n𝐜𝐜(O×1)"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "∗"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "𝐜𝐜(O×1)"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "⨀"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "𝐛𝐛(O×1)"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "𝐕𝐕1(O×Q)\nP(O×D)\n𝐕𝐕2(O×Q)"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "tanh(�)\ntanh(�)"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "T\nT"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "Q = 768\n𝐔𝐔1(D×Q)\n𝐔𝐔2(D×Q)"
+        },
+        {
+          "⨁": "O = D = 256"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "𝐞𝐞1(Q×1)\n𝐞𝐞2(Q×1)"
+        },
+        {
+          "⨁": "Fig. 2. Schematic of bilinear pooling with shortcut combination. (cid:12)"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "represents the Hadamard product and ⊕ represents the element-wise"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "addition of vectors."
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "The process is illustrated in Fig. 2.\nIn this paper, e1, e2 are the"
+        },
+        {
+          "⨁": "W2V2 and BERT derived vectors to be combined, and are both 768-"
+        },
+        {
+          "⨁": "dim. D and O are both 256-dim, c is the 256-dim combined vector,"
+        },
+        {
+          "⨁": "U1, U2 are both 768×256-dim matrices, b is a 256-dim bias vector,"
+        },
+        {
+          "⨁": "P is a 256×256-dim linear projection, V1, V2 are both 256×768-"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "dim, and (cid:12) is the Hadamard product."
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "5. EXPERIMENTS"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "5.1. Experimental setup"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "5.1.1. Dataset"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "The IEMOCAP [7] corpus\nis used in this paper, which is one of"
+        },
+        {
+          "⨁": "the most widely used datasets for verbal emotion classiﬁcation.\nIt"
+        },
+        {
+          "⨁": "consists of 5 dyadic conversational sessions performed by 10 profes-"
+        },
+        {
+          "⨁": "sional actors with a session being a conversation between two speak-"
+        },
+        {
+          "⨁": "ers.\nThere are in total 151 dialogues including 10,039 utterances."
+        },
+        {
+          "⨁": "Each utterance was annotated by three human annotators for emo-"
+        },
+        {
+          "⨁": "tion class labels (neutral, happy, sad, and angry etc.). Each annotator"
+        },
+        {
+          "⨁": "was allowed to tag more than one emotion category for each sen-"
+        },
+        {
+          "⨁": "tence if they perceived a mixture of emotions, giving utterances 3.12"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "labels on average. Ground-truth labels were determined by majority"
+        },
+        {
+          "⨁": "vote Following prior work [1, 2, 3], the reference transcriptions from"
+        },
+        {
+          "⨁": "IEMOCAP were used for the text modality. Leave-one-session-out"
+        },
+        {
+          "⨁": "5-fold cross validation (5-CV) was performed and the average results"
+        },
+        {
+          "⨁": "are reported."
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "5.1.2. Data augmentation"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "In the dialogue-level ERC system, the number of training samples is"
+        },
+        {
+          "⨁": "equal\nto the number of dialogues in the dataset, which is often very"
+        },
+        {
+          "⨁": "limited (e.g.\n151 in IEMOCAP). To mitigate training data sparsity"
+        },
+        {
+          "⨁": "issues,\nsub-sequence randomisation [54] was used to augment\nthe"
+        },
+        {
+          "⨁": "training data, which samples sub-sequences (xs:e, ys:e) from each"
+        },
+        {
+          "⨁": "full\ntraining sequence as the augmented training samples, where s"
+        },
+        {
+          "⨁": "and e are the randomly selected start and end utterance indexes."
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "5.1.3.\nTraining speciﬁcations"
+        },
+        {
+          "⨁": ""
+        },
+        {
+          "⨁": "The Transformer architecture [11] used for ERC contains 4 encoder"
+        },
+        {
+          "⨁": "blocks and 4 decoder blocks with a dimension of 256. The multi-"
+        },
+        {
+          "⨁": "head attention contains 4 heads. Masking was applied to ensure"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 1: , testutteranceswithmajorityagreedlabels,aswellasby4-wayclas-",
+      "data": [
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": "Happy"
+        },
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": "Neutral"
+        },
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": "Sad"
+        },
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": ""
+        },
+        {
+          "Angry": "Others"
+        },
+        {
+          "Angry": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 1: , testutteranceswithmajorityagreedlabels,aswellasby4-wayclas-",
+      "data": [
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "No agreement\nHappy\n25.0%\n23.7%"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "26%"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "across folds) for 4-way utterance and dialogue baseline systems on",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "(a)\n(b)\nNeutral\n2/3 agreement"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "22%"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "IEMOCAP. IANN [21] and DED [28] are ERC methods using audio",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "14%\nSad"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "3/3 agreement\n51.3%"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "features only without pre-trained encoders.",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "23%\nOthers"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "System\n%WA\n%UA",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "utterance-W2V2ft\n68.71±2.60\n69.99±3.91",
+          "15%": "Fig. 3. Distribution of data in IEMOCAP.\n(a) Proportion of anno-"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "tators agreeing on the label.\n(b) Ground-truth of utterances with"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "dialogue-W2V2ft\n70.18±4.83\n71.32±4.06",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "unique majority labels."
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "dialogue-BERT\n68.57±3.50\n67.56±2.94",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "(𝟓𝟓)\n(𝟓𝟓)\nΩ2/3\n𝛀𝛀𝟑𝟑/𝟑𝟑\n𝛀𝛀≤𝟏𝟏/𝟑𝟑"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "𝛀𝛀𝟐𝟐/𝟑𝟑\n𝛀𝛀𝟏𝟏/𝟑𝟑\nΩ2/3"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "dialogue-W2V2ft+BERT\n74.87±3.77\n74.59±3.50",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "This strategy not only causes a loss of nearly half of\nthe emotion"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "IANN [21]\n64.7\n66.3",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "data, which are highly valuable, but also causes the dialogue contexts"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "DED [28]\n69.0\n70.1",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "modelled by the Transformer\nto be non-contiguous.\nFurthermore,"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "among the utterances with majority agreed labels, only 31.6% have"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "all annotators agreed on the same emotion class label. When ma-"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "that predictions for\nthe current utterance depend only on previous",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "𝜔𝜔𝑘𝑘\n𝝁𝝁\n𝜶𝜶"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "jority voting is applied, an utterance with labels “happy”, “happy”,"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "input utterances and known outputs.\nSinusoidal positional embed-",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "𝜔𝜔𝑘𝑘 ~ 𝝁𝝁"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "“happy” and an utterance with labels “happy”, “happy”, “sad” have"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "dings [11] were added to the input features. A dropout rate of 10%",
+          "15%": "𝐾𝐾"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "the same ground-truth label “happy”, even though an annotator has"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "was applied to all parameters. The model was implemented using",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "assigned a different label to the latter utterance. The use of majority"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "PyTorch.\nScheduled sampling with an exponential scheduler was",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "voting therefore changes the true emotion distributions and causes"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "used during training. The Adam optimiser was used with a variable",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "the inherent uncertainty that exists in the annotations to be discarded."
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "learning rate with linear warm-up for the ﬁrst 2,000 training updates",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "and then linearly decreasing.4",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "5.4. ERC with Distribution modelling"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "5.2. AER with 4-way classiﬁcation",
+          "15%": "In this section,\nthe training targets for each utterance were revised"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "from a single discrete label\nto a continuous-valued categorical dis-"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "The most common setup on IEMOCAP [2, 4, 18, 21, 28, 22] only",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "tribution over ﬁve emotion classes. The ﬁve classes correspond to"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "uses utterances with majority agreed labels belonging to “angry”,",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "the previous four emotion classes plus an extra class “others” that"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "“happy”, “excited” (merged with “happy”), “sad”, and “neutral” for",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "includes all\nthe other emotions\nthat exist\nin IEMOCAP. This not"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "a 4-way classiﬁcation, which results in 5,531 utterances. For com-",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "only allows all data in IEMOCAP to be used for ERC, regardless of"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "parison, 4-way emotion classiﬁcation systems using this setup were",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "whether majority agreed label exists and whether it belongs to the 4"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "ﬁrst built as baselines.\nSince the test sets are slightly imbalanced",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "classes, but also avoids the problem that not all of the original labels"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "between different emotion categories, both weighted accuracy (WA)",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "are represented by majority voting. Three systems were evaluated:"
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "and unweighted accuracy (UA) are reported for classiﬁcation exper-",
+          "15%": ""
+        },
+        {
+          "Table 1. 5-fold CV classiﬁcation results (mean± standard deviation": "",
+          "15%": "• HARD: A system trained by 5-way classiﬁcation. When"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 1: , testutteranceswithmajorityagreedlabels,aswellasby4-wayclas-",
+      "data": [
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "ﬁrst built as baselines.\nSince the test sets are slightly imbalanced"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "between different emotion categories, both weighted accuracy (WA)"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "and unweighted accuracy (UA) are reported for classiﬁcation exper-"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "iments. WA corresponds to the overall accuracy while UA corre-"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "sponds to the mean of class-wise accuracy."
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "The “wav2vec2-base” model was ﬁne-tuned for single-utterance-"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "based 4-way classiﬁcation by adding a 128-d fully connected layer"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "and an output layer with softmax activation on top of the pre-trained"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "model. The ﬁne-tuning experiment results are shown as “utterance-"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "W2V2ft” in Table 1. The Transformer ERC model was then trained"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "using the ﬁne-tuned W2V2 features\n(“dialogue-W2V2ft”), BERT"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": "features (“dialogue-BERT”), and the fusion of BERT and the ﬁne-"
+        },
+        {
+          "parison, 4-way emotion classiﬁcation systems using this setup were": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "0.0\n0.0": "1.43281.33971.31741.2612\na3: neutral"
+        },
+        {
+          "0.0\n0.0": "and I got my degree."
+        },
+        {
+          "0.0\n0.0": "1.41671.24771.33351.0641"
+        },
+        {
+          "0.0\n0.0": "And I got a job."
+        },
+        {
+          "0.0\n0.0": "0"
+        },
+        {
+          "0.0\n0.0": ""
+        },
+        {
+          "0.0\n0.0": "label and the line on the bar chart shows the prediction. Labels provided by the three"
+        },
+        {
+          "0.0\n0.0": ""
+        },
+        {
+          "0.0\n0.0": ""
+        },
+        {
+          "0.0\n0.0": "From Fig. 4, utterance Female-1 has two annotators that each"
+        },
+        {
+          "0.0\n0.0": ""
+        },
+        {
+          "0.0\n0.0": "provided two labels,\nindicating the uncertainty of\nthe\nemotional"
+        },
+        {
+          "0.0\n0.0": ""
+        },
+        {
+          "0.0\n0.0": "content of\nthe utterance. The uncertainty of emotion estimation is"
+        },
+        {
+          "0.0\n0.0": "DPN-KL\nreﬂected by the high entropy.\nAlthough utterances Female-2 and"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "method on IEMOCAP. Highest value in each row shown in bold font."
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "Metric"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "5-way %WA"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "5-way %UA"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "4-way %WA"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "4-way %UA"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "%AUPR (MaxP)"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": "%AUPR (Ent.)"
+        },
+        {
+          "Table 2. 5-fold CV results for the proposed distribution-based ERC": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "the dialogue progressed, indicating that the model is becoming more"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "conﬁdent about\nits predictions.\nThe reductions of uncertainty in"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "this example demonstrates\nthe advantage of using cross-utterance"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "contextual\ninformation\nin\nour\nproposed\ndistribution-based ERC"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "framework. Moreover, another example is the emotional shift\nthat"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "occurs from utterance Male-2 to Male-3. Due to emotional\ninertia,"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "the model predicts a higher probability of “others” while still retain-"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "ing some probability for “neutral”. The larger entropy reveals that"
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": "the model is uncertain about this prediction."
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        },
+        {
+          "Female-4; Male-1, Male-2 and Male-4),\nthe entropy decreases as": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "“Emotion representation, analysis and synthesis in continuous"
+        },
+        {
+          "7. REFERENCES": "[1]\nSamarth Tripathi.,\nSarthak Tripathi,\nand Homayoon Beigi,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "space: A survey,” in Proc. FG, Santa Barbara, 2011."
+        },
+        {
+          "7. REFERENCES": "“Multi-modal emotion recognition on IEMOCAP dataset us-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[16] Harold Schlosberg,\n“Three dimensions of emotion.,” Psycho-"
+        },
+        {
+          "7. REFERENCES": "ing deep learning,” arXiv preprint 1804.05788, 2018.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "logical review, vol. 61, no. 2, pp. 81, 1954."
+        },
+        {
+          "7. REFERENCES": "[2] N. Majumder, D. Hazarika, A. Gelbukh, E. Cambria,\nand",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[17] Mihalis A Nicolaou, Hatice Gunes, and Maja Pantic, “Contin-"
+        },
+        {
+          "7. REFERENCES": "S. Poria, “Multimodal sentiment analysis using hierarchical fu-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "uous prediction of spontaneous affect from multiple cues and"
+        },
+        {
+          "7. REFERENCES": "sion with context modeling,” Knowledge-Based Systems, vol.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "IEEE Transactions on\nmodalities in valence-arousal space,”"
+        },
+        {
+          "7. REFERENCES": "161, pp. 124–133, 2018.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Affective Computing, vol. 2, no. 2, pp. 92–105, 2011."
+        },
+        {
+          "7. REFERENCES": "[3]\nSoujanya Poria, Navonil Majumder, Devamanyu Hazarika,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[18]\nSeunghyun Yoon, Seokhyun Byun, and Kyomin Jung,\n“Mul-"
+        },
+        {
+          "7. REFERENCES": "Erik Cambria, Alexander Gelbukh, and Amir Hussain,\n“Mul-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "timodal speech emotion recognition using audio and text,”\nin"
+        },
+        {
+          "7. REFERENCES": "timodal sentiment analysis: Addressing key issues and setting",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Proc. SLT, Athens, 2018."
+        },
+        {
+          "7. REFERENCES": "up the baselines,” IEEE Intelligent Systems, vol. 33, no. 6, pp.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "17–25, 2018.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[19] Wen Wu, Chao Zhang, and Philip C. Woodland,\n“Emotion"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "recognition by fusing time synchronous and time asynchronous"
+        },
+        {
+          "7. REFERENCES": "[4] Wenjing Han, Huabin Ruan, Xiaomin Chen, Zhixiang Wang,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "representations,” in Proc. ICASSP, Toronto, 2021."
+        },
+        {
+          "7. REFERENCES": "Haifeng Li, and Bj¨orn Schuller, “Towards temporal modelling",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "Inter-\nof categorical\nspeech emotion recognition,”\nin Proc.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[20] Devamanyu Hazarika, Soujanya Poria, Amir Zadeh, Erik Cam-"
+        },
+        {
+          "7. REFERENCES": "speech, Hyderabad, 2018.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "bria, Louis-Philippe Morency, and Roger Zimmermann, “Con-"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "versational memory network for emotion recognition in dyadic"
+        },
+        {
+          "7. REFERENCES": "[5] Raghavendra Pappagari, Tianzi Wang, Jesus Villalba, Nanxin",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "dialogue videos,” in Proc. ACL, Melbourne, 2018."
+        },
+        {
+          "7. REFERENCES": "Chen, and Najim Dehak,\n“X-vectors meet emotions: A study",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "on dependencies between emotion and speaker recognition,” in",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[21]\nSung-Lin Yeh, Yun-Shao Lin,\nand Chi-Chun Lee,\n“An"
+        },
+        {
+          "7. REFERENCES": "Proc. ICASSP, Barcelona, 2020.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "interaction-aware attention network for speech emotion recog-"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "nition in spoken dialogs,” in Proc. ICASSP, Brighton, 2019."
+        },
+        {
+          "7. REFERENCES": "[6]\nJerry Suls, Peter Green, and Stephen Hillis,\n“Emotional reac-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "tivity to everyday problems, affective inertia, and neuroticism,”",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[22]\nJiaxing Liu, Yaodong Song, Longbiao Wang,\nJianwu Dang,"
+        },
+        {
+          "7. REFERENCES": "Personality and Social Psychology Bulletin, vol. 24, no. 2, pp.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "and Ruiguo Yu, “Time-frequency representation learning with"
+        },
+        {
+          "7. REFERENCES": "127–136, 1998.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "graph convolutional network for dialogue-level\nspeech emo-"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "tion recognition,” in Proc. Interspeech, Brno, 2021."
+        },
+        {
+          "7. REFERENCES": "[7] C. Busso, M. Bulut, C.-C. Lee, A. Kazemzadeh, E.M. Provost,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "S. Kim, J.N. Chang, S. Lee, and S.S. Narayanan, “IEMOCAP:",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[23] Deepanway Ghosal, Navonil Majumder, Soujanya Poria, Niy-"
+        },
+        {
+          "7. REFERENCES": "Lan-\nInteractive emotional dyadic motion capture database,”",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "ati Chhaya, and Alexander Gelbukh, “DialogueGCN: A graph"
+        },
+        {
+          "7. REFERENCES": "guage Resources and Evaluation, vol. 42, pp. 335–359, 2008.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "convolutional neural network for emotion recognition in con-"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "versation,” in Proc. EMNLP, Hong Kong, 2019."
+        },
+        {
+          "7. REFERENCES": "[8] Ya Li, Jianhua Tao, Bj¨orn Schuller, Shiguang Shan, Dongmei",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "Jiang, and Jia Jia,\n“MEC 2017: Multimodal emotion recogni-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[24] Dong Zhang, Liangqing Wu, Changlong Sun, Shoushan Li,"
+        },
+        {
+          "7. REFERENCES": "tion challenge,” in Proc. ACII Asia, Beijing, 2018.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Qiaoming Zhu, and Guodong Zhou,\n“Modeling both context-"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "and\nspeaker-sensitive\ndependence\nfor\nemotion\ndetection\nin"
+        },
+        {
+          "7. REFERENCES": "[9] Carlos Busso, Srinivas Parthasarathy, Alec Burmania, Mo-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "multi-speaker conversations.,” in Proc. IJCAI, Macao, 2019."
+        },
+        {
+          "7. REFERENCES": "hammed AbdelWahab, Najmeh Sadoughi, and Emily Mower",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "Provost,\n“MSP-IMPROV: An acted corpus of dyadic interac-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[25] Navonil Majumder,\nSoujanya Poria, Devamanyu Hazarika,"
+        },
+        {
+          "7. REFERENCES": "IEEE Trans on Affective\ntions to study emotion perception,”",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Rada Mihalcea, Alexander Gelbukh, and Erik Cambria,\n“Di-"
+        },
+        {
+          "7. REFERENCES": "Computing, vol. 8, no. 1, pp. 67–80, 2017.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "alogueRNN: An attentive RNN for emotion detection in con-"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "versations,” in Proc. AAAI, Honolulu, 2019."
+        },
+        {
+          "7. REFERENCES": "[10]\nSoujanya Poria, Devamanyu Hazarika, Navonil Majumder,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "˙\n[26] Raghavendra Pappagari, Piotr\nZelasko, Jes´us Villalba, Laure-"
+        },
+        {
+          "7. REFERENCES": "Gautam Naik, Erik Cambria, and Rada Mihalcea,\n“MELD:",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "A multimodal multi-party dataset\nfor emotion recognition in",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "ano Moro-Velazquez, and Najim Dehak, “Beyond isolated ut-"
+        },
+        {
+          "7. REFERENCES": "conversations,” arXiv preprint arXiv:1810.02508, 2018.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "terances: Conversational emotion recognition,” in Proc. ASRU,"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Cartagena, 2021."
+        },
+        {
+          "7. REFERENCES": "[11] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polo-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[27] Ruo Zhang, Atsushi Ando, Satoshi Kobashikawa, and Yushi"
+        },
+        {
+          "7. REFERENCES": "sukhin,\n“Attention is all you need,”\nin Proc. NeurIPS, Long",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Aono,\n“Interaction and transition model\nfor speech emotion"
+        },
+        {
+          "7. REFERENCES": "Beach, 2017.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "recognition in dialogue.,”\nin Proc.\nInterspeech, Stockholm,"
+        },
+        {
+          "7. REFERENCES": "",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "2017."
+        },
+        {
+          "7. REFERENCES": "[12] Alexei Baevski, Yuhao Zhou, Abdelrahman Mohamed,\nand",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": ""
+        },
+        {
+          "7. REFERENCES": "Michael Auli, “Wav2Vec 2.0: A framework for self-supervised",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[28]\nSung-Lin Yeh, Yun-Shao Lin, and Chi-Chun Lee,\n“A dialogi-"
+        },
+        {
+          "7. REFERENCES": "learning of speech representations,” in Proc. NeurIPS, Virtual,",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "cal emotion decoder for speech emotion recognition in spoken"
+        },
+        {
+          "7. REFERENCES": "2020.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "dialog,” in Proc. ICASSP, Barcelona, 2020."
+        },
+        {
+          "7. REFERENCES": "[13]\nJacob Devlin, Ming-Wei Chang, Kenton Lee,\nand Kristina",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[29] Atsushi Ando, Satoshi Kobashikawa, Hosana Kamiyama, Ryo"
+        },
+        {
+          "7. REFERENCES": "Toutanova,\n“BERT: Pre-training of deep bidirectional\ntrans-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Masumura, Yusuke Ijima, and Yushi Aono, “Soft-target train-"
+        },
+        {
+          "7. REFERENCES": "formers for language understanding,”\nin Proc. NAACL, Min-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "ing with ambiguous emotional utterances for dnn-based speech"
+        },
+        {
+          "7. REFERENCES": "neapolis, 2019.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "emotion classiﬁcation,” in Proc. ICASSP, Brighton, 2018."
+        },
+        {
+          "7. REFERENCES": "[14] Wen Wu, Chao Zhang, Xixin Wu,\nand Philip C. Wood-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "[30] Haytham M. Fayek, Margaret Lech, and Lawrence Cavedon,"
+        },
+        {
+          "7. REFERENCES": "land,\n“Estimating\nthe\nuncertainty\nin\nemotion\nclass\nla-",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "“Modeling subjectiveness\nin emotion recognition with deep"
+        },
+        {
+          "7. REFERENCES": "arXiv preprint\nbels with utterance-speciﬁc dirichlet priors,”",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "neural networks: Ensembles vs soft\nlabels,”\nin Proc. IJCNN,"
+        },
+        {
+          "7. REFERENCES": "arXiv:2203.04443, 2022.",
+          "[15] Hatice Gunes, Bj¨orn Schuller, Maja Pantic, and Roddy Cowie,": "Vancouver, 2016."
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Kazemzadeh, Carlos Busso,\nSungbok Lee,\nand\nShrikanth",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "oda, “Multimodal emotion recognition with high-level speech"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Narayanan,\n“Interpreting ambiguous emotional expressions,”",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "and text features,” in Proc. ASRU, Cartagena, 2021."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "in Proc. ACII, Amsterdam, 2009.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[46] Edmilson Morais,\nRon Hoory, Weizhong\nZhu,\nItai Gat,"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[32] Ronald J Williams and David Zipser, “A learning algorithm for",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Matheus Damasceno, and Hagai Aronowitz, “Speech emotion"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "continually running fully recurrent neural networks,” Neural",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "recognition using self-supervised features,”\nin Proc. ICASSP,"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "computation, vol. 1, no. 2, pp. 270–280, 1989.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Toronto, 2022."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[33]\nSamy Bengio, Oriol Vinyals, Navdeep\nJaitly,\nand Noam",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[47] Mayank Sharma,\n“Multi-lingual multi-task speech emotion"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Shazeer,\n“Scheduled sampling for sequence prediction with",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "recognition using wav2vec 2.0,”\nin Proc.\nICASSP, Toronto,"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "recurrent neural networks,” in Proc. NeurIPS, Montr´eal, 2015.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "2022."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[34] Andrey Malinin and Mark Gales, “Predictive uncertainty esti-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[48] Heqing Zou, Yuke Si, Chen Chen, Deepu Rajan, and Eng Siong"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "mation via prior networks,” in Proc. NeurIPS, Montr´eal, 2018.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Chng,\n“Speech emotion recognition with co-attention based"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "multi-level acoustic information,”\nin Proc. ICASSP, Toronto,"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[35] Andrey Malinin and Mark Gales,\n“Reverse KL-Divergence",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "2022."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "training of prior networks: Improved uncertainty and adversar-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "ial robustness,” in Proc. NeurIPS, Vancouver, 2019.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[49] Aaron van den Oord, Yazhe Li, and Oriol Vinyals,\n“Repre-"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[36] Rishi Bommasani, Drew A Hudson, Ehsan Adeli, Russ Alt-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "arXiv\nsentation learning with contrastive predictive coding,”"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "man, Simran Arora, Sydney von Arx, Michael S. Bernstein,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "preprint arXiv:1807.03748, 2018."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Jeannette Bohg, Antoine Bosselut, Emma Brunskill,\net\nal.,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[50] Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "arXiv\n“On the opportunities and risks of foundation models,”",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Khudanpur,\n“Librispeech: an asr corpus based on public do-"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "preprint arXiv:2108.07258, 2021.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "main audio books,” in Proc. ICASSP, South Brisbane, 2015."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[37] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[51]\nJoshua B Tenenbaum and William T. Freeman,\n“Separating"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Amodei,\nIlya Sutskever, et al.,\n“Language models are unsu-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "style and content with bilinear models,” Neural computation,"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "pervised multitask learners,” OpenAI blog, vol. 1, no. 8, pp. 9,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "vol. 12, no. 6, pp. 1247–1283, 2000."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "2019.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[52] Chao Zhang, Zichao Yang, Xiaodong He, and Li Deng, “Mul-"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[38] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Sub-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "timodal\nintelligence: Representation learning,\ninformation fu-"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "biah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "IEEE Journal of Selected Topics in\nsion, and applications,”"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Pranav Shyam, Girish Sastry, Amanda Askell, et al.,\n“Lan-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Signal Processing, vol. 14, no. 3, pp. 478–493, 2020."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "guage models are few-shot\nlearners,”\nin Proc. NeurIPS, Vir-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[53] Guangzhi Sun, Chao Zhang, and Philip C Woodland,\n“Com-"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "tual, 2020.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "bination of deep speaker embeddings for diarisation,” Neural"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[39] Alexander Kolesnikov, Alexey Dosovitskiy, Dirk Weissenborn,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Networks, vol. 141, pp. 372–384, 2021."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Georg Heigold,\nJakob Uszkoreit,\nLucas Beyer, Matthias",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "[54] Qiujia Li, Florian L. Kreyssig, Chao Zhang,\nand Philip C."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Minderer, Mostafa Dehghani, Neil Houlsby, Sylvain Gelly,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "Woodland,\n“Discriminative neural clustering for speaker di-"
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Thomas Unterthiner, and Xiaohua Zhai,\n“An image is worth",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": "arisation,” in Proc. SLT, Shenzhen, 2021."
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "16x16 words: Transformers for image recognition at scale,” in",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Proc. ICLR, Vienna, 2021.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[40] Mark Chen, Alec Radford, Rewon Child, Jeffrey Wu, Heewoo",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Jun, David Luan, and Ilya Sutskever,\n“Generative pretraining",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "from pixels,” in Proc. ICML, Virtual, 2020.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[41] Abdelrahman Mohamed,\nHung-yi\nLee,\nLasse\nBorgholt,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Jakob D Havtorn, Joakim Edin, Christian Igel, Katrin Kirch-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "hoff, Shang-Wen Li, Karen Livescu, Lars Maaløe, et al., “Self-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "arXiv\nsupervised speech representation learning: A review,”",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "preprint arXiv:2205.10643, 2022.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[42]\nJan Chorowski, Grzegorz Ciesielski,\nJarosław Dzikowski,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Adrian Ła´ncucki, Ricard Marxer, Mateusz Opala, Piotr Pusz,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Paweł Rychlikowski, and Michał Stypułkowski, “Aligned con-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "trastive predictive coding,” in Proc. Interspeech, Brno, 2021.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[43] Wei-Ning Hsu,\nBenjamin Bolte,\nYao-Hung Hubert\nTsai,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Kushal Lakhotia, Ruslan Salakhutdinov,\nand Abdelrahman",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Mohamed,\n“HuBERT: Self-supervised speech representation",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "IEEE Trans-\nlearning by masked prediction of hidden units,”",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "actions on Audio, Speech, and Language Processing, vol. 29,",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "pp. 3451–3460, 2021.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "[44]\nSanyuan Chen, Chengyi Wang, Zhengyang Chen, Yu Wu, Shu-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "jie Liu, Zhuo Chen, Jinyu Li, Naoyuki Kanda, Takuya Yosh-",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "ioka, Xiong Xiao, et al., “Wavlm: Large-scale self-supervised",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "pre-training for full stack speech processing,” IEEE Journal of",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        },
+        {
+          "[31] Emily Mower, Angeliki Metallinou,\nChi\nchun Lee, Abe": "Selected Topics in Signal Processing, 2022.",
+          "[45] Mariana Rodrigues Makiuchi, Kuniaki Uto, and Koichi Shin-": ""
+        }
+      ],
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Multi-modal emotion recognition on IEMOCAP dataset using deep learning",
+      "authors": [
+        "Samarth Tripathi",
+        "Homayoon Sarthak Tripathi",
+        "Beigi"
+      ],
+      "year": "2018",
+      "venue": "Multi-modal emotion recognition on IEMOCAP dataset using deep learning"
+    },
+    {
+      "citation_id": "3",
+      "title": "Multimodal sentiment analysis using hierarchical fusion with context modeling",
+      "authors": [
+        "N Majumder",
+        "D Hazarika",
+        "A Gelbukh",
+        "E Cambria",
+        "S Poria"
+      ],
+      "year": "2018",
+      "venue": "Knowledge-Based Systems"
+    },
+    {
+      "citation_id": "4",
+      "title": "Multimodal sentiment analysis: Addressing key issues and setting up the baselines",
+      "authors": [
+        "Soujanya Poria",
+        "Navonil Majumder",
+        "Devamanyu Hazarika",
+        "Erik Cambria",
+        "Alexander Gelbukh",
+        "Amir Hussain"
+      ],
+      "year": "2018",
+      "venue": "IEEE Intelligent Systems"
+    },
+    {
+      "citation_id": "5",
+      "title": "Towards temporal modelling of categorical speech emotion recognition",
+      "authors": [
+        "Wenjing Han",
+        "Huabin Ruan",
+        "Xiaomin Chen",
+        "Zhixiang Wang",
+        "Haifeng Li",
+        "Björn Schuller"
+      ],
+      "year": "2018",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "6",
+      "title": "X-vectors meet emotions: A study on dependencies between emotion and speaker recognition",
+      "authors": [
+        "Raghavendra Pappagari",
+        "Tianzi Wang",
+        "Jesus Villalba",
+        "Nanxin Chen",
+        "Najim Dehak"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "7",
+      "title": "Emotional reactivity to everyday problems, affective inertia, and neuroticism",
+      "authors": [
+        "Jerry Suls",
+        "Peter Green",
+        "Stephen Hillis"
+      ],
+      "year": "1998",
+      "venue": "Personality and Social Psychology Bulletin"
+    },
+    {
+      "citation_id": "8",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Provost",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "9",
+      "title": "MEC 2017: Multimodal emotion recognition challenge",
+      "authors": [
+        "Ya Li",
+        "Jianhua Tao",
+        "Björn Schuller",
+        "Shiguang Shan",
+        "Dongmei Jiang",
+        "Jia Jia"
+      ],
+      "year": "2018",
+      "venue": "Proc. ACII Asia"
+    },
+    {
+      "citation_id": "10",
+      "title": "MSP-IMPROV: An acted corpus of dyadic interactions to study emotion perception",
+      "authors": [
+        "Carlos Busso",
+        "Srinivas Parthasarathy",
+        "Alec Burmania",
+        "Mohammed Abdelwahab",
+        "Najmeh Sadoughi",
+        "Emily Provost"
+      ],
+      "year": "2017",
+      "venue": "IEEE Trans on Affective Computing"
+    },
+    {
+      "citation_id": "11",
+      "title": "MELD: A multimodal multi-party dataset for emotion recognition in conversations",
+      "authors": [
+        "Soujanya Poria",
+        "Devamanyu Hazarika",
+        "Navonil Majumder",
+        "Gautam Naik",
+        "Erik Cambria",
+        "Rada Mihalcea"
+      ],
+      "year": "2018",
+      "venue": "MELD: A multimodal multi-party dataset for emotion recognition in conversations",
+      "arxiv": "arXiv:1810.02508"
+    },
+    {
+      "citation_id": "12",
+      "title": "Attention is all you need",
+      "authors": [
+        "Ashish Vaswani",
+        "Noam Shazeer",
+        "Niki Parmar",
+        "Jakob Uszkoreit",
+        "Llion Jones",
+        "Aidan Gomez",
+        "Lukasz Kaiser",
+        "Illia Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Proc. NeurIPS"
+    },
+    {
+      "citation_id": "13",
+      "title": "Wav2Vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Yuhao Zhou",
+        "Abdelrahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "Proc. NeurIPS, Virtual"
+    },
+    {
+      "citation_id": "14",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "Jacob Devlin",
+        "Ming-Wei Chang",
+        "Kenton Lee",
+        "Kristina Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proc. NAACL, Minneapolis"
+    },
+    {
+      "citation_id": "15",
+      "title": "Estimating the uncertainty in emotion class labels with utterance-specific dirichlet priors",
+      "authors": [
+        "Wen Wu",
+        "Chao Zhang",
+        "Xixin Wu",
+        "Philip Woodland"
+      ],
+      "year": "2022",
+      "venue": "Estimating the uncertainty in emotion class labels with utterance-specific dirichlet priors",
+      "arxiv": "arXiv:2203.04443"
+    },
+    {
+      "citation_id": "16",
+      "title": "Emotion representation, analysis and synthesis in continuous space: A survey",
+      "authors": [
+        "Hatice Gunes",
+        "Björn Schuller",
+        "Maja Pantic",
+        "Roddy Cowie"
+      ],
+      "year": "2011",
+      "venue": "Proc. FG"
+    },
+    {
+      "citation_id": "17",
+      "title": "Three dimensions of emotion",
+      "authors": [
+        "Harold Schlosberg"
+      ],
+      "year": "1954",
+      "venue": "Psychological review"
+    },
+    {
+      "citation_id": "18",
+      "title": "Continuous prediction of spontaneous affect from multiple cues and modalities in valence-arousal space",
+      "authors": [
+        "A Mihalis",
+        "Hatice Nicolaou",
+        "Maja Gunes",
+        "Pantic"
+      ],
+      "year": "2011",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "19",
+      "title": "Multimodal speech emotion recognition using audio and text",
+      "authors": [
+        "Seunghyun Yoon",
+        "Seokhyun Byun",
+        "Kyomin Jung"
+      ],
+      "year": "2018",
+      "venue": "SLT"
+    },
+    {
+      "citation_id": "20",
+      "title": "Emotion recognition by fusing time synchronous and time asynchronous representations",
+      "authors": [
+        "Wen Wu",
+        "Chao Zhang",
+        "Philip Woodland"
+      ],
+      "year": "2021",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "21",
+      "title": "Conversational memory network for emotion recognition in dyadic dialogue videos",
+      "authors": [
+        "Devamanyu Hazarika",
+        "Soujanya Poria",
+        "Amir Zadeh",
+        "Erik Cambria",
+        "Louis-Philippe Morency",
+        "Roger Zimmermann"
+      ],
+      "year": "2018",
+      "venue": "Proc. ACL"
+    },
+    {
+      "citation_id": "22",
+      "title": "An interaction-aware attention network for speech emotion recognition in spoken dialogs",
+      "authors": [
+        "Sung-Lin Yeh",
+        "Yun-Shao Lin",
+        "Chi-Chun Lee"
+      ],
+      "year": "2019",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "23",
+      "title": "Time-frequency representation learning with graph convolutional network for dialogue-level speech emotion recognition",
+      "authors": [
+        "Jiaxing Liu",
+        "Yaodong Song",
+        "Longbiao Wang",
+        "Jianwu Dang",
+        "Ruiguo Yu"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "24",
+      "title": "DialogueGCN: A graph convolutional neural network for emotion recognition in conversation",
+      "authors": [
+        "Deepanway Ghosal",
+        "Navonil Majumder",
+        "Soujanya Poria",
+        "Niyati Chhaya",
+        "Alexander Gelbukh"
+      ],
+      "year": "2019",
+      "venue": "Proc. EMNLP"
+    },
+    {
+      "citation_id": "25",
+      "title": "Modeling both contextand speaker-sensitive dependence for emotion detection in multi-speaker conversations",
+      "authors": [
+        "Dong Zhang",
+        "Liangqing Wu",
+        "Changlong Sun",
+        "Shoushan Li",
+        "Qiaoming Zhu",
+        "Guodong Zhou"
+      ],
+      "year": "2019",
+      "venue": "Proc. IJCAI"
+    },
+    {
+      "citation_id": "26",
+      "title": "Di-alogueRNN: An attentive RNN for emotion detection in conversations",
+      "authors": [
+        "Navonil Majumder",
+        "Soujanya Poria",
+        "Devamanyu Hazarika",
+        "Rada Mihalcea",
+        "Alexander Gelbukh",
+        "Erik Cambria"
+      ],
+      "year": "2019",
+      "venue": "Proc. AAAI"
+    },
+    {
+      "citation_id": "27",
+      "title": "Beyond isolated utterances: Conversational emotion recognition",
+      "authors": [
+        "Raghavendra Pappagari",
+        "Piotr Żelasko",
+        "Jesús Villalba",
+        "Laureano Moro-Velazquez",
+        "Najim Dehak"
+      ],
+      "year": "2021",
+      "venue": "Proc. ASRU"
+    },
+    {
+      "citation_id": "28",
+      "title": "Interaction and transition model for speech emotion recognition in dialogue",
+      "authors": [
+        "Ruo Zhang",
+        "Atsushi Ando",
+        "Satoshi Kobashikawa",
+        "Yushi Aono"
+      ],
+      "year": "2017",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "29",
+      "title": "A dialogical emotion decoder for speech emotion recognition in spoken dialog",
+      "authors": [
+        "Sung-Lin Yeh",
+        "Yun-Shao Lin",
+        "Chi-Chun Lee"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "30",
+      "title": "Soft-target training with ambiguous emotional utterances for dnn-based speech emotion classification",
+      "authors": [
+        "Atsushi Ando",
+        "Satoshi Kobashikawa",
+        "Hosana Kamiyama",
+        "Ryo Masumura",
+        "Yusuke Ijima",
+        "Yushi Aono"
+      ],
+      "year": "2018",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "31",
+      "title": "Modeling subjectiveness in emotion recognition with deep neural networks: Ensembles vs soft labels",
+      "authors": [
+        "M Haytham",
+        "Margaret Fayek",
+        "Lawrence Lech",
+        "Cavedon"
+      ],
+      "year": "2016",
+      "venue": "Proc. IJCNN"
+    },
+    {
+      "citation_id": "32",
+      "title": "Interpreting ambiguous emotional expressions",
+      "authors": [
+        "Emily Mower",
+        "Angeliki Metallinou",
+        "Chi Chun Lee",
+        "Abe Kazemzadeh",
+        "Carlos Busso",
+        "Sungbok Lee",
+        "Shrikanth Narayanan"
+      ],
+      "year": "2009",
+      "venue": "Proc. ACII"
+    },
+    {
+      "citation_id": "33",
+      "title": "A learning algorithm for continually running fully recurrent neural networks",
+      "authors": [
+        "J Ronald",
+        "David Williams",
+        "Zipser"
+      ],
+      "year": "1989",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "34",
+      "title": "Scheduled sampling for sequence prediction with recurrent neural networks",
+      "authors": [
+        "Samy Bengio",
+        "Oriol Vinyals",
+        "Navdeep Jaitly",
+        "Noam Shazeer"
+      ],
+      "year": "2015",
+      "venue": "Proc. NeurIPS"
+    },
+    {
+      "citation_id": "35",
+      "title": "Predictive uncertainty estimation via prior networks",
+      "authors": [
+        "Andrey Malinin",
+        "Mark Gales"
+      ],
+      "year": "2018",
+      "venue": "Proc. NeurIPS"
+    },
+    {
+      "citation_id": "36",
+      "title": "Reverse KL-Divergence training of prior networks: Improved uncertainty and adversarial robustness",
+      "authors": [
+        "Andrey Malinin",
+        "Mark Gales"
+      ],
+      "year": "2019",
+      "venue": "Proc. NeurIPS"
+    },
+    {
+      "citation_id": "37",
+      "title": "On the opportunities and risks of foundation models",
+      "authors": [
+        "Rishi Bommasani",
+        "Drew Hudson",
+        "Ehsan Adeli",
+        "Russ Altman",
+        "Simran Arora",
+        "Michael Sydney Von Arx",
+        "Jeannette Bernstein",
+        "Antoine Bohg",
+        "Emma Bosselut",
+        "Brunskill"
+      ],
+      "year": "2021",
+      "venue": "On the opportunities and risks of foundation models",
+      "arxiv": "arXiv:2108.07258"
+    },
+    {
+      "citation_id": "38",
+      "title": "Language models are unsupervised multitask learners",
+      "authors": [
+        "Alec Radford",
+        "Jeffrey Wu",
+        "Rewon Child",
+        "David Luan",
+        "Dario Amodei",
+        "Ilya Sutskever"
+      ],
+      "year": "2019",
+      "venue": "OpenAI blog"
+    },
+    {
+      "citation_id": "39",
+      "title": "Language models are few-shot learners",
+      "authors": [
+        "Tom Brown",
+        "Benjamin Mann",
+        "Nick Ryder",
+        "Melanie Subbiah",
+        "Jared Kaplan",
+        "Prafulla Dhariwal",
+        "Arvind Neelakantan",
+        "Pranav Shyam",
+        "Girish Sastry",
+        "Amanda Askell"
+      ],
+      "year": "2020",
+      "venue": "Proc. NeurIPS, Virtual"
+    },
+    {
+      "citation_id": "40",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "Alexander Kolesnikov",
+        "Alexey Dosovitskiy",
+        "Dirk Weissenborn",
+        "Georg Heigold",
+        "Jakob Uszkoreit",
+        "Lucas Beyer",
+        "Matthias Minderer",
+        "Mostafa Dehghani",
+        "Neil Houlsby",
+        "Sylvain Gelly",
+        "Thomas Unterthiner",
+        "Xiaohua Zhai"
+      ],
+      "year": "2021",
+      "venue": "Proc. ICLR"
+    },
+    {
+      "citation_id": "41",
+      "title": "Generative pretraining from pixels",
+      "authors": [
+        "Mark Chen",
+        "Alec Radford",
+        "Rewon Child",
+        "Jeffrey Wu",
+        "Heewoo Jun",
+        "David Luan",
+        "Ilya Sutskever"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICML, Virtual"
+    },
+    {
+      "citation_id": "42",
+      "title": "Selfsupervised speech representation learning: A review",
+      "authors": [
+        "Abdelrahman Mohamed",
+        "Hung-Yi Lee",
+        "Lasse Borgholt",
+        "Jakob Havtorn",
+        "Joakim Edin",
+        "Christian Igel",
+        "Katrin Kirchhoff",
+        "Shang-Wen",
+        "Karen Li",
+        "Lars Livescu",
+        "Maaløe"
+      ],
+      "year": "2022",
+      "venue": "Selfsupervised speech representation learning: A review",
+      "arxiv": "arXiv:2205.10643"
+    },
+    {
+      "citation_id": "43",
+      "title": "Aligned contrastive predictive coding",
+      "authors": [
+        "Jan Chorowski",
+        "Grzegorz Ciesielski",
+        "Jarosław Dzikowski",
+        "Adrian Łańcucki",
+        "Ricard Marxer",
+        "Mateusz Opala",
+        "Piotr Pusz",
+        "Paweł Rychlikowski",
+        "Michał Stypułkowski"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "44",
+      "title": "HuBERT: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "45",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen",
+        "Chengyi Wang",
+        "Zhengyang Chen",
+        "Yu Wu",
+        "Shujie Liu",
+        "Zhuo Chen",
+        "Jinyu Li",
+        "Naoyuki Kanda",
+        "Takuya Yoshioka",
+        "Xiong Xiao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "46",
+      "title": "Multimodal emotion recognition with high-level speech and text features",
+      "authors": [
+        "Mariana Rodrigues Makiuchi",
+        "Kuniaki Uto",
+        "Koichi Shinoda"
+      ],
+      "year": "2021",
+      "venue": "Proc. ASRU"
+    },
+    {
+      "citation_id": "47",
+      "title": "Speech emotion recognition using self-supervised features",
+      "authors": [
+        "Edmilson Morais",
+        "Ron Hoory",
+        "Weizhong Zhu",
+        "Itai Gat",
+        "Matheus Damasceno",
+        "Hagai Aronowitz"
+      ],
+      "year": "2022",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "48",
+      "title": "Multi-lingual multi-task speech emotion recognition using wav2vec 2.0",
+      "authors": [
+        "Mayank Sharma"
+      ],
+      "year": "2022",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "49",
+      "title": "Speech emotion recognition with co-attention based multi-level acoustic information",
+      "authors": [
+        "Heqing Zou",
+        "Yuke Si",
+        "Chen Chen",
+        "Deepu Rajan",
+        "Eng Siong"
+      ],
+      "year": "2022",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "50",
+      "title": "Representation learning with contrastive predictive coding",
+      "authors": [
+        "Aaron Van Den Oord",
+        "Yazhe Li",
+        "Oriol Vinyals"
+      ],
+      "year": "2018",
+      "venue": "Representation learning with contrastive predictive coding",
+      "arxiv": "arXiv:1807.03748"
+    },
+    {
+      "citation_id": "51",
+      "title": "Librispeech: an asr corpus based on public domain audio books",
+      "authors": [
+        "Vassil Panayotov",
+        "Guoguo Chen",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "52",
+      "title": "Separating style and content with bilinear models",
+      "authors": [
+        "B Joshua",
+        "William Tenenbaum",
+        "Freeman"
+      ],
+      "year": "2000",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "53",
+      "title": "Multimodal intelligence: Representation learning, information fusion, and applications",
+      "authors": [
+        "Chao Zhang",
+        "Zichao Yang",
+        "Xiaodong He",
+        "Li Deng"
+      ],
+      "year": "2020",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "54",
+      "title": "Combination of deep speaker embeddings for diarisation",
+      "authors": [
+        "Guangzhi Sun",
+        "Chao Zhang",
+        "Philip Woodland"
+      ],
+      "year": "2021",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "55",
+      "title": "Discriminative neural clustering for speaker diarisation",
+      "authors": [
+        "Qiujia Li",
+        "Florian Kreyssig",
+        "Chao Zhang",
+        "Philip Woodland"
+      ],
+      "year": "2021",
+      "venue": "Proc. SLT"
+    }
+  ]
+}

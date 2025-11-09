@@ -1,0 +1,546 @@
+{
+  "paper_id": "2208.05413v1",
+  "title": "Non-Contrastive Self-Supervised Learning Of Utterance-Level Speech Representations",
+  "published": "2022-08-10T16:04:23Z",
+  "authors": [
+    "Jaejin Cho",
+    "Raghavendra Pappagari",
+    "Piotr Żelasko",
+    "Laureano Moro-Velazquez",
+    "Jesús Villalba",
+    "Najim Dehak"
+  ],
+  "keywords": [
+    "self-supervised learning",
+    "speaker verification",
+    "emotion recognition",
+    "distillation",
+    "non-contrastive"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Considering the abundance of unlabeled speech data and the high labeling costs, unsupervised learning methods can be essential for better system development. One of the most successful methods is contrastive self-supervised methods, which require negative sampling: sampling alternative samples to contrast with the current sample (anchor). However, it is hard to ensure if all the negative samples belong to classes different from the anchor class without labels. This paper applies a non-contrastive self-supervised learning method on an unlabeled speech corpus to learn utterance-level embeddings. We used DIstillation with NO labels (DINO), proposed in computer vision, and adapted it to the speech domain. Unlike the contrastive methods, DINO does not require negative sampling. These embeddings were evaluated on speaker verification and emotion recognition. In speaker verification, the unsupervised DINO embedding with cosine scoring provided 4.38% EER on the VoxCeleb1 test trial. This outperforms the best contrastive self-supervised method by 40% relative in EER. An iterative pseudo-labeling training pipeline, not requiring speaker labels, further improved the EER to 1.89%. In emotion recognition, the DINO embedding performed 60.87, 79.21, and 56.98% in micro-f1 score on IEMOCAP, Crema-D, and MSP-Podcast, respectively. The results imply the generality of the DINO embedding to different speech applications.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Self-supervised learning (SSL) is gaining more attention in many machine learning areas such as computer vision, natural language processing, and speech processing. SSL does not require labeled data for model training. In many works, finetuned/post-processed SSL models have shown promising results outperforming supervised methods when the same amount of labeled data is used  [1, 2, 3, 4, 5, 6] .\n\nIn speaker verification, different self-supervised methods have been proposed as in  [7, 8, 9, 10, 11, 12, 13] . Some of these methods use a generative approach  [7, 10, 8, 9] , i.e., they learn to reconstruct the signal acoustic features from some latent representations. Usually, the goal is to factorize the information into frame-/segment-level and utterance-level latent factors, expecting that the former will encode phonetic information while the latter will encode the speaker information. For example, the work in  [9]  used an architecture based on Tacotron 2 multispeaker text-to-speech to learn speaker embeddings.\n\nSSL methods based on contrastive loss are also popu-lar  [11, 12, 13]  in speaker verification. Contrastive losses intend to make the current sample (anchor) close to the augmented version of the anchor (positive sample) while making the positive sample farther from the negative samples in their embedding space. In this context, negative samples are desired to be different semantically from the positive sample. Since the samples are unlabeled, most contrastive SSL works in speaker verification compose negative samples just by randomly picking different samples to the anchor. However, in this random sampling, we are not sure if all the negative samples are from different classes w.r.t the positive sample. For example, when the anchor, thus also the positive sample, is an utterance from speaker A, there is a chance that some of the negative utterances come from speaker A as well. This could adversely affect the model training since the contrastive loss pushes the positive sample and negative sample farther to each other in the embedding space. Non-contrastive methods, however, do not require negative samples, so they are free from the issue above. Moreover, noncontrastive methods have shown comparable or better performance compared to contrastive methods  [5, 6] . Considering these, we propose to apply a non-contrastive SSL method originally proposed for computer vision (CV), DIstillation with NO labels (DINO)  [6] , that outperformed the previous SSL methods in many CV tasks, including linear and k-NN classification.\n\nSince DINO training does not use explicit labels such as speaker or language IDs, we hypothesized the learned embedding to be general utterance-level embedding. In other words, the embedding may include attributes that are consistent within the utterance, such as speaker information, accent/language, emotion, and age. Thus, we evaluated the embedding not only for speaker verification but also for emotion recognition. The results confirmed that the DINO embedding includes both speaker and emotion information. In  [6] , the authors proposed a design to maximize the similarity between feature distributions of differently augmented images from an original image. This assumes that augmented images from one image keep the same semantic information. For example, although you crop two different portions from a dog image and make one a black and white image while making the other jittered, they are still dog images. This principle can be similarly applied to speech data. Assuming each utterance consists of a speech from one speaker, different segments extracted from the same utterance followed by noise augmentation share the same attributes that are consistent within the utterance, such as speaker information, accent/language, emotion, and age.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Distillation With No Labels In Speech",
+      "text": "DINO follows a knowledge distillation scheme, where the outputs of a teacher network are used as ground truth to optimize a student network. However, typical knowledge distillation uses a pre-trained teacher network, while DINO trains both networks in parallel. Fig.  1  depicts DINO's training scheme. First, we augment a given utterance into a set of differently augmented segments, S. With speech data, for example, each segment is extracted randomly from the given utterance as either a short or long segment. Then, a sound such as babbling, music, noise in the background, or room impulse response effect is applied to each segment differently. The set S includes two long segments, s l 1 and s l 2 . All the augmented segments go through the student branch, while only the long segments go through the teacher branch. Each branch embeds information in the corresponding segments into the embedding vectors. Additionally, each network has a head with a softmax layer that classify each segment into a set of hypothetical classes. Thus, the student network θs is trained by minimizing,\n\nwhere H(a, b) = -a • log b is cross-entropy, and p1(.) and p2(.) are the softmax outputs of the student and teacher networks respectively. This loss intends to make the embeddings for all augmented versions of the utterance close between them, which relies on two assumptions. First, the long segments, used as input to the teacher, produce better representations than the short-segments. Second, the teacher network is always better than the student during the training, as explained below.\n\nThe neural network architecture for student and teacher models comprises a backbone followed by a projection head. The backbone can be any encoder that converts a sequence of vectors into a fixed-dimensional vector, e.g., using a pooling layer. The projection head consists of fully connected layers with non-linear activations. The student and teacher networks are initialized with the same architecture having the same parameters while they are updated in different ways during training. The student network is updated by gradient descent while the teacher network is updated by an exponential moving average on the student parameters, i.e., θt ← λθt + (1 -λ)θs. Parameter averaging is known to produce a better model  [14, 15] , and this is also the case with the teacher network to be better than the student network during the training. The student model aims at the distribution from the teacher network to improve. To avoid a model to find trivial solutions, i.e., having distributions where one dimension is dominant or having uniform distributions, centering and sharpening are applied. centering prevents one dimension from dominating by calculating a center and subtracting it from the logit before the softmax. However, centering encourages a uniform distribution, and thus sharpening is also applied where it encourages peaky distributions. This is done by setting a low value for the temperature in the teacher softmax normalization.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Setup 1",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Encoder Pre-Training Using Dino",
+      "text": "We used a light ResNet34 (LResNet34) encoder from  [16]  as the DINO backbone considering available resources, with minor modifications: a kernel size of 3 in the first convolution layer, a mean and standard deviation pooling, and a following affine layer that outputs a 256-dimensional vector used as a embedding vector. The classification head consists of 3 linear layers with their hidden dimension as 2048, followed by l2 normalization and a weight normalized linear layer with 65536 softmax output dimension, which were the best setup in the original DINO paper  [6]  that we found work well with speech data, too.\n\nFor the augmentation, we first extracted 4 short and 2 long segments randomly from a given utterance where we set 2 and 4 s for short and long segment length, respectively. We chose the specific numbers for the extracted segments considering our available computational resource and training time, but extracting more short segments could improve performance, as in  [6] . The extracted segments were augmented with babbling, music, noise in the background, and/or room impulse response effects.\n\nVoxCeleb2 dev set of 5,994 speakers was used for training DINO without speaker labels. VoxCeleb2 corpus  [17]  consists of conversational speech utterances with moderate noise, which were processed from interview videos of 6,112 celebrities uploaded on Youtube, and it covers diverse ethnicity.\n\nThe final learned encoder was used for speaker verification and emotion recognition tasks employing other datasets.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Speaker Verification",
+      "text": "In the speaker verification experiments, we followed a pipeline to build a progressively improving speaker verification system, which does not require speaker labels  [18] . Starting from the initial DINO model trained in section 3.1, the system development goes through the iterative clustering stage followed by the robust training stage. The training data was fixed as VoxCeleb2 dev without speaker labels for the whole pipeline.\n\nIn the iterative clustering stage, we trained a new larger model, ResNet34  [19]  x-vector model, in a supervised way with the additive angular margin (AAM)  [20]  loss based on pseudo speaker labels generated using the initial DINO model. In detail, we extracted speaker embeddings from the initial model. Then, the embeddings were clustered using k-means clustering with 50k means, followed by agglomerative hierarchical clustering (AHC) with the number of clusters as 7500, which was heuristically determined for VoxCeleb2 dev  [18] . The k-means clustering was used to make AHC computationally viable. Indices of the clusters are used as pseudo speaker labels for the supervised x-vector model training. The whole process was repeated 3 times until the speaker verification performance converged. During the process, the model parameters were continuously updated with the refined pseudo labels in each cycle. A 2-second segment was extracted per utterance to be used as a training sample.\n\nIn the robust training stage, we used a new larger model, Res2Net50  [21]  with 26 for the width of filters (in the first residual bottleneck block) and 4 for the scale hyper-parameter. The model was trained in a supervised way with pseudo labels gen-erated from the ResNet34 model after 3 cycles of the iterative clustering stage. After the first 30 epochs of training, the postpooling layers of the model were fine-tuned with a larger margin, 0.5, in the AAM loss. A 2-second segment was extracted from each utterance to be used as a training sample, while 3second segments were used in the large margin fine-tuning.\n\nThe learned embedding in each stage was evaluated for speaker verification on the original VoxCeleb1 test (vox-celeb1 test o), VoxSRC-21 val, or VoxSRC-21 test trials. The latter two trials are from VoxCeleb Speaker Recognition Challenge2021(VoxSRC-21), where the challenge has a special focus on multi-lingual verification. Our team's submission of the system having 6.88 in EER(%) in Table  2  ranked third in track 3: self-supervised speaker verification where the participants were allowed to develop systems only with VoxCeleb2 dev without using speaker labels.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Emotion Recognition",
+      "text": "The DINO model training uses segments (2s for x1 and 4s for x2 in Fig.  1 ) drawn from VoxCeleb2 dev dataset. For the model to preserve emotion information, x1 and x2 have to share the same emotion at least for the majority of training. As the median duration of utterances in VoxCeleb2 dev is only 6.08s, we expect consistent emotion between x1 and x2 in general. This assumption is also supported by the considered emotion datasets, which contain utterances of duration 2-11s with utterance-level emotion annotations. Hence, we hypothesize that the model preserves emotion-related information along with speaker identity.\n\nTo probe the DINO embeddings for emotion information, we evaluated them for the emotion recognition task. Specifically, we extracted DINO embeddings for three emotion recognition datasets, Crema-D  [22] , IEMOCAP  [23] , and MSP-Podcast 2  [24] , and performed emotion classification using logistic regression on each corpus.\n\nThe Crema-D dataset consists of acted emotions with utterances ranging from 2-4s in duration; The IEMOCAP dataset is composed of utterances with induced emotions and mostly 2-7s in duration; The MSP-Podcast dataset contains spontaneous utterances of duration 3-11s. Regarding experimental setup, we performed leave-one-session-out cross-validation (5fold CV) for IEMOCAP as in the previous works. For Crema-D, we used the same train/dev/test splits as in  [25] , and the standard splits for MSP-Podcast as in Release 1.4. We used angry, happy, sad, and neutral emotions in the IEMOCAP and Crema-D dataset, and an additional emotion class disgust in MSP-Podcast as in  [25] . We report weighted average values of class-wise f1-scores -micro-f1 metric -for these experiments. For IEMOCAP, we report the average across five folds.  Next, we compared the performance of DINO to supervised x-vector in the DINO and x-vector rows of Table  1 . Their encoder architectures were identical (LResNet34). Although x-vector performed better than DINO, it used VoxCeleb2-dev speaker labels while DINO with cosine scoring back-end did not use any labels at all. We also evaluated a PLDA backend trained on VoxCeleb1-dev, which 7 times smaller than Vox-Celeb. With PLDA where the gap between DINO and x-vector reduced further, while DINO only used 1/8 of the labels than x-vector. The data used for PLDA also can be employed to finetune the DINO encoder, expecting further improvement as it is a common observation in most of the SSL papers.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Results",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Speaker Verification",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iterative Clustering And Robust Training",
+      "text": "The experimental results are shown in Table  2  along the process from the DINO initial model training to the robust training. In iterative clustering, the speaker verification performance is saturated around the 3rd iteration. This number of iterations until convergence is less than the one reported in  [18]   3  , possibly due to starting from a better initial model. Thus, we generated the pseudo labels from the model after the 3rd iteration (ResNet34 (iter3)) to use them for the last model training in the robust training stage, which improved further to 1.89 in EER(%) on voxceleb1 test o. This speaker verification system did not use any speaker labels in the development, and to compare, the supervised counterpart trained on about 2600 hours of speaker labeled data showed 0.93 in EER(%). Finally, the large-margin fine-tuning did not improve on the voxceleb1 test o trial list, while it improved on VoxSRC-21 val and test trial lists.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Emotion Recognition",
+      "text": "Table  3  presents the results for emotion recognition using the DINO embedding. We compare our results with  [25] , where the authors trained a logistic regression classifier on top of pre-trained x-vectors for emotion recognition. Their x-vector model was pre-trained with 8kHz data to discriminate speakers. This includes telephone data other than VoxCeleb downsampled to 8kHz where the final number of speakers was around 13k  [26] . We observed that DINO embeddings performed better than the x-vectors suggesting that DINO embeddings contain   more emotion predictive information than the x-vectors. This result makes sense since supervised x-vectors are trained to retain only speaker information and also trained with more data.\n\nIn contrast, the DINO model is trained to capture common information across extracted segments from the utterance. Fig.  2  shows t-SNE plots of the DINO embedding space for the IEMOCAP dataset. From the top plot, we can observe clear clusters of speakers suggesting abundant speaker-relevant information in DINO embeddings. In the bottom plot, there are signs of emotion clusters for some speakers, especially for angry and sad, suggesting some emotional information is captured in the representations. Looking more closely within each speaker cluster, angry and sad are well separated which could be because they usually have distinct arousal levels (high for angry and low for sad).",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we learned utterance-level embeddings based on DINO, a non-contrastive self-supervised learning method originally proposed in CV. The embedding was evaluated on the speaker verification and emotion recognition tasks to check its generalizability. DINO embedding achieved the state-of-theart result in speaker verification when no speaker labels were used, outperforming the previous best contrastive SSL embedding based on MoCo. Also, it reduced the number of iterations until convergence in the iterative clustering stage. When the DINO embedding was used for emotion recognition, it performed better than the x-vector embedding that was found to contain emotion-related information in a previous study. One thing to note is that the DINO embedding was learned without any labels while it still performed competitively with the embedding using speaker labels for both speaker verification and emotion recognition. The DINO method opens the way for leveraging unlabeled speech data, which is more easily available than labeled one.\n\nConsidering the DINO embedding may also embed other attributes consistent within a given utterance, we will test the embedding on other speech applications such as accent/language, speech pathology, and age recognition. Also, fine-tuning the DINO embedding to one of the applications with the labeled data is a natural expansion of this work.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Acknowledgements",
+      "text": "This project was supported by NSF Award 1816165.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: DINO diagram. EMA stands for exponential moving",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: depicts DINO’s training scheme.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: ) drawn from VoxCeleb2 dev dataset. For the model to",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Analysis of DINO embedding space for IEMOCAP",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: shows t-SNE plots of the DINO embedding space",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 3: Emotion classification results on three different",
+      "data": [
+        {
+          "Stage": "",
+          "Algorithm/Loss": "",
+          "Model": "",
+          "EER (%) with cosine scoring": "voxceleb1 test o"
+        },
+        {
+          "Stage": "Initial model training\n(self-supervised learning)",
+          "Algorithm/Loss": "DINO",
+          "Model": "LResNet34",
+          "EER (%) with cosine scoring": "4.83"
+        },
+        {
+          "Stage": "",
+          "Algorithm/Loss": "MoCo",
+          "Model": "ECAPA [18]",
+          "EER (%) with cosine scoring": "7.3"
+        },
+        {
+          "Stage": "Iterative clustering",
+          "Algorithm/Loss": "AAM loss\n(margin=0.3)",
+          "Model": "ResNet34 (iter1)",
+          "EER (%) with cosine scoring": "2.56"
+        },
+        {
+          "Stage": "",
+          "Algorithm/Loss": "",
+          "Model": "ResNet34 (iter2)",
+          "EER (%) with cosine scoring": "2.13"
+        },
+        {
+          "Stage": "",
+          "Algorithm/Loss": "",
+          "Model": "ResNet34 (iter3)",
+          "EER (%) with cosine scoring": "2.13"
+        },
+        {
+          "Stage": "",
+          "Algorithm/Loss": "",
+          "Model": "ResNet34 (iter4)",
+          "EER (%) with cosine scoring": "2.14"
+        },
+        {
+          "Stage": "",
+          "Algorithm/Loss": "",
+          "Model": "ECAPA (iter7) [18]",
+          "EER (%) with cosine scoring": "2.1"
+        },
+        {
+          "Stage": "Robust training\n+ larg-margin ﬁne-tuning",
+          "Algorithm/Loss": "AAM loss\n(margin=0.5)",
+          "Model": "Res2Net50",
+          "EER (%) with cosine scoring": "1.89"
+        },
+        {
+          "Stage": "",
+          "Algorithm/Loss": "",
+          "Model": "",
+          "EER (%) with cosine scoring": "1.91"
+        }
+      ],
+      "page": 4
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "3",
+      "title": "Biobert: a pre-trained biomedical language representation model for biomedical text mining",
+      "authors": [
+        "J Lee",
+        "W Yoon",
+        "S Kim",
+        "D Kim",
+        "S Kim",
+        "C So",
+        "J Kang"
+      ],
+      "year": "2020",
+      "venue": "Bioinformatics"
+    },
+    {
+      "citation_id": "4",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "5",
+      "title": "Big self-supervised models are strong semi-supervised learners",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "K Swersky",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "6",
+      "title": "Bootstrap your own latent -a new approach to self-supervised learning",
+      "authors": [
+        "J.-B Grill",
+        "F Strub",
+        "F Altché",
+        "C Tallec",
+        "P Richemond",
+        "E Buchatskaya",
+        "C Doersch",
+        "B Avila Pires",
+        "Z Guo",
+        "M Azar",
+        "B Piot",
+        "R Munos",
+        "M Valko"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "7",
+      "title": "Emerging properties in self-supervised vision transformers",
+      "authors": [
+        "M Caron",
+        "H Touvron",
+        "I Misra",
+        "H Jégou",
+        "J Mairal",
+        "P Bojanowski",
+        "A Joulin"
+      ],
+      "year": "2021",
+      "venue": "ICCV"
+    },
+    {
+      "citation_id": "8",
+      "title": "Unsupervised learning of disentangled and interpretable representations from sequential data",
+      "authors": [
+        "W.-N Hsu",
+        "Y Zhang",
+        "J Glass"
+      ],
+      "year": "2017",
+      "venue": "Unsupervised learning of disentangled and interpretable representations from sequential data"
+    },
+    {
+      "citation_id": "9",
+      "title": "Self-supervised speaker embeddings",
+      "authors": [
+        "T Stafylakis",
+        "A Rohdin",
+        "O Plchot",
+        "P Mizera",
+        "L Burget"
+      ],
+      "year": "2019",
+      "venue": "Interspeech"
+    },
+    {
+      "citation_id": "10",
+      "title": "Learning Speaker Embedding from Text-to-Speech",
+      "authors": [
+        "J Cho",
+        "P Żelasko",
+        "J Villalba",
+        "S Watanabe",
+        "N Dehak"
+      ],
+      "year": "2020",
+      "venue": "Interspeech"
+    },
+    {
+      "citation_id": "11",
+      "title": "Mixture factorized auto-encoder for unsupervised hierarchical deep factorization of speech signal",
+      "authors": [
+        "Z Peng",
+        "S Feng",
+        "T Lee"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "12",
+      "title": "Augmentation adversarial training for unsupervised speaker recognition",
+      "authors": [
+        "J Huh",
+        "H Heo",
+        "J Kang",
+        "S Watanabe",
+        "J Chung"
+      ],
+      "year": "2020",
+      "venue": "Augmentation adversarial training for unsupervised speaker recognition"
+    },
+    {
+      "citation_id": "13",
+      "title": "Self-supervised text-independent speaker verification using prototypical momentum contrastive learning",
+      "authors": [
+        "W Xia",
+        "C Zhang",
+        "C Weng",
+        "M Yu",
+        "D Yu"
+      ],
+      "year": "2021",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "14",
+      "title": "Contrastive self-supervised learning for text-independent speaker verification",
+      "authors": [
+        "H Zhang",
+        "Y Zou",
+        "H Wang"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "15",
+      "title": "Acceleration of stochastic approximation by averaging",
+      "authors": [
+        "B Polyak",
+        "A Juditsky"
+      ],
+      "year": "1992",
+      "venue": "SIAM journal on control and optimization"
+    },
+    {
+      "citation_id": "16",
+      "title": "Mean teachers are better role models: Weight-averaged consistency targets improve semisupervised deep learning results",
+      "authors": [
+        "A Tarvainen",
+        "H Valpola"
+      ],
+      "year": "2017",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "17",
+      "title": "State-of-the-art speaker recognition with neural network embeddings in nist sre18 and speakers in the wild evaluations",
+      "authors": [
+        "J Villalba",
+        "N Chen",
+        "D Snyder",
+        "D Garcia-Romero",
+        "A Mccree",
+        "G Sell",
+        "J Borgstrom",
+        "L García-Perera",
+        "F Richardson",
+        "R Dehak",
+        "P Torres-Carrasquillo",
+        "N Dehak"
+      ],
+      "year": "2020",
+      "venue": "Comput. Speech Lang"
+    },
+    {
+      "citation_id": "18",
+      "title": "Voxceleb: Large-scale speaker verification in the wild",
+      "authors": [
+        "A Nagrani",
+        "J Chung",
+        "W Xie",
+        "A Zisserman"
+      ],
+      "year": "2020",
+      "venue": "Comput. Speech Lang"
+    },
+    {
+      "citation_id": "19",
+      "title": "The idlab voxceleb speaker recognition challenge 2020 system description",
+      "authors": [
+        "J Thienpondt",
+        "B Desplanques",
+        "K Demuynck"
+      ],
+      "year": "2020",
+      "venue": "The idlab voxceleb speaker recognition challenge 2020 system description",
+      "arxiv": "arXiv:2010.12468"
+    },
+    {
+      "citation_id": "20",
+      "title": "Deep residual learning for image recognition",
+      "authors": [
+        "K He",
+        "X Zhang",
+        "S Ren",
+        "J Sun"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "21",
+      "title": "Arcface: Additive angular margin loss for deep face recognition",
+      "authors": [
+        "J Deng",
+        "J Guo",
+        "N Xue",
+        "S Zafeiriou"
+      ],
+      "year": "2019",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "22",
+      "title": "Res2net: A new multi-scale backbone architecture",
+      "authors": [
+        "S Gao",
+        "M.-M Cheng",
+        "K Zhao",
+        "X.-Y Zhang",
+        "M.-H Yang",
+        "P Torr"
+      ],
+      "year": "2019",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence"
+    },
+    {
+      "citation_id": "23",
+      "title": "Crema-d: Crowd-sourced emotional multimodal actors dataset",
+      "authors": [
+        "H Cao",
+        "D Cooper",
+        "M Keutmann",
+        "R Gur",
+        "A Nenkova",
+        "R Verma"
+      ],
+      "year": "2014",
+      "venue": "IEEE transactions on affective computing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "25",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "26",
+      "title": "xvectors meet emotions: A study on dependencies between emotion and speaker recognition",
+      "authors": [
+        "R Pappagari",
+        "T Wang",
+        "J Villalba",
+        "N Chen",
+        "N Dehak"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "27",
+      "title": "State-of-the-art speaker recognition for telephone and video speech: The jhu-mit submission for nist sre18",
+      "authors": [
+        "J Villalba",
+        "N Chen",
+        "D Snyder",
+        "D Garcia-Romero",
+        "A Mc-Cree",
+        "G Sell",
+        "J Borgstrom",
+        "F Richardson",
+        "S Shon",
+        "F Grondin"
+      ],
+      "year": "2019",
+      "venue": "Interspeech"
+    }
+  ]
+}

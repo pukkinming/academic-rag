@@ -1,0 +1,695 @@
+{
+  "paper_id": "2304.03940v1",
+  "title": "Unsupervised Speech Representation Pooling Using Vector Quantization",
+  "published": "2023-04-08T07:03:01Z",
+  "authors": [
+    "Jeongkyun Park",
+    "Kwanghee Choi",
+    "Hyunjun Heo",
+    "Hyung-Min Park"
+  ],
+  "keywords": [
+    "pooling",
+    "vector quantization",
+    "speech representations",
+    "self-supervised models",
+    "wav2vec 2.0"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "With the advent of general-purpose speech representations from large-scale self-supervised models, applying a single model to multiple downstream tasks is becoming a de-facto approach. However, the pooling problem remains; the length of speech representations is inherently variable. The naive average pooling is often used, even though it ignores the characteristics of speech, such as differently lengthed phonemes. Hence, we design a novel pooling method to squash acoustically similar representations via vector quantization, which does not require additional training, unlike attention-based pooling. Further, we evaluate various unsupervised pooling methods on various selfsupervised models. We gather diverse methods scattered around speech and text to evaluate on various tasks: keyword spotting, speaker identification, intent classification, and emotion recognition. Finally, we quantitatively and qualitatively analyze our method, comparing it with supervised pooling methods.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Method",
+      "text": "In this section, we briefly overview the vector quantization method used in vq-wav2vec  [16]  and wav2vec 2.0  [1, 25]  in Section 2.1. Then, we discuss various ways to utilize the quantization approach. Section 2.2 covers the idea of merging a similar representation, while Section 2.3 utilizes the quantized results to estimate the prior probability of each representation.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Preliminaries: Vector Quantization",
+      "text": "We briefly cover the internals of wav2vec 2.0  [1]  and its vector quantizer module before introducing our method. Let us denote the raw speech input as x, latent speech representations from the 1D convolutional features as Z, context representations from the transformer as C, and the quantized representation as Q:\n\nwhere G is the number of codebook groups, where sharing the codebooks often yield comparable performance with a much better efficiency  [16] . We denote an integer i between\n\n. Each representation of the t-th frame is represented as G integers, where each integer is 1 ≤ q g t ≤ V , where V is the number of centroids. Hence, for each frame-wise speech representation Zt ∈ R F where t is the frame index, the quantizer maps Zt to the G-dimensional integers (q 1 t , q 2 t , • • • , q G t ). The quantized results are designed to map the nearby representations to have the same indices, such that quantizer(Z) = quantizer(Z + ) for a negligible acoustic difference .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Squashing Via Quantized Results",
+      "text": "For the ease of notation, we regard pooling as the weighted sum of frame representations Ct with a scalar wt:\n\nwhere the normalizing constant ζ is used to ensure that the sum of weights equals 1, i.e., t=T t=1 ζwt = 1. For instance, for average pooling (AP), wt = 1 and ζ = 1/T . We observe that the AP regards every frame to be equally important. However, the length of speech signals is not proportional to their importance. For instance, even if there is a long silence, the AP will average them, and the resulting representation will be highly biased towards silence representation. Also, vowels and consonants have inherently different lengths; hence the representation will be fitted towards vowels more.\n\nHence, we develop a novel pooling approach based on VQ, which clusters similar frames into each partition, borrowing the idea from greedy decoding of Connectionist Temporal Classification (CTC) acoustic models  [26] . By averaging with respect to partitions, the method effectively penalizes the representations within the larger partition:\n\n(5)\n\nis the squashing function, where we write the superset of a set A as 2 A . The squash function returns a partition of the frame indices, where each partition is constructed by squashing similar representations. The inner fraction exists for averaging within a single partition that contains similar representations ( 1 /|P |), where the outer fraction ( 1 /|S(Q)|) exists for averaging across partitions. We explore two perspectives on squashing, summarized in Figure  1 .\n\nFirstly, the equality of two representations at different steps Ci and Cj can be defined in two ways. We can check all the indices of Ci and Cj (AND), or allow partial matches (OR). Compared to AND, OR aims to merge more neighboring samples by using each quantized group while tolerating some errors.\n\nFurther, one has to define which temporal frames should be merged. We develop a strategy Squash, which penalizes the features that occur repeatedly in long sequences, similar to CTC, where neighboring equal values are squashed. On the other hand, we observe that AP works in an orderless manner. Hence one can extend the definition of Squash to be averaging all the occurrences, penalizing the features that occur more often than others. We call this strategy AllSquash.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Prior Probability Estimation Via Quantized Results",
+      "text": "We extend the idea of AllSquash to estimate the prior probability P (q) that each quantized representation occurs. For sentence embeddings, smooth inverse frequency (SIF)  [5]  is often used to penalize more frequent words. Given a word W and a hyperparameter a, the weight wi = a/(a + p(W )).  [5]  points out that SIF has direct connections with TF-IDF  [27]  and the subsampling probabilities of word2vec  [28] .\n\nWe extend SIF for speech representations by using VQ. For this, we have to count the quantized indices of whole training samples and penalize the representations by their frequency:\n\nwhere we denote the count of q as N (q) and a is the smoothing hyperparameter, similar to the original SIF  [5] .\n\nHowever, there can be other strategies for counting, i.e., the criterion for the penalty wt. We developed a counting strategy that searches the indices separately in their groups, fully utilizing the group-wise similarity while avoiding sparseness  [16] :\n\nwhere Ng denotes the number of indices inside the group g. We also dropped the smoothing hyperparameter a for simplicity.\n\nOn the other hand, in Section 2.2, we already suggested that similar representations may have less importance within the instance. While we proposed the counting method that considers the global probability of VQ indices (GP), we also devised another approach that counts indices only in the instance representation. The only difference is the scope of counting, from global to local. We call this counting method LP.\n\nFinally, we can use both local and global probabilities by multiplying the weights of LP and GP, denoting it BP: w BP t = w LP t • w GP t , where w LP t and w GP t are weights of Ct from LP and GP, respectively. This pooling strategy aims to reduce the weights of quantized indices that are redundant in each instance and frequently appear across the entire training set.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Results",
+      "text": "We closely follow the SUPERB benchmark that measures the efficacy of self-supervised speech models  [2] , but with a key difference in the evaluation for unsupervised pooling methods (Section 3.2). For more details, consult our repository.  1",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Tasks",
+      "text": "We choose four speech tasks that can represent various aspects of speech processing. Keyword spotting (KWS) aims to automatically detect words within the predefined vocabulary. We use the Google Speech Commands dataset V2  [18] , which consists of 35 keywords including numbers and words. Speaker identification (SID) finds the speaker with a given utterance. Our benchmark focuses on text-independent closed-set SID  [29] . We used the VoxCeleb1 dataset  [19]  with the provided data splits. Intent classification (IC) extracts semantic information from speech, such as the speaker's intent or emotions  [30] . We use the fluent speech command dataset  [20]  that provides labels for three different information: action, object, and location. Emotion recognition (ER) is a task that predicts an emotion class depending on verbal channels. We adopt IEMOCAP  [21]  and select 4 emotion classes to follow  [2] . We train our models on 5-fold cross-validation using 5 sessions provided in the IEMOCAP dataset.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Benchmark Design",
+      "text": "We design our benchmark considering the unsupervised setting: not allowing additional trainable parameters to fairly compare the effectiveness of unsupervised pooling methods. We evaluate the representations on various tasks by finding the nearest neighbors of each test dataset representation by measuring the distances with the utterance-level training dataset representations. To measure the accuracy, the labels of test samples and their nearest training sample are compared, which is a commonly used setting in self-supervised representations based on contrastive losses  [22, 23] . We use the approximated nearest neighbor method  [24]  to calculate distances efficiently.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Models",
+      "text": "We adopted three different self-supervised speech models based on wav2vec2.0 which can generate quantized representations: base, large  [1]  and XLS-R  [25] . base and large differ by the model size, while large and XLS-R differ by the pretraining dataset, which is book-reading speech data and multilingual speech corpus from various sources, respectively. We chose the widely used three models as we can assess the impact of pooling techniques under various conditions.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Baselines",
+      "text": "We chose four unsupervised pooling baselines. Average Pooling (AP) is the most naive and widely used baselines among var-  ious pooling methods  [2] . Statistics Pooling (SP) extends upon AP by utilizing not only the first-order but the second-order statistics, namely, mean and standard deviation  [9, 10] . Whitening applies the whitening transformation to the representations so that their covariance becomes an identity matrix  [6, 7] . Soft-Decay is the current state-of-the-art for sentence embedding, where a non-linear function is applied to make the singular value distribution of the representations less skewed  [8] .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Results",
+      "text": "Table  1  shows the unsupervised benchmark results. We found that squashing by AND and OR improved overall performance with XLS-R by 2.74% and 5.4%, respectively, compared to AP, while there was no notable improvement in other models. Further, the AllSquash strategy showed better performance than Squash while outperforming AP on all variants of wav2vec 2.0. Additionally, VQ-LP achieved the best average accuracy in base and large, while VQ-BP performed remarkably well on IC with every backbone, outscoring AP by a factor of two. We also employed the t-distributed Stochastic Neighbor Embedding (t-SNE)  [31]  to visualize the pooled representations, as shown in Figure  2 . Our observations indicate that the VQ-based approach helps differentiate between the representations of keywords with similarly pronounced vowels. Overall, our results demonstrate the effectiveness of VQ-based pooling approaches in capturing the temporal importance of speech representations.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Analysis",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Comparing With Parameterized Methods",
+      "text": "In this section, we compared the effectiveness of our approach with parameterized methods. We selected the parameterized pooling methods often used for speaker recognition: Self Attentive Pooling (SAP)  [32] , Attentive Statistics Pooling (ASP)  [11] , and Vector-based Attentive Pooling (VAP)  [13] . Comparing all methods in supervised settings, we used the Adam optimizer  [33]  with a default learning rate of 0.001 and 200 epochs, except for KWS using a learning rate of 0.01 and SID using 50 epochs. Note that parameterized methods have additional trainable parameters to fit towards downstream tasks, making the comparison more favorable towards them.\n\nWhile the methods using quantized representations brought a significant improvement in unsupervised experiments, the same level of enhancement was not observed in Table  2 . However, VQ-LocalProb is comparable to the parameterized methods, even getting higher average accuracy in XLS-R than the best parameterized method, VAP. The results indicate the possi-  bility of further progress in unsupervised over supervised pooling methods, worthwhile for future investigations.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Pooling Weight Analysis",
+      "text": "We analyzed the behavior of our proposed pooling methods by comparing the weights of different strategies with SAP. We use the KL divergence DKL(P Q), putting the weights induced by SAP and the others into P and Q, respectively. Figure  4  show that our proposed methods generally approximate SAP better than AP. We also found that accuracy and KL divergence negatively correlate, confirming that better similarity to SAP results in better performance. Additionally, we visualize a sample speech and its pooling weights induced by our VQ-LP method in Figure  3  from Speech Commands V2, where our method detects speech while suppressing areas with ambient noise.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Exploring Different Evaluation Schemes",
+      "text": "As the benchmark design in Section 3.2 utilizes only the nearest neighbor's information, we further explore the case considering a group of neighbors. We experiment with whether increasing the number of nearest neighbors and choosing the final label via voting can increase the downstream performance. If a tie occurs, we follow the label of the sample that is the closest, which is the reason why we do not consider the 2-nearest case. Table  3  shows the performance differences with respect to the number of nearest neighbors. Consistent improvements in performance are shown across all tasks except for SID, where the task contains relatively a large number of classes. It indicates that the current benchmark settings can be potentially improved for more realistic use cases.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we design an unsupervised yet effective way of pooling variable-length speech features obtained from selfsupervised speech models. Downstream performance on various speech-processing tasks and self-supervised representations validate the effectiveness of our VQ-based approach. Further, we compare our unsupervised pooling method with supervised pooling methods based on attention mechanisms to understand its inner workings. Further research should be done to investigate the potential of VQ approaches on a broader array of general speech models without an embedded VQ module, such as by incorporating the idea of HuBERT  [34] .",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Partition Methods for Quantized Representations.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: Firstly, the equality of two representations at different steps",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: t-SNE visualization of the pooled features from",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Visualized weights induced by VQ-LP. Two distinct",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Our observations indicate that the VQ-based",
+      "page": 4
+    },
+    {
+      "caption": "Figure 4: Comparing different pooling methods’ weights. KL",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: from Speech Commands V2, where our method de-",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: Unsupervised benchmark for speech representation",
+      "data": [
+        {
+          "Method": "AP\nSP\nWhitening\nSoftDecay",
+          "KWS": "58.44\n68.43\n60.55\n58.66",
+          "SID": "13.85\n15.63\n15.13\n13.66",
+          "IC": "26.71\n33.11\n36.59\n26.71",
+          "ER": "53.44\n53.30\n50.88\n53.44",
+          "AVG": "38.11\n42.62\n40.79\n38.12"
+        },
+        {
+          "Method": "VQ-Squash-AND\nVQ-Squash-OR\nVQ-AllSquash-AND\nVQ-AllSquash-OR",
+          "KWS": "58.46\n55.83\n65.16\n65.92",
+          "SID": "14.82\n14.12\n14.80\n12.99",
+          "IC": "26.97\n24.97\n32.96\n37.81",
+          "ER": "52.76\n52.00\n53.50\n52.61",
+          "AVG": "38.26\n36.73\n41.60\n42.33"
+        },
+        {
+          "Method": "VQ-SIF\nVQ-LP\nVQ-GP\nVQ-BP",
+          "KWS": "59.62\n74.48\n67.98\n73.48",
+          "SID": "13.33\n15.53\n12.91\n12.94",
+          "IC": "36.54\n48.11\n41.55\n50.99",
+          "ER": "54.28\n55.48\n54.11\n55.13",
+          "AVG": "40.94\n48.40\n44.14\n48.14"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: Unsupervised benchmark for speech representation",
+      "data": [
+        {
+          "large": "",
+          "AP\nSP\nWhitening\nSoftDecay": "VQ-Squash-AND\nVQ-Squash-OR\nVQ-AllSquash-AND\nVQ-AllSquash-OR",
+          "71.87\n77.09\n67.44\n72.02": "70.21\n66.31\n76.75\n75.75",
+          "17.62\n19.15\n18.75\n17.37": "17.05\n17.40\n18.77\n16.64",
+          "29.95\n36.91\n36.75\n30.21": "31.43\n29.21\n39.12\n41.76",
+          "54.37\n56.77\n55.45\n54.37": "54.12\n54.27\n55.34\n56.04",
+          "43.45\n47.48\n44.60\n43.49": "43.20\n41.80\n47.50\n47.55"
+        },
+        {
+          "large": "",
+          "AP\nSP\nWhitening\nSoftDecay": "VQ-SIF\nVQ-LP\nVQ-GP\nVQ-BP",
+          "71.87\n77.09\n67.44\n72.02": "73.09\n83.07\n76.57\n81.00",
+          "17.62\n19.15\n18.75\n17.37": "17.60\n19.42\n15.89\n14.71",
+          "29.95\n36.91\n36.75\n30.21": "32.64\n55.00\n51.86\n58.53",
+          "54.37\n56.77\n55.45\n54.37": "54.59\n57.29\n55.28\n54.28",
+          "43.45\n47.48\n44.60\n43.49": "44.48\n53.69\n49.90\n52.13"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: Unsupervised benchmark for speech representation",
+      "data": [
+        {
+          "XLS-R": "",
+          "AP\nSP\nWhitening\nSoftDecay": "VQ-Squash-AND\nVQ-Squash-OR\nVQ-AllSquash-AND\nVQ-AllSquash-OR",
+          "68.42\n77.26\n60.72\n68.35": "70.80\n73.31\n75.97\n75.37",
+          "11.62\n13.42\n15.22\n12.02": "12.06\n12.46\n12.82\n12.02",
+          "26.13\n36.70\n30.11\n26.13": "34.27\n41.79\n44.53\n40.36",
+          "55.33\n56.54\n50.69\n55.33": "55.35\n55.55\n56.72\n55.12",
+          "40.38\n45.98\n39.18\n40.46": "43.12\n45.78\n47.51\n45.72"
+        },
+        {
+          "XLS-R": "",
+          "AP\nSP\nWhitening\nSoftDecay": "VQ-SIF\nVQ-LP\nVQ-GP\nVQ-BP",
+          "68.42\n77.26\n60.72\n68.35": "80.45\n82.38\n82.87\n86.30",
+          "11.62\n13.42\n15.22\n12.02": "11.89\n12.71\n12.00\n11.71",
+          "26.13\n36.70\n30.11\n26.13": "46.08\n49.14\n52.49\n52.89",
+          "55.33\n56.54\n50.69\n55.33": "57.46\n58.84\n57.74\n57.60",
+          "40.38\n45.98\n39.18\n40.46": "48.97\n50.77\n51.27\n52.12"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 2: Performance comparison with supervised methods.",
+      "data": [
+        {
+          "Method": "AP\nSP\nVQ-LP",
+          "KWS": "94.89\n95.15\n95.49",
+          "SID": "65.36\n64.72\n64.82",
+          "IC": "91.88\n97.39\n95.70",
+          "ER": "62.59\n55.66\n62.73",
+          "AVG": "78.68\n79.18\n79.69"
+        },
+        {
+          "Method": "SAP\nASP\nVAP",
+          "KWS": "95.15\n95.70\n96.74",
+          "SID": "40.86\n36.52\n68.50",
+          "IC": "97.39\n97.47\n99.50",
+          "ER": "55.66\n59.34\n65.50",
+          "AVG": "72.27\n72.26\n82.56"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 2: Performance comparison with supervised methods.",
+      "data": [
+        {
+          "large": "",
+          "AP\nSP\nVQ-LP": "SAP\nASP\nVAP",
+          "96.05\n96.23\n96.32": "96.26\n96.42\n97.14",
+          "79.23\n77.71\n78.12": "58.48\n46.36\n77.08",
+          "95.07\n96.73\n97.76": "96.78\n98.55\n99.58",
+          "65.47\n67.02\n66.58": "57.78\n61.94\n67.42",
+          "83.96\n84.42\n84.70": "77.33\n75.82\n85.30"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 2: Performance comparison with supervised methods.",
+      "data": [
+        {
+          "XLS-R": "",
+          "AP\nSP\nVQ-LP": "SAP\nASP\nVAP",
+          "97.32\n97.51\n97.59": "97.63\n96.69\n97.49",
+          "67.85\n60.89\n68.13": "61.73\n13.48\n61.71",
+          "91.30\n94.12\n94.38": "98.86\n99.02\n99.63",
+          "71.77\n72.07\n70.67": "64.83\n61.08\n71.15",
+          "82.06\n81.15\n82.69": "80.76\n67.57\n82.49"
+        }
+      ],
+      "page": 4
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "3",
+      "title": "SUPERB: Speech processing universal performance benchmark",
+      "authors": [
+        "S Yang",
+        "P Chi",
+        "Y Chuang",
+        "C Lai"
+      ],
+      "year": "2021",
+      "venue": "Proc. INTER-SPEECH"
+    },
+    {
+      "citation_id": "4",
+      "title": "BERT: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "M.-W Kenton",
+        "L Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of NAACL-HLT"
+    },
+    {
+      "citation_id": "5",
+      "title": "Towards universal paraphrastic sentence embeddings",
+      "authors": [
+        "J Wieting",
+        "M Bansal",
+        "K Gimpel",
+        "K Livescu"
+      ],
+      "year": "2016",
+      "venue": "Proc. ICLR"
+    },
+    {
+      "citation_id": "6",
+      "title": "A simple but tough-to-beat baseline for sentence embeddings",
+      "authors": [
+        "S Arora",
+        "Y Liang",
+        "T Ma"
+      ],
+      "year": "2017",
+      "venue": "Proc. ICLR"
+    },
+    {
+      "citation_id": "7",
+      "title": "WhiteningBERT: An easy unsupervised sentence embedding approach",
+      "authors": [
+        "J Huang",
+        "D Tang",
+        "W Zhong",
+        "S Lu"
+      ],
+      "venue": "Proc. EMNLP, 2021"
+    },
+    {
+      "citation_id": "8",
+      "title": "Whitening sentence representations for better semantics and faster retrieval",
+      "authors": [
+        "J Su",
+        "J Cao",
+        "W Liu",
+        "Y Ou"
+      ],
+      "year": "2021",
+      "venue": "Whitening sentence representations for better semantics and faster retrieval",
+      "arxiv": "arXiv:2103.15316"
+    },
+    {
+      "citation_id": "9",
+      "title": "Addressing token uniformity in transformers via singular value transformation",
+      "authors": [
+        "H Yan",
+        "L Gui",
+        "W Li",
+        "Y He"
+      ],
+      "year": "2022",
+      "venue": "Proc. Uncertainty in Artificial Intelligence"
+    },
+    {
+      "citation_id": "10",
+      "title": "Deep neural network-based speaker embeddings for end-to-end speaker verification",
+      "authors": [
+        "D Snyder",
+        "P Ghahremani",
+        "D Povey",
+        "D Garcia-Romero",
+        "Y Carmiel",
+        "S Khudanpur"
+      ],
+      "year": "2016",
+      "venue": "Proc. Spoken Language Technology Workshop (SLT)"
+    },
+    {
+      "citation_id": "11",
+      "title": "Deep neural network embeddings for text-independent speaker verification",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2017",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "12",
+      "title": "Attentive statistics pooling for deep speaker embedding",
+      "authors": [
+        "K Okabe",
+        "T Koshinaka",
+        "K Shinoda"
+      ],
+      "year": "2018",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "13",
+      "title": "Self-attention encoding and pooling for speaker recognition",
+      "authors": [
+        "P Safari",
+        "M India",
+        "J Hernando"
+      ],
+      "year": "2020",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "14",
+      "title": "Vector-based attentive pooling for text-independent speaker verification",
+      "authors": [
+        "Y Wu",
+        "C Guo",
+        "H Gao",
+        "X Hou",
+        "J Xu"
+      ],
+      "year": "2020",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "15",
+      "title": "Report: A vector quantization approach to speaker recognition",
+      "authors": [
+        "F Soong",
+        "A Rosenberg",
+        "B.-H Juang",
+        "L Rabiner"
+      ],
+      "year": "1987",
+      "venue": "AT&T technical journal"
+    },
+    {
+      "citation_id": "16",
+      "title": "Product quantization for nearest neighbor search",
+      "authors": [
+        "H Jegou",
+        "M Douze",
+        "C Schmid"
+      ],
+      "year": "2010",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence"
+    },
+    {
+      "citation_id": "17",
+      "title": "vq-wav2vec: Selfsupervised learning of discrete speech representations",
+      "authors": [
+        "A Baevski",
+        "S Schneider",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICLR"
+    },
+    {
+      "citation_id": "18",
+      "title": "Opening the black box of wav2vec feature encoder",
+      "authors": [
+        "K Choi",
+        "E Yeo"
+      ],
+      "year": "2022",
+      "venue": "Opening the black box of wav2vec feature encoder",
+      "arxiv": "arXiv:2210.15386"
+    },
+    {
+      "citation_id": "19",
+      "title": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "authors": [
+        "P Warden"
+      ],
+      "year": "2018",
+      "venue": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "arxiv": "arXiv:1804.03209"
+    },
+    {
+      "citation_id": "20",
+      "title": "VoxCeleb: A largescale speaker identification dataset",
+      "authors": [
+        "A Nagrani",
+        "J Chung",
+        "A Zisserman"
+      ],
+      "year": "2017",
+      "venue": "Proc. INTERSPEECH. ISCA"
+    },
+    {
+      "citation_id": "21",
+      "title": "Speech model pre-training for end-to-end spoken language understanding",
+      "authors": [
+        "L Lugosch",
+        "M Ravanelli",
+        "P Ignoto",
+        "V Tomar",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "22",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "23",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "Proc. International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "24",
+      "title": "Combating the instability of mutual information-based losses via regularization",
+      "authors": [
+        "K Choi",
+        "S Lee"
+      ],
+      "year": "2022",
+      "venue": "Proc. Uncertainty in Artificial Intelligence"
+    },
+    {
+      "citation_id": "25",
+      "title": "Annoy: approximate nearest neighbors in c++/python optimized for memory usage and loading/saving to disk",
+      "authors": [
+        "E Bernhardsson"
+      ],
+      "year": "2017",
+      "venue": "Annoy: approximate nearest neighbors in c++/python optimized for memory usage and loading/saving to disk"
+    },
+    {
+      "citation_id": "26",
+      "title": "XLS-R: Self-supervised cross-lingual speech representation learning at scale",
+      "authors": [
+        "A Babu",
+        "C Wang",
+        "A Tjandra",
+        "K Lakhotia",
+        "Q Xu",
+        "N Goyal",
+        "K Singh",
+        "P Von Platen",
+        "Y Saraf",
+        "J Pino",
+        "A Baevski",
+        "A Conneau",
+        "M Auli"
+      ],
+      "year": "2022",
+      "venue": "Proc. INTERSPEECH"
+    },
+    {
+      "citation_id": "27",
+      "title": "Comparison of decoding strategies for ctc acoustic models",
+      "authors": [
+        "T Zenkel",
+        "R Sanabria",
+        "F Metze",
+        "J Niehues",
+        "M Sperber",
+        "S Stüker",
+        "A Waibel"
+      ],
+      "year": "2017",
+      "venue": "Comparison of decoding strategies for ctc acoustic models",
+      "arxiv": "arXiv:1708.04469"
+    },
+    {
+      "citation_id": "28",
+      "title": "A statistical interpretation of term specificity and its application in retrieval",
+      "authors": [
+        "K Jones"
+      ],
+      "year": "1972",
+      "venue": "Journal of documentation"
+    },
+    {
+      "citation_id": "29",
+      "title": "Linguistic regularities in continuous space word representations",
+      "authors": [
+        "T Mikolov",
+        "W -T. Yih",
+        "G Zweig"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the conference of the north american chapter of the association for computational linguistics: Human language technologies"
+    },
+    {
+      "citation_id": "30",
+      "title": "A survey of speaker recognition: Fundamental theories, recognition methods and opportunities",
+      "authors": [
+        "M Kabir",
+        "M Mridha",
+        "J Shin",
+        "I Jahan",
+        "A Ohi"
+      ],
+      "year": "2021",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "31",
+      "title": "Integration of pre-trained networks with continuous token interface for end-to-end spoken language understanding",
+      "authors": [
+        "S Seo",
+        "D Kwak",
+        "B Lee"
+      ],
+      "year": "2022",
+      "venue": "Proc. International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "32",
+      "title": "Stochastic neighbor embedding",
+      "authors": [
+        "G Hinton",
+        "S Roweis"
+      ],
+      "year": "2002",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "33",
+      "title": "Exploring the encoding layer and loss function in end-to-end speaker and language recognition system",
+      "authors": [
+        "W Cai",
+        "J Chen",
+        "M Li"
+      ],
+      "year": "2018",
+      "venue": "Proc. Odyssey The Speaker and Language Recognition Workshop"
+    },
+    {
+      "citation_id": "34",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "Adam: A method for stochastic optimization"
+    },
+    {
+      "citation_id": "35",
+      "title": "HuBERT: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    }
+  ]
+}

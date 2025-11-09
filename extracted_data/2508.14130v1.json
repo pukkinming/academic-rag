@@ -1,0 +1,1354 @@
+{
+  "paper_id": "2508.14130v1",
+  "title": "Em Sllm: Parameter-Efficient Adaptation Of Llms For Speech Emotion Recognition",
+  "published": "2025-08-19T06:58:16Z",
+  "authors": [
+    "Hugo Thimonier",
+    "Antony Perzo",
+    "Renaud Seguier"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Emotion recognition from speech is a challenging task that requires capturing both linguistic and paralinguistic cues, with critical applications in human-computer interaction and mental health monitoring. Recent works have highlighted the ability of Large Language Models (LLMs) to perform tasks outside of the sole natural language area. In particular, recent approaches have investigated coupling LLMs with other data modalities by using pre-trained backbones and different fusion mechanisms. This work proposes a novel approach that fine-tunes an LLM with audio and text representations for emotion prediction. Our method first extracts audio features using an audio feature extractor, which are then mapped into the LLM's representation space via a learnable interfacing module. The LLM takes as input (1) the transformed audio features, (2) additional features in the form of natural language (e.g., the transcript), and (3) a textual prompt describing the emotion prediction task. To efficiently adapt the LLM to this multimodal task, we employ Low-Rank Adaptation (LoRA), enabling parameter-efficient fine-tuning. Experimental results on standard emotion recognition benchmarks demonstrate that our model outperforms all but one existing Speech-Text LLMs in the literature, while requiring less than half the parameters of competing approaches. This highlights our approach's effectiveness in integrating multi-modal inputs for speech-based emotion understanding while maintaining significant computational efficiency.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Predicting the emotion conveyed in audio is a critical task with many healthcare applications. For instance, tracking a patient's emotional fluctuations throughout the day can offer psychiatrists valuable insights into conditions such as depression-a disorder characterized by persistent sadness, irritability, and apathy  [1] . As a result, continuous and non-invasive emotion monitoring could significantly improve diagnostic accuracy and treatment personalization.\n\nThe widespread adoption of smartphones among both minors and adults  [21, 42]  has enabled scalable, real-time monitoring of behavioral and emotional health. Among the modalities accessible through smartphones, speech is particularly informative due to its rich linguistic and paralinguistic content  [46, 17] . These cues have been linked to various mental health conditions, and numerous studies have explored speech emotion recognition (SER) as a proxy for psychological well-being  [65, 23] .\n\nSER has been addressed lately by leveraging feature representations coming from models trained for different tasks  [15, 35, 36, 3, 10, 4, 24] . For instance,  [60]  fine-tune HuBERT  [24]  and Wav2Vec2.0  [4]  for the task of SER  [59] . Other approaches consider the use of frozen self-supervised models as feature extractors to train a supervised classifier  [45, 28]  by solely adding a linear layer on top of the self-supervised model. While promising, these approaches are quite simple and often rely exclusively on speech-related information.\n\nGiven the recent discoveries on the strong capacities of LLMs for multimodal tasks, research has been oriented towards leveraging LLMs for other modalities, including audio. In particular, different overlapping lines of works have been considered: LLMs that speak, LLMs that listen, and LLMs that can do both. Relevant to the present work is LLMs that listen, which describe LLMs that can take as input both natural language and audio features  [62, 27, 29, 16, 53, 13, 44] .\n\nCurrent state-of-the-art LLM-based approaches for Speech Emotion Recognition, such as SIFT-LLM  [44]  and SALOMONN  [53] , demonstrate impressive performance but rely on models with over 7 billion parameters. This makes them impractical for privacy-sensitive, on-device deployment-an essential consideration when handling highly personal data like a user's emotional state over time.\n\nIn the present work, we propose a parameter-efficient approach LLM-based approach for speech emotion recognition. We build on  [57]  and use as a downsampling module an attention-based model that selects learnable queries to represent the audios to be fed to the LLM. We rely on their feature mapping mechanism, QPMapper, as it is lightweight and has shown strong performance for visual and audio data inclusion in LLMs. We rely on Robust wav2vec 2.0  [25]  and WavLM as the audio feature extractors and experiment using Llama3.2-3B-Instruct  [39] . We train our model using a 3-step learning curriculum. In the first phase, we treat automatic speech recognition (ASR) as a proxy task to align the audio representations with the LLM embedding space. During this phase, the audio encoder and LLM are frozen, and only the QPMapper is updated. In the second phase, we continue training on the ASR task but enable fine-tuning of the LLM via Low-Rank Adaptation (LoRA)  [26] , allowing the language model to begin adapting to audio-conditioned tasks. Finally, in the third phase, we introduce the SER task to specialize the model for emotion recognition, further fine-tuning the LLM with LoRA while continuing to update the weights of the downsampling module.\n\nWe compare our model, coined Emotion Speech Large Language Model (Em SLLM), to existing text-audio language models for the task of speech emotion recognition. Em SLLM achieves competitive SER performance, outperforming all but one existing text-audio model while maintaining a substantially smaller parameter footprint. This demonstrates its potential for privacy-preserving, on-device emotion recognition. In addition, we carefully design prompts to guide the language model's reasoning over the audio representations, which we find to be essential for improving emotion recognition accuracy in low-resource settings.\n\nThe remainder of the paper is organized as follows: Section 2 presents the related works on selfsupervised learning and multimodal LLMs. Section 3 presents the approach used to address the SER problem by using LLMs. Section 4 shows the experimental results of our proposed methodology. In Section 5 we perform some ablations to assess the relevance of our approaches key characteristics. Finally, in 6 we conclude and discuss the limitations of the present work.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Works",
+      "text": "We review three key areas of prior work that underpin our approach: self-supervised learning for audio representations, the emergence of multimodal large language models, and recent advances in combining speech and text within LLM frameworks.\n\nSelf-Supervised Learning Self-supervised learning (SSL) for representation learning consists in solving a well-chosen pretext task to generate a meaningful representation of the data that can serve for downstream tasks. It has garnered increasing attention in recent years due to its success in fostering performance on downstream tasks on different data modalities. In the case of visual modality, approaches have been developed for images and video sequences. For images methods such as I-JEPA  [2] , SwAV  [8] , VICReg  [5]  or Barlow Twins  [68]  have been explored. In the case of video sequences, approaches such as V-JEPA  [6] , LatentMIM  [61]  or GTCC  [18]  have been studied. These learned representations have been shown to improve the performance of supervised downstream tasks. Similarly, methods for tabular data modality such as XTab  [69]  BinRecon  [32] , SwitchTab  [63] , or T-JEPA  [55]  enable better training of deep methods on tabular data. For audio data, self-supervised methods have also emerged as a powerful approach to learning representations without labeled supervision. Some seminal approaches include Wav2Vec  [51] , which was later improved with Wav2Vec2.0  [4] . The latter approach involves mapping the original audio signal to a latent space with a convolutional model, which is then mapped to a context space using a transformer model. Their approach also includes a quantization module following previous work  [58, 50, 3] . This quantization involves masking part of the audio representation and selecting the masked elements among some distractors. Another seminal work includes HuBERT  [24] , in which the self-supervised task predicts hidden cluster assignments of the masked frames. In addition to this approaches, WavLM  [10]  involves a transformer model and the mask reconstruction task and displays strong performance; BYOL-A  [40, 41]  that adapts the BYOL approach  [22]  originally proposed for images to audio. While subsequent works have proposed various enhancements, Wav2Vec2.0, HuBERT, and WavLM continue to dominate as the primary self-supervised models for audio.\n\nMultimodal Large Language Modeling Prior works have tried to leverage LLM to include modalities other than natural language. The main emphasis has been on including images in LLMs, coined as Vision Language Models (VLMs). VLMs could be described as LLMs that are also able to receive images as inputs.  [7]  distinguish several (possibly overlapping) approaches to VLMs: maskbased approaches  [52, 30] , contrastive-based approaches  [48, 31] , generative approaches  [54, 66] , and approaches based on pretrained backbones  [56, 70] .",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Speech-Text Llms",
+      "text": "Efforts have also been put on enabling LLMs to handle audio and speech modalities. Due to their lighter training cost, most approaches have been oriented toward including pretrained backbones to fuse modalities in LLMs rather than training models from scratch. The first approaches focused on specific tasks and enabled LLMs to perform one audio task at a time, such as ASR  [20, 67] . Later work has focused on multi-task models that can perform several tasks. For instance,  [53]  propose SALMONN in which they combine Whisper  [49]  and BEATS  [11]  with an LLM by using a window-level Q-Former  [33] , and train their model to perform tasks ranging from ASR, music captioning or emotion recognition. Similarly, Qwen2-audio  [13]  also relies on Whisper as the audio encoder. It combines the audio encoder's output representation with the tokenized representation of the text before feeding it to an LLM. They then proceed to train the LLM on more than 30 tasks, including ASR, SER, Speech-to-Text Translation or Vocal Sound Classification. Other examples of multi-task approaches include methods such as Speechverse  [16] , which relies on both WavLM  [10]  and Flan-T5  [14] ; or WavLLM  [27]  that relies on WavLM and Llama-2 7B-Instruct as the backbone models.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Method",
+      "text": "We put forward Em SLLM, an LLM that integrates both audio and textual modalities to enhance emotion prediction by fine-tuning a large language model (LLM) with Low-Rank Adaptation (LoRA) (see Figure  1 ). We first extract audio features using a pretrained audio encoder, then project them into the LLM's representation space using a downsampling module. The resulting audio representation is concatenated with the embedded instruction prompt, and the combined input is passed to the LLM for causal generation.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Architecture",
+      "text": "Audio encoder To extract semantically useful features from an audio signal, we rely on a pretrained audio feature extractor. Let x denote an audio signal, and f AE denote the audio feature extractor.\n\nwhere d AE is the hidden dimension of the audio encoder, and n the sequence length of the model's output.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Downsampling Module",
+      "text": "As highlighted in prior work  [16, 19] , audio signals typically yield much less compact latent representations compared to other modalities such as natural language. For example, the tokenized representation of a spoken sentence, when encoded by an audio foundation model, results in a substantially longer sequence than the corresponding textual representation. Consequently, directly concatenating the audio and text embeddings would introduce a disproportionate bias toward the audio modality, potentially skewing downstream tasks. To alleviate this issue, we downsample the audio representation h AE obtained in Eq. (  1 ) to shorten its sequence length n.\n\nWe adopt a Query Pooling Mapper (QPMapper) module, previously shown to perform well on image modalities  [57] . In a nutshell, this module adds n q learnable queries, q ∈ R nq×d AE , to the original sequence h AE . This concatenated sequence is then passed through a transformer encoder, and the output queries' representations are kept as the downsampled audio representation. Additionally, this downsampling module g serves to project the audio features into the dimensional space of the language model's representations. Thus,\n\nwhere n q is a hyperparameter.\n\nLarge language model Let f LLM denote the large language model that will serve for the causal generation. It inputs a concatenated sequence comprised of: (i) the output of the downsampling module, h ds ∈ R nq×d LLM , (ii) an embedded vectorized text prompt describing the task p ∈ R np×d LLM and (iii) possibly some textual information extracted from the audio signal also embedded and vectorized, e.g. a transcript, z ∈ R nz×d LLM . We further discuss in section 5.2 the information contained in z and its impact on the overall performance. Thus, the probability distribution over the output from Em SLLM can be expressed as:\n\nEm SLLM(x, p, z) = f LLM ([h ds , p, z]; θ LLM ) .\n\n(2)",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Optimization Objective",
+      "text": "For each task, we provide a set of 10 prompts, selected randomly for each sample in a batch. We display in sections A. Formally, let p t denote a prompt for task t uniformly sampled on P t the set of prompts for task t, and D t the set of datasets used for task t. Each sample can be represented as a tuple (x t , p t , z t , y t ), where x t is the audio waveform, p t the sampled prompt for the corresponding task, z t some additional information relevant for task t and y t the label to be predicted. The probability of predicting the label y t is modeled as p(y t | x t , p t , z t ; Θ) = Em SLLM(x t , p t , z t ),\n\n(3) where Θ = {θ AE , θ ds , θ LLM }. The LLM can attend to all tokens in the concatenated sequence [x t , p t , z t ] and is trained to leverage the audio tokens to minimize the negative likelihood given the probability modeled in Eq. (3). The negative likelihood for target y t for each sample in the training set is thus expressed as L(Θ) = -log p(y t | x t , p t , z t ; Θ), (4) and is minimized using gradient descent.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Data Concatenation",
+      "text": "We observed experimentally that directly concatenating the downsampled audio representation h ds with the textual prompt tokens p that guides the LLM, i.e. forming the input as [h ds , p], can hinder the LLM's ability to effectively attend to the audio tokens during training. To address this, we prepend a natural language cue, Here are some audio tokens:, to the audio token sequence. This guiding phrase helps the model identify and contextualize the incoming audio tokens. An alternative strategy would be to enclose the audio tokens within special markers, such as <|audio|>, <|/audio|>; however, this approach would necessitate modifying the LLM's embedding matrix, thereby introducing significant additional computational cost.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Task Prompt",
+      "text": "Prompt selection When prompting the LLM, we carefully describe the task to be performed and construct a pool of 20 distinct prompts per task. During training, each sample is randomly assigned a prompt uniformly sampled from the corresponding task-specific pool. For the Speech Emotion Recognition (SER) task, we use a closed-form prompt that explicitly enumerates the emotion categories from which the model should select its answer. To reduce positional bias and encourage generalization, the order of these categories is randomized for each sample. Empirically, we found that this randomization helps mitigate overfitting during training.\n\nPrompt format We explicitly detail in the system prompt the expected format of the answer that the LLM should provide. Following previous work  [16] , for single task prediction, we ask for the answer to be formatted as | TASK: <answer> | where TASK can either be ASR or Emotion. For joint prediction, latter discussed in section 5.3, we ask for a similar formatting of the answer, in the format | ASR: <answer> | Emotion: <answer> |.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Training Curriculum",
+      "text": "We rely on a three-stage curriculum learning framework. First, we train the model only on the ASR task following previous work  [27, 16] . In this first phase (P1), the audio feature extractor and LLM are frozen, while the downsampling module's weights are the only components updated. This phase aims to learn an effective mapping from the audio representation space to the LLM's embedding space, allowing the model to leverage the LLM's semantic capabilities  [16, 44] . In the second phase (P2), we introduce Low-Rank Adaptation (LoRA) adapters to the LLM and continue training on the ASR task. Here, both the downsampling module and the LLM (via LoRA) are fine-tuned jointly, enabling the model to begin adapting to audio-conditioned language tasks. Finally, in the last phase (P3) we introduce the SER objective and train the model to perform both ASR and emotion recognition simultaneously.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experimental Settings",
+      "text": "Dataset For ASR training, we rely on the Librispeech dataset  [43]  as well as MSP-Podcast  [38]  since the transcript is also provided. Regarding SER, we only rely on the MSP-Podcast dataset for training. We evaluate the ability of Em SLLM on the SER task on the test1 share of MSP-Podcast.\n\nTraining settings We use AdamW  [37]  as the optimizer with learning rate 5 • 10 -4 and weight decay 0.01. We also rely on linear scheduling with a warm-up on 10% of the phase's training steps. After the downsampling module warm-up phase, the scheduling is re-started when the LoRA adapters are added to the LLM. We use WavLM  [9]  as the audio feature extractor and Llama 3.2-3B-Instruct  [39]  as the foundation language model. The LoRA adapters are added to the following layers of the LLM: [q_proj, v_proj, k_proj, o_proj, gate_proj, up_proj, down_proj], while contrary to  [16]  we do not add LoRA adapters to the audio encoder and keep it frozen. LoRA adapter's rank is set to 8, with dropout 0.1 and α equal to 16. For the downsampling module, implemented as a QPMapper, we use 32 learnable queries, 2 transformer layers with 8 attention heads each, and an embedding dimension of 768. The output of the downsampling module is then mapped to the Figure  2 : Performance Comparison. Performance comparison with existing Audio-Language Models that perform speech emotion recognition, Qwen2-Audio-Instruct  [12]  (Qwen2-A), OASQA-LLM  [44]  (OASQAL), and SIFT-LLM  [44] . We compare Em SLLM with existing methods on MSP-Podcast test1 and observe that with fewer parameters and significantly less training time, our model displays strong SER performance as it outperforms all methods except SIFT-LLM. dimension of the LLM using a learned linear layer. We set the effective batch size to 512 for all three phases. Epochs for phase P1 and P2 are set to 10, while phase P3 lasts for a maximum of 20 epochs. We rely on early stopping on the validation SER loss, and stop after two consecutive epochs without improvement. To enhance the performance of Em SLLM for emotion prediction, we progressively decrease the weight of the ASR task in the optimized loss. For that purpose, we rely on a simple linear scheduler that attributes an equal weight to both ASR and Emotion Recognition losses for the first epoch of P3 while progressively decreasing the weight of the ASR loss to 0 for the last epoch.\n\nPrompt setting As further discussed in Section 5.2, we refer to Em SLLM as the variant trained with additional paralinguistic features and 1-shot example hinting provided in z. In contrast, Em SLLM-base denotes the baseline architecture trained with standard prompts and without any auxiliary information in z, as detailed in Sections A.2, A.3, and A.4. Both models are trained using identical hyperparameters. Also, for both Em SLLM and Em SLLM-base, inference is performed using joint decoding as detailed in section 5.3, where the model has access to the transcript when forming its prediction. We discuss the added value of including in z additional paralinguistic features and n-shot example hinting in section 5.\n\nCompute Overall, including LoRA layers and the downsampling module, our model has 12.5M trainable parameters and 3.2B parameters overall. Our model is trained on 16 H100 Nvidia GPUs with PyTorch Lightning 1  .\n\nBenchmark To ensure a rigorous evaluation, we benchmark our approach against existing Speech-Text LLMs that incorporate SER capabilities. For instance, we compare to SALMONN-7B  [53] , Qwen2-Audio-7B-Instruct  [12] , OASQA-LLM  [44]  and SIFT-LLM  [44]  using the test1 share of MSP-Podcast and the unweighted accuracy metric following previous work  [12, 44, 53, 44] . Although related to our work, we are unable to include Speechverse  [16]  in our benchmark as their model is not publicly available, and they only provide their model's performance for SER on the 4-class classification problem on MSP-Podcast. Regarding the remaining models to which we compare Em SLLM, we provide details on training hours in table 5 and observe that all models requires significantly more training hours than our proposed model.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Results",
+      "text": "Figure  2  (left) illustrates the performance of Em SLLM in relation to existing methods, plotted against their respective parameter counts. Our results demonstrate that Em SLLM achieves no-table performance despite its smaller number of parameters. Em SLLM significantly outperforms SALMONN  [53] , Qwen2-Audio-Instruct  [12] , and OASQAL  [44] , while having less than half (3.2B) the number of parameters than competing methods (7B+).\n\nWhile SIFT-LLM exhibits superior performance in emotion prediction, this advantage comes with substantially higher computational requirements, as highlighted in Table  5 . We attribute the performance gap between Em SLLM and SIFT-LLM to two primary factors. First, the backbone LLM used in their approach, Qwen2.5-7B-instruct  [47] , has a significantly larger number of parameters than ours. This parameter advantage likely provides SIFT-LLM with greater representational capacity and more robust contextual understanding. Second, SIFT-LLM's multi-task training regime exposes it to significantly more diverse data, enabling better cross-modal feature learning and more generalizable representations. This multi-task approach may create synergy where emotion recognition benefits from related speech understanding tasks. Despite these advantages of SIFT-LLM, it is noteworthy that Em SLLM achieves competitive performance while maintaining a significantly smaller parameter footprint, suggesting greater computational efficiency as shown on Figure  2  (right).",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Discussion",
+      "text": "",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Large Language Model",
+      "text": "To investigate the impact of both the LLM's architecture and training strategy, as well as parameter count, we compare the performance obtained by Em SLLM when using Qwen3-4B  [64]  and Llama 3.2-3B-Instruct  [39]  as f LLM .",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Additional Features",
+      "text": "Previous work  [34]  has demonstrated that adding paralinguistic audio features may boost emotion recognition using text-only LLMs.  [34]  only rely on the audio transcript and curated prompts for emotion recognition, in which case including additional paralinguistic information in the audio logically boosts the performance for emotion recognition. In our case, some paralinguistic information is likely already contained in the audio tokens.\n\nTable  1 : Performance comparison between performance with and without paralinguistic features in natural languages on test1 from MSP-Podcast  [38] .",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Add. Features Accuracy (↑)",
+      "text": "Nevertheless, we investigate whether adding this information in the form of textual tokens in z might enhance our model's performance. We include the following paralinguistic features: loudness, average pitch, pitch range, jitter and shimmer. Also, following  [34]  we include in z the gender of the speaker. Rather than directly providing the value of the features, we provide the binned paralinguistic features in three classes ['low', 'medium', 'high'] that each represent a third of the values based on the training set. We include those tokens by sampling among 5 introductory sentences and randomizing the order in which the paralinguistic features are provided. We display in table  1 , the performance of Em SLLM-base when trained with z including the additional features and with an empty z. We observe that including paralinguistic features in natural language inputs improves the performance of emotion prediction, increasing accuracy from 45.8% to 46.9%, a gain of 1.1 percentage points. . We chose to keep n small as we expect the marginal gain to be quite small for higher values while increasing the computational cost. We observe a significant difference between Em SLLM-base without any hint (0-shot) and its performance when enhanced with the 1-shot and 2-shot hinting strategies as they display a respective gain of 1.5 and 1.6 percentage points over the 0-shot approach. Since 1-shot and 2-shot hinting provide similar performance, we chose to keep 1-shot hinting in our main approach as it involves a lower computational cost.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Joint Prediction",
+      "text": "Training During phase P3 training, when the emotion is available for a sample, we provide a prompt that asks for joint prediction. In other words, the model is asked to perform simultaneously the ASR and SER task. We believe that this could only be beneficial as it ensures that the model uses both semantic, linguistic and paralinguistic features to form its emotion prediction. See appendix A.4 for an illustrative example. Inference The first approach, referred to as SER-only, involves prompting the LLM exclusively for the SER task without any auxiliary information. To assess the utility of providing transcript information as contextual hints, we explore two additional approaches. First, we consider providing the transcript in the user prompt, introduced by \"Use the following transcript to help you predict the emotion:\", we refer to this approach as Prompt-hint. Note that this approach was never used during the training phase. Second, we consider providing the same user prompt as the ones seen during training, but we provide the beginning of the answer to the LLM and ask it to complete it. In other words, we ask the LLM to perform auto-regressive generation where its context contains the user prompt followed by the beginning of the assistant's answer, \"| ASR: <transcript> | Emotion:\". We refer to this last approach as Em SLLM. See section A.  7  for examples of such prompts. Comparison of the performance between these approaches is displayed in Table  3 .\n\nOverall, we find that incorporating the transcript into the LLM's input significantly enhances SER accuracy. Both Prompt-hint and Em SLLM outperform the SER-only baseline. However, providing the transcript within the assistant's response, as done in Em SLLM, proves more effective than embedding it in the user prompt. Specifically, Em SLLM achieves an accuracy of 0.497, compared to 0.431 for Prompt-hint. The LLM's unfamiliarity with user prompts containing transcripts, since it was not exposed to such prompts during training, likely contributes to this performance gap. We assess the impact of the choice of backbone audio encoder by replacing WavLM  [9]  with Robust wav2vec 2.0  [25] . The alternative model is trained using the same hyperparameters, training curriculum, and prompting strategy as the original configuration. Table  4  compares the performance of Em SLLM when using WavLM versus Robust wav2vec 2.0 as the pretrained audio encoder. While both encoders yield strong results, WavLM consistently outperforms Robust wav2vec 2.0 in this setup. However, it is important to note that the hyperparameters were optimized for WavLM and may not be ideal for wav2vec 2.0, potentially limiting the latter's performance.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Audio Encoder",
+      "text": "",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "This paper introduced Em SLLM, a novel and computationally efficient approach for speech emotion recognition (SER) that effectively integrates audio and text modalities using LLMs. Our experimental results on standard SER benchmarks demonstrate that Em SLLM outperforms most existing Speech-Text LLMs in the literature while requiring significantly fewer parameters and less training time. This highlights Em SLLM's effectiveness and paves the way for more efficient and privacy-preserving applications in areas like human-computer interaction and mental health monitoring.\n\nLimitations and future work While Em SLLM shows strong performance and efficiency, it is still surpassed by SIFT-LLM. This is likely due to SIFT-LLM benefiting from a larger backbone LLM and exposure to a significantly greater volume of multi-task training data. This suggests that even with parameter efficiency, the scale of the base LLM and training data diversity remain crucial. Furthermore, achieving true on-device deployment for multimodal LLMs still requires substantially reducing the overall parameter count. Future work could explore the integration of smaller backbone LLMs, model compression techniques such as quantization, or extending Em SLLM to handle a broader range of multimodal inputs.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A Prompts",
+      "text": "We provide in this section a more comprehensive description of the prompt structures used to train Em SLLM.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "A.1 System Prompt",
+      "text": "We carefully design a system that details to the LLM the task at hand, while providing useful information about the expected input and output structures. We provide hereafter a snippet of the curated system prompt.\n\nSystem prompt { \"role\": \"system\", \"content\":\n\n\"You are a highly capable assistant specialized in audio processing tasks. You receive inputs containing audio token representations followed by text instructions, and return structured answer.\n\nYou may be asked to perform: 1. **Automatic Speech Recognition (ASR)** -transcribe the spoken content. As previously discussed in the main section of the paper, for each sample we select a prompt among a curated selection of prompts detailing the expected task at hand. We provide hereafter an example an ASR prompt used during training.",
+      "page_start": 15,
+      "page_end": 15
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Em SLLM Pipeline. In step (a), the audio signal is fed to a pretrained audio encoder to",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: ). We first extract audio features using a pretrained audio encoder, then project them into",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Performance Comparison. Performance comparison with existing Audio-Language",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: (left) illustrates the performance of Em SLLM in relation to existing methods, plotted",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 3: Prompt Strategies. Perfor- Inference Thefirstapproach,referredtoasSER-only,",
+      "data": [
+        {
+          "Column_1": "pre",
+          "Column_2": "dict",
+          "\"Use": "",
+          "Column_4": "the",
+          "the": "",
+          "Column_6": "emo",
+          "fol": "",
+          "Column_8": "tion:",
+          "lowi": "",
+          "ng": "",
+          "tran": "",
+          "script": "",
+          "to": "",
+          "help": "",
+          "you": ""
+        }
+      ],
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Depression in Children. StatPearls Publishing",
+      "authors": [
+        "Ali Alsaad",
+        "Yusra Azhar",
+        "Yasser Al Nasser"
+      ],
+      "venue": "Depression in Children. StatPearls Publishing"
+    },
+    {
+      "citation_id": "2",
+      "title": "Self-supervised learning from images with a jointembedding predictive architecture",
+      "authors": [
+        "Mahmoud Assran",
+        "Quentin Duval",
+        "Ishan Misra",
+        "Piotr Bojanowski",
+        "Pascal Vincent",
+        "Michael Rabbat",
+        "Yann Lecun",
+        "Nicolas Ballas"
+      ],
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "3",
+      "title": "vq-wav2vec: Self-supervised learning of discrete speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Steffen Schneider",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "4",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Henry Zhou",
+        "Abdel Rahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "wav2vec 2.0: A framework for self-supervised learning of speech representations"
+    },
+    {
+      "citation_id": "5",
+      "title": "VICReg: Variance-invariance-covariance regularization for self-supervised learning",
+      "authors": [
+        "Adrien Bardes",
+        "Jean Ponce",
+        "Yann Lecun"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "6",
+      "title": "Revisiting feature prediction for learning visual representations from video",
+      "authors": [
+        "Adrien Bardes",
+        "Quentin Garrido",
+        "Jean Ponce",
+        "Xinlei Chen",
+        "Michael Rabbat",
+        "Yann Lecun",
+        "Mido Assran",
+        "Nicolas Ballas"
+      ],
+      "year": "2024",
+      "venue": "Transactions on Machine Learning Research"
+    },
+    {
+      "citation_id": "7",
+      "title": "Aishwarya Agrawal",
+      "authors": [
+        "Florian Bordes",
+        "Richard Pang",
+        "Anurag Ajay",
+        "Alexander Li",
+        "Adrien Bardes",
+        "Suzanne Petryk",
+        "Oscar Mañas",
+        "Zhiqiu Lin",
+        "Anas Mahmoud",
+        "Bargav Jayaraman",
+        "Mark Ibrahim",
+        "Melissa Hall",
+        "Yunyang Xiong",
+        "Jonathan Lebensold",
+        "Candace Ross",
+        "Srihari Jayakumar",
+        "Chuan Guo",
+        "Diane Bouchacourt",
+        "Haider Al-Tahan",
+        "Karthik Padthe",
+        "Vasu Sharma",
+        "Hu Xu",
+        "Ellen Xiaoqing",
+        "Megan Tan",
+        "Samuel Richards",
+        "Pietro Lavoie",
+        "Reyhane Astolfi",
+        "Jun Askari Hemmat",
+        "Kushal Chen",
+        "Rim Tirumala",
+        "Mazda Assouel",
+        "Arjang Moayeri",
+        "Kamalika Talattof",
+        "Zechun Chaudhuri",
+        "Xilun Liu",
+        "Quentin Chen",
+        "Karen Garrido",
+        "Ullrich"
+      ],
+      "year": "2024",
+      "venue": "Aishwarya Agrawal"
+    },
+    {
+      "citation_id": "8",
+      "title": "Unsupervised learning of visual features by contrasting cluster assignments",
+      "authors": [
+        "Mathilde Caron",
+        "Ishan Misra",
+        "Julien Mairal",
+        "Priya Goyal",
+        "Piotr Bojanowski",
+        "Armand Joulin"
+      ],
+      "year": "2020",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "9",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen",
+        "Chengyi Wang",
+        "Zhengyang Chen",
+        "Yu Wu",
+        "Shujie Liu",
+        "Zhuo Chen",
+        "Jinyu Li",
+        "Naoyuki Kanda",
+        "Takuya Yoshioka",
+        "Xiong Xiao",
+        "Jian Wu",
+        "Long Zhou",
+        "Shuo Ren",
+        "Yanmin Qian",
+        "Jian Yao Qian",
+        "Michael Wu",
+        "Furu Zeng",
+        "Wei"
+      ],
+      "year": "2021",
+      "venue": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Wavlm: Large-scale self-supervised pre-training for full stack speech processing",
+      "authors": [
+        "Sanyuan Chen",
+        "Chengyi Wang",
+        "Zhengyang Chen",
+        "Yu Wu",
+        "Shujie Liu",
+        "Zhuo Chen",
+        "Jinyu Li",
+        "Naoyuki Kanda",
+        "Takuya Yoshioka",
+        "Xiong Xiao",
+        "Jian Wu",
+        "Long Zhou",
+        "Shuo Ren",
+        "Yanmin Qian",
+        "Micheal Yao Qian",
+        "Furu Zeng",
+        "Wei"
+      ],
+      "year": "2021",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "11",
+      "title": "BEATs: Audio pre-training with acoustic tokenizers",
+      "authors": [
+        "Sanyuan Chen",
+        "Yu Wu",
+        "Chengyi Wang",
+        "Shujie Liu",
+        "Daniel Tompkins",
+        "Zhuo Chen",
+        "Wanxiang Che",
+        "Xiangzhan Yu",
+        "Furu Wei"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 40th International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "12",
+      "title": "Qwen-audio: Advancing universal audio understanding via unified large-scale audio-language models",
+      "authors": [
+        "Yunfei Chu",
+        "Jin Xu",
+        "Xiaohuan Zhou",
+        "Qian Yang",
+        "Shiliang Zhang",
+        "Zhijie Yan",
+        "Chang Zhou",
+        "Jingren Zhou"
+      ],
+      "year": "2023",
+      "venue": "Qwen-audio: Advancing universal audio understanding via unified large-scale audio-language models",
+      "arxiv": "arXiv:2311.07919"
+    },
+    {
+      "citation_id": "13",
+      "title": "Qwen2-audio technical report",
+      "authors": [
+        "Yunfei Chu",
+        "Jin Xu",
+        "Qian Yang",
+        "Haojie Wei",
+        "Xipin Wei",
+        "Zhifang Guo",
+        "Yichong Leng",
+        "Yuanjun Lv",
+        "Jinzheng He",
+        "Junyang Lin",
+        "Chang Zhou",
+        "Jingren Zhou"
+      ],
+      "year": "2024",
+      "venue": "Qwen2-audio technical report"
+    },
+    {
+      "citation_id": "14",
+      "title": "",
+      "authors": [
+        "Chung Hyung Won",
+        "Le Hou",
+        "Shayne Longpre",
+        "Barret Zoph",
+        "Yi Tay",
+        "William Fedus",
+        "Yunxuan Li",
+        "Xuezhi Wang",
+        "Mostafa Dehghani",
+        "Siddhartha Brahma",
+        "Albert Webson",
+        "Shane Shixiang",
+        "Zhuyun Gu",
+        "Mirac Dai",
+        "Xinyun Suzgun",
+        "Aakanksha Chen",
+        "Alex Chowdhery",
+        "Marie Castro-Ros",
+        "Kevin Pellat",
+        "Dasha Robinson",
+        "Sharan Valter",
+        "Gaurav Narang",
+        "Adams Mishra",
+        "Vincent Yu",
+        "Yanping Zhao",
+        "Andrew Huang",
+        "Hongkun Dai",
+        "Slav Yu",
+        "Ed Petrov",
+        "Jeff Chi",
+        "Jacob Dean",
+        "Adam Devlin",
+        "Denny Roberts",
+        "Quoc Zhou",
+        "Jason Le",
+        "Wei"
+      ],
+      "year": "2022",
+      "venue": ""
+    },
+    {
+      "citation_id": "15",
+      "title": "An unsupervised autoregressive model for speech representation learning",
+      "authors": [
+        "Yu-An Chung",
+        "Wei-Ning Hsu",
+        "Hao Tang",
+        "James Glass"
+      ],
+      "year": "2019",
+      "venue": "An unsupervised autoregressive model for speech representation learning"
+    },
+    {
+      "citation_id": "16",
+      "title": "Speechverse: A large-scale generalizable audio language model",
+      "authors": [
+        "Nilaksh Das",
+        "Saket Dingliwal",
+        "S Ronanki",
+        "Rohit Paturi",
+        "David Huang",
+        "Prashant Mathur",
+        "Jie Yuan",
+        "Dhanush Bekal",
+        "Xing Niu",
+        "Muralidhar Sai",
+        "Xilai Jayanthi",
+        "Karel Li",
+        "Monica Mundnich",
+        "Sundararajan Sunkara",
+        "Kyu Srinivasan",
+        "Katrin Han",
+        "Kirchhoff"
+      ],
+      "year": "2024",
+      "venue": "Speechverse: A large-scale generalizable audio language model"
+    },
+    {
+      "citation_id": "17",
+      "title": "Speech prosody in mental disorders",
+      "authors": [
+        "Hongwei Ding",
+        "Yang Zhang"
+      ],
+      "year": "2023",
+      "venue": "Annual Review of Linguistics"
+    },
+    {
+      "citation_id": "18",
+      "title": "Learning to predict activity progress by self-supervised video alignment",
+      "authors": [
+        "Gerard Donahue",
+        "Ehsan Elhamifar"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "19",
+      "title": "Moshi: a speech-text foundation model for real",
+      "authors": [
+        "Alexandre Défossez",
+        "Laurent Mazaré",
+        "Manu Orsini",
+        "Amélie Royer",
+        "Patrick Pérez",
+        "Hervé Jégou",
+        "Edouard Grave",
+        "Neil Zeghidour"
+      ],
+      "year": "2024",
+      "venue": "Moshi: a speech-text foundation model for real"
+    },
+    {
+      "citation_id": "20",
+      "title": "Prompting large language models with speech recognition abilities",
+      "authors": [
+        "Yassir Fathullah",
+        "Chunyang Wu",
+        "Egor Lakomkin",
+        "Junteng Jia",
+        "Yuan Shangguan",
+        "Ke Li",
+        "Jinxi Guo",
+        "Wenhan Xiong",
+        "Jay Mahadeokar",
+        "Ozlem Kalinli",
+        "Christian Fuegen",
+        "Mike Seltzer"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "21",
+      "title": "Risk factors for problematic smartphone use in children and adolescents: a review of existing literature",
+      "authors": [
+        "Linda Fischer-Grote",
+        "Oswald Kothgassner",
+        "Anna Felnhofer"
+      ],
+      "year": "2019",
+      "venue": "neuropsychiatrie"
+    },
+    {
+      "citation_id": "22",
+      "title": "Bootstrap your own latent a new approach to self-supervised learning",
+      "authors": [
+        "Jean-Bastien Grill",
+        "Florian Strub",
+        "Florent Altché",
+        "Corentin Tallec",
+        "Pierre Richemond",
+        "Elena Buchatskaya",
+        "Carl Doersch",
+        "Bernardo Avila Pires",
+        "Zhaohan Daniel Guo",
+        "Mohammad Azar",
+        "Bilal Piot",
+        "Koray Kavukcuoglu",
+        "Rémi Munos",
+        "Michal Valko"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 34th International Conference on Neural Information Processing Systems, NIPS '20"
+    },
+    {
+      "citation_id": "23",
+      "title": "A generalizable speech emotion recognition model reveals depression and remission",
+      "authors": [
+        "Lasse Hansen",
+        "Yan-Ping Zhang",
+        "Detlef Wolf",
+        "Konstantinos Sechidis",
+        "Nicolai Ladegaard",
+        "Riccardo Fusaroli"
+      ],
+      "year": "2022",
+      "venue": "Acta Psychiatrica Scandinavica"
+    },
+    {
+      "citation_id": "24",
+      "title": "Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed",
+        "Hubert"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Trans. Audio, Speech and Lang. Proc"
+    },
+    {
+      "citation_id": "25",
+      "title": "Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Anuroop Sriram",
+        "Alexei Baevski",
+        "Tatiana Likhomanenko",
+        "Qiantong Xu",
+        "Vineel Pratap",
+        "Jacob Kahn",
+        "Ann Lee",
+        "Ronan Collobert",
+        "Gabriel Synnaeve",
+        "Michael Auli"
+      ],
+      "year": "2021",
+      "venue": "Interspeech 2021"
+    },
+    {
+      "citation_id": "26",
+      "title": "LoRA: Low-rank adaptation of large language models",
+      "authors": [
+        "J Edward",
+        "Phillip Hu",
+        "Zeyuan Wallis",
+        "Yuanzhi Allen-Zhu",
+        "Shean Li",
+        "Lu Wang",
+        "Weizhu Wang",
+        "Chen"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "27",
+      "title": "WavLLM: Towards robust and adaptive speech large language model",
+      "authors": [
+        "Shujie Hu",
+        "Long Zhou",
+        "Shujie Liu",
+        "Sanyuan Chen",
+        "Lingwei Meng",
+        "Hongkun Hao",
+        "Jing Pan",
+        "Xunying Liu",
+        "Jinyu Li",
+        "Sunit Sivasankaran",
+        "Linquan Liu",
+        "Furu Wei"
+      ],
+      "year": "2024",
+      "venue": "Findings of the Association for Computational Linguistics: EMNLP 2024"
+    },
+    {
+      "citation_id": "28",
+      "title": "Towards improving speech emotion recognition using synthetic data augmentation from emotion conversion",
+      "authors": [
+        "Karim Ibrahim",
+        "Antony Perzo",
+        "Simon Leglaive"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "29",
+      "title": "Audio flamingo: A novel audio language model with few-shot learning and dialogue abilities",
+      "authors": [
+        "Zhifeng Kong",
+        "Arushi Goel",
+        "Rohan Badlani",
+        "Wei Ping",
+        "Rafael Valle",
+        "Bryan Catanzaro"
+      ],
+      "year": "2024",
+      "venue": "Forty-first International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "30",
+      "title": "Masked vision and language modeling for multi-modal representation learning",
+      "authors": [
+        "Gukyeong Kwon",
+        "Zhaowei Cai",
+        "Avinash Ravichandran",
+        "Erhan Bas",
+        "Rahul Bhotika",
+        "Stefano Soatto"
+      ],
+      "year": "2023",
+      "venue": "The Eleventh International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "31",
+      "title": "Modeling caption diversity in contrastive vision-language pretraining",
+      "authors": [
+        "Samuel Lavoie",
+        "Polina Kirichenko",
+        "Mark Ibrahim",
+        "Mido Assran",
+        "Andrew Gordon Wilson",
+        "Aaron Courville",
+        "Nicolas Ballas"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the 41st International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "32",
+      "title": "Binning as a pretext task: Improving self-supervised learning in tabular domains",
+      "authors": [
+        "Kyungeun Lee",
+        "Ye Seul Sim",
+        "Hyeseung Cho",
+        "Moonjung Eo",
+        "Suhee Yoon",
+        "Sanghyu Yoon",
+        "Woohyung Lim"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the 41st International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "33",
+      "title": "Blip-2: bootstrapping language-image pre-training with frozen image encoders and large language models",
+      "authors": [
+        "Junnan Li",
+        "Dongxu Li",
+        "Silvio Savarese",
+        "Steven Hoi"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 40th International Conference on Machine Learning, ICML'23. JMLR.org"
+    },
+    {
+      "citation_id": "34",
+      "title": "Revise, reason, and recognize: Llm-based emotion recognition via emotion-specific prompts and asr error correction",
+      "authors": [
+        "Yuanchao Li",
+        "Yuan Gong",
+        "Chao-Han Huck",
+        "Peter Yang",
+        "Catherine Bell",
+        "Lai"
+      ],
+      "year": "2025",
+      "venue": "ICASSP 2025 -2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "35",
+      "title": "Non-autoregressive predictive coding for learning speech representations from local dependencies",
+      "authors": [
+        "Alexander Liu",
+        "Yu-An Chung",
+        "James Glass"
+      ],
+      "year": "2020",
+      "venue": "Non-autoregressive predictive coding for learning speech representations from local dependencies"
+    },
+    {
+      "citation_id": "36",
+      "title": "Tera: Self-supervised learning of transformer encoder representation for speech",
+      "authors": [
+        "Andy Liu",
+        "Shang-Wen",
+        "Hung Li",
+        "Lee Yi"
+      ],
+      "year": "2020",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "37",
+      "title": "Decoupled weight decay regularization",
+      "authors": [
+        "Ilya Loshchilov",
+        "Frank Hutter"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "38",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "Reza Lotfian",
+        "Carlos Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "39",
+      "title": "The llama 3 herd of models",
+      "authors": [
+        "Ai @meta"
+      ],
+      "year": "2024",
+      "venue": "The llama 3 herd of models"
+    },
+    {
+      "citation_id": "40",
+      "title": "Byol for audio: Self-supervised learning for general-purpose audio representation",
+      "authors": [
+        "Daisuke Niizumi",
+        "Daiki Takeuchi",
+        "Yasunori Ohishi",
+        "Noboru Harada",
+        "Kunio Kashino"
+      ],
+      "year": "2021",
+      "venue": "2021 International Joint Conference on Neural Networks (IJCNN)"
+    },
+    {
+      "citation_id": "41",
+      "title": "Byol for audio: Exploring pre-trained general-purpose audio representations",
+      "authors": [
+        "Daisuke Niizumi",
+        "Daiki Takeuchi",
+        "Yasunori Ohishi",
+        "Noboru Harada",
+        "Kunio Kashino"
+      ],
+      "year": "2023",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "42",
+      "title": "Smartphone addiction is increasing across the world: A meta-analysis of 24 countries",
+      "authors": [
+        "Jay Olson",
+        "Dasha Sandra",
+        "Élissa Colucci",
+        "Alain Bikaii",
+        "Denis Chmoulevitch",
+        "Johnny Nahas",
+        "Amir Raz",
+        "P Samuel",
+        "Veissière"
+      ],
+      "year": "2022",
+      "venue": "Computers in Human Behavior"
+    },
+    {
+      "citation_id": "43",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "Vassil Panayotov",
+        "Guoguo Chen",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "44",
+      "title": "Sift-50m: A large-scale multilingual dataset for speech instruction fine-tuning",
+      "authors": [
+        "Prabhat Pandey",
+        "Rupak Vignesh Swaminathan",
+        "K V Vijay Girish",
+        "Arunasish Sen",
+        "Jian Xie",
+        "Grant Strimel",
+        "Andreas Schwarz"
+      ],
+      "year": "2025",
+      "venue": "Sift-50m: A large-scale multilingual dataset for speech instruction fine-tuning"
+    },
+    {
+      "citation_id": "45",
+      "title": "Emotion Recognition from Speech Using wav2vec 2.0 Embeddings",
+      "authors": [
+        "Leonardo Pepino",
+        "Pablo Riera",
+        "Luciana Ferrer"
+      ],
+      "year": "2021",
+      "venue": "Interspeech"
+    },
+    {
+      "citation_id": "46",
+      "title": "Voice modulation: A window into the origins of human vocal control?",
+      "authors": [
+        "Katarzyna Pisanski",
+        "Valentina Cartei",
+        "Carolyn Mcgettigan",
+        "Jordan Raine",
+        "David Reby"
+      ],
+      "year": "2016",
+      "venue": "Trends in Cognitive Sciences"
+    },
+    {
+      "citation_id": "47",
+      "title": "",
+      "authors": [
+        ": Qwen",
+        "An Yang",
+        "Baosong Yang",
+        "Beichen Zhang",
+        "Binyuan Hui",
+        "Bo Zheng",
+        "Bowen Yu",
+        "Chengyuan Li",
+        "Dayiheng Liu",
+        "Fei Huang",
+        "Haoran Wei",
+        "Huan Lin",
+        "Jian Yang",
+        "Jianhong Tu",
+        "Jianwei Zhang",
+        "Jianxin Yang",
+        "Jiaxi Yang",
+        "Jingren Zhou",
+        "Junyang Lin",
+        "Kai Dang",
+        "Keming Lu",
+        "Keqin Bao",
+        "Kexin Yang",
+        "Le Yu",
+        "Mei Li",
+        "Mingfeng Xue",
+        "Pei Zhang",
+        "Qin Zhu",
+        "Rui Men",
+        "Runji Lin",
+        "Tianhao Li",
+        "Tianyi Tang",
+        "Tingyu Xia",
+        "Xingzhang Ren",
+        "Xuancheng Ren",
+        "Yang Fan",
+        "Yang Su",
+        "Yichang Zhang",
+        "Yu Wan",
+        "Yuqiong Liu",
+        "Zeyu Cui",
+        "Zhenru Zhang"
+      ],
+      "year": "2025",
+      "venue": ""
+    },
+    {
+      "citation_id": "48",
+      "title": "Learning transferable visual models from natural language supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Chris Hallacy",
+        "Aditya Ramesh",
+        "Gabriel Goh",
+        "Sandhini Agarwal",
+        "Girish Sastry",
+        "Amanda Askell",
+        "Pamela Mishkin",
+        "Jack Clark",
+        "Gretchen Krueger",
+        "Ilya Sutskever"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 38th International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "49",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Tao Xu",
+        "Greg Brockman",
+        "Christine Mcleavey",
+        "Ilya Sutskever"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 40th International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "50",
+      "title": "Generating diverse high-fidelity images with vq-vae-2",
+      "authors": [
+        "Ali Razavi",
+        "Aaron Van Den Oord",
+        "Oriol Vinyals"
+      ],
+      "year": "2019",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "51",
+      "title": "wav2vec: Unsupervised pre-training for speech recognition",
+      "authors": [
+        "Steffen Schneider",
+        "Alexei Baevski",
+        "Ronan Collobert",
+        "Michael Auli"
+      ],
+      "year": "2019",
+      "venue": "wav2vec: Unsupervised pre-training for speech recognition"
+    },
+    {
+      "citation_id": "52",
+      "title": "Flava: A foundational language and vision alignment model",
+      "authors": [
+        "Amanpreet Singh",
+        "Ronghang Hu",
+        "Vedanuj Goswami",
+        "Guillaume Couairon",
+        "Wojciech Galuba",
+        "Marcus Rohrbach",
+        "Douwe Kiela"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "53",
+      "title": "SALMONN: Towards generic hearing abilities for large language models",
+      "authors": [
+        "Changli Tang",
+        "Wenyi Yu",
+        "Guangzhi Sun",
+        "Xianzhao Chen",
+        "Tian Tan",
+        "Wei Li",
+        "Lu Lu",
+        "M Zejun",
+        "Chao Zhang"
+      ],
+      "year": "2024",
+      "venue": "The Twelfth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "54",
+      "title": "Chameleon: Mixed-modal early-fusion foundation models",
+      "authors": [
+        "Chameleon Team"
+      ],
+      "year": "2024",
+      "venue": "Chameleon: Mixed-modal early-fusion foundation models"
+    },
+    {
+      "citation_id": "55",
+      "title": "Augmentation-free self-supervised learning for tabular data",
+      "authors": [
+        "Hugo Thimonier",
+        "Lucas De",
+        "Melo Costa",
+        "Fabrice Popineau",
+        "Arpad Rimmel",
+        ". T-Jepa Bich-Liên Doan"
+      ],
+      "year": "2025",
+      "venue": "The Thirteenth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "56",
+      "title": "Multimodal few-shot learning with frozen language models",
+      "authors": [
+        "Maria Tsimpoukelli",
+        "Jacob Menick",
+        "Serkan Cabi",
+        "S Ali Eslami",
+        "Oriol Vinyals",
+        "Felix Hill"
+      ],
+      "year": "2021",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "57",
+      "title": "Improved baselines for data-efficient perceptual augmentation of LLMs",
+      "authors": [
+        "Théophane Vallaeys",
+        "Mustafa Shukor",
+        "Matthieu Cord",
+        "Jakob Verbeek"
+      ],
+      "year": "2024",
+      "venue": "Improved baselines for data-efficient perceptual augmentation of LLMs"
+    },
+    {
+      "citation_id": "58",
+      "title": "Neural discrete representation learning",
+      "year": "2017",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "59",
+      "title": "Dawn of the transformer era in speech emotion recognition: Closing the valence gap",
+      "authors": [
+        "Johannes Wagner",
+        "Andreas Triantafyllopoulos",
+        "Hagen Wierstorf",
+        "Maximilian Schmitt",
+        "Felix Burkhardt",
+        "Florian Eyben",
+        "Björn Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "60",
+      "title": "A fine-tuned wav2vec 2.0/hubert benchmark for speech emotion recognition, speaker verification and spoken language understanding",
+      "authors": [
+        "Yingzhi Wang",
+        "Abdelmoumene Boumadane",
+        "Abdelwahab Heba"
+      ],
+      "year": "2021",
+      "venue": "A fine-tuned wav2vec 2.0/hubert benchmark for speech emotion recognition, speaker verification and spoken language understanding"
+    },
+    {
+      "citation_id": "61",
+      "title": "Towards latent masked image modeling for self-supervised visual representation learning",
+      "authors": [
+        "Yibing Wei",
+        "Abhinav Gupta",
+        "Pedro Morgado"
+      ],
+      "year": "2025",
+      "venue": "Computer Vision -ECCV 2024"
+    },
+    {
+      "citation_id": "62",
+      "title": "On decoder-only architecture for speech-to-text and large language model integration",
+      "authors": [
+        "Jian Wu",
+        "Yashesh Gaur",
+        "Zhuo Chen",
+        "Long Zhou",
+        "Yimeng Zhu",
+        "Tianrui Wang",
+        "Jinyu Li",
+        "Shujie Liu",
+        "Bo Ren",
+        "Linquan Liu",
+        "Yu Wu"
+      ],
+      "year": "2023",
+      "venue": "On decoder-only architecture for speech-to-text and large language model integration"
+    },
+    {
+      "citation_id": "63",
+      "title": "Switchtab: Switched autoencoders are effective tabular learners",
+      "authors": [
+        "Jing Wu",
+        "Suiyao Chen",
+        "Qi Zhao",
+        "Renat Sergazinov",
+        "Chen Li",
+        "Shengjie Liu",
+        "Chongchao Zhao",
+        "Tianpei Xie",
+        "Hanqing Guo",
+        "Cheng Ji",
+        "Daniel Cociorva",
+        "Hakan Brunzell"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "64",
+      "title": "Qwen3 technical report",
+      "authors": [
+        "An Yang",
+        "Anfeng Li",
+        "Baosong Yang",
+        "Beichen Zhang",
+        "Binyuan Hui",
+        "Bo Zheng",
+        "Bowen Yu",
+        "Chang Gao",
+        "Chengen Huang",
+        "Chenxu Lv",
+        "Chujie Zheng",
+        "Dayiheng Liu",
+        "Fan Zhou",
+        "Fei Huang",
+        "Feng Hu",
+        "Hao Ge",
+        "Haoran Wei",
+        "Huan Lin",
+        "Jialong Tang",
+        "Jian Yang",
+        "Jianhong Tu",
+        "Jianwei Zhang",
+        "Jianxin Yang",
+        "Jiaxi Yang",
+        "Jing Zhou",
+        "Jingren Zhou",
+        "Junyang Lin",
+        "Kai Dang",
+        "Keqin Bao",
+        "Kexin Yang",
+        "Le Yu",
+        "Lianghao Deng",
+        "Mei Li",
+        "Mingfeng Xue",
+        "Mingze Li",
+        "Pei Zhang",
+        "Peng Wang",
+        "Qin Zhu",
+        "Rui Men",
+        "Ruize Gao",
+        "Shixuan Liu",
+        "Shuang Luo",
+        "Tianhao Li",
+        "Tianyi Tang",
+        "Wenbiao Yin",
+        "Xingzhang Ren",
+        "Xinyu Wang",
+        "Xinyu Zhang",
+        "Xuancheng Ren",
+        "Yang Fan",
+        "Yang Su",
+        "Yichang Zhang",
+        "Yinger Zhang",
+        "Yu Wan",
+        "Yuqiong Liu",
+        "Zekun Wang",
+        "Zeyu Cui",
+        "Zhenru Zhang",
+        "Zhipeng Zhou",
+        "Zihan Qiu"
+      ],
+      "year": "2025",
+      "venue": "Qwen3 technical report",
+      "arxiv": "arXiv:2505.09388"
+    },
+    {
+      "citation_id": "65",
+      "title": "Detection of mood disorder using speech emotion profiles and lstm",
+      "authors": [
+        "Tsung-Hsien Yang",
+        "Chung-Hsien Wu",
+        "Kun-Yi Huang",
+        "Ming-Hsiang Su"
+      ],
+      "year": "2016",
+      "venue": "2016 10th International Symposium on Chinese Spoken Language Processing (ISCSLP)"
+    },
+    {
+      "citation_id": "66",
+      "title": "Coca: Contrastive captioners are image-text foundation models",
+      "authors": [
+        "Jiahui Yu",
+        "Zirui Wang",
+        "Vijay Vasudevan",
+        "Legg Yeung",
+        "Mojtaba Seyedhosseini",
+        "Yonghui Wu"
+      ],
+      "year": "2022",
+      "venue": "Transactions on Machine Learning Research"
+    },
+    {
+      "citation_id": "67",
+      "title": "Connecting speech encoder and large language model for asr",
+      "authors": [
+        "Wenyi Yu",
+        "Changli Tang",
+        "Guangzhi Sun",
+        "Xianzhao Chen",
+        "Tian Tan",
+        "Wei Li",
+        "Lu Lu",
+        "Zejun Ma",
+        "Chao Zhang"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    },
+    {
+      "citation_id": "68",
+      "title": "Barlow twins: Selfsupervised learning via redundancy reduction",
+      "authors": [
+        "Jure Zbontar",
+        "Li Jing",
+        "Ishan Misra",
+        "Yann Lecun",
+        "Stéphane Deny"
+      ],
+      "year": "2021",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "69",
+      "title": "XTab: cross-table pretraining for tabular transformers",
+      "authors": [
+        "Bingzhao Zhu",
+        "Xingjian Shi",
+        "Nick Erickson",
+        "Mu Li",
+        "George Karypis",
+        "Mahsa Shoaran"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 40th International Conference on Machine Learning, ICML'23"
+    },
+    {
+      "citation_id": "70",
+      "title": "Minigpt-4: Enhancing vision-language understanding with advanced large language models",
+      "authors": [
+        "Deyao Zhu",
+        "Jun Chen",
+        "Xiaoqian Shen",
+        "Xiang Li",
+        "Mohamed Elhoseiny"
+      ],
+      "year": "2023",
+      "venue": "Minigpt-4: Enhancing vision-language understanding with advanced large language models"
+    }
+  ]
+}

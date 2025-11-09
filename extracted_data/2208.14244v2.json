@@ -1,0 +1,1458 @@
+{
+  "paper_id": "2208.14244v2",
+  "title": "Expressions Causing Differences In Emotion Recognition In Social Networking Service Documents",
+  "published": "2022-08-30T13:17:32Z",
+  "authors": [
+    "Tsubasa Nakagawa",
+    "Shunsuke Kitada",
+    "Hitoshi Iyatomi"
+  ],
+  "keywords": [
+    "natural language processing",
+    "sentiment analysis",
+    "text mining"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "It is often difficult to correctly infer a writer's emotion from text exchanged online, and differences in recognition between writers and readers can be problematic. In this paper, we propose a new framework for detecting sentences that create differences in emotion recognition between the writer and the reader and for detecting the kinds of expressions that cause such differences. The proposed framework consists of a bidirectional encoder representations from transformers (BERT)-based detector that detects sentences causing differences in emotion recognition and an analysis that acquires expressions that characteristically appear in such sentences. The detector, based on a Japanese SNS-document dataset with emotion labels annotated by both the writer and three readers of the social networking service (SNS) documents, detected \"hidden-anger sentences\" with AUC = 0.772; these sentences gave rise to differences in the recognition of anger. Because SNS documents contain many sentences whose meaning is extremely difficult to interpret, by analyzing the sentences detected by this detector, we obtained several expressions that appear characteristically in hidden-anger sentences. The detected sentences and expressions do not convey anger explicitly, and it is difficult to infer the writer's anger, but if the implicit anger is pointed out, it becomes possible to guess why the writer is angry. Put into practical use, this framework would likely have the ability to mitigate problems based on misunderstandings. \n CCS CONCEPTS • Information systems → Sentiment analysis.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "With the increase in online communication, especially through social networking service (SNS), discrepancies between writers' and readers' perceptions of texts have become an issue  [22] . Sentiment analysis  [11]  is one practical solution to this problem. In recent years, researchers have proposed several methods based on machine learning (ML) for classifying the polarity of sentiment (i.e., positive or negative)  [17]  or for estimating sentiment in terms of type and intensity  [2] . As types of emotion, Ekman's six emotions (joy, sadness, surprise, anger, fear, and disgust)  [6]  and Plutchik's eight emotions (joy, sadness, anticipation, surprise, anger, fear, disgust, and trust)  [16]  have been widely used in research. Emotion estimation from sentences has been implemented in various applications, including an emotion-aware dialogue system  [8]  and opinion extraction  [7] . A support system based on such emotion estimation techniques that presents possible differences in perception between writers and readers is expected to mitigate problems in online communication.\n\nFor document data, including publicly available datasets, most of the gold-standard labels used in conventional studies have been assigned by third-party readers  [1, [12] [13] [14] 18] . Therefore, in sentiment analysis, differences in sentiment perceptions between writers and readers cannot be ignored, and the validity of labels is questionable. Recently, studies have reported quantitative clues about the emotional differences between writers and readers of documents  [3] .\n\nKajiwara et al.  [9]  published WRIME, a Japanese SNS-document dataset that includes eight emotional label information by both the writer and three readers in each data. They quantitatively compared the emotional intensity of writers and readers and concluded the readers tended to underestimate the writers' emotions, especially anger and trust. However, they discussed only directly observable differences and did not offer an analysis of more implicit phenomena, such as the causes of underestimation. We maintain that to estimate the emotions in question more accurately, it is important to identify expressions that cause differences in emotion recognition between writers and readers.\n\nIn this study, we propose a new framework using bidirectional encoder representations from transformers (BERT)  [5]  to predict sentences that will cause substantial differences in emotion recognition between writers and readers, and we identified the expressions that may be responsible for these differences. Our preliminary analysis of this dataset showed that of the eight emotions, anger was the most strongly differentiated in emotion recognition; this paper therefore focuses on this emotion. To the best of the authors' knowledge, this study is the first attempt to quantitatively analyze clues about differences in emotion recognition between writers and readers of texts used in network communication. Our model is able to detect sentences that obscured the writer's anger, that is, sentences from which the reader did not infer the writer's anger. The expressions this study identifies as hidden-anger expressions can be difficult to notice as such, because they lack an explicitly angry meaning. However, many of them make sense when the anger is pointed out. Although an angry writer may use such expressions unconsciously, it is important to examine them.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "In recent years, pretrained language models such as BERT  [5]  have achieved high performance in sentiment analysis by constructing contextualized representation. As the performance of emotion estimation has improved, attempts have been made to extract wordlevel or clause-level causes of emotions in text. Lee et al. and Xia et al. presented the task of emotion cause extraction  [4]  and emotioncause pair extraction  [21] , respectively, both using corpus annotated emotions and corresponding causes.\n\nThese studies have improved the performance of emotion recognition methods. However, as Wilson et al. and Parrott pointed out, a single text may contain multiple opinions and emotions  [20] , and human emotions are complex  [15] , so the writer and reader of a text can exhibit differences in emotion recognition. Tang and Chen  [19]  attempted to model these differences using a classifier, but the dataset they used lacks labels applied by the writers themselves. In this paper, we attempt to detect expressions that may cause these differences from sentences annotated by both writers and readers.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Dataset",
+      "text": "This study analyzes the differences in emotion recognition between writers and readers using the WRIME dataset  [9] . 1 This is a Japanese sentiment analysis dataset. A total of 43,200 sentences posted on SNS were annotated using four levels of intensity (0-3) of eight different emotions  [16]  by the writers (posters) and by three thirdparty readers.\n\nFigure  1  shows co-occurrence matrices of emotional labels with intensity of two or more in four levels (0-3) by writers and readers. The reader's emotional intensity is the average of the emotional labels applied by the three readers. The matrices show that although writers tend to have multiple emotions, readers tend to perceive only a single emotion. The matrices also indicate that readers tend to underestimate writers' emotions. This is especially true for the emotions of anger and trust. Although the writers applied 3,040 and 5,167 strong anger and trust labels, the readers applied only 543 and 185, respectively.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Proposed Framework",
+      "text": "Based on our analysis of the dataset, we propose a new framework that predicts sentences with substantial differences in emotion recognition and identifies the kinds of expressions that trigger such differences. This paper focuses on the emotion of anger for the reason outlined above. We define sentences in which the writer's anger intensity exceeded the reader's perceived intensity by two or more of the four levels (0-3) as hidden-anger sentences, in which it is difficult for third parties to estimate the writer's anger. It was possible that the reader's intensity may exceed the writer's, but   since it was virtually absent from the current dataset, we did not consider it in this paper.\n\nHere, SNS documents contain not a few of the sentences shown in Table  1 , in which it is nearly impossible for models or humans to estimate emotions and sometimes even to understand basic meaning. In the investigation of what expressions of hidden-anger are being brought about, such sentences are noise and inhibit accurate analysis. Therefore, our proposed framework consists of two stages; (i) prediction of hidden-anger sentences and, (ii) detection of hidden-anger expressions. In the first stage, a BERT-based detector is constructed to detect hidden-anger sentences; in the subsequent stage, hidden-anger expressions are detected by analyzing only those sentences the detector has correctly predicted.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Prediction Of Hidden-Anger Sentences",
+      "text": "In this stage, in order to eliminate noisy sentences and isolate only those sentences that make some sense, we fine-tuned a pre-trained BERT on Japanese Wikipedia 2 to predict hidden-anger sentences. Only sentences detected in this stage were used to extract expressions that provide the basis for hidden-anger in the later stage. We randomly split the dataset into 4:1 for training and evaluation and performed binary classification to detect hidden-anger sentences. We used cross-entropy as a loss function, a batch size of 32, a dropout rate of 0.1, a learning rate of 2e-5, and Adam  [10]  for optimization. We stopped the training after three epochs.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Detection Of Hidden-Anger Expressions",
+      "text": "In this stage, hidden-anger expressions were detected by analyzing the sentences obtained by the BERT-based detector. We extracted the top 10 words with the largest difference in frequency of occurrence between hidden-anger sentences and other sentences.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Results And Discussion 5.1 Prediction Of Hidden-Anger Expressions",
+      "text": "Figure  2  shows the receiver operating characteristic (ROC) curve of the binary classification for detecting hidden-anger sentences. Our model exhibits clear effectiveness as a detector of hidden-anger sentences. Of the 493 hidden-anger sentences in the test data, 314 were correctly predicted, and many of these could be read as potentially angry by the writer if read carefully.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Detection Of Hidden-Anger Expressions",
+      "text": "Figure  3  shows the top 10 words that can be considered as evidence of hidden-anger sentences, identified using (a) only the label information in the dataset (i.e., without filtering) and (b) our proposed framework, that is with filtering using the BERT-based detector. The horizontal axis is the difference in frequency of occurrence between hidden-anger sentences and other sentences, indicating their level as hidden-anger expressions. With the proposed framework, the differences in their frequency are more clearly shown. Table  2  presents the anger-intensity averages for sentences containing the words shown in Figure  3b , that is, the hidden-anger expressions detected by our proposed framework. The rightmost column shows the difference between the writer and the average of",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Text",
+      "text": "明日出社だけどこんな時間まであそんじゃた I have to go to work tomorrow, but I've been playing until this late. Anger Writer: 2 Reader1: 0 Reader2: 0 Reader3: 0 the three readers in the anger-intensity labels. A larger this value indicates a greater difference between the writer's and readers' perceptions of anger. The values for sentences containing each detected word are greater than 0.182, the value for all sentences in the dataset. Although this result alone does not determine that the selected words are responsible for hidden-anger expressions, it does confirm that the detected words have an impact on the perception of anger.\n\nTable  3  presents examples of sentences containing the detected words and the anger-intensities annotated in each sentence. Because these sentences do not involve explicit expressions of anger, it is difficult for readers to estimate the writer's anger, as the labels applied by the three readers make evident. However, a careful reading of each sentence, with an awareness of the possibility of hidden-anger due to the proposed method, reveals why the writer may have been angry. In the sentences shown in Table  1 , that is extremely difficult. By removing such sentences using the BERTbased detector and then analyzing them, we can detect hiddenanger expressions that humans can interpret accurately through context-aware analysis.\n\nAlthough it is difficult to rigorously evaluate the validity of the detected hidden-anger expressions, the quantitative evaluation performed in this experiment suggests that the set of words detected by the proposed framework is valid as expressions that trigger differences in the perception of anger in SNS documents.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this study, we proposed a framework for detecting expressions that may cause differences in emotion recognition between writers and readers and attempted to detect hidden-anger expressions. Preremoval of inappropriate sentences using a BERT-based detector in consideration of context enabled us to detect expressions that could not be detected using only label information. Although the detected expressions did not convey anger explicitly, the writers may have used them unconsciously. Sharing such findings may ultimately reduce the frequency of mutual misunderstandings.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: shows co-occurrence matrices of emotional labels with",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: Co-occurrence matrix of emotional labels applied",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: ROC curve for detecting hidden-anger sentences.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: shows the receiver operating characteristic (ROC) curve of",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Detected hidden-anger expressions and the differ-",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: shows the top 10 words that can be considered as evidence",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: b, that is, the hidden-anger",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Hosei University": "Tokyo, Japan\nTokyo, Japan",
+          "Hosei University\nHosei University": "Tokyo, Japan"
+        },
+        {
+          "Hosei University": "tsubasa.nakagawa.5p@stu.hosei.ac.jp\nshunsuke.kitada.8y@stu.hosei.ac.jp",
+          "Hosei University\nHosei University": "iyatomi@hosei.ac.jp"
+        },
+        {
+          "Hosei University": "ABSTRACT",
+          "Hosei University\nHosei University": "1\nINTRODUCTION"
+        },
+        {
+          "Hosei University": "It is often difficult to correctly infer a writer’s emotion from text",
+          "Hosei University\nHosei University": "With the increase in online communication, especially through"
+        },
+        {
+          "Hosei University": "exchanged online, and differences in recognition between writers",
+          "Hosei University\nHosei University": "social networking service (SNS), discrepancies between writers’"
+        },
+        {
+          "Hosei University": "and readers can be problematic. In this paper, we propose a new",
+          "Hosei University\nHosei University": "and readers’ perceptions of texts have become an issue [22]. Sen-"
+        },
+        {
+          "Hosei University": "framework for detecting sentences that create differences in emo-",
+          "Hosei University\nHosei University": "timent analysis [11] is one practical solution to this problem. In"
+        },
+        {
+          "Hosei University": "tion recognition between the writer and the reader and for detecting",
+          "Hosei University\nHosei University": "recent years, researchers have proposed several methods based on"
+        },
+        {
+          "Hosei University": "the kinds of expressions that cause such differences. The proposed",
+          "Hosei University\nHosei University": "machine learning (ML) for classifying the polarity of sentiment (i.e.,"
+        },
+        {
+          "Hosei University": "framework consists of a bidirectional encoder representations from",
+          "Hosei University\nHosei University": "positive or negative) [17] or for estimating sentiment in terms of"
+        },
+        {
+          "Hosei University": "transformers (BERT)-based detector that detects sentences causing",
+          "Hosei University\nHosei University": "type and intensity [2]. As types of emotion, Ekman’s six emotions"
+        },
+        {
+          "Hosei University": "differences in emotion recognition and an analysis that acquires",
+          "Hosei University\nHosei University": "(joy, sadness, surprise, anger, fear, and disgust) [6] and Plutchik’s"
+        },
+        {
+          "Hosei University": "expressions that characteristically appear in such sentences. The",
+          "Hosei University\nHosei University": "eight emotions (joy, sadness, anticipation, surprise, anger, fear, dis-"
+        },
+        {
+          "Hosei University": "detector, based on a Japanese SNS-document dataset with emotion",
+          "Hosei University\nHosei University": "gust, and trust) [16] have been widely used in research. Emotion"
+        },
+        {
+          "Hosei University": "labels annotated by both the writer and three readers of the so-",
+          "Hosei University\nHosei University": "estimation from sentences has been implemented in various ap-"
+        },
+        {
+          "Hosei University": "cial networking service (SNS) documents, detected “hidden-anger",
+          "Hosei University\nHosei University": "plications,\nincluding an emotion-aware dialogue system [8] and"
+        },
+        {
+          "Hosei University": "sentences” with AUC = 0.772; these sentences gave rise to differ-",
+          "Hosei University\nHosei University": "opinion extraction [7]. A support system based on such emotion"
+        },
+        {
+          "Hosei University": "ences in the recognition of anger. Because SNS documents contain",
+          "Hosei University\nHosei University": "estimation techniques that presents possible differences in percep-"
+        },
+        {
+          "Hosei University": "many sentences whose meaning is extremely difficult to interpret,",
+          "Hosei University\nHosei University": "tion between writers and readers is expected to mitigate problems"
+        },
+        {
+          "Hosei University": "by analyzing the sentences detected by this detector, we obtained",
+          "Hosei University\nHosei University": "in online communication."
+        },
+        {
+          "Hosei University": "several expressions that appear characteristically in hidden-anger",
+          "Hosei University\nHosei University": "For document data, including publicly available datasets, most of"
+        },
+        {
+          "Hosei University": "sentences. The detected sentences and expressions do not convey",
+          "Hosei University\nHosei University": "the gold-standard labels used in conventional studies have been as-"
+        },
+        {
+          "Hosei University": "anger explicitly, and it is difficult to infer the writer’s anger, but if",
+          "Hosei University\nHosei University": "signed by third-party readers [1, 12–14, 18]. Therefore, in sentiment"
+        },
+        {
+          "Hosei University": "the implicit anger is pointed out, it becomes possible to guess why",
+          "Hosei University\nHosei University": "analysis, differences in sentiment perceptions between writers and"
+        },
+        {
+          "Hosei University": "the writer is angry. Put into practical use, this framework would",
+          "Hosei University\nHosei University": "readers cannot be ignored, and the validity of labels is questionable."
+        },
+        {
+          "Hosei University": "likely have the ability to mitigate problems based on misunder-",
+          "Hosei University\nHosei University": "Recently, studies have reported quantitative clues about the emo-"
+        },
+        {
+          "Hosei University": "standings.",
+          "Hosei University\nHosei University": "tional differences between writers and readers of documents [3]."
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "Kajiwara et al. [9] published WRIME, a Japanese SNS-document"
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "dataset that includes eight emotional label information by both the"
+        },
+        {
+          "Hosei University": "CCS CONCEPTS",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "writer and three readers in each data. They quantitatively compared"
+        },
+        {
+          "Hosei University": "• Information systems → Sentiment analysis.",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "the emotional intensity of writers and readers and concluded the"
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "readers tended to underestimate the writers’ emotions, especially"
+        },
+        {
+          "Hosei University": "KEYWORDS",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "anger and trust. However, they discussed only directly observable"
+        },
+        {
+          "Hosei University": "natural language processing, sentiment analysis, text mining",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "differences and did not offer an analysis of more implicit phenom-"
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "ena, such as the causes of underestimation. We maintain that to"
+        },
+        {
+          "Hosei University": "ACM Reference Format:",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "estimate the emotions in question more accurately, it is important to"
+        },
+        {
+          "Hosei University": "Tsubasa Nakagawa, Shunsuke Kitada, and Hitoshi Iyatomi. 2022. Expres-",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "identify expressions that cause differences in emotion recognition"
+        },
+        {
+          "Hosei University": "sions Causing Differences in Emotion Recognition in Social Networking",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "between writers and readers."
+        },
+        {
+          "Hosei University": "Service Documents. In Proceedings of the 31st ACM International Confer-",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "In this study, we propose a new framework using bidirectional"
+        },
+        {
+          "Hosei University": "ence on Information and Knowledge Management (CIKM ’22), October 17–",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "21, 2022, Atlanta, GA, USA. ACM, New York, NY, USA, 5 pages. https:",
+          "Hosei University\nHosei University": "encoder representations from transformers (BERT) [5] to predict"
+        },
+        {
+          "Hosei University": "//doi.org/10.1145/3511808.3557599",
+          "Hosei University\nHosei University": "sentences that will cause substantial differences in emotion recogni-"
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "tion between writers and readers, and we identified the expressions"
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "that may be responsible for these differences. Our preliminary anal-"
+        },
+        {
+          "Hosei University": "Permission to make digital or hard copies of part or all of this work for personal or",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "classroom use is granted without fee provided that copies are not made or distributed",
+          "Hosei University\nHosei University": "ysis of this dataset showed that of the eight emotions, anger was"
+        },
+        {
+          "Hosei University": "for profit or commercial advantage and that copies bear this notice and the full citation",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "the most strongly differentiated in emotion recognition; this pa-"
+        },
+        {
+          "Hosei University": "on the first page. Copyrights for third-party components of this work must be honored.",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "For all other uses, contact the owner/author(s).",
+          "Hosei University\nHosei University": "per therefore focuses on this emotion. To the best of the authors’"
+        },
+        {
+          "Hosei University": "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.",
+          "Hosei University\nHosei University": "knowledge, this study is the first attempt to quantitatively analyze"
+        },
+        {
+          "Hosei University": "© 2022 Copyright held by the owner/author(s).",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "clues about differences in emotion recognition between writers and"
+        },
+        {
+          "Hosei University": "ACM ISBN 978-1-4503-9236-5/22/10.",
+          "Hosei University\nHosei University": ""
+        },
+        {
+          "Hosei University": "",
+          "Hosei University\nHosei University": "readers of texts used in network communication. Our model is able"
+        },
+        {
+          "Hosei University": "https://doi.org/10.1145/3511808.3557599",
+          "Hosei University\nHosei University": ""
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "to detect sentences that obscured the writer’s anger, that is, sen-",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "tences from which the reader did not infer the writer’s anger. The",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "361"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "expressions this study identifies as hidden-anger expressions can",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "8721"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "be difficult to notice as such, because they lack an explicitly angry",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "meaning. However, many of them make sense when the anger is",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "530"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "pointed out. Although an angry writer may use such expressions",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "1661"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "unconsciously, it is important to examine them.",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "1627"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "2\nRELATED WORK",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "1896"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "In recent years, pretrained language models such as BERT [5] have",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "2614"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "achieved high performance in sentiment analysis by construct-",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "ing contextualized representation. As the performance of emotion",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "334"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "estimation has improved, attempts have been made to extract word-",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "level or clause-level causes of emotions in text. Lee et al. and Xia et",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "al. presented the task of emotion cause extraction [4] and emotion-",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "Sadness"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "cause pair extraction [21], respectively, both using corpus annotated",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "emotions and corresponding causes.",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "These studies have improved the performance of emotion recog-",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "nition methods. However, as Wilson et al. and Parrott pointed out,",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "a single text may contain multiple opinions and emotions [20], and",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "human emotions are complex [15], so the writer and reader of a",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "12"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "text can exhibit differences in emotion recognition. Tang and Chen",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "[19] attempted to model these differences using a classifier, but the",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "3584"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "dataset they used lacks labels applied by the writers themselves. In",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "38"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "this paper, we attempt to detect expressions that may cause these",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "differences from sentences annotated by both writers and readers.",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "109"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "32"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "3\nDATASET",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "341"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "This study analyzes the differences in emotion recognition between",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "writers and readers using the WRIME dataset [9].1 This is a Japanese",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "438"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "sentiment analysis dataset. A total of 43,200 sentences posted on",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": "4"
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "SNS were annotated using four levels of intensity (0-3) of eight",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        },
+        {
+          "CIKM ’22, October 17–21, 2022, Atlanta, GA, USA.": "different emotions [16] by the writers (posters) and by three third-",
+          "Tsubasa Nakagawa, Shunsuke Kitada, & Hitoshi Iyatomi": ""
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": "Reader1: 0"
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": ""
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": "0.25\n0.50\n0.75"
+        },
+        {
+          "It’s making a chirping sound like \"AHHHHHHHHH!!!! Fa????????!!!!!!!!!!!!\".": "1 - Specificity"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1 - Specificity": "Figure 2: ROC curve for detecting hidden-anger sentences.",
+          "0.0\n0.1\n0.2": "(a) Detection using only the labels in the dataset."
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "ほんと (really)"
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "そんな (such, thing like)"
+        },
+        {
+          "1 - Specificity": "4.1\nPrediction of hidden-anger sentences",
+          "0.0\n0.1\n0.2": "ない (not)"
+        },
+        {
+          "1 - Specificity": "In this stage, in order to eliminate noisy sentences and isolate only",
+          "0.0\n0.1\n0.2": "だから (so what, that's why, even so)"
+        },
+        {
+          "1 - Specificity": "those sentences that make some sense, we fine-tuned a pre-trained",
+          "0.0\n0.1\n0.2": "いや (No, ...)"
+        },
+        {
+          "1 - Specificity": "BERT on Japanese Wikipedia2 to predict hidden-anger sentences.",
+          "0.0\n0.1\n0.2": "だけど (but, however)"
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "そもそも (in the first place)"
+        },
+        {
+          "1 - Specificity": "Only sentences detected in this stage were used to extract expres-",
+          "0.0\n0.1\n0.2": ""
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "はぁ (Hah)"
+        },
+        {
+          "1 - Specificity": "sions that provide the basis for hidden-anger in the later stage.",
+          "0.0\n0.1\n0.2": "あぁ (Aah)"
+        },
+        {
+          "1 - Specificity": "We randomly split the dataset into 4:1 for training and evaluation",
+          "0.0\n0.1\n0.2": "本当に (really, actually, surely, and how)"
+        },
+        {
+          "1 - Specificity": "and performed binary classification to detect hidden-anger sen-",
+          "0.0\n0.1\n0.2": "0.0\n0.1\n0.2"
+        },
+        {
+          "1 - Specificity": "tences. We used cross-entropy as a loss function, a batch size of",
+          "0.0\n0.1\n0.2": ""
+        },
+        {
+          "1 - Specificity": "32, a dropout rate of 0.1, a learning rate of 2e-5, and Adam [10] for",
+          "0.0\n0.1\n0.2": "(b) Detection using the proposed framework."
+        },
+        {
+          "1 - Specificity": "optimization. We stopped the training after three epochs.",
+          "0.0\n0.1\n0.2": ""
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "Figure 3: Detected hidden-anger expressions and the differ-"
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "ences in their frequency between hidden-anger sentences"
+        },
+        {
+          "1 - Specificity": "4.2\nDetection of hidden-anger expressions",
+          "0.0\n0.1\n0.2": ""
+        },
+        {
+          "1 - Specificity": "",
+          "0.0\n0.1\n0.2": "and other sentences."
+        },
+        {
+          "1 - Specificity": "In this stage, hidden-anger expressions were detected by analyzing",
+          "0.0\n0.1\n0.2": ""
+        },
+        {
+          "1 - Specificity": "the sentences obtained by the BERT-based detector. We extracted",
+          "0.0\n0.1\n0.2": ""
+        },
+        {
+          "1 - Specificity": "the top 10 words with the largest difference in frequency of occur-",
+          "0.0\n0.1\n0.2": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "Writer"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.731"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.415"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.351"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.587"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.365"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.789"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.476"
+        },
+        {
+          "Table 2: Anger-intensity averages for sentences containing the detected words.": "0.234"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "草取りと朝マラソンと持久走大会だけはほんと解せなかった。",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "I really didn’t want to do the weeding, the morning marathon, and the endurance running competition.",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "Reader1: 0",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "マックでハンバーガーを注文したら店員に「ハンバーガーは無いです」と言われたので、そんなわけ無いでしょと思",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "いながらもチーズバーガーを注文した",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "When I ordered a hamburger at McDonald’s, the staff told me that they didn’t have hamburgers, so I ordered a cheeseburger instead,",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "even though I thought there was no way that was possible.",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "Reader1: 0",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "私のバッシュが売り切れになったんだってさ…。だから、勝手に私の分がキャンセルになりやがった",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "Apparently, the basketball shoes I ordered were out of stock... And so my order was canceled without my notice.",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "Reader1: 1",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "いや、もう狂ってる。",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "Reader1: 0",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "明日出社だけどこんな時間まであそんじゃた",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "I have to go to work tomorrow, but I’ve been playing until this late.",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        },
+        {
+          "All sentences": "Reader1: 0",
+          "0.234": "",
+          "0.047": "",
+          "0.057": "",
+          "0.051": "",
+          "0.182": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "Anger\nWriter: 2\nReader1: 0\nReader2: 0\nReader3: 0"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "the three readers in the anger-intensity labels. A larger this value"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "indicates a greater difference between the writer’s and readers’"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "perceptions of anger. The values for sentences containing each"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "detected word are greater than 0.182, the value for all sentences in"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "the dataset. Although this result alone does not determine that the"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "selected words are responsible for hidden-anger expressions, it does"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "confirm that the detected words have an impact on the perception"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "of anger."
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "Table 3 presents examples of sentences containing the detected"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "words and the anger-intensities annotated in each sentence. Because"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "these sentences do not involve explicit expressions of anger, it is"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "difficult\nfor readers to estimate the writer’s anger, as the labels"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "applied by the three readers make evident. However, a careful"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "reading of each sentence, with an awareness of the possibility of"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "hidden-anger due to the proposed method, reveals why the writer"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "may have been angry. In the sentences shown in Table 1, that is"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "extremely difficult. By removing such sentences using the BERT-"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "based detector and then analyzing them, we can detect hidden-"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "anger expressions that humans can interpret accurately through"
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": "context-aware analysis."
+        },
+        {
+          "I have to go to work tomorrow, but I’ve been playing until this late.": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Expressions Causing Differences in Emotion Recognition": "in Social Networking Service Documents"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "REFERENCES"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[1]\nSaima Aman and Stanisaw Szpakowicz. 2007.\nIdentifying Expressions of Emotion"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "in Text. In TSD."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[2]\nLaura Ana Maria Bostan and Roman Klinger. 2018. An Analysis of Annotated"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "Corpora for Emotion Classification in Text. In COLING."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[3]\nSven Buechel and Udo Hahn. 2017. Readers vs. Writers vs. Texts: Coping with Dif-"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "ferent Perspectives of Text Understanding in Emotion Annotation. In LAW@ACL."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[4]\nYing Chen, Sophia Yat-Mei Lee, Shoushan Li, and Chu-Ren Huang. 2010. Emotion"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "Cause Detection with Linguistic Constructions. In COLING."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[5]\nJacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT:"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "Pre-training of Deep Bidirectional Transformers for Language Understanding. In"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "NAACL. 4171–4186."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[6]\nPaul Ekman. 1992. An Argument for Basic Emotions. Cognition & Emotion 6"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "(1992), 169–200."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[7] Xing Fang and Justin Zhijun Zhan. 2015.\nSentiment Analysis Using Product"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "Review Data. Journal of Big Data 2 (2015), 1–14."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[8] Mauajama Firdaus, Hardik Chauhan, Asif Ekbal, and Pushpak Bhattacharyya."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "2020. EmoSen: Generating Sentiment and Emotion Controlled Responses in a"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "IEEE Transactions on Affective Computing (2020),"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "1–1."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[9] Tomoyuki Kajiwara, Chenhui Chu, Noriko Takemura, Yuta Nakashima, and Ha-"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "jime Nagahara. 2021. WRIME: A New Dataset for Emotional Intensity Estimation"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "with Subjective and Objective Annotations. In NAACL."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "[10] Diederik P. Kingma and Jimmy Ba. 2015. Adam: A Method for Stochastic Opti-"
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": "mization. CoRR abs/1412.6980 (2015)."
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        },
+        {
+          "Expressions Causing Differences in Emotion Recognition": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Identifying Expressions of Emotion in Text",
+      "authors": [
+        "Saima Aman",
+        "Stanisaw Szpakowicz"
+      ],
+      "year": "2007",
+      "venue": "Identifying Expressions of Emotion in Text"
+    },
+    {
+      "citation_id": "2",
+      "title": "An Analysis of Annotated Corpora for Emotion Classification in Text",
+      "authors": [
+        "Laura Ana",
+        "Maria Bostan",
+        "Roman Klinger"
+      ],
+      "year": "2018",
+      "venue": "COLING"
+    },
+    {
+      "citation_id": "3",
+      "title": "Readers vs. Writers vs. Texts: Coping with Different Perspectives of Text Understanding in Emotion Annotation",
+      "authors": [
+        "Sven Buechel",
+        "Udo Hahn"
+      ],
+      "year": "2017",
+      "venue": "LAW@ACL"
+    },
+    {
+      "citation_id": "4",
+      "title": "Emotion Cause Detection with Linguistic Constructions",
+      "authors": [
+        "Ying Chen",
+        "Sophia Yat-Mei Lee",
+        "Shoushan Li",
+        "Chu-Ren Huang"
+      ],
+      "year": "2010",
+      "venue": "COLING"
+    },
+    {
+      "citation_id": "5",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "authors": [
+        "Jacob Devlin",
+        "Ming-Wei Chang",
+        "Kenton Lee",
+        "Kristina Toutanova"
+      ],
+      "year": "2019",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "6",
+      "title": "An Argument for Basic Emotions",
+      "authors": [
+        "Paul Ekman"
+      ],
+      "year": "1992",
+      "venue": "Cognition & Emotion"
+    },
+    {
+      "citation_id": "7",
+      "title": "Sentiment Analysis Using Product Review Data",
+      "authors": [
+        "Xing Fang",
+        "Justin Zhijun Zhan"
+      ],
+      "year": "2015",
+      "venue": "Journal of Big Data"
+    },
+    {
+      "citation_id": "8",
+      "title": "EmoSen: Generating Sentiment and Emotion Controlled Responses in a Multimodal Dialogue System",
+      "authors": [
+        "Mauajama Firdaus",
+        "Hardik Chauhan"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "9",
+      "title": "WRIME: A New Dataset for Emotional Intensity Estimation with Subjective and Objective Annotations",
+      "authors": [
+        "Tomoyuki Kajiwara",
+        "Chenhui Chu",
+        "Noriko Takemura",
+        "Yuta Nakashima",
+        "Hajime Nagahara"
+      ],
+      "year": "2021",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "10",
+      "title": "Adam: A Method for Stochastic Optimization",
+      "authors": [
+        "P Diederik",
+        "Jimmy Kingma",
+        "Ba"
+      ],
+      "year": "2015",
+      "venue": "Adam: A Method for Stochastic Optimization"
+    },
+    {
+      "citation_id": "11",
+      "title": "Sentiment Analysis and Opinion Mining",
+      "authors": [
+        "Bing Liu"
+      ],
+      "year": "2012",
+      "venue": "Synthesis Lectures on Human Language Technologies"
+    },
+    {
+      "citation_id": "12",
+      "title": "Emotion Intensities in Tweets",
+      "authors": [
+        "M Saif",
+        "Felipe Mohammad",
+        "Bravo-Marquez"
+      ],
+      "year": "2017",
+      "venue": "Emotion Intensities in Tweets"
+    },
+    {
+      "citation_id": "13",
+      "title": "Understanding Emotions: A Dataset of Tweets to Study Interactions between Affect Categories",
+      "authors": [
+        "M Saif",
+        "Svetlana Mohammad",
+        "Kiritchenko"
+      ],
+      "year": "2018",
+      "venue": "LREC"
+    },
+    {
+      "citation_id": "14",
+      "title": "GoodNew-sEveryone: A Corpus of News Headlines Annotated with Emotions, Semantic Roles, and Reader Perception",
+      "authors": [
+        "Laura Ana",
+        "Maria Oberländer",
+        "Evgeny Kim",
+        "Roman Klinger"
+      ],
+      "year": "2020",
+      "venue": "LREC"
+    },
+    {
+      "citation_id": "15",
+      "title": "Emotions in Social Psychology: Essential Readings",
+      "authors": [
+        "W Parrott"
+      ],
+      "year": "2001",
+      "venue": "Emotions in Social Psychology: Essential Readings"
+    },
+    {
+      "citation_id": "16",
+      "title": "A General Psychoevolutionary Theory of Emotion",
+      "authors": [
+        "Robert Plutchik"
+      ],
+      "year": "1980",
+      "venue": "Theories of emotion"
+    },
+    {
+      "citation_id": "17",
+      "title": "Recursive Deep Models for Semantic Compositionality over a Sentiment Treebank",
+      "authors": [
+        "Richard Socher",
+        "Alex Perelygin",
+        "Jean Wu",
+        "Jason Chuang",
+        "Christopher Manning",
+        "Andrew Ng",
+        "Christopher Potts"
+      ],
+      "year": "2013",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "18",
+      "title": "SemEval-2007 Task 14: Affective Text",
+      "authors": [
+        "Carlo Strapparava",
+        "Rada Mihalcea"
+      ],
+      "year": "2007",
+      "venue": "Fourth International Workshop on Semantic Evaluations (SemEval-2007)"
+    },
+    {
+      "citation_id": "19",
+      "title": "Emotion Modeling from Writer/Reader Perspectives Using a Microblog Dataset",
+      "authors": [
+        "Yi-Jie Tang",
+        "Hsin-Hsi Chen"
+      ],
+      "year": "2011",
+      "venue": "SAAIP"
+    },
+    {
+      "citation_id": "20",
+      "title": "Just How Mad Are You? Finding Strong and Weak Opinion Clauses",
+      "authors": [
+        "Theresa Wilson",
+        "Janyce Wiebe",
+        "Rebecca Hwa"
+      ],
+      "year": "2004",
+      "venue": "AAAI"
+    },
+    {
+      "citation_id": "21",
+      "title": "Emotion-Cause Pair Extraction: A New Task to Emotion Analysis in Texts",
+      "authors": [
+        "Rui Xia",
+        "Zixiang Ding"
+      ],
+      "year": "2019",
+      "venue": "ACL"
+    },
+    {
+      "citation_id": "22",
+      "title": "Writer Meets Reader: Emotion Analysis of Social Media from Both the Writer's and Reader's Perspectives",
+      "authors": [
+        "Changhua Yang",
+        "Kevin Hsin-Yih Lin",
+        "Hsin-Hsi Chen"
+      ],
+      "year": "2009",
+      "venue": "ACM International Joint Conference on Web Intelligence and Intelligent Agent Technology"
+    }
+  ]
+}

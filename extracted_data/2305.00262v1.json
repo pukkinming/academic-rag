@@ -1,0 +1,392 @@
+{
+  "paper_id": "2305.00262v1",
+  "title": "Hierarchical Dialogue Understanding With Special Tokens And Turn-Level Attention",
+  "published": "2023-04-29T13:53:48Z",
+  "authors": [
+    "Xiao Liu",
+    "Jian Zhang",
+    "Heng Zhang",
+    "Fuzhao Xue",
+    "Yang You"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Compared with standard text, understanding dialogue is more challenging for machines as the dynamic and unexpected semantic changes in each turn. To model such inconsistent semantics, we propose a simple but effective Hierarchical Dialogue Understanding model, HiDialog. Specifically, we first insert multiple special tokens into a dialogue and propose the turn-level attention to learn turn embeddings hierarchically. Then, a heterogeneous graph module is leveraged to polish the learned embeddings. We evaluate our model on various dialogue understanding tasks including dialogue relation extraction, dialogue emotion recognition, and dialogue act classification. Results show that our simple approach achieves stateof-the-art performance on all three tasks above. All our source code is publicly available at https://github.com/ShawX825/HiDialog.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Task-oriented dialogue system (TODS) plays a key role in assisting users to complete tasks automatically, and a well-trained model in TODS can help to save money and time for people. Different from the formal text, dialogues (e.g., meetings, interviews, and debates) deliver intertwined, inconsistent semantic information, where each turn forms a unit of information gain, fulfilling the needs of participating interlocutors. This unfavorable dynamic is caused by speaker intent disparity, conversation progression, and abrupt change of thought. Such dynamics in dialogue are usually ignored by large pre-trained language models. For BERT-style pre-trained models  (Devlin et al., 2018) ,  [CLS]  token is applied to model the sentence-level semantics during pre-training. However, dialogue-level natural language understanding requires methods to capture both intra-turn and inter-turn information. Although there are existing works using the special tokens method to enhance dialogue understanding, most of them involve an additional pre-training stage  (Shen et al., 2021; Li et al., 2021; Chapuis et al., 2020) . Given that the cost of such a pre-training stage grows exponentially with model size, it is unlikely that school labs would have the resources necessary to pre-train such models on sizable dialogue datasets. Thus, we devote ourselves to bridging the gap between BERT-style pre-training and dialogue understanding fine-tuning, without extra computational cost and training data.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Multi-Turn Dialogue Understanding. Various tasks and corresponding benchmarks are proposed to evaluate the capacities of dialogue understanding models. Dialogue-based relation extraction (RE) is a classification task that assigns a pair of entities a relation label in a dialogue. Focusing on the word level,  Xue et al. (2021)  constructed a multi-view graph with words in the dialogue as nodes and proposed Dynamic Time Warping Pooling to automatically select words in interest. SimpleRE  (Xue et al., 2022)  designed a novel input sequence format and utilized a Relation Refinement Gate to filter the semantic representation which is later fed into the classifier. TUCORE-GCN  (Zahiri & Choi, 2018)  used a heterogeneous dialogue graph to encode the interaction between speakers, arguments, and turns across the dialogues.\n\nx 2\n\n[T]\n\nx 3\n\nx 4\n\n[T]\n\nx 5\n\nx\n\nx 2\n\n[T]\n\nx 3\n\nx 4\n\n[T]\n\nx 5\n\nx\n\nx 2 [T] x 3 x 4 [T] x 5\n\nx 2\n\n[T]\n\nx 3\n\nx 4\n\n[T]\n\nx 5\n\nx\n\nFigure  1 : Illustration of the proposed intra-turn modeling. In the turn-level attention, the restriction is applied on turn-level special tokens, denoted as  [T ] , where tokens outside the turn are masked out (colored in grey).\n\nEmotion Recognition in Conversation (ERC) has been extensively studied in the research community. It aims to attach an emotional label to every turn in a given dialogue.  Kratzwald et al. (2018)  customized the recurrent neural network with bidirectional processing to solve the problem of emotion classification.  Majumder et al. (2019)  leveraged the Recurrent Neural Network to extract the information of the party states and use it to predict the emotion in conversations with two speakers. On top of the recurrent neural network,  COSMIC Ghosal et al. (2020)  models the commonsense knowledge, mental states, events, and actions to enhance emotion detection in dialogue.\n\nDeep learning-based methods have been extensively studied in recent works  (Lee & Dernoncourt, 2016; Chen et al., 2018; Raheja & Tetreault, 2019)  regarding Dialogue Act classification (DAC).  Chen et al. (2018)  introduced a relation layer into the shared hierarchical encoder to model the interaction between the tasks of dialog act recognition and sentiment classification.\n\nContext-Aware Representation Learning. To address dynamics and semantic changes in multiturn dialogue, previous works extend pre-trained large language models to learn context-aware representations for turns  (Lee & Choi, 2021; Shen et al., 2021; Li et al., 2021; Chapuis et al., 2020) . TUCORE-GCN  (Lee & Choi, 2021)  proposes the turn attention module, masking out distant turns to learn the contextual embeddings. Instead of adding extra modules, DialogXL  (Shen et al., 2021)  targets the encoder and incorporates four self-attention mechanisms to different attention heads to capture diverse dialog-aware information. Similarly, such dialogue-oriented self-attention can also be found in MDFN  (Liu et al., 2021)  where it is defined as utterance-aware and speaker-aware channels. However, most of them involve an additional pre-training stage  (Shen et al., 2021; Li et al., 2021; Chapuis et al., 2020) .",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Method",
+      "text": "Problem Formulation. The dialogue understanding task aims at building a model f that can make a prediction on a query text given a dialogue. Specifically, the input includes a multi-turn dialogue ({s i :\n\n, and a query text q with k arguments (q 1 , q 2 , ..., q k ), where i,s i ,t i denotes i th turn, the corresponding speaker ID and text. The output is predicted class ŷ of the query text q.\n\nInput Module. For a given multi-turn dialogue d and a query q, we follow  Yu et al. (2020)  to reconstruct d as d = {ζ(s i ) : t i |i ∈ [0, m]}, and the arguments in query q as qj = ζ(a j ), where ζ(•) maps token x i and argument q j to a special token [S j ] when x i = q j . Then, we concatenate reconstructed dialogue d and query q with a special token [CLS] and separator tokens [SEP ]. To leverage speaker information, we add speaker embedding  (Gu et al., 2020)  into our input sequence.\n\nIntra-turn Modeling. Prior approaches have leveraged either a global [CLS] token to capture sentence-level semantics  (Devlin et al., 2018)  or have initialized turn embeddings by simply averaging over tokens  (Lee & Choi, 2021) . However, we argue that these methods have not sufficiently emphasized the significance of certain tokens that carry crucial information (e.g., trigger words in DialogRE  (Yu et al., 2020) ), which may result in less discriminative learned turn embeddings. To capture intra-turn information, we insert a special token τ i ahead of each turn t i and arguments, where a weighted sum of token embeddings can be learned by the self-attention mechanism in the encoder. Moreover, turn-level attention is proposed to avoid these special tokens functioning as standard special tokens. Specifically, tokens not belonging to a certain turn t i are masked out for their corresponding turn-level special token τ i . This approach compels each turn-level special token to act as an information aggregator of its own turn. Note that a global [CLS] token is placed ahead of the whole sequence, these two types of special tokens then form a hierarchical way to gather information in the encoder module. The proposed intra-turn modeling is illustrated in figure  1 .\n\nInter-turn Modeling. To model the interaction between turns and entities, we establish a heterogeneous graph G = (V, E) from the output of the encoder. G contains three types of nodes: dialogue node, turn node, and argument node. The embedding of each node is initialized from the corresponding special token, i.e., global classification token h [CLS] for dialogue node, turn-level classification tokens h τ for turn nodes, and argument nodes. We follow  Lee & Choi (2021)  to establish four different types of edges in graph G: Dialogue edge, to learn global information across the whole dialogue, all turn nodes are connected to the dialogue node; Speaker edge, every pair of turn nodes belongs to the same speaker are connected; Entity edge, an argument node is connected to a turn node if it is mentioned in this turn. To enable the model to directly learn the sequence information, every pair of turn nodes in a graph is connected via sequence edge. To enable nodes to gather information from their neighbors through different types of edges, we apply Graph Transformer Network  (Yun et al., 2019)  to further polish the turn embeddings. To enable nodes to gather information via different types of edges, we apply Graph Transformer Network  (Yun et al., 2019)  to further polish the turn embeddings.\n\nClassification. Dialogue and argument nodes obtained from G are concatenated and fed into a linear classifier to generate the final prediction. Cross entropy loss is used as the object function.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Datasets And Metrics",
+      "text": "DialogRE  (Yu et al., 2020)  is a relation extraction task based on 1,788 dialogues from the Friends transcript. Each pair of arguments can be classified as one of 36 possible relation types. For each of the 10,168 human-annotated entity pairs, the trigger words are also provided.\n\nEmoryNLP  (Zahiri & Choi, 2018 ) is an emotion detection task based on 12,606 utterances from the Friends transcript. Each utterance can be classified as one of seven emotions, e.g., joyful, scared.\n\nDailyDialog  (Li et al., 2017 ) is a dialogue database containing 13,118 simple English dialogues. Each utterance can be assigned an emotion label from seven categories (anger, surprise, etc.).\n\nMELD  (Poria et al., 2019)  is an emotion detection task based on 13,000 sentences from the Friends transcript. Each utterance can be classified as one of eight emotions, such as sad, disgust.  MRDA  (Shriberg et al., 2004 ) is a dialogue act task based on 75 hours of real-life meeting transcript. Each sentence is assigned a general dialogue act (topic change, repeat, etc.) and a specific dialogue act (apology, suggestion, etc.).",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Method",
+      "text": "Metrics. For DialogRE, F1 and F1 c are used as evaluation metrics. F1 c modifies F1 by taking an early part of the dialogue as input  Yu et al. (2020) . For MELD and EmoryNLP, we use weighted-F1 as metrics. For DailyDialog, the Micro-F1 score excluding the neutral class is used as the metric.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Results And Analysis",
+      "text": "Overall Performance. We first evaluated HiDialog on the Dialogue Relation Extract (DRE) dataset, DialogRE  (Yu et al., 2020)  and the Emotion Recognition in Conversation (ERC) dataset, MELD  (Poria et al., 2019) . We selected BERT  (Devlin et al., 2018) , GDPNet  (Xue et al., 2021) , RoBERTa s  (Yu et al., 2020) , SimpleRE  (Xue et al., 2022) , and TUCORE-GCN  (Lee & Choi, 2021)  as baselines.\n\nAs reported in Table  1 , HiDialog established new state-of-the-art results on both datasets. On the DialogRE test set, HiDialog surpassed the previous SOTA, TUCORE-GCN, by 4% in F1 and 2.3% in F1 c . On the MELD dataset, HiDialog outperformed TUCORE-GCN by 1.5% in weighted F1.\n\nTowards Generality. Our intra-turn modeling's simplicity suggests its potential as a valuable solution for enhancing dialogue understanding without the need for extra pre-training. To assess this claim, we integrated it into the baseline encoder without any additional components, such as an inter-turn module or speaker embeddings. For fair comparisons, only the encoder's global  [CLS]  token was used in a softmax classifier for prediction.\n\nWe conducted the experiment on 5 datasets from 3 different tasks: DRE (DialogRE), ERC (MELD, EmoryNLP  (Zahiri & Choi, 2018) , DailyDialog  (Li et al., 2017) ), and Dialogue Act Classification (MRDA  (Shriberg et al., 2004) ). We chose RoBERTa s , Pretrained Hierarchical Transformer (PHT)  (Chapuis et al., 2020) , and DialogXL  (Shen et al., 2021)  as baselines. Compared to PHT and DialogXL, both of which require additional pre-training to address the domain adaption gap, the performance of proposed intra-turn modeling is surprisingly good in all 5 datasets (Table  2 ).\n\nAblation study on components. We conducted an ablation study on DialogRE to evaluate key components in HiDialog: turn-level attention, turn-level special tokens, and inter-turn module (Table  3 ). First, after we removed the turn-level attention mask, the performance slightly dropped. In this case, these special tokens are able to aggregate information from the entire sequence, thus they are  [0,100) [100,200) [200,300) [300,400) [400,500)   not context-aware at the turn level. We experimented with removing intra-turn modeling, resulting in only one difference from the final HiDialog: here we used an average of corresponding token embeddings for initialization. The F 1 score decreases by 1.5% and the F 1 c score declines by 0.8%.\n\nAnalysis of relations. We grouped the test set of DialogRE according to the relation types into three subsets: (I) asymmetric, when a relation type differs from its inversion (e.g. children and parents);\n\n(II) symmetric, when a relation type is the same as its inversion (e.g. spouse); (III) other, when a relation type does not have inversion (e.g. age). We compared the performance of our model with baselines and report the results in Table  4 . As we can observe, there is a great performance increase in the asymmetric subset while the F1 score drops moderately for symmetric relations. This trend reverses when we remove the graph module in our method (i.e. symmetric > asymmetric).\n\nAnalysis of robustness against increasing utterance length. With the hierarchical aggregation in HiDialog, each turn-level special token is enforced to capture intra-turn critical information regardless of the whole dialogue. This nature enables our method to handle dialogues of various lengths. Thus, we further divided the samples in the DialogRE test set into six groups according to their lengths and compared HiDialog against the previous SOTA, TUCORE-GCN. As shown in Figure  2 , our method consistently outperforms TUCORE-GCN in all groups, where the largest performance gap can be found in the group with less than 100 tokens. Moreover, TUCORE-GCN shows a great drop with an increase of length (i.e., from [400, 500) to [500, +∞)), while HiDialog maintains decent performance for long sequences.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In conclusion, our HiDialog provides a simple yet effective approach to fill the gap between general corpus pre-training and dialogue understanding, without extra computational cost and training data while maintaining decent performance. Therefore, we anticipate that it could serve as a compelling baseline or plug-in module for future work in the community.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Contribution",
+      "text": "This work has been expanded upon from a course project that was undertaken by the key authors, Xiao Liu, Jian Zhang, and Heng Zhang, during their time as students at the National University of Singapore. Fuzhao Xue, the teaching assistant, and project mentor played a role in guiding and shaping the outcome of this work. We are grateful to Yang You for providing us with valuable instructions and computational resources.\n\nACKNOWLEDGEMENT Yang You's research group is being sponsored by NUS startup grant (Presidential Young Professorship), Singapore MOE Tier-1 grant, ByteDance grant, ARCTIC grant, SMI grant and Alibaba grant. Our sincere appreciation also goes out to Min-Yen Kan, our course lecturer, for his invaluable suggestions during our enrollment.",
+      "page_start": 5,
+      "page_end": 5
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Illustration of the proposed intra-turn modeling. In the turn-level attention, the restriction",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Analysis of robustness of HiDialog tackling increasing utterance length compared to base-",
+      "page": 5
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX": "X\nX\nX\nX\nX\nX\nX\nX",
+          "X\nX\nX\nX": "X"
+        },
+        {
+          "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX": "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX",
+          "X\nX\nX\nX": "X\nX\nX\nX"
+        },
+        {
+          "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX": "X\nX\nX\nX\nX\nX\nX",
+          "X\nX\nX\nX": "X\nX"
+        },
+        {
+          "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX": "X\nX\nX\nX\nX\nX\nX\nX",
+          "X\nX\nX\nX": "X"
+        },
+        {
+          "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX": "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX",
+          "X\nX\nX\nX": ""
+        },
+        {
+          "X\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX": "X\nX\nX\nX\nX",
+          "X\nX\nX\nX": ""
+        }
+      ],
+      "page": 2
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Hierarchical pre-training for sequence labelling in spoken dialog",
+      "authors": [
+        "Emile Chapuis",
+        "Pierre Colombo",
+        "Matteo Manica",
+        "Matthieu Labeau",
+        "Chloe Clavel"
+      ],
+      "year": "2020",
+      "venue": "Hierarchical pre-training for sequence labelling in spoken dialog",
+      "arxiv": "arXiv:2009.11152"
+    },
+    {
+      "citation_id": "2",
+      "title": "Dialogue act recognition via crf-attentive structured network",
+      "authors": [
+        "Zheqian Chen",
+        "Rongqin Yang",
+        "Zhou Zhao",
+        "Deng Cai",
+        "Xiaofei He"
+      ],
+      "year": "2018",
+      "venue": "The 41st international acm sigir conference on research & development in information retrieval"
+    },
+    {
+      "citation_id": "3",
+      "title": "Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "Jacob Devlin",
+        "Ming-Wei Chang",
+        "Kenton Lee",
+        "Kristina Toutanova",
+        "Bert"
+      ],
+      "year": "2018",
+      "venue": "Pre-training of deep bidirectional transformers for language understanding",
+      "arxiv": "arXiv:1810.04805"
+    },
+    {
+      "citation_id": "4",
+      "title": "Cosmic: Commonsense knowledge for emotion identification in conversations",
+      "authors": [
+        "Deepanway Ghosal",
+        "Navonil Majumder",
+        "Alexander Gelbukh",
+        "Rada Mihalcea",
+        "Soujanya Poria"
+      ],
+      "year": "2020",
+      "venue": "Cosmic: Commonsense knowledge for emotion identification in conversations",
+      "arxiv": "arXiv:2010.02795"
+    },
+    {
+      "citation_id": "5",
+      "title": "Speakeraware bert for multi-turn response selection in retrieval-based chatbots",
+      "authors": [
+        "Jia-Chen Gu",
+        "Tianda Li",
+        "Quan Liu",
+        "Zhen-Hua Ling",
+        "Zhiming Su",
+        "Si Wei",
+        "Xiaodan Zhu"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 29th ACM International Conference on Information & Knowledge Management"
+    },
+    {
+      "citation_id": "6",
+      "title": "Deep learning for affective computing: Text-based emotion recognition in decision support",
+      "authors": [
+        "Bernhard Kratzwald",
+        "Suzana Ilić",
+        "Mathias Kraus",
+        "Stefan Feuerriegel",
+        "Helmut Prendinger"
+      ],
+      "year": "2018",
+      "venue": "Decision Support Systems"
+    },
+    {
+      "citation_id": "7",
+      "title": "Graph based network with contextualized representations of turns in dialogue",
+      "authors": [
+        "Bongseok Lee",
+        "Yong Choi"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "8",
+      "title": "Sequential short-text classification with recurrent and convolutional neural networks",
+      "authors": [
+        "Ji Young",
+        "Franck Dernoncourt"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 2016 Conference of the North American Chapter",
+      "doi": "10.18653/v1/N16-1062"
+    },
+    {
+      "citation_id": "9",
+      "title": "Deep context modeling for multi-turn response selection in dialogue systems",
+      "authors": [
+        "Lu Li",
+        "Chenliang Li",
+        "Donghong Ji"
+      ],
+      "year": "2021",
+      "venue": "Information Processing & Management"
+    },
+    {
+      "citation_id": "10",
+      "title": "Dailydialog: A manually labelled multi-turn dialogue dataset",
+      "authors": [
+        "Yanran Li",
+        "Hui Su",
+        "Xiaoyu Shen",
+        "Wenjie Li",
+        "Ziqiang Cao",
+        "Shuzi Niu"
+      ],
+      "year": "2017",
+      "venue": "Dailydialog: A manually labelled multi-turn dialogue dataset",
+      "arxiv": "arXiv:1710.03957"
+    },
+    {
+      "citation_id": "11",
+      "title": "Filling the gap of utteranceaware and speaker-aware representation for multi-turn dialogue",
+      "authors": [
+        "Longxiang Liu",
+        "Zhuosheng Zhang",
+        "Hai Zhao",
+        "Xi Zhou",
+        "Xiang Zhou"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "12",
+      "title": "Dialoguernn: An attentive rnn for emotion detection in conversations",
+      "authors": [
+        "Navonil Majumder",
+        "Soujanya Poria",
+        "Devamanyu Hazarika",
+        "Rada Mihalcea",
+        "Alexander Gelbukh",
+        "Erik Cambria"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the AAAI conference on artificial intelligence"
+    },
+    {
+      "citation_id": "13",
+      "title": "MELD: A multimodal multi-party dataset for emotion recognition in conversations",
+      "authors": [
+        "Soujanya Poria",
+        "Devamanyu Hazarika",
+        "Navonil Majumder",
+        "Gautam Naik",
+        "Erik Cambria",
+        "Rada Mihalcea"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "14",
+      "title": "Dialogue act classification with context-aware self-attention",
+      "authors": [
+        "Vipul Raheja",
+        "Joel Tetreault"
+      ],
+      "year": "2019",
+      "venue": "Dialogue act classification with context-aware self-attention",
+      "arxiv": "arXiv:1904.02594"
+    },
+    {
+      "citation_id": "15",
+      "title": "Dialogxl: All-in-one xlnet for multiparty conversation emotion recognition",
+      "authors": [
+        "Weizhou Shen",
+        "Junqing Chen",
+        "Xiaojun Quan",
+        "Zhixian Xie"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "16",
+      "title": "The icsi meeting recorder dialog act (mrda) corpus",
+      "authors": [
+        "Elizabeth Shriberg",
+        "Raj Dhillon",
+        "Sonali Bhagat",
+        "Jeremy Ang",
+        "Hannah Carvey"
+      ],
+      "year": "2004",
+      "venue": "The icsi meeting recorder dialog act (mrda) corpus"
+    },
+    {
+      "citation_id": "17",
+      "title": "Gdpnet: Refining latent multi-view graph for relation extraction",
+      "authors": [
+        "Fuzhao Xue",
+        "Aixin Sun",
+        "Hao Zhang",
+        "Eng Siong"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "18",
+      "title": "An embarrassingly simple model for dialogue relation extraction",
+      "authors": [
+        "Fuzhao Xue",
+        "Aixin Sun",
+        "Hao Zhang",
+        "Jinjie Ni",
+        "Eng-Siong Chng"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022 -2022 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP43922.2022.9747486"
+    },
+    {
+      "citation_id": "19",
+      "title": "Dialogue-based relation extraction",
+      "authors": [
+        "Dian Yu",
+        "Kai Sun",
+        "Claire Cardie",
+        "Dong Yu"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "20",
+      "title": "URL",
+      "venue": "URL"
+    },
+    {
+      "citation_id": "21",
+      "title": "Graph transformer networks",
+      "authors": [
+        "Seongjun Yun",
+        "Minbyul Jeong",
+        "Raehyun Kim",
+        "Jaewoo Kang",
+        "Hyunwoo J Kim"
+      ],
+      "year": "2019",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "22",
+      "title": "Emotion Detection on TV Show Transcripts with Sequence-based Convolutional Neural Networks",
+      "authors": [
+        "Sayyed Zahiri",
+        "Jinho Choi"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the AAAI Workshop on Affective Content Analysis, AFFCON'18"
+    }
+  ]
+}

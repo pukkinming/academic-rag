@@ -1,0 +1,2570 @@
+{
+  "paper_id": "2406.06665v1",
+  "title": "Enrolment-Based Personalisation For Improving Individual-Level Fairness In Speech Emotion Recognition",
+  "published": "2024-06-10T16:01:05Z",
+  "authors": [
+    "Andreas Triantafyllopoulos",
+    "Björn Schuller"
+  ],
+  "keywords": [
+    "personalisation",
+    "fairness",
+    "speech emotion recognition",
+    "computational paralinguistics",
+    "deep learning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "The expression of emotion is highly individualistic. However, contemporary speech emotion recognition (SER) systems typically rely on population-level models that adopt a 'one-sizefits-all' approach for predicting emotion. Moreover, standard evaluation practices measure performance also on the population level, thus failing to characterise how models work across different speakers. In the present contribution, we present a new method for capitalising on individual differences to adapt an SER model to each new speaker using a minimal set of enrolment utterances. In addition, we present novel evaluation schemes for measuring fairness across different speakers. Our findings show that aggregated evaluation metrics may obfuscate fairness issues on the individual-level, which are uncovered by our evaluation, and that our proposed method can improve performance both in aggregated and disaggregated terms.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Speech emotion recognition (SER) was one of the earliest computational paralinguistic tasks to be tackled by machine learning (ML) and remains a core focal point for the speech community  [1] . Progress in SER research has largely been measured in terms of gains in performance, with recent advances in deep learning (DL) spearheading current efforts  [2] . This performance is usually measured in terms of a single metric computed over a held-out test set, typically accuracy or unweighted average recall (UAR) for classification or correlation for regression.\n\nHowever, recent investigations on the bias of ML methods have called for increased attention to alternative performance evaluations that account for this bias. Related efforts have been largely geared towards identifying and mitigating bias resulting from certain group characteristics, such as biological sex, gender, or ethnicity  [2, 3] . However, some works are calling attention to the need for an individual-level measure of fairness  [2, 4] , i. e., quantifying performance separately for each speaker. This is related to the well-known problem of diverging performance across different speakers in several speech technology tasks (e. g., see Doddington's zoo  [5] ), a topic which is becoming increasingly relevant when considering recent ethical and legal guidelines. According to the EU AI Act regulations adopted by the European Parliament [6, Amendment 52, \"Proposal for a regulation\", Recital 26 c]:\n\nThere are serious concerns about the scientific basis of AI systems aiming to identify or infer emotions, particularly as expression of emotions vary considerably across cultures and situations, and even within a single individual. [...] Therefore, AI systems identifying or inferring emotions or intentions of natural persons on the basis of their biometric data may lead to discriminatory outcomes and can be intrusive to the rights and freedoms of the concerned persons. This quote illustrates the importance that lawmakers place on the generalisability of SER systems across different individuals, which in turn requires researchers to ensure equal treatment for all users of an SER system.\n\nOn a related note, there has been increased interest in improving the performance of SER using personalisation. This approach acknowledges that the expression of emotion can be highly individualistic  [7] . Differences in expression may be influenced by culture  [8] , age  [9] , gender  [10] , or other factors, but also by temperamental differences across individuals  [7, 11]  Personalisation methods go beyond population-level models (i. e., models which are trained once and applied as-is to all new speakers during inference) and instead rely on speaker-level models which typically fall under three categories: a) Methods which build speaker-level models; this can be done either by training/fine-tuning on data from a given individual, or training new models on subsets of the training data suited to that individual (e. g., similar speakers)  [12, 13, 14, 15] . A typical example is that of Rudovic et al.  [12] , who introduce individual-level output heads; the data is first passed through a common backbone network trained for all speakers, and subsequently through output layers that are only trained with data from each speaker. This approach is similar to federated learning, which makes local updates to models using speaker data while simultaneously keeping a global model which aggregates model updates from all speakers  [16] . Alternatively, a model can be retrained with data of the target speaker, or (additionally) with data from the most similar speakers to the target one during training  [13] . The downside of these methods is that they require data from the target speaker to be already available during training, or on-the-fly retraining for each new speaker. b) Methods which introduce additional personal information, e. g., in the form of demographic metadata (sex, age, etc.) that are given as extra inputs to the model  [17, 18] . This approach is typically pursued in the scope of precision medicine  [19] , which aims to provide personalised treatment by accounting for individual patient histories and characteristics. While previous works have shown to improve performance with this approach on speech-based tasks as well  [18] , they do not capitalise on information about how a speaker actually sounds as they only exploit different 'modalities', thus leaving a gap to be covered by the last family of methods. c) Methods which adapt population-level models in a few-shot fashion; typically, those rely on a few enrolment samples  [4, 20, 21] . The upside of the these approaches is that they require no re-training of the model during inference. This allows for a streamlined deployment phase without any changes to the model -a significant benefit given the ever-increasing complexity of contemporary deep neural networks (DNNs). Examples include Triantafyllopoulos et al.  [20]  and Fan et al.  [4] , who use one or more neutral samples to condition an SER network, or Triantafyllopoulos et al.  [21]  who use two randomly selected samples in an analogous way. Similarly, Rahman and Busso  [22]  iteratively normalise features for each speaker; the added benefit of this method is that it does not require any label information, although more samples are required to obtained robust normalisation parameters and the method might not be suited to DNNs  [20] . We note that these methods are different from attempts to extract speaker-specific emotion predictions by disentangling emotional and speaker information  [23, 24] ; essentially, personalisation, as we define it, boils down to adaptation to individual speaker characteristics, rather than invariance to them.\n\nIn the present contribution, we expand on both research directions. We introduce alternative considerations for individual fairness, inspired by definitions of utility and fairness in economic theory. Additionally, we revisit personalisation via enrolment in an attempt to improve on those metrics. Our methods are described in Section 2, with results and discussion following in Section 3. We summarise in Section 4.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Methodology",
+      "text": "In this section, we begin with a description of the datasets we used in Section 2.1, followed by our personalisation method in Section 2.2, and experimental settings in Section 2.3. Our individual-level evaluation scheme is presented in Section 2.4.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Datasets",
+      "text": "FAU-AIBO is a standard, categorical SER dataset used in the INTERSPEECH 2009 Emotion Challenge  [25] . The data is collected in a Wizard-of-Oz scenario where a remotely-controlled robot ('AIBO') interacts with children between the ages of 6 and 10. The study participants attended one of two schools from the same region in Germany, (Ohm) and (Mont), with Ohm being used as the training set and Mont as the test set in the original challenge partition scheme. As no validation set was defined, we use the last two speakers (Ohm31, Ohm32) of the training set, similar to  [20] . The collected data has been annotated for 11 classes by 5 individual raters on the word-level.\n\nFor the challenge, the 11 original classes were mapped to two alternative formulations of emotion: a 2-class problem, where participants had to differentiate between negative (N EG) and non-negative (IDL) emotions; and a 5-class problem, where participants had to classify an utterance as angry (A), neutral (N ), motherese/joyful (P ), emphatic (E), with a 5 th rest (R) class. Additionally, the original words were manually aggregated to semantically and prosodically meaningful chunks, with a chunk label derived from the word-level labels using a heuristic process  [26] . The resulting data is highly imbalanced, and are dominated by neutral/non-negative states. For this reason, we use the UAR -the added recall per class devided by the number classes -to measure performance in the presence of class distribution imbalance, following the challenge specifications.\n\nMSP-Podcast is a recent, large-scale SER dataset annotated both for categorical emotions and dimensional attributes  [27] . The data has been annotated for 9 emotional classes, plus an extra neutral class and another one for instances where annotators disagree. We use the latest version available at the time of submission (V1.11.0), and focus exclusively on the standard 4class problem pursued in most other recent SER works  [28] , with the set of labels being {angry, happy, neutral, sad} and exclude all other data. We end up with 44 586 instances in the training set, 11 947 in the validation, and 20 845 in the test set. We only use the more recent TEST1 partition and exclude TEST2.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Personalisation Via Enrolment",
+      "text": "An overview of our architecture is shown in Fig.  1   1  . Our workflow encapsulates the following key principles: a) Following standard DL practice, the target utterance ut is passed through an emotion encoder Eemo(•) to generate a target embedding et. Eemo(•) can be any DNN; here, we opt for a WAV2VEC2.0 model fine-tuned for dimensional SER  [2] , as we expect it to already have a good representation of emotion. b) A set of enrolment utterances {ue}, coming from the same speaker as the target utterance, are used to adapt an SER system to new, previously unseen speakers. In general, these {ue} can be exemplars of every potential label supported by the SER model or a subset thereof. In practice, we experiment with different alternatives as discussed below. c) These enrolment utterances are passed through an enrolment encoder Eenr(•) to generate suitable embeddings {ee}. Eenr(•) can either be different from the Eemo(•) used for ut, be identical to it but trained separately, or even share the same weights. We opt for the latter option as we intend the enrolment encoder to capture the emotional information present in {ue} and project it to the same embedding space as the target utterance. d) We then combine the enrolment embeddings {ee} with the target embedding et. We choose a multihead, dot-product attention mechanism for this combination. The enrolment embeddings are first concatenated and form a set of keys (K), with the target embedding functioning as the query (Q). Following Vaswani et al.  [29] , we first compute the outer product of the keys and queries (QK T ) and then pass it through a softmax function to generate a 'soft' similarity estimate of the query with each key; for numerical stability the output is divided by (d k ), with d being the dimensionality of the key embeddings. This soft similarity matrix is subsequently multiplied with the values (V ) to produce the final output which is added to the target embedding to generate the final output (i. e., the attention mechanism features a 'residual' connection). As values, we also use the embeddings of the enrolment utterances. e) The final product of the attention is passed to an multi layer perceptron (MLP) classifier and the whole system is trained end-to-end.\n\nIntuitively, this process of attention computes a (soft) similarity of the target utterance with each enrolment utterance, then combines the emotional information in these enrolment samples with the target sample to improve classification performance.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Settings",
+      "text": "Enrolment utterances 2  Our approach requires setting aside a set of enrolment utterances for each speaker. We always include a single enrolment utterance per class (though some variants of our approach do not make use of all of them; see below). When a class is missing for a particular speaker, we impute it with zeros (i. e., silence). To create this enrolment set, we first sort the utterances of each speaker alphabetically (so in their order of appearance following the naming scheme of FAU-AIBO  [26]  and MSP-Podcast  [27] ) and then for each class select the first utterance in which it appears. Personalisation setup: In total, we investigate three alternative formulations of the personalisation problem and contrast their effectiveness with respect to a baseline model:\n\n1. BASE -Our baseline model only includes the emotion encoder and the downstream MLP classifier; note that this setup is identical to recent state-of-the-art work for dimensional SER  [2]  and we thus expect it to be a strong baseline. 2. PERSN -For our first personalisation approach, we only utilise neutral utterances for the enrolment; this is most similar to the setup of Triantafyllopoulos et al.  [20] , who condition their model on a single neutral utterance from each speaker. 3. PERSE -We also experiment with using only the non-neutral (i. e., emotional or rest) utterances for enrolment. 4. PERSA -Finally, we use all available enrolment utterances (both neutral and emotional). Hyperparameters: We train all models for 50 epochs with an Adam optimiser, a learning rate of 0.0001, and a batch size of 4, all standard hyperparameters from previous literature  [2] . We select the epoch with the best UAR on the validation set for our final evaluation on the test set.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Individual-Level Fairness",
+      "text": "The standard process for computing performance is to consider each chunk as an independent trial. This process was also adopted in the 2009 INTERSPEECH Emotion Challenge, and we denote its outcome as U ARC .\n\nTo define individual-level fairness, we begin by computing the performance on a speaker-level, thus assuming that first speakers are selected independently, and only then are samples selected independently for them (see  [30]  for a similar argumentation). We finally compute the UAR over the set of chunks for each individual speaker in our dataset, which we denote as U ARSP . We call this the utility of each speaker, as this is the benefit that each speaker can expect from getting their emo-tions recognised correctly  3  . We examine this utility under three different perspectives: I) Statistics: We first report standard statistics, such as the mean (µ(•)), median (µ 1/2 (•)), standard deviation (σ(•)), maximum (max(•)), and minimum (min(•)) of U ARSP . These statistics give us a coarse characterisation of how utility is distributed across the different individuals in our dataset. II) Gini coefficient: The Gini coefficient (G(•)) is a standard measurement used in econometrics to judge the distribution of utility in a particular population and is defined as half of the mean absolute difference relative to the mean of a particular sample  [31] . In particular, it takes the value of 0 for an equal distribution where everyone has the same utility, and 1 for a completely unequal one, where the entire utility is accumulated by one particular individual. In our case, this is computed as:\n\n,\n\nwhere N is the number of speakers in the test set and {ui} N 1 is the set of utility values for all speakers, with ui = U AR i SP , i. e., the speaker-level UAR computed for each speaker. III) Isoelastic social welfare functions (ISWFs): Besides the Gini coefficient, the distribution of utility can also be considered under alternative formulations. A classical formalisation of the problem is that given by Atkinson et al.  [32] , who defines a family of ISWFs:\n\nThese ISWFs allow for a more modular definition of fairness, as they do not presuppose an equal distribution of utility as the most fair outcome (like the Gini coefficient). For example, as α → ∞, Eq. (2) approximates Rawls' \"difference principle\" (i. e., maximise the minimum utility) [33, Ch. II, § 13, pg. 65], whereas as α → 0, it approaches the standard utilitarian approach of maximising total utility irrespective of fairness. Thus, ISWFs provide a modular 'knob' that allows stakeholders to define fairness for their particular needs. In our work, we compute the value of the ISWF for different values of α ∈ {0, 100}, measuring the suitability of different models for different scenarios.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Results & Discussion",
+      "text": "Table  1  shows our results. It includes the global UAR (U ARC ), which is computed over all chunks in the data (including 95% CIs), as well as the different fairness statistics and the Gini index for both the 2and the 5-class problem. PERSA shows the best performance overall, with higher U ARC than all alternatives for FAU-AIBO and marginally lower than the baseline for MSP-Podcast, as well as overall better performance with respect to different individual-level metrics. Specifically, it improves from a 67.7% to a 71.8% U ARC for the 2-class problem, and from 44.3% to 45.2% for the 5-class problem for FAU-AIBO. More importantly, it improves across all fairness metrics for all datasets and tasks, showing a lower Gini index and standard Table  1 : Global and individual-level performance for the 2and 5-class problems of FAU-AIBO, as well as the 4-class problem of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via bootstrapping. Furthermore, we compute fairness metrics on speaker-level UAR (U ARSP ). For easier comparison, we mark metrics as ascending (↑, higher is better) and descending (↓, lower is better).  deviation, as well as a higher mean and median for speakerlevel UAR (U ARSP ) -our measure of utility. It is only surpassed by PERSN on the standard deviation of performance for MSP-Podcast, where it is still outperforming the baseline model.\n\nGenerally, the same can be said for PERSN and PERSE , as both show better performance than the baseline, with the latter additionally outperforming the former. Fig.  2  additionally shows how the total utility amassed by each model changes for different ISWFs. Due to space limitations, we only show results for FAU-AIBO. For the 2-class problem, PERSA results in higher utility for most values of α, while converging to the other methods as α → ∞. For the 5-class problem, we observe that BASE quickly approaches zero utility according to the difference principle (α → ∞), with the three personalisation models showing similar behaviour. For all models, utility is highest for α → 0, i. e., the utilitarian scenario, where average utility is maximised without consideration for its distribution. However, the total utility quickly drops as α increases, reflecting scenarios where the discrepancy between different speakers becomes more important.\n\nBroadly, the decision on which the α value or fairness metric is appropriate for a particular application rests with the stakeholders that are affected by it. For example, recent work employed an 'equality of outcome' requirement for different users across multiple ML algorithms (in the context of recommendation algorithms)  [34] . This would be equivalent to a Gini index of 0 in our definition. Digital health applications, on the other hand, may require a maximisation of a lower bound on speaker-level performance -in this case, a larger α would be more appropriate, to place more emphasis on the worst-performing speakers  [35] .\n\nCollectively, our results show that personalisation via enrolment can improve predictive performance and make this performance more equal across different speakers. This is vital for providing a uniform and fair user experience in applications relying on SER. Another interesting finding is that models personalised on all classes or even only all emotional classes generally outperform those personalised only on neutral data. This is in contrast to the prior work which has used these neutral enrolment utterances for personalisation  [4, 20] .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "We have introduced a novel method for personalisation using a minimal set of enrolment utterances -one per class. Our method relies on dot-product attention for injecting information from these utterances into a classification network. Additionally, we introduced novel considerations for individual-level fairness that takes into account performance on the individual level. Overall, we showed how our method can improve performance both on the global level and for the fairness metrics we introduced. Limitations: Our method depends on providing accurate enrolment samples, and may fail if (intentionally) given erroneous ones. Future work: Alternative methods for introducing the enrolment information can be investigated. Furthermore, explainability methods can be used to understand how the network is using the additional enrolment information, e. g., by visualising and probing the embedding space before and after the enrolment information is injected. Finally, ways for safeguarding against inaccurate enrolment samples must be developed.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Overview of the proposed architecture. A set of en-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 11: Our work-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Total utility achieved by each model for different isoe-",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: additionally shows how the total utility amassed by",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "4GLAM – Group on Language, Audio, & Music, Imperial College London, UK"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "Abstract"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "The expression of emotion is highly individualistic. How-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "ever, contemporary speech emotion recognition (SER) systems"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "typically rely on population-level models that adopt a ‘one-size-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "fits-all’ approach for predicting emotion. Moreover, standard"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "evaluation practices measure performance also on the popula-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "tion level, thus failing to characterise how models work across"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "different speakers. In the present contribution, we present a new"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "method for capitalising on individual differences to adapt an SER"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "model\nto each new speaker using a minimal set of enrolment"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "utterances. In addition, we present novel evaluation schemes for"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "measuring fairness across different speakers. Our findings show"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "that aggregated evaluation metrics may obfuscate fairness issues"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "on the individual-level, which are uncovered by our evaluation,"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "and that our proposed method can improve performance both in"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "aggregated and disaggregated terms."
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "Index Terms: personalisation, fairness, speech emotion recogni-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "tion, computational paralinguistics, deep learning"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "1.\nIntroduction"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "Speech emotion recognition (SER) was one of the earliest com-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "putational paralinguistic tasks to be tackled by machine learning"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "(ML) and remains a core focal point\nfor\nthe speech commu-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "nity [1]. Progress in SER research has largely been measured"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "in terms of gains in performance, with recent advances in deep"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "learning (DL) spearheading current efforts [2]. This performance"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "is usually measured in terms of a single metric computed over a"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "held-out test set, typically accuracy or unweighted average recall"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "(UAR) for classification or correlation for regression."
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "However, recent investigations on the bias of ML methods"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "have called for increased attention to alternative performance"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "evaluations that account for this bias. Related efforts have been"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "largely geared towards identifying and mitigating bias resulting"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "from certain group characteristics, such as biological sex, gender,"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "or ethnicity [2, 3]. However, some works are calling attention to"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "the need for an individual-level measure of fairness [2, 4], i. e.,"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "quantifying performance separately for each speaker."
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "This is related to the well-known problem of diverging per-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "formance across different speakers in several speech technology"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "tasks (e. g., see Doddington’s zoo [5]), a topic which is becoming"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "increasingly relevant when considering recent ethical and legal"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "guidelines. According to the EU AI Act regulations adopted by"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "the European Parliament [6, Amendment 52, “Proposal for a"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "regulation”, Recital 26 c]:"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": ""
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "There are serious concerns about the scientific ba-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "sis of AI systems aiming to identify or infer emo-"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "tions, particularly as expression of emotions vary"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "considerably across cultures and situations, and"
+        },
+        {
+          "2MCML – Munich Center for Machine Learning 3MDSI – Munich Data Science Institute": "even within a single individual. [...] Therefore, AI"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "which aims to provide personalised treatment by accounting for": ""
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "individual patient histories and characteristics. While previous"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": ""
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "works have shown to improve performance with this approach"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": ""
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "on speech-based tasks as well [18],\nthey do not capitalise on"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": ""
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "information about how a speaker actually sounds as they only"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "exploit different ‘modalities’, thus leaving a gap to be covered"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "by the last family of methods."
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "c) Methods which adapt population-level models in a few-shot"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "fashion;\ntypically,\nthose rely on a few enrolment samples [4,"
+        },
+        {
+          "which aims to provide personalised treatment by accounting for": "20, 21]. The upside of the these approaches is that they require"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "E\nUtterances"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "Enrolment\nEenr"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "streamlined deployment phase without any changes to the model",
+          "R\nEnrolment": "R\nE\nEmbeddings ee"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "– a significant benefit given the ever-increasing complexity of",
+          "R\nEnrolment": "Pooling\nN\nxN\nxN"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "contemporary deep neural networks (DNNs). Examples include",
+          "R\nEnrolment": "A\nP"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "N"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "Triantafyllopoulos et al. [20] and Fan et al. [4], who use one or",
+          "R\nEnrolment": "P\nConvolutional\nTransformer\nA\nFrontend\nBackend"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "more neutral samples to condition an SER network, or Triantafyl-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "lopoulos et al. [21] who use two randomly selected samples in",
+          "R\nEnrolment": "shared\nKeys\nValues\nweights"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "an analogous way. Similarly, Rahman and Busso [22] iteratively",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "normalise features for each speaker;\nthe added benefit of this",
+          "R\nEnrolment": "Eemo\nOutput\nQuery\nAttended\nmultiply\nalign"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "Vector\nValues\net"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "method is that it does not require any label information, although",
+          "R\nEnrolment": "xN\nxN"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "Pooling\nLabel"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "more samples are required to obtained robust normalisation pa-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "Attention"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "rameters and the method might not be suited to DNNs [20]. We",
+          "R\nEnrolment": "Target\nWeights\nConvolutional\nTransformer\nClassifier\nUtterance"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "Frontend\nBackend\nResidual"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "note that\nthese methods are different from attempts to extract",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "speaker-specific emotion predictions by disentangling emotional",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "the proposed architecture. A set of en-\nFigure 1: Overview of"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "and speaker information [23, 24]; essentially, personalisation,",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "rolment utterances is passed through an encoder to generate"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "as we define it, boils down to adaptation to individual speaker",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "enrolment embeddings. These are used as keys and values in"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "characteristics, rather than invariance to them.",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "a dot-product attention scheme with the embeddings generated"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "In the present contribution, we expand on both research",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "from the target utterance. The output embedding is passed to a"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "directions. We introduce alternative considerations for individ-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "feed-forward neural network for the final classification. Weights"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "ual\nfairness,\ninspired by definitions of utility and fairness in",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "are shared between the enrolment and the main encoders."
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "economic theory. Additionally, we revisit personalisation via en-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "rolment in an attempt to improve on those metrics. Our methods",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "are described in Section 2, with results and discussion following",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "submission (V1.11.0), and focus exclusively on the standard 4-"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "in Section 3. We summarise in Section 4.",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "class problem pursued in most other recent SER works [28], with"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "the set of labels being {angry, happy, neutral, sad} and exclude"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "2. Methodology",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "all other data. We end up with 44 586 instances in the training"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "set, 11 947 in the validation, and 20 845 in the test set. We only"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "In this section, we begin with a description of the datasets we",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "use the more recent TEST1 partition and exclude TEST2."
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "used in Section 2.1,\nfollowed by our personalisation method",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "in Section 2.2, and experimental settings in Section 2.3. Our",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "2.2. Personalisation via enrolment"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "individual-level evaluation scheme is presented in Section 2.4.",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "An overview of our architecture is shown in Fig. 11. Our work-"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "2.1. Datasets",
+          "R\nEnrolment": "flow encapsulates the following key principles:"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "a) Following standard DL practice,\nis\nthe target utterance ut"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "FAU-AIBO is a standard, categorical SER dataset used in the",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "passed through an emotion encoder Eemo(·) to generate a target"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "INTERSPEECH 2009 Emotion Challenge [25]. The data is col-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "embedding et. Eemo(·) can be any DNN; here, we opt for a"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "lected in a Wizard-of-Oz scenario where a remotely-controlled",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "WAV2VEC2.0 model fine-tuned for dimensional SER [2], as we"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "robot (‘AIBO’) interacts with children between the ages of 6 and",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "expect it to already have a good representation of emotion."
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "10. The study participants attended one of two schools from the",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "b) A set of enrolment utterances {ue}, coming from the same"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "same region in Germany, (Ohm) and (Mont), with Ohm being",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "speaker as the target utterance, are used to adapt an SER system"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "used as the training set and Mont as the test set in the original",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "to new, previously unseen speakers. In general, these {ue} can"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "challenge partition scheme. As no validation set was defined,",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "be exemplars of every potential\nlabel supported by the SER"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "we use the last two speakers (Ohm31, Ohm32) of the training set,",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "model or a subset\nthereof.\nIn practice, we experiment with"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "similar to [20]. The collected data has been annotated for 11",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "different alternatives as discussed below."
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "classes by 5 individual raters on the word-level.",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "c) These enrolment utterances are passed through an enrolment"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "For the challenge,\nthe 11 original classes were mapped to",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "encoder Eenr(·) to generate suitable embeddings {ee}. Eenr(·)"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "two alternative formulations of emotion:\na 2-class problem,",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "can either be different from the Eemo(·) used for ut, be identical"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "where participants had to differentiate between negative (N EG)",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "to it but trained separately, or even share the same weights. We"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "and non-negative (IDL) emotions; and a 5-class problem, where",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "opt for the latter option as we intend the enrolment encoder to"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "participants had to classify an utterance as angry (A), neutral",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "capture the emotional information present in {ue} and project it"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "rest\n(N ), motherese/joyful\n(P ), emphatic (E), with a 5th\n(R)",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "to the same embedding space as the target utterance."
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "class. Additionally,\nthe original words were manually aggre-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "d) We then combine the enrolment embeddings {ee} with the tar-"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "gated to semantically and prosodically meaningful chunks, with",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "get embedding et. We choose a multihead, dot-product attention"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "a chunk label derived from the word-level labels using a heuristic",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "mechanism for this combination. The enrolment embeddings"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "process [26]. The resulting data is highly imbalanced, and are",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "are first concatenated and form a set of keys (K), with the target"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "dominated by neutral/non-negative states. For this reason, we",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "embedding functioning as the query (Q). Following Vaswani"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "use the UAR – the added recall per class devided by the num-",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "et al. [29], we first compute the outer product of the keys and"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "ber classes – to measure performance in the presence of class",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "queries (QK T ) and then pass it through a softmax function to"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "distribution imbalance, following the challenge specifications.",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "generate a ‘soft’ similarity estimate of the query with each key;"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "MSP-Podcast is a recent, large-scale SER dataset annotated",
+          "R\nEnrolment": "for numerical stability the output\nis divided by (cid:112)(dk), with"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "both for categorical emotions and dimensional attributes [27].",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "d being the dimensionality of the key embeddings. This soft"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "The data has been annotated for 9 emotional classes, plus an extra",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "",
+          "R\nEnrolment": "similarity matrix is subsequently multiplied with the values (V )"
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "neutral class and another one for\ninstances where annotators",
+          "R\nEnrolment": ""
+        },
+        {
+          "no re-training of the model during inference. This allows for a": "disagree. We use the latest version available at\nthe time of",
+          "R\nEnrolment": "1Code: https://github.com/ATriantafyllopoulos/enrollment-personalization"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "to produce the final output which is added to the target embed-": "ding to generate the final output (i. e., the attention mechanism",
+          "tions recognised correctly3. We examine this utility under three": "different perspectives:"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "features a ‘residual’ connection). As values, we also use the",
+          "tions recognised correctly3. We examine this utility under three": "I) Statistics: We first report standard statistics, such as the mean"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "embeddings of the enrolment utterances.",
+          "tions recognised correctly3. We examine this utility under three": "(µ(·)), median (µ1/2(·)), standard deviation (σ(·)), maximum"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "e) The final product of the attention is passed to an multi layer",
+          "tions recognised correctly3. We examine this utility under three": "(max(·)), and minimum (min(·)) of U ARSP . These statistics"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "perceptron (MLP) classifier and the whole system is trained",
+          "tions recognised correctly3. We examine this utility under three": "give us a coarse characterisation of how utility is distributed"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "end-to-end.",
+          "tions recognised correctly3. We examine this utility under three": "across the different individuals in our dataset."
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "II) Gini coefficient: The Gini coefficient (G(·)) is a standard"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "Intuitively, this process of attention computes a (soft) simi-",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "measurement used in econometrics to judge the distribution of"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "larity of the target utterance with each enrolment utterance, then",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "utility in a particular population and is defined as half of the"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "combines the emotional information in these enrolment samples",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "mean absolute difference relative to the mean of a particular"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "with the target sample to improve classification performance.",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "sample [31].\nIn particular,\nit\ntakes the value of 0 for an equal"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "distribution where everyone has the same utility, and 1 for a"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "2.3. Experimental settings",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "completely unequal one, where the entire utility is accumulated"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "Enrolment utterances2 Our approach requires setting aside a",
+          "tions recognised correctly3. We examine this utility under three": "by one particular individual. In our case, this is computed as:"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "set of enrolment utterances for each speaker. We always include",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "(cid:32)j=N"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "a single enrolment utterance per class (though some variants of",
+          "tions recognised correctly3. We examine this utility under three": "i=N"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "(|ui − uj|)"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "our approach do not make use of all of them; see below). When",
+          "tions recognised correctly3. We examine this utility under three": "(cid:80) i\n(cid:80) j"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "=1\n=1"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "a class is missing for a particular speaker, we impute it with",
+          "tions recognised correctly3. We examine this utility under three": ",\n(1)\nG({ui}N"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "1 ) ="
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "µ({ui}N\n1 )"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "zeros (i. e., silence). To create this enrolment set, we first sort",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "the utterances of each speaker alphabetically (so in their order",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "is\nwhere N is the number of speakers in the test set and {ui}N"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "of appearance following the naming scheme of FAU-AIBO [26]",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "the set of utility values for all speakers, with ui = U ARi\nSP , i. e.,"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "and MSP-Podcast [27]) and then for each class select the first",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "the speaker-level UAR computed for each speaker."
+        },
+        {
+          "to produce the final output which is added to the target embed-": "utterance in which it appears.",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "III) Isoelastic social welfare functions (ISWFs): Besides the"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "Personalisation setup: In total, we investigate three alternative",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "Gini coefficient, the distribution of utility can also be considered"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "formulations of the personalisation problem and contrast their",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "under alternative formulations. A classical formalisation of the"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "effectiveness with respect to a baseline model:",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "problem is that given by Atkinson et al.\n[32], who defines a"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "1. BASE – Our baseline model only includes the emotion en-",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "family of ISWFs:"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "coder and the downstream MLP classifier; note that this setup",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "is identical\nto recent state-of-the-art work for dimensional",
+          "tions recognised correctly3. We examine this utility under three": "i=N\n1"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "1 N\n(cid:80) i\n1−α\n(\nu1−α\n)\nif α ̸= 1"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "SER [2] and we thus expect it to be a strong baseline.",
+          "tions recognised correctly3. We examine this utility under three": "i"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "=1"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "2. PERSN – For our first personalisation approach, we only",
+          "tions recognised correctly3. We examine this utility under three": " \n.\n(2)\nWα(u1, ..., uN ) ="
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "N(cid:115)\ni=N"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "utilise neutral utterances for the enrolment; this is most similar",
+          "tions recognised correctly3. We examine this utility under three": "(cid:81)"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "if α = 1,\nui"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "to the setup of Triantafyllopoulos et al. [20], who condition",
+          "tions recognised correctly3. We examine this utility under three": "i=1"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "their model on a single neutral utterance from each speaker.",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "These ISWFs allow for a more modular definition of fairness, as"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "3. PERSE – We also experiment with using only the non-neutral",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "(i. e., emotional or rest) utterances for enrolment.",
+          "tions recognised correctly3. We examine this utility under three": "they do not presuppose an equal distribution of utility as the most"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "fair outcome (like the Gini coefficient). For example, as α → ∞,"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "4. PERSA – Finally, we use all available enrolment utterances",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "Eq. (2) approximates Rawls’ “difference principle” (i. e., max-"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "(both neutral and emotional).",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "imise the minimum utility) [33, Ch. II, § 13, pg. 65], whereas as"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "Hyperparameters: We train all models for 50 epochs with an",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "α → 0, it approaches the standard utilitarian approach of max-"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "Adam optimiser, a learning rate of 0.0001, and a batch size of",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "imising total utility irrespective of fairness. Thus, ISWFs provide"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "4, all standard hyperparameters from previous literature [2]. We",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "a modular ‘knob’ that allows stakeholders to define fairness for"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "select the epoch with the best UAR on the validation set for our",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "their particular needs.\nIn our work, we compute the value of"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "final evaluation on the test set.",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "the ISWF for different values of α ∈ {0, 100}, measuring the"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "suitability of different models for different scenarios."
+        },
+        {
+          "to produce the final output which is added to the target embed-": "2.4.\nIndividual-level fairness",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "The standard process for computing performance is to consider",
+          "tions recognised correctly3. We examine this utility under three": "3. Results & Discussion"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "each chunk as an independent\ntrial.\nThis process was also",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "Table 1 shows our results. It includes the global UAR (U ARC ),"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "adopted in the 2009 INTERSPEECH Emotion Challenge, and",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "which is computed over all chunks in the data (including 95%"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "we denote its outcome as U ARC .",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "CIs), as well as the different fairness statistics and the Gini in-"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "To define individual-level\nfairness, we begin by comput-",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "dex for both the 2- and the 5-class problem. PERSA shows the"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "ing the performance on a speaker-level, thus assuming that first",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "best performance overall, with higher U ARC than all alterna-"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "speakers are selected independently, and only then are samples",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "tives for FAU-AIBO and marginally lower than the baseline for"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "selected independently for them (see [30] for a similar argumen-",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "MSP-Podcast, as well as overall better performance with respect"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "tation). We finally compute the UAR over\nthe set of chunks",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "to different\nindividual-level metrics. Specifically,\nit\nimproves"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "for each individual speaker in our dataset, which we denote as",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "from a 67.7% to a 71.8% U ARC for the 2-class problem, and"
+        },
+        {
+          "to produce the final output which is added to the target embed-": "this the utility of each speaker, as this is\nU ARSP . We call",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "from 44.3% to 45.2% for the 5-class problem for FAU-AIBO."
+        },
+        {
+          "to produce the final output which is added to the target embed-": "the benefit that each speaker can expect from getting their emo-",
+          "tions recognised correctly3. We examine this utility under three": ""
+        },
+        {
+          "to produce the final output which is added to the target embed-": "",
+          "tions recognised correctly3. We examine this utility under three": "More importantly, it improves across all fairness metrics for all"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: Global and individual-level performance for the 2- and 5-class problems of FAU-AIBO, as well as the 4-class problem",
+      "data": [
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "bootstrapping. Furthermore, we compute fairness metrics on speaker-level UAR (U ARSP ). For easier comparison, we mark metrics as"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "ascending (↑, higher is better) and descending (↓, lower is better)."
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "Method"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": ""
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "BASE"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSN"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSE"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSA"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": ""
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "BASE"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSN"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSE"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSA"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": ""
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "BASE"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSN"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSE"
+        },
+        {
+          "of MSP-Podcast. We compute the U ARC over all chunks in the test set, along with 95% confidence intervals (CIs) obtained via": "PERSA"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 1: Global and individual-level performance for the 2- and 5-class problems of FAU-AIBO, as well as the 4-class problem",
+      "data": [
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": ".201\n.479\n.563 [.554 - .572]\nPERSA",
+          ".184": ".186",
+          ".436\n1.000\n.000": ".442\n1.000\n.000"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Total utility for FAU-AIBO (2-class)",
+          ".184": "",
+          ".436\n1.000\n.000": "an ‘equality of outcome’ requirement for different users across"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "0.75",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "multiple ML algorithms (in the context of recommendation al-"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "0.50",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Utility\nModel",
+          ".184": "",
+          ".436\n1.000\n.000": "gorithms) [34]. This would be equivalent to a Gini index of 0"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "PERSE\n0.25",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "PERSN\nPERSA",
+          ".184": "",
+          ".436\n1.000\n.000": "in our definition. Digital health applications, on the other hand,"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "α",
+          ".184": "",
+          ".436\n1.000\n.000": "may require a maximisation of a lower bound on speaker-level"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Total utility for FAU-AIBO (5-class)",
+          ".184": "",
+          ".436\n1.000\n.000": "performance – in this case, a larger α would be more appropriate,"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "0.75",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "to place more emphasis on the worst-performing speakers [35]."
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "0.50",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Utility",
+          ".184": "",
+          ".436\n1.000\n.000": "Collectively, our results show that personalisation via en-"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "0.25",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "rolment can improve predictive performance and make this per-"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "0\n5\n10\n15\n20\n25\n30",
+          ".184": "",
+          ".436\n1.000\n.000": "formance more equal across different speakers. This is vital"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "α",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "for providing a uniform and fair user experience in applica-"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "tions relying on SER. Another interesting finding is that models"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Figure 2: Total utility achieved by each model for different isoe-",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "personalised on all classes or even only all emotional classes"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "lastic social welfare functions for the 2- (top) and 5-class (bot-",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "generally outperform those personalised only on neutral data."
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "tom) formulations of FAU-AIBO. Utility is defined as U ARSP .",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "This is in contrast to the prior work which has used these neutral"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "enrolment utterances for personalisation [4, 20]."
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "deviation, as well as a higher mean and median for speaker-",
+          ".184": "",
+          ".436\n1.000\n.000": "4. Conclusion"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "It\nis only sur-\nlevel UAR (U ARSP ) – our measure of utility.",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "We have introduced a novel method for personalisation using a"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "passed by PERSN on the standard deviation of performance for",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "minimal set of enrolment utterances – one per class. Our method"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "MSP-Podcast, where it is still outperforming the baseline model.",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "relies on dot-product attention for injecting information from"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Generally,\nthe same can be said for PERSN and PERSE , as",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "these utterances into a classification network. Additionally, we"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "both show better performance than the baseline, with the latter",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "introduced novel considerations for individual-level fairness that"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "additionally outperforming the former.",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "takes into account performance on the individual level. Overall,"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Fig. 2 additionally shows how the total utility amassed by",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "we showed how our method can improve performance both on"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "each model changes for different ISWFs. Due to space limi-",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "the global level and for the fairness metrics we introduced. Lim-"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "tations, we only show results for FAU-AIBO. For the 2-class",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "itations: Our method depends on providing accurate enrolment"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "problem, PERSA results in higher utility for most values of α,",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "samples, and may fail if (intentionally) given erroneous ones. Fu-"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "while converging to the other methods as α → ∞.\nFor\nthe",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "ture work: Alternative methods for introducing the enrolment"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "5-class problem, we observe that BASE quickly approaches zero",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "information can be investigated.\nFurthermore, explainability"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "utility according to the difference principle (α → ∞), with the",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "methods can be used to understand how the network is using"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "three personalisation models showing similar behaviour. For all",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "the additional enrolment information, e. g., by visualising and"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "models, utility is highest for α → 0, i. e., the utilitarian scenario,",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "probing the embedding space before and after\nthe enrolment"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "where average utility is maximised without consideration for",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "information is injected. Finally, ways for safeguarding against"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "its distribution. However,\nthe total utility quickly drops as α",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "inaccurate enrolment samples must be developed."
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "increases, reflecting scenarios where the discrepancy between",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "different speakers becomes more important.",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "",
+          ".184": "",
+          ".436\n1.000\n.000": "5. Acknowledgements"
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "Broadly, the decision on which the α value or fairness metric",
+          ".184": "",
+          ".436\n1.000\n.000": ""
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "is appropriate for a particular application rests with the stakehold-",
+          ".184": "",
+          ".436\n1.000\n.000": "This work was partially funded by the EU H2020 project No."
+        },
+        {
+          ".563 [.554 - .573]\n.215\n.460\nPERSE": "ers that are affected by it. For example, recent work employed",
+          ".184": "",
+          ".436\n1.000\n.000": "101135556 (INDUX-R)."
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "S. Hedensted, R. Spreafico, D. A. Hafler, and E. F. McKinney,"
+        },
+        {
+          "6. References": "B. Schuller, “Speech emotion recognition: Two decades in a",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "“From big data to precision medicine,” Frontiers in medicine,"
+        },
+        {
+          "6. References": "nutshell, benchmarks, and ongoing trends,” Communications of",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "vol. 6, p. 34, 2019."
+        },
+        {
+          "6. References": "the ACM, vol. 61, no. 5, pp. 90–99, 2018.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[18]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "M. Gerczuk, A. Triantafyllopoulos, S. Amiriparian, A. Kathan,"
+        },
+        {
+          "6. References": "J. Wagner, A. Triantafyllopoulos, H. Wierstorf, M. Schmitt, F.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "J. Bauer, M. Berking, and B. W. Schuller, “Zero-shot personaliza-"
+        },
+        {
+          "6. References": "Burkhardt, F. Eyben, and B. W. Schuller, “Dawn of the trans-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "tion of speech foundation models for depressed mood monitoring,”"
+        },
+        {
+          "6. References": "former era in speech emotion recognition: Closing the valence",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Patterns, vol. 4, no. 11, 2023."
+        },
+        {
+          "6. References": "gap,” IEEE Transactions on Pattern Analysis and Machine Intel-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "ligence, vol. 45, no. 09, pp. 10 745–10 759, 2023.",
+          "[17]": "[19]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "M. R. Kosorok and E. B. Laber, “Precision medicine,” Annual"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "review of statistics and its application, vol. 6, pp. 263–286, 2019."
+        },
+        {
+          "6. References": "C. Gorrostieta, R. Lotfian, K. Taylor, R. Brutti, and J. Kane, “Gen-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "der de-biasing in speech emotion recognition.,” in Interspeech,",
+          "[17]": "[20]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "A. Triantafyllopoulos, S. Liu, and B. W. Schuller, “Deep speaker"
+        },
+        {
+          "6. References": "2019, pp. 2823–2827.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "conditioning for speech emotion recognition,” in Proc. ICME,"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "IEEE, 2021, pp. 1–6."
+        },
+        {
+          "6. References": "W. Fan, X. Xu, B. Cai, and X. Xing, “Isnet: Individual standard-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "ization network for speech emotion recognition,” IEEE/ACM",
+          "[17]": "[21]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "A. Triantafyllopoulos, M. Song, Z. Yang, X. Jing, and B. W."
+        },
+        {
+          "6. References": "Transactions\non Audio,\nSpeech,\nand Language Processing,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Schuller, “Exploring speaker enrolment\nfor\nfew-shot person-"
+        },
+        {
+          "6. References": "vol. 30, pp. 1803–1814, 2022.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "alisation in emotional vocalisation prediction,” arXiv preprint"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "arXiv:2206.06680, 2022."
+        },
+        {
+          "6. References": "G. Doddington, W. Liggett, A. Martin, M. Przybocki, and D. A.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "Reynolds, “Sheep, goats, lambs and wolves: A statistical analysis",
+          "[17]": "[22]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "T. Rahman and C. Busso, “A personalized emotion recognition"
+        },
+        {
+          "6. References": "of speaker performance in the nist 1998 speaker\nrecognition",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "system using an unsupervised feature adaptation scheme,” in"
+        },
+        {
+          "6. References": "evaluation,” in Proc.\nICSLP, Sydney, Australia:\nISCA, 1998,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "2012 IEEE International Conference on Acoustics, Speech and"
+        },
+        {
+          "6. References": "pp. 1–4.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Signal Processing (ICASSP), IEEE, 2012, pp. 5117–5120."
+        },
+        {
+          "6. References": "The European Parliament, Amendments adopted by the European",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[23]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "C. Le Moine, N. Obin, and A. Roebel, “Speaker attentive speech"
+        },
+        {
+          "6. References": "Parliament on 14 June 2023 on the proposal for a regulation of",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "emotion recognition,” in Interspeech 2021, ISCA, 2021, pp. 2866–"
+        },
+        {
+          "6. References": "the European Parliament and of the Council on laying down har-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "2870."
+        },
+        {
+          "6. References": "monised rules on artificial intelligence (Artificial Intelligence Act)",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[24]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Y\n. Yin, B. Huang, Y. Wu, and M. Soleymani, “Speaker-invariant"
+        },
+        {
+          "6. References": "and amending certain Union legislative acts (COM(2021)0206 –",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "adversarial domain adaptation for emotion recognition,” in Pro-"
+        },
+        {
+          "6. References": "C9-0146/2021 – 2021/0106(COD)), https://www.europarl.europa.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "ceedings of\nthe 2020 International Conference on Multimodal"
+        },
+        {
+          "6. References": "eu/doceo/document/TA-9-2023-0236 EN.html, 2023.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Interaction, 2020, pp. 481–490."
+        },
+        {
+          "6. References": "R. J. Larsen and E. Diener, “Affect\nintensity as an individual",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "difference characteristic: A review,” Journal of Research in per-",
+          "[17]": "[25]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "B. Schuller, S. Steidl, and A. Batliner, “The Interspeech 2009"
+        },
+        {
+          "6. References": "sonality, vol. 21, no. 1, pp. 1–39, 1987.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Emotion Challenge,” in Proc. INTERSPEECH, ISCA, Brighton,"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "UK: ISCA, Sep. 2009, pp. 312–315."
+        },
+        {
+          "6. References": "J. A. Russell, “Is there universal recognition of emotion from",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "facial expression? a review of the cross-cultural studies.,” Psy-",
+          "[17]": "[26]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "S. Steidl, Automatic Classification of Emotion-Related User"
+        },
+        {
+          "6. References": "chological bulletin, vol. 115, no. 1, p. 102, 1994.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "States in Spontaneous Children’s Speech. Berlin: Logos Verlag,"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "2009, (PhD thesis, FAU Erlangen-Nuremberg)."
+        },
+        {
+          "6. References": "J. J. Gross, L. L. Carstensen, M. Pasupathi, J. Tsai, C. G¨otestam",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "Skorpen, and A. Y. Hsu, “Emotion and aging: Experience, expres-",
+          "[17]": "[27]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "R. Lotfian and C. Busso, “Building naturalistic emotionally bal-"
+        },
+        {
+          "6. References": "sion, and control.,” Psychology and aging, vol. 12, no. 4, p. 590,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "anced speech corpus by retrieving emotional speech from existing"
+        },
+        {
+          "6. References": "1997.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "podcast recordings,” IEEE Transactions on Affective Computing,"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "vol. 10, no. 4, pp. 471–483, 2017."
+        },
+        {
+          "6. References": "T. M. Chaplin and A. Aldao, “Gender differences in emotion",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "expression in children: A meta-analytic review.,” Psychological",
+          "[17]": "[28]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "A. Triantafyllopoulos, U. Reichel, S. Liu, S. Huber, F. Eyben,"
+        },
+        {
+          "6. References": "bulletin, vol. 139, no. 4, p. 735, 2013.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "and B. W. Schuller, “Multistage linguistic conditioning of con-"
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "volutional layers for speech emotion recognition,” Frontiers in"
+        },
+        {
+          "6. References": "R. A. Sherman, J. F. Rauthmann, N. A. Brown, D. G. Serfass,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Computer Science, vol. 5, 2023."
+        },
+        {
+          "6. References": "and A. B. Jones, “The independent effects of personality and",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "situations on real-time expressions of behavior and emotion.,”",
+          "[17]": "[29]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N."
+        },
+        {
+          "6. References": "Journal of personality and social psychology, vol. 109, no. 5,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,”"
+        },
+        {
+          "6. References": "p. 872, 2015.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Advances in neural information processing systems, vol. 30, 2017."
+        },
+        {
+          "6. References": "O. Rudovic, J. Lee, M. Dai, B. Schuller, and R. W. Picard, “Per-",
+          "[17]": "[30]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "I. Guyon, J. Markhoul, R. Schwartz, and V. Vapnik, “What size"
+        },
+        {
+          "6. References": "sonalized machine learning for robot perception of affect and",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "test set gives good error rate estimates?” IEEE Transactions on"
+        },
+        {
+          "6. References": "engagement in autism therapy,” Science Robotics, vol. 3, no. 19,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Pattern Analysis and Machine Intelligence, vol. 20, no. 1, pp. 52–"
+        },
+        {
+          "6. References": "pp. 1–11, 2018.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "64, 1998."
+        },
+        {
+          "6. References": "K. Sridhar and C. Busso, “Unsupervised personalization of an",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[31]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "R. Dorfman, “A formula for the gini coefficient,” The review of"
+        },
+        {
+          "6. References": "emotion recognition system: The unique properties of the exter-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "economics and statistics, pp. 146–149, 1979."
+        },
+        {
+          "6. References": "nalization of valence in speech,” IEEE Transactions on Affective",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[32]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "A. B. Atkinson et al., “On the measurement of inequality,” Jour-"
+        },
+        {
+          "6. References": "Computing, vol. 13, no. 4, pp. 1959–1972, 2022.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "nal of economic theory, vol. 2, no. 3, pp. 244–263, 1970."
+        },
+        {
+          "6. References": "M. Song, A. Triantafyllopoulos, Z. Yang, H. Takeuchi, T. Naka-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "mura, A. Kishi, T.\nIshizawa, K. Yoshiuchi, X. Jing, V. Karas,",
+          "[17]": "[33]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "J. Rawls, A theory of justice: Revised Edition. Harvard University"
+        },
+        {
+          "6. References": "et al., “Daily mental health monitoring from speech: A real-",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "Press, 2099."
+        },
+        {
+          "6. References": "world japanese dataset and multitask learning analysis,” in Proc.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[34]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "S. Sharifi-Malvajerdi, M. Kearns, and A. Roth, “Average individ-"
+        },
+        {
+          "6. References": "ICASSP, IEEE, 2023, pp. 1–5.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "ual fairness: Algorithms, generalization and experiments,” Proc."
+        },
+        {
+          "6. References": "A. Kathan, M. Harrer, L. K¨uster, A. Triantafyllopoulos, X. He,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "NeurIPS, vol. 32, 2019."
+        },
+        {
+          "6. References": "M. Milling, M. Gerczuk, T. Yan, S. T. Rajamani, E. Heber, et al.,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "[35]",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "A. Triantafyllopoulos, A. Kathan, A. Baird, L. Christ, A. Geb-"
+        },
+        {
+          "6. References": "“Personalised depression forecasting using mobile sensor data and",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "hard, M. Gerczuk, V. Karas, T. H¨ubner, X. Jing, S. Liu, et al.,"
+        },
+        {
+          "6. References": "ecological momentary assessment,” Frontiers in digital health,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "“Hear4health: A blueprint for making computer audition a sta-"
+        },
+        {
+          "6. References": "vol. 4, p. 964 582, 2022.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "ple of modern healthcare,” Frontiers in Digital Health, vol. 5,"
+        },
+        {
+          "6. References": "B. McMahan, E. Moore, D. Ramage, S. Hampson, and B. A.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": "p. 1 196 079, 2023."
+        },
+        {
+          "6. References": "y Arcas, “Communication-efficient\nlearning of deep networks",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "from decentralized data,” in Artificial intelligence and statistics,",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        },
+        {
+          "6. References": "PMLR, 2017, pp. 1273–1282.",
+          "[17]": "",
+          "T. Hulsen, S. S. Jamuar, A. R. Moody, J. H. Karnes, O. Varga,": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Speech emotion recognition: Two decades in a nutshell, benchmarks, and ongoing trends",
+      "authors": [
+        "B Schuller"
+      ],
+      "year": "2018",
+      "venue": "Communications of the ACM"
+    },
+    {
+      "citation_id": "3",
+      "title": "Dawn of the transformer era in speech emotion recognition: Closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "4",
+      "title": "Gender de-biasing in speech emotion recognition",
+      "authors": [
+        "C Gorrostieta",
+        "R Lotfian",
+        "K Taylor",
+        "R Brutti",
+        "J Kane"
+      ],
+      "year": "2019",
+      "venue": "Gender de-biasing in speech emotion recognition"
+    },
+    {
+      "citation_id": "5",
+      "title": "Isnet: Individual standardization network for speech emotion recognition",
+      "authors": [
+        "W Fan",
+        "X Xu",
+        "B Cai",
+        "X Xing"
+      ],
+      "year": "2022",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "6",
+      "title": "Sheep, goats, lambs and wolves: A statistical analysis of speaker performance in the nist 1998 speaker recognition evaluation",
+      "authors": [
+        "G Doddington",
+        "W Liggett",
+        "A Martin",
+        "M Przybocki",
+        "D Reynolds"
+      ],
+      "year": "1998",
+      "venue": "Proc. ICSLP"
+    },
+    {
+      "citation_id": "7",
+      "title": "Amendments adopted by the European Parliament on 14 June 2023 on the proposal for a regulation of the European Parliament and of the Council on laying down harmonised rules on artificial intelligence (Artificial Intelligence Act) and amending certain Union legislative acts (COM(2021)",
+      "authors": [
+        "The European"
+      ],
+      "year": "2023",
+      "venue": "Amendments adopted by the European Parliament on 14 June 2023 on the proposal for a regulation of the European Parliament and of the Council on laying down harmonised rules on artificial intelligence (Artificial Intelligence Act) and amending certain Union legislative acts (COM(2021)"
+    },
+    {
+      "citation_id": "8",
+      "title": "Affect intensity as an individual difference characteristic: A review",
+      "authors": [
+        "R Larsen",
+        "E Diener"
+      ],
+      "year": "1987",
+      "venue": "Journal of Research in personality"
+    },
+    {
+      "citation_id": "9",
+      "title": "Is there universal recognition of emotion from facial expression? a review of the cross-cultural studies",
+      "authors": [
+        "J Russell"
+      ],
+      "year": "1994",
+      "venue": "Psychological bulletin"
+    },
+    {
+      "citation_id": "10",
+      "title": "Emotion and aging: Experience, expression, and control",
+      "authors": [
+        "J Gross",
+        "L Carstensen",
+        "M Pasupathi",
+        "J Tsai",
+        "C Götestam Skorpen",
+        "A Hsu"
+      ],
+      "year": "1997",
+      "venue": "Psychology and aging"
+    },
+    {
+      "citation_id": "11",
+      "title": "Gender differences in emotion expression in children: A meta-analytic review",
+      "authors": [
+        "T Chaplin",
+        "A Aldao"
+      ],
+      "year": "2013",
+      "venue": "Psychological bulletin"
+    },
+    {
+      "citation_id": "12",
+      "title": "The independent effects of personality and situations on real-time expressions of behavior and emotion",
+      "authors": [
+        "R Sherman",
+        "J Rauthmann",
+        "N Brown",
+        "D Serfass",
+        "A Jones"
+      ],
+      "year": "2015",
+      "venue": "Journal of personality and social psychology"
+    },
+    {
+      "citation_id": "13",
+      "title": "Personalized machine learning for robot perception of affect and engagement in autism therapy",
+      "authors": [
+        "O Rudovic",
+        "J Lee",
+        "M Dai",
+        "B Schuller",
+        "R Picard"
+      ],
+      "year": "2018",
+      "venue": "Science Robotics"
+    },
+    {
+      "citation_id": "14",
+      "title": "Unsupervised personalization of an emotion recognition system: The unique properties of the externalization of valence in speech",
+      "authors": [
+        "K Sridhar",
+        "C Busso"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Daily mental health monitoring from speech: A realworld japanese dataset and multitask learning analysis",
+      "authors": [
+        "M Song",
+        "A Triantafyllopoulos",
+        "Z Yang",
+        "H Takeuchi",
+        "T Nakamura",
+        "A Kishi",
+        "T Ishizawa",
+        "K Yoshiuchi",
+        "X Jing",
+        "V Karas"
+      ],
+      "year": "2023",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "16",
+      "title": "Personalised depression forecasting using mobile sensor data and ecological momentary assessment",
+      "authors": [
+        "A Kathan",
+        "M Harrer",
+        "L Küster",
+        "A Triantafyllopoulos",
+        "X He",
+        "M Milling",
+        "M Gerczuk",
+        "T Yan",
+        "S Rajamani",
+        "E Heber"
+      ],
+      "year": "2022",
+      "venue": "Frontiers in digital health"
+    },
+    {
+      "citation_id": "17",
+      "title": "Communication-efficient learning of deep networks from decentralized data",
+      "authors": [
+        "B Mcmahan",
+        "E Moore",
+        "D Ramage",
+        "S Hampson",
+        "B Arcas"
+      ],
+      "year": "2017",
+      "venue": "Artificial intelligence and statistics"
+    },
+    {
+      "citation_id": "18",
+      "title": "From big data to precision medicine",
+      "authors": [
+        "T Hulsen",
+        "S Jamuar",
+        "A Moody",
+        "J Karnes",
+        "O Varga",
+        "S Hedensted",
+        "R Spreafico",
+        "D Hafler",
+        "E Mckinney"
+      ],
+      "year": "2019",
+      "venue": "Frontiers in medicine"
+    },
+    {
+      "citation_id": "19",
+      "title": "Zero-shot personalization of speech foundation models for depressed mood monitoring",
+      "authors": [
+        "M Gerczuk",
+        "A Triantafyllopoulos",
+        "S Amiriparian",
+        "A Kathan",
+        "J Bauer",
+        "M Berking",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "Patterns"
+    },
+    {
+      "citation_id": "20",
+      "title": "Annual review of statistics and its application",
+      "authors": [
+        "M Kosorok",
+        "E Laber"
+      ],
+      "year": "2019",
+      "venue": "Annual review of statistics and its application"
+    },
+    {
+      "citation_id": "21",
+      "title": "Deep speaker conditioning for speech emotion recognition",
+      "authors": [
+        "A Triantafyllopoulos",
+        "S Liu",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "Proc. ICME"
+    },
+    {
+      "citation_id": "22",
+      "title": "Exploring speaker enrolment for few-shot personalisation in emotional vocalisation prediction",
+      "authors": [
+        "A Triantafyllopoulos",
+        "M Song",
+        "Z Yang",
+        "X Jing",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Exploring speaker enrolment for few-shot personalisation in emotional vocalisation prediction",
+      "arxiv": "arXiv:2206.06680"
+    },
+    {
+      "citation_id": "23",
+      "title": "A personalized emotion recognition system using an unsupervised feature adaptation scheme",
+      "authors": [
+        "T Rahman",
+        "C Busso"
+      ],
+      "year": "2012",
+      "venue": "2012 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Speaker attentive speech emotion recognition",
+      "authors": [
+        "C Le Moine",
+        "N Obin",
+        "A Roebel"
+      ],
+      "venue": "Interspeech 2021, ISCA, 2021"
+    },
+    {
+      "citation_id": "25",
+      "title": "Speaker-invariant adversarial domain adaptation for emotion recognition",
+      "authors": [
+        "Y Yin",
+        "B Huang",
+        "Y Wu",
+        "M Soleymani"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "26",
+      "title": "The Interspeech 2009 Emotion Challenge",
+      "authors": [
+        "B Schuller",
+        "S Steidl",
+        "A Batliner"
+      ],
+      "year": "2009",
+      "venue": "Proc. INTERSPEECH, ISCA"
+    },
+    {
+      "citation_id": "27",
+      "title": "Automatic Classification of Emotion-Related User States in Spontaneous Children's Speech",
+      "authors": [
+        "S Steidl"
+      ],
+      "year": "2009",
+      "venue": "Automatic Classification of Emotion-Related User States in Spontaneous Children's Speech"
+    },
+    {
+      "citation_id": "28",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "29",
+      "title": "Multistage linguistic conditioning of convolutional layers for speech emotion recognition",
+      "authors": [
+        "A Triantafyllopoulos",
+        "U Reichel",
+        "S Liu",
+        "S Huber",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "Frontiers in Computer Science"
+    },
+    {
+      "citation_id": "30",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "31",
+      "title": "What size test set gives good error rate estimates?",
+      "authors": [
+        "I Guyon",
+        "J Markhoul",
+        "R Schwartz",
+        "V Vapnik"
+      ],
+      "year": "1998",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "32",
+      "title": "A formula for the gini coefficient",
+      "authors": [
+        "R Dorfman"
+      ],
+      "year": "1979",
+      "venue": "The review of economics and statistics"
+    },
+    {
+      "citation_id": "33",
+      "title": "On the measurement of inequality",
+      "authors": [
+        "A Atkinson"
+      ],
+      "year": "1970",
+      "venue": "Journal of economic theory"
+    },
+    {
+      "citation_id": "34",
+      "title": "A theory of justice: Revised Edition",
+      "authors": [
+        "J Rawls"
+      ],
+      "year": "2099",
+      "venue": "A theory of justice: Revised Edition"
+    },
+    {
+      "citation_id": "35",
+      "title": "Average individual fairness: Algorithms, generalization and experiments",
+      "authors": [
+        "S Sharifi-Malvajerdi",
+        "M Kearns",
+        "A Roth"
+      ],
+      "year": "2019",
+      "venue": "Proc. NeurIPS"
+    },
+    {
+      "citation_id": "36",
+      "title": "Hear4health: A blueprint for making computer audition a staple of modern healthcare",
+      "authors": [
+        "A Triantafyllopoulos",
+        "A Kathan",
+        "A Baird",
+        "L Christ",
+        "A Gebhard",
+        "M Gerczuk",
+        "V Karas",
+        "T Hübner",
+        "X Jing",
+        "S Liu"
+      ],
+      "year": "2023",
+      "venue": "Frontiers in Digital Health"
+    }
+  ]
+}

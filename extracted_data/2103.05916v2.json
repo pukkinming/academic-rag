@@ -1,0 +1,3392 @@
+{
+  "paper_id": "2103.05916v2",
+  "title": "Socialinteractiongan: Multi-Person Interaction Sequence Generation Author Version",
+  "published": "2021-03-10T08:11:34Z",
+  "authors": [
+    "Louis Airale",
+    "Dominique Vaufreydaz",
+    "Xavier Alameda-Pineda"
+  ],
+  "keywords": [
+    "Multi-person interactions",
+    "discrete sequence generation",
+    "adversarial learning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Prediction of human actions in social interactions has important applications in the design of social robots or artificial avatars. In this paper, we focus on a unimodal representation of interactions and propose to tackle interaction generation in a data-driven fashion. In particular, we model human interaction generation as a discrete multisequence generation problem and present SocialInterac-tionGAN, a novel adversarial architecture for conditional interaction generation. Our model builds on a recurrent encoder-decoder generator network and a dual-stream discriminator, that jointly evaluates the realism of interactions and individual action sequences and operates at different time scales. Crucially, contextual information on interacting participants is shared among agents and reinjected in both the generation and the discriminator evaluation processes. Experiments show that albeit dealing with low dimensional data, SocialInteractionGAN succeeds in producing high realism action sequences of interacting people, comparing favorably to a diversity of recurrent and convolutional discriminator baselines, and we argue that this work will constitute a first stone towards higher dimensional and multimodal interaction generation. Evaluations are conducted using classical GAN metrics, that we specifically adapt for discrete sequential data. Our model is shown to properly learn the dynamics of interaction sequences, while exploiting the full range of available actions.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Interactions between humans are the basis of social relationships, incorporating a large number of implicit and explicit multimodal signals expressed by the interaction partners  [1] . As the number of interacting people increases, so does the complexity of the underlying interpersonal synchrony patterns. For humans, the interaction capability is at the same time innate and acquired through thousands of interaction experiences. For interactive systems, predicting and generating human actions within social interactions is still far from the human-level performance. However, this task is central when it comes to devising, for instance, artificial avatars displaying realistic behavior or a social robot able to anticipate human intentions and adjust its response accordingly. One possible explanation lies in the difficulty to collect and annotate human social behavioral data, illustrated by the scarcity of corpora available to the community. A second source of difficulty is the intrinsically multimodal nature of human interactions. Ideally, when generating interaction data, a system should deal with signals as diverse as gaze, pose, facial expression or gestures. In this work, we choose to relieve much of this complexity and treat interactions as synchronized sequences of \"high level\" discrete actions, and propose to solve the task of generating a realistic continuation to an observed interaction sequence (Figure  1 ). The chosen representation has the advantage of easing the generation task while carrying enough meaningful information to study diverse interpersonal synchrony patterns. This approach has in fact several benefits. First, it is reasonable to think that part of the principles that govern discrete interactions will scale to other modalities, either discrete or continuous, as the same actions exist in the visual and audio domains. Therefore, the devised architecture may be extended to these further tasks. Second, the generated interaction sequences will add up to the original dataset, representing as many fresh data samples. Provided a dataset that associates these simple actions with richer representations is available, one may use them as conditioning data for the generation of more complex interaction sequences. Finally, representing the instantaneous state of a person in an interaction as a discrete action is consistent with the annotations provided in current human interaction datasets  [2, 3] .\n\nThe generation of discrete social action sequences of several people considering the interpersonal synchrony shares many ties with text generation in NLP and trajectory prediction in crowded environments. As in text generation, we seek to produce sequences of discrete data, or tokens, although the size of the token dictionary will typically be orders of magnitude smaller than that of any language. Discrete sequence generation in an adversarial setting comes with well identified limitations: nondifferentiability that prevents backpropagating gradients from the discriminator, and lack of information on the underlying structure of the sequence  [4] , due to the too restrictive nature of the binary signal of the discriminator. To overcome the first issue, the generator can be thought of as a stochastic policy trained with policy gradient  [5] . However, as noted in  [4] , sequences produced via vanilla policy gradient methods see their quality decrease as their length grows, and therefore do not usually exceed 20 tokens. Another drawback of these methods is that they rely on several rounds of Monte Carlo search to estimate a policy reward, noticeably slowing down training.\n\nAs recent works in trajectory prediction exploit path information from surrounding persons to predict pedestrian trajectories that avoid collisions  [6] [7] [8] , one can think of interaction generation as the prediction of trajectories in a discrete action space where people constantly adapt their behaviour to other persons' reactions. Because the action space is discrete, action generation is yet better modelled by sampling from a categorical distribution, which requires substantial changes from the previous works. Moreover, and very differently from trajectories that are sequences of smoothly-changing continuous positions, discrete sequences of social actions cannot be considered as smooth. Accounting for other persons' behavior in social interactions therefore requires constant reevaluations, because one must consider the recent actions performed by all the individuals within the same social interaction. On the other hand, it should be possible to exploit the relative steadiness of action sequences: for a sampling rate of 25 fps, an action will typically extend for several tens of time steps. This fine grained resolution allows to deal with actions of different duration.\n\nLast, this research faces a new challenge regarding the proper evaluation of the generated sequences of multiperson interactions. The Inception Score (IS) and the Fréchet Inception Distance (FID), two metrics commonly associated with adversarial generation, are primarily intended to assess image quality  [9, 10] . IS consists of two entropy calculations based on how generated images span over object classes, and it is relatively straightforward to adapt it to action sequences. FID, on the other hand, requires the use of a third party model usually trained on an independent image classification task. The absence of such an off-the-shelf inception model for discrete sequential data thus requires to devise a new independent task and to train the associated model that will serve to compute FID.\n\nIn this work, we present a conditional adversarial network for the generation of discrete action sequences of human interactions, able to produce high quality sequences of extended length even in the absence of supervision. We followed  [6, 7]  and performed integration of contextual cues by means of a pooling module. We used a discriminator with two distinct streams, one guiding the network into producing realistic action sequences, the other operating at the interaction level, assessing the realism of the participants' actions relative to one another. Noticeably, we built our model on a classical GAN framework as it demonstrated promising performances without the need of policy gradient. We propose however an essential local projection discriminator inspired from  [11]  and  [12]  to provide the generator with localized assessments of sequence realism, therefore allowing the signal from the discriminator to be more informative. The result is an adversarially trained network able to predict plausible future action sequences for a group of interacting people, conditioned on the observed beginning of the interaction. Finally, we introduce two new metrics based on the principles of IS and FID so as to assess the quality and the diversity of generated sequences. In particular, we propose a general procedure to train an independent inception model on discrete sequences, whose intermediate activations can be used to compute a sequential FID (or SFID).",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "The Contributions Of This Paper Are:",
+      "text": "• A general framework for the generation of low dimensional multi-person interaction sequences; • A novel dual-stream local recurrent discriminator architecture, that allows to efficiently assess the realism of the generated interaction sequences;\n\n• Two variants of the popular Inception Score and Fréchet Inception Distance metrics, suited to assess the quality of sequence generation.\n\nThe rest of the manuscript is structured as follows. First, we review related work in trajectory prediction and text generation in section 2. We then describe our architecture in section 3. In section 4, we introduce variants of Inception Score  [9]  and Fréchet Inception Distance  [10] , widely used to assess the visual quality of GAN outputs, suited to our discrete sequence generation task. We then conduct experiments of the MatchNMingle dataset  [2]  and show the superiority of our dual-stream local discriminator architecture over a variety of baseline models in section 5.\n\nFinally, we conclude in section 6.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Following the above discussion, we split the description of the related work into two parts: trajectory prediction and generation of discrete sequential data.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Trajectory Prediction",
+      "text": "Most recent works in trajectory prediction make use of contextual information of surrounding moving agents or static scene elements to infer a trajectory  [6] [7] [8] [13] [14] [15] [16] [17] .\n\nIn  [8] , a conditional VAE is used to generate a set of possible trajectories, which are then iteratively refined by the adjunction of cues from the scene and surrounding pedestrians. In  [16]  the authors propose a GAN and two attention mechanisms to select the most relevant information among spatial and human contextual cues for the considered agent path. As in previous works, the authors of  [15]  use an encoder-decoder architecture, but propose to jointly exploit pedestrian and static scene context vectors using a convolutional network. The resulting vectors are then spacially added to the output of the encoder before the decoding process. In the preceding works, pooling strategies are usually employed to enforce invariance to the number of participants in the scene. Such strategies include local sum pooling  [6] , average pooling  [8] , or more sophisticated procedures involving non-linear transformations  [7] . In our setting, we posit an equal prior influence of all interacting participants on the decision to perform an action, and leave the exploration of different conditions to future work. This alleviates the need for a pooling strategy aware of the spatial position. However it is important that the contextual information provided to the decoder should follow the course of the interaction, and thus be recomputed at every time step. This is similar to  [13, 16]  that rely on a time-varying attention context vector.\n\nIn most previous works the models are either trained to minimize the mean square distance from a ground truth trajectory or to maximize the realism of single person trajectories thanks to an adversarial loss, but few consider trajectories interplay in the training objective. This is the case of SocialGAN  [7] , where the discriminator outputs a single score for the entire scene, while the adequacy of individual trajectories is ensured by a supervised (L 2 ) loss and by the prediction of small incremental displacements over time steps. In contrary, we would like our adversarial loss to cover both the realism of individual sequences and of the interaction as a whole, and we achieve this by using a discriminator with two streams. This way we are able to investigate the effects of lessening the weight of the supervised L 2 loss or to simply train the model without it. Note that we could follow a similar strategy to  [15]  and sum individual hidden states with contextual information into a single vector serving as input to the discriminator classifier. We want however to preserve as much information as possible from the two streams and maintain two separate classifiers.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Generation Of Discrete Sequential Data",
+      "text": "GANs have recently been proposed to complement the traditional Maximum Likelihood Estimation training for text generation to mitigate the so-called exposure bias issue, with pretty good results on short word sequences  [5, 18, 19] . The use of an adversarial loss for discrete sequence generation network yet comes with two wellidentified caveats. First, workarounds must be found to allow the architecture to be fully differentiable. Second, the binary signal from the discriminator is scarce and may lack information as for instance for what in a sentence makes it unrealistic  [4] . In  [5]  and  [18]  authors interpret text generation as a Markov Decision Process where an agent selects a word at each state, constituted of all previously generated words. The generator is trained via stochastic policy gradient, while the reward is provided by the discriminator. These ideas are extended in  [19] , where the discriminator is modelled as a ranker rather than a binary classifier to avoid vanishing gradient issues. In  [4] , the generator is implemented as a hierarchical agent, following the architecture proposed in  [20] , so as to produce text sequences of increased length. Action sequences however differ from text by the limited size of action space compared to a language dictionary. We also hypothesize a shorter \"memory\" of action sequences: it is likely that one can judge the overall quality of an action sequence by looking only at small chunks of it, provided their length is chosen adequately. Therefore we propose a local discriminator operating on short-range receptive fields to allow its signal to be more informative, which can be seen as a recurrent equivalent of PatchGAN  [12] . Plus, we found that using a classical adversarial loss was sufficient to achieve high quality results, which relieved us with the burden of keeping an estimate of the expected reward.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Multi-Person Interaction Sequence Generation With Socialinteractiongan",
+      "text": "We present SocialInteractionGAN, a conditional GAN for multi-person interaction sequence generation. Our model takes as input an interaction X of duration t obs , which is constituted of N synchronized action sequences, one for each participant. We denote the observed action sequence of person n as x n 1:t obs = {x n τ , 1 ≤ τ ≤ t obs } (in practice we will drop time index to simplify notations and only use x n for person n input as it is always taken between τ = 1 and τ = t obs ). Our goal is to predict socially plausible future actions for all interacting agents. We write the newly generated interaction as Ŷ = (ŷ 1 1:T , . . . , ŷN 1:T ), where similarly ŷn 1:T = {ŷ n τ , t obs + 1 ≤ τ ≤ t obs + T } is the generated action sequence for person n. Again ŷn will be employed when referring to the whole generated sequence. The generated interaction Ŷ can be compared with the ground truth Y.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Socialinteractiongan Architecture Overview",
+      "text": "As illustrated in Figure  2 , our model is composed of a recurrent encoder-decoder generator network (see section 3.2) and a dual-stream local recurrent discriminator (see section 3.3). The generator encodes the observed part of the interaction and sequentially generates future actions for all participants. We use a pooling module to merge all participants' hidden states into a single vector that is fed to the decoder at each time step. This way, the decoded actions are obtained using a compact representation of the previous actions of all surrounding persons. The pooling operation is invariant to the number of interacting people, and so is our model that can therefore virtually handle interacting groups of any size. The generated interaction Ŷ is concatenated to the conditioning tensor X and input to the discriminator, alternatively with the actual interaction [X, Y]. Our dual-stream discriminator then assesses the realism of both individual action sequences and interaction as a whole. We train the network using these two adversarial losses and ablate the use of a supervised L 2 loss. The following sections detail the various modules of the architecture in Figure  2 .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Generator",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Encoder Network",
+      "text": "Our encoder is based on a recurrent network that operates on a dense embedding space of the discrete actions. The input sequences are processed by a LSTM recurrent encoder f e  [21] , independently for each person n:\n\nA random noise vector z n of the same dimension as c n is then added to the encoding of the observed sequence. This is to allow the GAN model to generate diverse output sequences, as the problem of future action generation is by essence non-deterministic:\n\nThe resulting vector h n 0 is then used to initialize the decoder's hidden state.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Decoder Network",
+      "text": "The decoder is also a recurrent network that accounts for the actions of all persons involved in the interaction thanks to a pooling module. This pooling module, which is essentially a max operator, is responsible for injecting contextual cues in the decoding process, so that the generator makes an informed prediction when selecting the next action. Such a pooling is essential to let the number of interacting people vary freely. Concretely, at each time step τ the decoder takes as input the preceding hidden state h n τ -1 and decoded action ŷn τ -1 , and a vector h τ -1 output by the pooling module (which is person-independent).\n\nA deep output transformation g, implemented as a multilayer perceptron, is then applied on the resulting hidden state h n τ . One ends up with action probabilities p(y n τ ), in a very classical sequence transduction procedure, see e.g.  [22] . Formally, we have:\n\nwhere f d is the decoder recurrent network, also implemented as a LSTM.\n\nThe j-th coordinate of the output of the pooling writes:\n\nwhere h n τ,j designates the j-th coordinate of person n hidden state at time τ .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "The Resulting Action Ŷn",
+      "text": "τ then needs to be sampled from p(y n τ ). As we want our discriminator to operate in the discrete action space, we use a softmax function with temperature P as a differentiable proxy when sampling for the discriminator, i.e. the τ -th entry of discriminator input sequence for person n writes:\n\nwhere P is typically equal to 0.1, i.e. small enough so that softmax output is close to a one-hot vector.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Discriminator",
+      "text": "The discriminator can be implemented in many ways, but it usually relies on recurrent (RNN) or convolutional (CNN) networks, depending on the application. Trajectory prediction applications usually rely on recurrent networks  [7, 15, 16] , whereas convolutional networks are preferred for text generation  [4, 5, 19] , as CNN performances were shown to surpass that of recurrent networks on many NLP tasks  [23, 24] . Convolutional networks also have the advantage to be inherently suitable to parallel computing, drastically reducing their computation time.\n\nBorrowing from both paradigms, we turn to a recurrent architecture that lends itself to batch computing, while preserving temporal progression in sequence analysis.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Dual-Stream Discriminator",
+      "text": "Two streams coexist within our discriminator such that the realism of both action sequences and participants interactions can be explicitly enforced. The individual stream (see Figure  2 ), labelled as D indiv , is composed of a recurrent network followed by a classifier, respectively implemented as a LSTM and a shallow feed-forward neural network, whose architecture is detailed in the following section. It operates on individual action sequences, assessing their intrinsic realism disregarding any contextual information. The interaction stream, D inter , follows the same architectural lines, but a pooling module similar to the one used in the generator is added right after the recurrent network such that the classifier takes a single input for the whole interaction. A factor λ inter controls the relative importance of interaction stream, such that the full discriminator writes:",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Local Projection Discriminator",
+      "text": "Implementing (any of) the two discriminators as a recurrent network and letting them assess the quality of the entire generated sequences poses several issues. First the contributions from different sequence time steps to weight updates is likely to be unbalanced due to possible vanishing or exploding gradients. Second, some of those gradients may be uninformative especially at the onset of training when errors are propagated forward in the generation process, degrading the quality of the whole sequence, or when the overall realism depends on localized patterns in the data. On the contrary we seek for a discriminator architecture that is better able to guide the generation with gradients corresponding to local evaluations, so as to entail an even contribution from each location in the generated sequence. To that end, previous works used a CNN discriminator  [5, 19] . We explore recurrent architectures that conform with that objective. Along the same lines as PatchGAN  [12]  where photorealism is computed locally at different resolutions, we propose a multitimescale local discriminator, applying on overlapping sequence chunks of increasing width. Another intuition drove us to this choice: it seems reasonable to assume that the realism of an action sequence can be assessed locally, while it would not be the case for text sequences where preserving meaning or tense throughout a sentence appears more crucial. To that aim, the generated action sequence ŷn is split into K overlapping subsequences temporally indexed by τ 1 , . . . , τ K , with K uniquely defined by the chunk length ∆τ and the interval δτ = τ k+1 -τ k between successive chunks (see section 5 for a detailed discussion on how to select ∆τ and δτ ). Each subsequence is then processed independently through the recurrent module f of the discriminator:\n\nŷn τ k :τ k +∆τ being the k-th action subsequence of person n (hence comprised between time steps τ k and τ k + ∆τ , plus the offset t obs ). Next, to account for the conditioning sequence x n and its resulting code h n = f (x n ), we implement a projection discriminator  [11]  and dampen the conditioning effect as we move away from the initial sequence thanks to a trainable attenuation coefficient. Discriminator output can finally be written as follows:\n\nwith\n\nwhere d ψ is the vector of ones of size d ψ , φ and ψ are fully-connected layers, A and V real-value matrices whose weights are learned along other discriminator parameters, and β a trainable parameter that controls the conditioning attenuation. In our case, given\n\nWe repeat the same procedure over different chunk sizes ∆τ to account for larger or smaller scale patterns, and average the scores to give the final output from the individual stream D indiv . Slight differences arise for the computation of D inter . Summation terms in  (9)  are no longer evaluated independently for each participant. Instead, the N vectors h 1 τ k , . . . , h N τ k output by the encoder for all N participants at time τ k are first processed through the pooling module, yielding the pooled vector h τ k . We do the same for individual conditioning vectors h n , that are pooled to give a single conditioning vector h for the whole interaction. D proj is then evaluated on h and h τ k in  (9) , and its output indicates how much the chunk of interaction starting at τ k is realistic given the observed interaction X.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Socialinteractiongan Training Losses",
+      "text": "We use an adversarial hinge loss  [25]  to train our model, i.e. for the discriminator the loss writes:\n\nas for the generator, the adversarial loss writes:\n\nwhere the expectation is taken over dataset interactions X and the random matrix of model outputs Ŷ, with Y the ground truth sequence.\n\nWe also add the following supervision loss to the generator:\n\n(where Ŷ and Y dependency on X is implicit) and weight it with a factor λ sup . This last factor must be carefully chosen such that training mainly relies on the adversarial loss. This is important because, as showed in the experiments, the mean squared error fails to explore the diversity of action sequences. However, a small values of λ sup can have an interesting stabilizing effect on training (see section 5). The overall generator loss writes:\n\n4 Evaluation of generated sequences quality\n\nInception Score (IS) and Fréchet Inception Distance (FID) are two metrics designed to assess the quality and diversity of GAN-generated images and compare the distributions of synthetic and real data  [9, 10] . In the absence of sequence class labels for computing IS and of an auxiliary inception model for FID, neither of these two metrics can however directly apply to discrete sequences. We begin by re-writing the calculation of IS. The same original formula is used:\n\n) with H M and H C respectively the marginal and conditional entropies, but we rely on action labels to estimate the sequential equivalents of those two variables. The marginal entropy is computed over the entire set of predicted sequences and measures how well the GAN learned to generate diverse actions. It is therefore expected to be high. As for the conditional entropy, it needs to be low in a model that learned to grasp key features of a class, and thus we define it as the average entropy of individual sequences. Formally, we write:\n\nwhere A is the set of actions, f (a) the frequency of action a ∈ A over all generated sequences, and f s (a) the frequency of action a in sequence s of the dataset S of size |S|.\n\nThis new definition of H C suffers from a limitation. Indeed, the conditional entropy decreases as the model learns to generate steadier and consistent sequences. However, very low values of H C means that the same action is repeated over the whole sequence. Rather that aiming for the lowest possible values of IS, we therefore compute H M and H C from the data and use them as oracle values. In addition, we complement these scores with a sequential equivalent of FID so as to compare the distributions of real and generated sequences.\n\nFID measures the distance between two image distributions by comparing the expectations and covariance matrices of intermediate activations of an Inception v3 network  [26]  trained on image classification  [10] . However Iv3 is irrelevant for our discrete sequential data. Therefore we built a recurrent inception network that we trained on an auxiliary task. We implemented it as a bidirectional LSTM encoder, followed by five feed-forward layers, and trained it to regress the proportion of each action in given input sequences. The main principle that led to the choice of this task was that it could be used to finely characterize the input sequences, ensuring hidden activations to contain meaningful representations of sequences. In particular, it seems plausible to assume that the realism of an action sequence can be partly assessed simply knowing the proportion of each action. Finally, FID distances were computed by extracting the last activations before the regression head. We refer to the distances computed with this proposed metric as SFID for Sequential Fréchet Inception Distance.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Experiments",
+      "text": "We conducted our experiments on the MatchNMingle dataset  [2] , that contains action-annotated multi-person interaction data that are particularly suited to our task.\n\nAlthough other datasets featuring human interaction data exist (e.g.  [3, [27] [28] [29] ), they do not fit in the framework described here, either because the discrete annotations are not exhaustive, or because they rely on transcripts that are not readily usable or on continuous quantities like body pose or raw video that are out of the scope of the present study. On the contrary, the MatchNMingle dataset contains annotated actions that fully define the state of all participants at each time step.\n\nWe carried out pre-processing on the original data, that we detail in section 5.2. In the absence of concurrent work, we challenged our architectural choices versus alternative recurrent and convolutional discriminator baselines (sections 5.4.1 and 5.4.2) and carried an ablation study (section 5.4.3), highlighting the relevance of our dual-stream local discriminator.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Matchnmingle Dataset",
+      "text": "The MatchNMingle dataset contains annotated video recordings of social interactions of two kinds: face-toface speed dating (\"Match\") and cocktail party (\"Mingle\"), out of which we exclusively focused on the latter. Mingle data contains frame-by-frame action annotated data for a duration of 10 minutes on three consecutive days, each of them gathering approximately 30 different people. Each frame is decomposed into small groups of chatting people that constitute our independent data samples. Mingle data comprises for instance 33 interactions of three people that amount to a total of 51 minutes of recording, annotated at a rate of 20 frames per second. We focused our experiments on three-people interactions as it offers a good trade-off between a sufficient complexity of action synchrony patterns and generalization capability that is dependent of the quantity of available data.\n\nInteractions are composed of eight different labelled actions: walking, stepping, drinking, hand & head gesture, hair touching, speaking and laughing, plus an indicator of occlusion that can be total or partial.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Data Pre-Processing",
+      "text": "To build our dataset we processed Mingle data as follows.\n\nWe first considered each group of interacting people independently and split the interactions into non-overlapping segments of three seconds (60 frames). These 3-second segments constituted the conditioning data X. We considered each segment's following actions as the target sequences Y. Out of this dataset, we removed all training samples in which total occlusion accounted for more than ten percent of the sample actions, so as to limit the impact of the occlusions in the dataset. Our dataset finally comprises 600 three-people interaction samples. Finally, in order to ease data manipulation, we built an action dictionary containing the most common actions or combinations of actions, and replaced the 8-dimensional binary action vectors of the data by one-hot vectors drawn from the dictionary. We let the cumulative occurrences of dictionary entries amount to 90% of observed actions to prevent the model from struggling with rare action combinations, and gathered all remaining actions under an additional common label. Experiments with actions accumulating up to 99% of occurrences are reported in section 5.4.4. The resulting dictionary contains the 14 following entries: no action, speaking + hand gesture, speaking, stepping, head gesture, hand gesture, drinking, speaking + hand gesture + head gesture, hand gesture + head gesture, speaking + head gesture, stepping + speaking + hand gesture + head gesture, stepping + hand gesture + head gesture, stepping + hand gesture, laughing. LocalRNN converges in all cases to data-like marginal entropy values, even for long sequences and unsupervised training (hence the early stopping), which is not the case for the two other baselines.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Experimental Details",
+      "text": "In all our experiments we used layer normalization  [30]  in all recurrent networks, including that of SFID inception network, for its stabilization effect on the gradients, along with spectral normalization  [31]  after each linear layer and batch normalization  [32]  in decoder deep output. All recurrent cells were implemented as LSTMs  [21]  with a hidden state dimension d h = 64, and we chose the same dimension for the embedding space. The dimensions of projection discriminator dense layers were chosen to be d φ = d ψ = 128. For the default configuration of our local discriminator, we used four different chunk sizes ∆τ . Three of them depend on the output sequence length T : T , T /2, T /4 and we fixed the smallest chunk size to 5. We set δτ = ∆τ /2, thus ensuring 50% overlap (rounded down) between consecutive chunks for all four resolutions. Different configurations are explored in section 5.4.2. For comparison purpose we built the CNN baselines in a similar fashion, with parallel streams operating at different resolutions and kernels of the same sizes as the chunk widths defined above. In all experiments, we use Adam optimizer  [33]  and set learning to 2.10 -5 for the generator and 1.10 -5 for the discriminator. As for the training of SFID inception net, we set the learning rate to 1.10 -3 .",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Experimental Results",
+      "text": "We articulate our experiments as follows: a comparison of recurrent model baselines, a comparison of recurrent and convolutional discriminators and an ablation study, that support the different architectural choices of our network.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Alternative Recurrent Discriminator Baselines",
+      "text": "We start by comparing several recurrent architecture baselines for the discriminator, under different supervision conditions and for 40 and 80 frame-long sequences (respectively 2 and 4 seconds). In section 3.3, we motivated our architectural choices on the hypothesis that a generator would benefit preferentially from multiple local evaluations rather that fewer ones carried on larger time ranges. To support this assumption, we evaluated our local discriminator (hereafter LocalRNN) against two baselines: the first one, labelled as SimpleRNN, only processes the whole sequence at once and outputs a single realism score. The second one, referred to as DenseRNN, also processes the sequence at once, but in this case all intermediate hidden vectors are conserved and used as input for the classifier. In this way, the discriminator output contains also localized information about actions, although the contributions to the score and the gradients of different time steps remain unbalanced. Results are gathered in Tables  1  and 2",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Local Recurrent Vs. Convolutional Discriminators",
+      "text": "Convolutional architectures are usually preferred for discriminator networks in text generation GANs as it was shown to surpass performances of RNN on a diversity of NLP tasks while being naturally suited to parallel computing  [23, 24] . We therefore compare SocialInterac-tionGAN (interchangeably referred to as LocalRNN) with several convolutional baselines, and illustrate the results in Figure  4 . CNN discriminators were built in a similar fashion to LocalRNN, with outputs averaged from several convolutional pipelines operating at different resolutions. For comparison purposes, the same four pipelines described in section 5.3 were used for convolutional discriminators, with kernels width playing the role of chunk length ∆τ . Several variations around this standard configuration were investigated, such as increasing the number of channels or mirror padding in the dimension of actions to improve the expressive capability of the network. Models that gave the best results within the limits of our GPU memory resources were plotted in Figure  4 . Noticeably, all CNN architectures exhibit final marginal entropies close to the dataset values. In fact action sequences produced by most converged models, including LocalRNN, are hard to distinguish from real data and it is probable that the proposed task does not allow to notice differences in final performances. Nevertheless, Social-InteractionGAN consistently learns faster than the CNN baselines and exhibits a much smoother behaviour, as is particularly clear in charts (e)-(h) of Although the gap between the two architectures has been partly filled, large LocalRNN still converges faster than its large convolutional counterpart. These experiments show that for the generation of discrete sequences chosen from a dictionary of human actions, it is possible to devise very efficient recurrent discriminator architectures that display more advantageous training dynamics compared to CNN discriminators, with also noticeably lighter memory footprints.",
+      "page_start": 9,
+      "page_end": 10
+    },
+    {
+      "section_name": "Dual-Stream Discriminator Ablation Study",
+      "text": "We conduct an ablation study to explore the roles of the two streams of the discriminator. To that end, we run additional experiments on sequences of 40 time steps with λ sup = 0, cutting off at turns the interaction and individual streams of the discriminator (respectively naming the resulting models Indiv-stream and Inter-stream). Additionally, we also compare with an architecture that has none of the two streams and that is trained only with the L 2 loss (i.e. without adversarial loss), that we call No-  GAN. The results are reported in Table  3 , together with the full model (Dual-stream). On the one hand, training without adversarial loss leads to much poorer scores in terms of marginal and conditional entropies, advocating in favor of the use of the adversarial loss. We hypothesize that the adversarial loss allows for a larger exploration of the action space, thus the higher marginal entropy score, and a better learning of the action sequence dynamics, as suggests the higher conditional entropy. On the other hand, disabling any of the two discriminator streams leads to degraded performances, which is especially clear in terms of SFID. In particular, we see from the high SFID that only relying on the interaction stream (Inter-stream) to produce realistic individual sequences would perform poorly. This supports our dual-stream architecture: an interaction stream alone does not guarantee sufficient individual sequence quality, but is still necessary to guide the generator into how to leverage information coming from every conversing participant.",
+      "page_start": 9,
+      "page_end": 10
+    },
+    {
+      "section_name": "Pushing The Limits Of Socialinteractiongan",
+      "text": "This section illustrates the effects of enriching and diversifying the original training dataset. Namely, we explore two variants from the initial setting: the addition of four-person interactions, and the use of a larger action dictionary. The first experiment consists in assess- ing the capacity of the network to generalize its interaction sequence predictions to larger groups of people and learn more complex action patterns, and is labeled as SIG (3&4P). In a second experiment, SocialInteractionGAN was trained on a larger action dictionary where we raised the cumulative occurrence threshold of dictionary entries from 90% to 99%. This resulted in a dictionary containing 35 actions, more than doubling the original size, and it is therefore labeled as SIG (35A). The marginal entropy and SFID evolution of these models for sequences of 40 actions and λ sup = 0 are reported in Figure  6 , together with the reference model (SIG). Although SIG (3&4P) implies training with more than 50% additional data samples (from 600 sequences to 953), it has a very limited effect on the training dynamics. Noticeably, the model learns to match the slight increment in data marginal entropy produced by the richer interaction samples. Regarding SIG (35A), as it could be expected from the resulting increase in network complexity, expanding the action dictionary leads to delayed convergence. However the model smoothly converges to the marginal entropy of the real data and also scores low SFID, meaning that SocialInter-actionGAN is able to handle large action dictionaries, provided a sufficient amount of training data.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "Understanding action patterns in human interactions is key to design systems that can be embedded in e.g. social robotic systems. For generative models of human interactions, the main challenge resides in the necessity to preserve action consistency across participants and time. This article presents a conditional GAN model for the generation of discrete action sequences of people involved in an interaction. To the best of our knowledge we are the first to address this problem with a data-driven solu-tion. Although interactions are modelled in a low dimensional manifold, we believe that the principles devised here, namely the necessity to share the state between participants at every time step, and to focus the loss function on local evaluations, will apply on richer representations. We plan to extend this work on high-dimensional data such as video inputs.\n\nThe proposed model comprises an encoder-decoder generator coupled with a pooling module that allows to incorporate contextual cues to the decoder, and thus adapt a person's behaviour to the previous actions of surrounding people. We train our network with an adversarial loss, using an original dual-stream local recurrent discriminator. These two streams ensure that both generated interactions as a whole and individual action sequences that compose them must be realistic so as to minimize the adversarial loss. We present also a new calculation of IS and a Sequential FID (SFID) adapted to the quality measurement of synthetic discrete sequences, and owing to these metrics we show that our local recurrent discriminator allows for efficient training and the generation of realistic action sequences. These promising results let us foresee interesting experiments in larger dimensional discrete and continuous spaces, with possible benefits for other domains.",
+      "page_start": 10,
+      "page_end": 11
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Illustration of the task of interaction generation,",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: Architecture of SocialInteractionGAN. Our model is composed of an encoder-decoder generator and a",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: , our model is composed of",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: ), labelled as Dindiv, is composed of a re-",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: LocalRNN consis-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: ), all LocalRNN models",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: CNN discriminators were built in a similar",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: Noticeably, all CNN architectures exhibit ﬁnal marginal",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Although the gap between the two architectures has been",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Effects of increasing model complexity on",
+      "page": 10
+    },
+    {
+      "caption": "Figure 6: Effects of increasing the size of action dictio-",
+      "page": 10
+    },
+    {
+      "caption": "Figure 6: , together",
+      "page": 10
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "positions, discrete sequences of social actions cannot be"
+        },
+        {
+          "AUTHOR VERSION": "considered as smooth. Accounting for other persons’ be-"
+        },
+        {
+          "AUTHOR VERSION": "havior in social interactions therefore requires constant re-"
+        },
+        {
+          "AUTHOR VERSION": "evaluations, because one must consider the recent actions"
+        },
+        {
+          "AUTHOR VERSION": "performed by all\nthe individuals within the same social"
+        },
+        {
+          "AUTHOR VERSION": "interaction. On the other hand,\nit should be possible to"
+        },
+        {
+          "AUTHOR VERSION": "exploit\nthe relative steadiness of action sequences:\nfor a"
+        },
+        {
+          "AUTHOR VERSION": "sampling rate of 25 fps, an action will\ntypically extend"
+        },
+        {
+          "AUTHOR VERSION": "for several tens of time steps. This ﬁne grained resolution"
+        },
+        {
+          "AUTHOR VERSION": "allows to deal with actions of different duration."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Last,\nthis\nresearch faces a new challenge regarding the"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "proper evaluation of\nthe generated sequences of multi-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "person interactions.\nThe\nInception Score\n(IS)\nand the"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Fr´echet Inception Distance (FID), two metrics commonly"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "associated with adversarial generation, are primarily in-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tended to assess image quality [9, 10].\nIS consists of two"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "entropy calculations based on how generated images span"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "over object classes, and it\nis relatively straightforward to"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "adapt\nit\nto action sequences. FID, on the other hand, re-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "quires the use of a third party model usually trained on"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "an independent\nimage classiﬁcation task. The absence of"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "such an off-the-shelf inception model for discrete sequen-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tial data thus requires to devise a new independent\ntask"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "and to train the associated model\nthat will serve to com-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "pute FID."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "In this work, we present a conditional adversarial network"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "for the generation of discrete action sequences of human"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "interactions, able to produce high quality sequences of ex-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tended length even in the absence of supervision. We fol-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "lowed [6, 7] and performed integration of contextual cues"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "by means of a pooling module. We used a discriminator"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "with two distinct streams, one guiding the network into"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "producing realistic action sequences,\nthe other operating"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "at the interaction level, assessing the realism of the partici-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "pants’ actions relative to one another. Noticeably, we built"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "our model on a classical GAN framework as it demon-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "strated promising performances without the need of policy"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "gradient. We propose however an essential\nlocal projec-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tion discriminator inspired from [11] and [12] to provide"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the generator with localized assessments of sequence re-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "alism,\ntherefore allowing the signal from the discrimina-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tor to be more informative. The result\nis an adversarially"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "trained network able to predict plausible future action se-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "quences for a group of interacting people, conditioned on"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the observed beginning of the interaction. Finally, we in-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "troduce two new metrics based on the principles of IS and"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "FID so as to assess the quality and the diversity of gener-"
+        },
+        {
+          "AUTHOR VERSION": "ated sequences. In particular, we propose a general proce-"
+        },
+        {
+          "AUTHOR VERSION": "dure to train an independent\ninception model on discrete"
+        },
+        {
+          "AUTHOR VERSION": "sequences, whose intermediate activations can be used to"
+        },
+        {
+          "AUTHOR VERSION": "compute a sequential FID (or SFID)."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "The contributions of this paper are:"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "• A general framework for the generation of low dimen-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "sional multi-person interaction sequences;"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "• A novel dual-stream local recurrent discriminator archi-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tecture,\nthat allows to efﬁciently assess the realism of"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the generated interaction sequences;"
+        },
+        {
+          "AUTHOR VERSION": ""
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "a single score for the entire scene, while the adequacy of"
+        },
+        {
+          "AUTHOR VERSION": "individual trajectories is ensured by a supervised (L2) loss"
+        },
+        {
+          "AUTHOR VERSION": "and by the prediction of small incremental displacements"
+        },
+        {
+          "AUTHOR VERSION": "over time steps. In contrary, we would like our adversarial"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "loss to cover both the realism of individual sequences and"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "of the interaction as a whole, and we achieve this by using"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "a discriminator with two streams. This way we are able"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "to investigate the effects of lessening the weight of the su-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "it.\npervised L2 loss or to simply train the model without"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Note that we could follow a similar strategy to [15] and"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "sum individual hidden states with contextual\ninformation"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "into a single vector serving as input\nto the discriminator"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "classiﬁer. We want however to preserve as much informa-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tion as possible from the two streams and maintain two"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "separate classiﬁers."
+        },
+        {
+          "AUTHOR VERSION": "2.2\nGeneration of discrete sequential data"
+        },
+        {
+          "AUTHOR VERSION": "GANs have recently been proposed to complement\nthe"
+        },
+        {
+          "AUTHOR VERSION": "traditional Maximum Likelihood Estimation training for"
+        },
+        {
+          "AUTHOR VERSION": "text generation to mitigate the so-called exposure bias is-"
+        },
+        {
+          "AUTHOR VERSION": "sue, with pretty good results on short word sequences [5,"
+        },
+        {
+          "AUTHOR VERSION": "18, 19].\nThe use of an adversarial\nloss for discrete se-"
+        },
+        {
+          "AUTHOR VERSION": "quence\ngeneration\nnetwork\nyet\ncomes with\ntwo well-"
+        },
+        {
+          "AUTHOR VERSION": "identiﬁed caveats.\nFirst, workarounds must be found to"
+        },
+        {
+          "AUTHOR VERSION": "allow the architecture to be fully differentiable. Second,"
+        },
+        {
+          "AUTHOR VERSION": "the binary signal from the discriminator is scarce and may"
+        },
+        {
+          "AUTHOR VERSION": "lack information as\nfor\ninstance for what\nin a sentence"
+        },
+        {
+          "AUTHOR VERSION": "makes\nit unrealistic [4].\nIn [5] and [18] authors\ninter-"
+        },
+        {
+          "AUTHOR VERSION": "pret\ntext generation as a Markov Decision Process where"
+        },
+        {
+          "AUTHOR VERSION": "an agent selects a word at each state, constituted of all"
+        },
+        {
+          "AUTHOR VERSION": "previously generated words. The generator is trained via"
+        },
+        {
+          "AUTHOR VERSION": "stochastic policy gradient, while the reward is provided"
+        },
+        {
+          "AUTHOR VERSION": "by the discriminator.\nThese ideas are extended in [19],"
+        },
+        {
+          "AUTHOR VERSION": "where the discriminator\nis modelled as a ranker\nrather"
+        },
+        {
+          "AUTHOR VERSION": "than a binary classiﬁer\nto avoid vanishing gradient\nis-"
+        },
+        {
+          "AUTHOR VERSION": "sues.\nIn [4],\nthe generator is implemented as a hierarchi-"
+        },
+        {
+          "AUTHOR VERSION": "cal agent, following the architecture proposed in [20], so"
+        },
+        {
+          "AUTHOR VERSION": "as to produce text sequences of increased length. Action"
+        },
+        {
+          "AUTHOR VERSION": "sequences however differ from text by the limited size of"
+        },
+        {
+          "AUTHOR VERSION": "action space compared to a language dictionary. We also"
+        },
+        {
+          "AUTHOR VERSION": "hypothesize a shorter “memory” of action sequences:\nit is"
+        },
+        {
+          "AUTHOR VERSION": "likely that one can judge the overall quality of an action"
+        },
+        {
+          "AUTHOR VERSION": "sequence by looking only at small chunks of it, provided"
+        },
+        {
+          "AUTHOR VERSION": "their length is chosen adequately. Therefore we propose"
+        },
+        {
+          "AUTHOR VERSION": "a local discriminator operating on short-range receptive"
+        },
+        {
+          "AUTHOR VERSION": "ﬁelds to allow its signal\nto be more informative, which"
+        },
+        {
+          "AUTHOR VERSION": "can be seen as a recurrent equivalent of PatchGAN [12]."
+        },
+        {
+          "AUTHOR VERSION": "Plus, we found that using a classical adversarial\nloss was"
+        },
+        {
+          "AUTHOR VERSION": "sufﬁcient\nto achieve high quality results, which relieved"
+        },
+        {
+          "AUTHOR VERSION": "us with the burden of keeping an estimate of the expected"
+        },
+        {
+          "AUTHOR VERSION": "reward."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "3\nMulti-person interaction sequence"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "generation with SocialInteractionGAN"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "We present SocialInteractionGAN, a conditional GAN for"
+        },
+        {
+          "AUTHOR VERSION": "multi-person interaction sequence generation. Our model"
+        },
+        {
+          "AUTHOR VERSION": "takes as input an interaction X of duration tobs, which is"
+        },
+        {
+          "AUTHOR VERSION": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "recurrent discriminator that assesses sequences individually and interaction as a whole. Pooling modules allow to mix"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "hidden states from all participants to the interaction."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "loss. The following sections detail the various modules of\nconstituted of N synchronized action sequences, one for"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "the architecture in Figure 2.\neach participant. We denote the observed action sequence"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "= {xn\nof person n as xn\nτ , 1 ≤ τ ≤ tobs} (in practice"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "1:tobs"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "we will drop time index to simplify notations and only"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "3.2\nGenerator"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "use xn for person n input as it\nis always taken between"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "τ = 1 and τ = tobs). Our goal is to predict socially plau-\n3.2.1\nEncoder Network"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "sible future actions for all\ninteracting agents. We write"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "Our encoder\nis based on a recurrent network that oper-"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "the newly generated interaction as ˆY = (ˆy1\n1:T ),\n1:T , . . . , ˆyN"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "ates on a dense embedding space of the discrete actions."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "where similarly ˆyn\nτ , tobs + 1 ≤ τ ≤ tobs + T }\n1:T = {ˆyn"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "The input sequences are processed by a LSTM recurrent"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "is the generated action sequence for person n. Again ˆyn"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "encoder fe [21], independently for each person n:"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "will be employed when referring to the whole generated"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "sequence. The generated interaction ˆY can be compared\n(1)\ncn = fe(xn)."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "with the ground truth Y."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "A random noise vector zn of\nthe same dimension as cn"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "is then added to the encoding of the observed sequence."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "3.1\nSocialInteractionGAN architecture overview"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "This is to allow the GAN model to generate diverse output"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "sequences, as the problem of future action generation is by"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "As\nillustrated in Figure 2,\nour model\nis\ncomposed of\nessence non-deterministic:"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "a recurrent encoder-decoder generator network (see sec-"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "hn\n(2)\n0 = cn + zn."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "tion 3.2) and a dual-stream local\nrecurrent discriminator"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "(see section 3.3). The generator encodes the observed part"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "is then used to initialize the de-\nThe resulting vector hn\n0"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "of the interaction and sequentially generates future actions"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "coder’s hidden state."
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "for all participants. We use a pooling module to merge all"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "participants’ hidden states into a single vector that\nis fed"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "3.2.2\nDecoder Network"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "to the decoder at each time step. This way,\nthe decoded"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "actions are obtained using a compact representation of the\nThe decoder is also a recurrent network that accounts for"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "previous actions of all surrounding persons. The pooling\nthe actions of all persons involved in the interaction thanks"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "operation is invariant to the number of interacting people,\nto a pooling module. This pooling module, which is es-"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "and so is our model that can therefore virtually handle in-\nsentially a max operator,\nis responsible for injecting con-"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "textual cues in the decoding process, so that the generator\nteracting groups of any size. The generated interaction ˆY"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "makes an informed prediction when selecting the next ac-\nis concatenated to the conditioning tensor X and input to"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "tion. Such a pooling is essential\nto let\nthe number of in-\nthe discriminator, alternatively with the actual interaction"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "teracting people vary freely. Concretely, at each time step\n[X, Y]. Our dual-stream discriminator then assesses the"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "τ\nthe decoder\ntakes as input\nthe preceding hidden state\nrealism of both individual action sequences and interac-"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "hn\ntion as a whole. We train the network using these two\nτ −1 and decoded action ˆyn\nτ −1, and a vector hτ −1 out-"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "put by the pooling module (which is person-independent).\nadversarial\nlosses and ablate the use of a supervised L2"
+        },
+        {
+          "Figure 2: Architecture of SocialInteractionGAN. Our model\nis composed of an encoder-decoder generator and a": "4"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "for the whole interaction. A factor λinter controls the rel-"
+        },
+        {
+          "AUTHOR VERSION": "ative importance of interaction stream, such that\nthe full"
+        },
+        {
+          "AUTHOR VERSION": "discriminator writes:"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(7)\nDtot = Dindiv + λinterDinter."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "3.3.2\nLocal projection discriminator"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Implementing (any of) the two discriminators as a recur-"
+        },
+        {
+          "AUTHOR VERSION": "rent network and letting them assess the quality of the en-"
+        },
+        {
+          "AUTHOR VERSION": "tire generated sequences poses several\nissues.\nFirst\nthe"
+        },
+        {
+          "AUTHOR VERSION": "contributions from different sequence time steps to weight"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "updates is likely to be unbalanced due to possible vanish-"
+        },
+        {
+          "AUTHOR VERSION": "ing or exploding gradients. Second, some of those gradi-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "ents may be uninformative especially at the onset of train-"
+        },
+        {
+          "AUTHOR VERSION": "ing when errors are propagated forward in the generation"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "process, degrading the quality of the whole sequence, or"
+        },
+        {
+          "AUTHOR VERSION": "when the overall\nrealism depends on localized patterns"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "in the data. On the contrary we seek for a discrimina-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tor architecture that\nis better able to guide the generation"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "with gradients corresponding to local evaluations,\nso as"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "to entail an even contribution from each location in the"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "generated sequence.\nTo that end, previous works used"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "a CNN discriminator\n[5, 19]. We explore recurrent ar-"
+        },
+        {
+          "AUTHOR VERSION": "chitectures that conform with that objective. Along the"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "same lines as PatchGAN [12] where photorealism is com-"
+        },
+        {
+          "AUTHOR VERSION": "puted locally at different resolutions, we propose a multi-"
+        },
+        {
+          "AUTHOR VERSION": "timescale local discriminator, applying on overlapping se-"
+        },
+        {
+          "AUTHOR VERSION": "quence\nchunks of\nincreasing width.\nAnother\nintuition"
+        },
+        {
+          "AUTHOR VERSION": "drove us\nto this choice:\nit\nseems\nreasonable to assume"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "that the realism of an action sequence can be assessed lo-"
+        },
+        {
+          "AUTHOR VERSION": "cally, while it would not be the case for\ntext sequences"
+        },
+        {
+          "AUTHOR VERSION": "where preserving meaning or tense throughout a sentence"
+        },
+        {
+          "AUTHOR VERSION": "appears more crucial. To that aim, the generated action se-"
+        },
+        {
+          "AUTHOR VERSION": "quence ˆyn is split into K overlapping subsequences tem-"
+        },
+        {
+          "AUTHOR VERSION": "porally indexed by τ1, . . . , τK, with K uniquely deﬁned"
+        },
+        {
+          "AUTHOR VERSION": "by the chunk length ∆τ and the interval δτ = τk+1 − τk"
+        },
+        {
+          "AUTHOR VERSION": "between successive chunks (see section 5 for a detailed"
+        },
+        {
+          "AUTHOR VERSION": "discussion on how to select ∆τ\nand δτ ).\nEach subse-"
+        },
+        {
+          "AUTHOR VERSION": "quence is then processed independently through the re-"
+        },
+        {
+          "AUTHOR VERSION": "current module f of the discriminator:"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "hn\n= f (ˆyn"
+        },
+        {
+          "AUTHOR VERSION": "(8)\nτk\nτk:τk+∆τ ),"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "yn\nbeing the k-th action subsequence of person"
+        },
+        {
+          "AUTHOR VERSION": "τk:τk+∆τ"
+        },
+        {
+          "AUTHOR VERSION": "n (hence comprised between time steps τk and τk + ∆τ ,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "plus the offset tobs). Next, to account for the conditioning"
+        },
+        {
+          "AUTHOR VERSION": "sequence xn and its resulting code hn = f (xn), we im-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "plement a projection discriminator\n[11] and dampen the"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "conditioning effect as we move away from the initial se-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "quence thanks to a trainable attenuation coefﬁcient. Dis-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "criminator output can ﬁnally be written as follows:"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "1 K\nD(xn, ˆyn) =\n),\n(9)\nDproj(hn, hn"
+        },
+        {
+          "AUTHOR VERSION": "(cid:88) k\nτk"
+        },
+        {
+          "AUTHOR VERSION": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "4\nEvaluation of generated sequences"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "quality"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Inception Score (IS) and Fr´echet Inception Distance (FID)"
+        },
+        {
+          "AUTHOR VERSION": "are two metrics designed to assess the quality and diver-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "sity of GAN-generated images and compare the distribu-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tions of synthetic and real data [9, 10].\nIn the absence of"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "sequence class labels for computing IS and of an auxil-"
+        },
+        {
+          "AUTHOR VERSION": "iary inception model for FID, neither of these two metrics"
+        },
+        {
+          "AUTHOR VERSION": "can however directly apply to discrete sequences. We be-"
+        },
+        {
+          "AUTHOR VERSION": "gin by re-writing the calculation of IS. The same original"
+        },
+        {
+          "AUTHOR VERSION": "formula is used:"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(15)\nIS = exp(HM − HC)"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "with HM and HC respectively the marginal and condi-"
+        },
+        {
+          "AUTHOR VERSION": "tional entropies, but we rely on action labels to estimate"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the sequential equivalents of\nthose two variables.\nThe"
+        },
+        {
+          "AUTHOR VERSION": "marginal entropy is computed over\nthe entire set of pre-"
+        },
+        {
+          "AUTHOR VERSION": "dicted sequences and measures how well the GAN learned"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "to generate diverse actions.\nIt\nis therefore expected to be"
+        },
+        {
+          "AUTHOR VERSION": "high. As for\nthe conditional entropy,\nit needs to be low"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "in a model\nthat\nlearned to grasp key features of a class,"
+        },
+        {
+          "AUTHOR VERSION": "and thus we deﬁne it as the average entropy of individual"
+        },
+        {
+          "AUTHOR VERSION": "sequences. Formally, we write:"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(cid:88) a\nf (a) log(f (a))\n(16)\nHM = −"
+        },
+        {
+          "AUTHOR VERSION": "∈A"
+        },
+        {
+          "AUTHOR VERSION": "1"
+        },
+        {
+          "AUTHOR VERSION": "(cid:88)"
+        },
+        {
+          "AUTHOR VERSION": "(17)\nHC = −\nfs(a) log(fs(a))"
+        },
+        {
+          "AUTHOR VERSION": "|S|"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "the training epoch that yields the best results. Best mod-"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "els are those that achieve the closest HM and HC values to"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "the real data and the lowest SFID."
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "λsup"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "10−3"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "10−3"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "10−3"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "0"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "0"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": "0"
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        },
+        {
+          "(HM), conditional entropy (HC) and SFID correspond to": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "Table 1: Comparison of recurrent discriminator baselines"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "for\nsequences of 40 time steps, with weak supervision"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(above) and no supervision (below). Marginal entropy"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(HM), conditional entropy (HC) and SFID correspond to"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the training epoch that yields the best results. Best mod-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "els are those that achieve the closest HM and HC values to"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the real data and the lowest SFID."
+        },
+        {
+          "AUTHOR VERSION": "Model\nSFID\nλsup\nHM\nHC"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Real Data\n2.18\n0.30\n–"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "2.07 ± 0.06\n0.04 ± 0.03\n0.72 ± 0.22\nSimpleRNN\n10−3"
+        },
+        {
+          "AUTHOR VERSION": "2.15 ± 0.05\n0.04 ± 0.02\n0.84 ± 0.21\nDenseRNN\n10−3"
+        },
+        {
+          "AUTHOR VERSION": "2.18 ± 0.04\n0.26 ± 0.06\n0.41 ± 0.09\nLocalRNN\n10−3"
+        },
+        {
+          "AUTHOR VERSION": "0\n1.94 ± 0.05\n0.38 ± 0.07\n1.10 ± 0.25\nSimpleRNN"
+        },
+        {
+          "AUTHOR VERSION": "0\n2.20 ± 0.07\n0.22 ± 0.05\n0.44 ± 0.09\nDenseRNN"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "0\n2.18 ± 0.03\n0.26 ± 0.03\n0.24 ± 0.04\nLocalRNN"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Table 2: Comparison of recurrent discriminator baselines"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "for\nsequences of 80 time steps, with weak supervision"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(above)\nand no supervision (below).\nBest models\nare"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "those that achieve the closest HM and HC values to the"
+        },
+        {
+          "AUTHOR VERSION": "real data and the lowest SFID."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Model\nSFID\nλsup\nHM\nHC"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Real Data\n2.18\n0.51\n–"
+        },
+        {
+          "AUTHOR VERSION": "1.98 ± 0.06\n0.26 ± 0.13\n1.41 ± 0.36\nSimpleRNN\n10−3"
+        },
+        {
+          "AUTHOR VERSION": "2.12 ± 0.03\n0.05 ± 0.04\n0.82 ± 0.06\nDenseRNN\n10−3"
+        },
+        {
+          "AUTHOR VERSION": "2.16 ± 0.05\n0.34 ± 0.09\n0.74 ± 0.27\nLocalRNN\n10−3"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "0\n1.96 ± 0.03\n0.26 ± 0.08\n1.87 ± 0.36\nSimpleRNN"
+        },
+        {
+          "AUTHOR VERSION": "0\n2.13 ± 0.13\n0.29 ± 0.15\n1.40 ± 0.53\nDenseRNN"
+        },
+        {
+          "AUTHOR VERSION": "0\n2.15 ± 0.06\n0.45 ± 0.10\n0.73 ± 0.26\nLocalRNN"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "segments constituted the conditioning data X. We con-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "sidered each segment’s following actions as the target se-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "quences Y. Out of this dataset, we removed all\ntraining"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "samples in which total occlusion accounted for more than"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "ten percent of\nthe sample actions, so as to limit\nthe im-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "pact of the occlusions in the dataset. Our dataset ﬁnally"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "comprises 600 three-people interaction samples. Finally,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "in order to ease data manipulation, we built an action dic-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tionary containing the most common actions or combina-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tions of actions, and replaced the 8-dimensional binary ac-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tion vectors of the data by one-hot vectors drawn from the"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "dictionary. We let\nthe cumulative occurrences of dictio-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "nary entries amount to 90% of observed actions to prevent"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "the model from struggling with rare action combinations,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "and gathered all\nremaining actions under an additional"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "common label.\nExperiments with actions accumulating"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "up to 99% of occurrences are reported in section 5.4.4."
+        },
+        {
+          "AUTHOR VERSION": "The resulting dictionary contains the 14 following entries:"
+        },
+        {
+          "AUTHOR VERSION": "no action, speaking + hand gesture, speaking, stepping,"
+        },
+        {
+          "AUTHOR VERSION": "speaking + hand\nhead gesture, hand gesture, drinking,"
+        },
+        {
+          "AUTHOR VERSION": "gesture + head gesture,\nhand gesture + head gesture,"
+        },
+        {
+          "AUTHOR VERSION": "stepping + speaking + hand\nspeaking + head gesture,"
+        },
+        {
+          "AUTHOR VERSION": "gesture + head gesture, stepping + hand gesture + head"
+        },
+        {
+          "AUTHOR VERSION": "gesture, stepping + hand gesture, laughing."
+        },
+        {
+          "AUTHOR VERSION": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "(a) sequences of 40 time steps with λsup = 10−3; (b) sequences of 40 time steps with λsup = 0; (c) sequences of 80"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "time steps with λsup = 10−3; (d) sequences of 80 time steps with λsup = 0. Gray dotted line represents the marginal"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "entropy of the data (equal\nto 2.18). LocalRNN converges in all cases to data-like marginal entropy values, even for"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "long sequences and unsupervised training (hence the early stopping), which is not the case for the two other baselines."
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "5.3\nExperimental details\ngenerator would beneﬁt preferentially from multiple lo-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "cal evaluations\nrather\nthat\nfewer ones carried on larger"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "In all our experiments we used layer normalization [30]\ntime ranges.\nTo support\nthis assumption, we evaluated"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "in all\nrecurrent networks,\nincluding that of SFID incep-\nour local discriminator (hereafter LocalRNN) against two"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "tion network, for its stabilization effect on the gradients,\nbaselines:\nthe ﬁrst one, labelled as SimpleRNN, only pro-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "along with spectral normalization [31] after each linear\ncesses the whole sequence at once and outputs a single"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "layer and batch normalization [32]\nin decoder deep out-\nrealism score. The second one, referred to as DenseRNN,"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "put. All recurrent cells were implemented as LSTMs [21]\nalso processes the sequence at once, but\nin this case all"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "with a hidden state dimension dh = 64, and we chose\nintermediate hidden vectors are conserved and used as in-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "the same dimension for the embedding space. The dimen-\nput\nfor\nthe classiﬁer.\nIn this way,\nthe discriminator out-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "sions of projection discriminator dense layers were cho-\nput contains also localized information about actions, al-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "sen to be dφ = dψ = 128. For the default conﬁguration\nthough the contributions\nto the score and the gradients"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "of our\nlocal discriminator, we used four different chunk\nof different\ntime steps\nremain unbalanced.\nResults are"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "sizes ∆τ . Three of them depend on the output sequence\ngathered in Tables 1 and 2 for sequences of 40 and 80"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "length T : T , T /2, T /4 and we ﬁxed the smallest chunk\ntime steps respectively, and correspond to the epoch that"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "size to 5. We set δτ = ∆τ /2,\nthus ensuring 50% over-\nyields the best results for each model in terms of marginal"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "lap (rounded down) between consecutive chunks for all\nentropy and SFID (longer\ntraining sometimes results in"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "four resolutions. Different conﬁgurations are explored in\ndegraded performance). Corresponding marginal entropy"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "section 5.4.2. For comparison purpose we built\nthe CNN\nevolutions are displayed in Figure 3. LocalRNN consis-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "baselines in a similar fashion, with parallel streams oper-\ntently produces\nsequences of data-like quality in terms"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "ating at different resolutions and kernels of the same sizes\nof marginal and conditional entropies,\nregardless of se-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "as the chunk widths deﬁned above. In all experiments, we\nquence length or supervision strength, and achieves the"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "use Adam optimizer\n[33] and set\nlearning to 2.10−5 for\nlowest SFID scores.\nInterestingly, we notice that\nif Sim-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "the generator and 1.10−5 for the discriminator. As for the"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "pleRNN seems\nto beneﬁt\nas\nis\nsug-\nfrom a weak L2"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "training of SFID inception net, we set the learning rate to\ngested by a lower SFID,\nit\nis not\nthe case for the two lo-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "1.10−3.\ncal models.\nThe supervised loss has a squishing effect"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "on the conditional entropy that is particularly detrimental"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "for DenseRNN, yielding a model\nthat does not properly"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "5.4\nExperimental results"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "generate action transitions. Finally, as one can see from"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "the training dynamics (Figure 3), all LocalRNN models\nWe articulate our experiments as follows: a comparison of"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "converge within three thousands training epochs, a much\nrecurrent model baselines, a comparison of recurrent and"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "shorter\ntime than any of\nthe other\nrecurrent discrimina-\nconvolutional discriminators and an ablation study,\nthat"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "tor baselines. Last but not\nleast,\nthe long-range recurrent\nsupport the different architectural choices of our network."
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "evaluations of Simple and DenseRNN discriminators (on"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "sequences of length tobs + T ) are replaced in LocalRNN"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "5.4.1\nAlternative recurrent discriminator baselines"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "by many short-range ones that can be efﬁciently batched,"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "resulting in a much shorter inference time. This fast and\nWe start by comparing several recurrent architecture base-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "efﬁcient training advocates in favor of our local discrimi-\nlines\nfor\nthe discriminator,\nunder different\nsupervision"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "nator over recurrent architectures with larger focal.\nconditions and for 40 and 80 frame-long sequences (re-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "spectively 2 and 4 seconds).\nIn section 3.3, we moti-"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "vated our architectural choices on the hypothesis that a"
+        },
+        {
+          "Figure 3: Evolution of marginal entropy for different recurrent discriminator architectures and training conﬁgurations:": "8"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": "the following training conﬁgurations:"
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": "sequences of 40 time steps with λsup = 0; (c) sequences of 80 time steps with λsup = 10−3; (d) sequences of 80 time"
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": ""
+        },
+        {
+          "Figure 4: Evolution of marginal entropy and SFID of SocialInteractionGAN (LocalRNN) and various CNN discrim-": "9"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table 3: Effects of removing interaction stream (Indiv- sequences of 40 actions with λ = 0. Gray dashed,",
+      "data": [
+        {
+          "(Dual-stream)": "trained for 6000 epochs.",
+          "for sequences of 40 actions. Models are": "",
+          "people": "experiments.",
+          "interactions": "",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "achieve the closest HM and HC values to the real data and",
+          "for sequences of 40 actions. Models are": "",
+          "people": "",
+          "interactions": "",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "the lowest SFID.",
+          "for sequences of 40 actions. Models are": "",
+          "people": "",
+          "interactions": "",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "",
+          "for sequences of 40 actions. Models are": "",
+          "people": "",
+          "interactions": "ing the capacity of the network to generalize its interac-",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "Model",
+          "for sequences of 40 actions. Models are": "HM",
+          "people": "",
+          "interactions": "",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "",
+          "for sequences of 40 actions. Models are": "",
+          "people": "",
+          "interactions": "tion sequence predictions to larger groups of people and",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "Real Data",
+          "for sequences of 40 actions. Models are": "2.18",
+          "people": "",
+          "interactions": "learn more complex action patterns, and is labeled as SIG",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "",
+          "for sequences of 40 actions. Models are": "",
+          "people": "(3&4P).",
+          "interactions": "",
+          "and": "In a second experiment, SocialInteractionGAN",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "Dual-stream (SIG)",
+          "for sequences of 40 actions. Models are": "2.18 ± 0.03",
+          "people": "",
+          "interactions": "",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "",
+          "for sequences of 40 actions. Models are": "",
+          "people": "",
+          "interactions": "was trained on a larger action dictionary where we raised",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "Indiv-stream",
+          "for sequences of 40 actions. Models are": "2.15 ± 0.05",
+          "people": "",
+          "interactions": "",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "Inter-stream",
+          "for sequences of 40 actions. Models are": "2.23 ± 0.03",
+          "people": "",
+          "interactions": "the cumulative occurrence threshold of dictionary entries",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "No-GAN",
+          "for sequences of 40 actions. Models are": "2.06 ± 0.01",
+          "people": "",
+          "interactions": "from 90% to 99%. This resulted in a dictionary contain-",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        },
+        {
+          "(Dual-stream)": "",
+          "for sequences of 40 actions. Models are": "",
+          "people": "",
+          "interactions": "ing 35 actions, more than doubling the original size, and",
+          "and": "",
+          "original SocialInteractionGAN": ""
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table 3: Effects of removing interaction stream (Indiv- sequences of 40 actions with λ = 0. Gray dashed,",
+      "data": [
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "marginal entropy (a) and SFID (b),\nfor sequences of 40",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "nary (SIG (35A)) and adding four-people interactions to"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "The large CNN architecture\ntime steps and λsup = 0.",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "the original three-people interaction dataset (SIG (3&4P))"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "remains slightly behind RNN-based discriminators.",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "on marginal entropy (a) and SFID (b).\nStandard model"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "is\nshown for comparison.\nAll models were trained on"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "Table 3: Effects of\nremoving interaction stream (Indiv-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "sequences of 40 actions with λsup = 0. Gray dashed,"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "stream),\nindividual\nstream (Inter-stream), or adversarial",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "dash-dotted and dotted lines\nrepresent\nrespectively real"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "losses\naltogether\n(No-GAN) versus\nthe original model",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "data marginal entropy for large dictionary, three and four-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "(Dual-stream)\nfor sequences of 40 actions. Models are",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "people\ninteractions\nand\noriginal SocialInteractionGAN"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "trained for 6000 epochs.\nBest models\nare\nthose\nthat",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "experiments."
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "achieve the closest HM and HC values to the real data and",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "the lowest SFID.",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "ing the capacity of the network to generalize its interac-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "Model\nSFID\nHM\nHC",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "tion sequence predictions to larger groups of people and"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "Real Data\n2.18\n0.30\n–",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "learn more complex action patterns, and is labeled as SIG"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "(3&4P).\nIn a second experiment, SocialInteractionGAN"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "0.26 ± 0.03\n2.18 ± 0.03\n0.24 ± 0.04\nDual-stream (SIG)",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "was trained on a larger action dictionary where we raised"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "2.15 ± 0.05\n0.42 ± 0.10\n0.27 ± 0.09\nIndiv-stream",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "2.23 ± 0.03\n0.35 ± 0.04\n0.77 ± 0.14\nInter-stream",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "the cumulative occurrence threshold of dictionary entries"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "2.06 ± 0.01\n0.14 ± 0.01\n0.29 ± 0.01\nNo-GAN",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "from 90% to 99%. This resulted in a dictionary contain-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "ing 35 actions, more than doubling the original size, and"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "it is therefore labeled as SIG (35A). The marginal entropy"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "and SFID evolution of these models for sequences of 40"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "GAN. The results are reported in Table 3,\ntogether with",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "together\nactions and λsup = 0 are reported in Figure 6,"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "the full model (Dual-stream). On the one hand,\ntraining",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "with the reference model\n(SIG). Although SIG (3&4P)"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "without adversarial\nloss leads to much poorer scores in",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "implies training with more than 50% additional data sam-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "terms of marginal and conditional entropies, advocating",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "ples (from 600 sequences to 953),\nit has a very limited"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "in favor of the use of the adversarial loss. We hypothesize",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "effect on the training dynamics. Noticeably,\nthe model"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "that the adversarial loss allows for a larger exploration of",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "learns to match the slight\nincrement\nin data marginal en-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "the action space,\nthus the higher marginal entropy score,",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "tropy produced by the richer interaction samples. Regard-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "and a better\nlearning of\nthe action sequence dynamics,",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "ing SIG (35A), as it could be expected from the resulting"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "as suggests the higher conditional entropy. On the other",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "increase in network complexity, expanding the action dic-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "hand, disabling any of the two discriminator streams leads",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "tionary leads to delayed convergence. However the model"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "to degraded performances, which is especially clear\nin",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "smoothly converges\nto the marginal entropy of\nthe real"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "terms of SFID. In particular, we see from the high SFID",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "data and also scores low SFID, meaning that SocialInter-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "that only relying on the interaction stream (Inter-stream)",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "actionGAN is able to handle large action dictionaries, pro-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "to produce realistic individual sequences would perform",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "vided a sufﬁcient amount of training data."
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "poorly. This supports our dual-stream architecture: an in-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "teraction stream alone does not guarantee sufﬁcient\nindi-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "vidual sequence quality, but is still necessary to guide the",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "6\nConclusion"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "generator into how to leverage information coming from",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "every conversing participant.",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "Understanding action patterns\nin human interactions\nis"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "key to design systems that can be embedded in e.g. so-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "cial robotic systems. For generative models of human in-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "5.4.4\nPushing the limits of SocialInteractionGAN",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "teractions,\nthe main challenge resides in the necessity to"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "This\nsection illustrates\nthe effects of enriching and di-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "preserve action consistency across participants and time."
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "versifying the original\ntraining dataset. Namely, we ex-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "This article presents a conditional GAN model\nfor\nthe"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "plore two variants\nfrom the initial\nsetting:\nthe addition",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "generation of discrete action sequences of people involved"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "of\nfour-person interactions,\nand the use of a larger ac-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "in an interaction.\nTo the best of our knowledge we are"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "tion dictionary.\nThe ﬁrst experiment consists in assess-",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": "the ﬁrst\nto address this problem with a data-driven solu-"
+        },
+        {
+          "Figure\n5:\nEffects\nof\nincreasing model\ncomplexity\non": "10",
+          "Figure 6: Effects of\nincreasing the size of action dictio-": ""
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "(NeurIPS), vol. 30, pp. 6626–6637, 2017."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "References",
+          "Advances in Neural Information Processing Systems": "[11] T. Miyato and M. Koyama, “cgans with projection"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "discriminator,” International Conference on Learn-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "[1] A. Vinciarelli, M. Pantic, and H. Bourlard, “Social",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "ing Representations (ICLR), 2018."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "signal processing: Survey of an emerging domain,”",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "Image and vision computing, vol. 27, no. 12, pp.",
+          "Advances in Neural Information Processing Systems": "[12] P.\nIsola,\nJ.-Y. Zhu,\nT. Zhou,\nand A. A. Efros,"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "1743–1759, 2009.",
+          "Advances in Neural Information Processing Systems": "“Image-to-image translation with conditional adver-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "the IEEE Con-\nsarial networks,” in Proceedings of"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "[2] L.\nCabrera-Quiros,\nA.\nDemetriou,\nE.\nGedik,",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "ference on Computer Vision and Pattern Recognition"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "L. van der Meij, and H. Hung, “The matchnmingle",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "(CVPR), 2017, pp. 1125–1134."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "dataset: a novel multi-sensor resource for the analy-",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "sis of social interactions and group dynamics in-the-",
+          "Advances in Neural Information Processing Systems": "[13] T.\nFernando,\nS.\nDenman,\nS.\nSridharan,\nand"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "wild during free-standing conversations and speed",
+          "Advances in Neural Information Processing Systems": "C. Fookes, “Soft+ hardwired attention: An LSTM"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "dates,” IEEE Transactions on Affective Computing,",
+          "Advances in Neural Information Processing Systems": "framework for human trajectory prediction and ab-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "2018.",
+          "Advances in Neural Information Processing Systems": "normal event detection,” Neural networks, vol. 108,"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "pp. 466–478, 2018."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "[3] X. Alameda-Pineda,\nJ. Staiano, R. Subramanian,",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "L. Batrinca,\nE. Ricci,\nB. Lepri, O. Lanz,\nand",
+          "Advances in Neural Information Processing Systems": "[14] F. Bartoli, G. Lisanti, L. Ballan, and A. Del Bimbo,"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "N. Sebe,\n“Salsa: A novel dataset\nfor multimodal",
+          "Advances in Neural Information Processing Systems": "“Context-aware\ntrajectory prediction,”\nin Interna-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "group behavior analysis,” IEEE Transactions on Pat-",
+          "Advances in Neural Information Processing Systems": "tional Conference on Pattern Recognition (ICPR)."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "tern Analysis\nand Machine\nIntelligence,\nvol.\n38,",
+          "Advances in Neural Information Processing Systems": "IEEE, 2018, pp. 1941–1946."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "no. 8, pp. 1707–1720, 2015.",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "[15] T. Zhao, Y. Xu, M. Monfort, W. Choi, C. Baker,"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "[4]\nJ. Guo, S. Lu, H. Cai, W. Zhang, Y. Yu, and J. Wang,",
+          "Advances in Neural Information Processing Systems": "Y\n. Zhao, Y. Wang, and Y. N. Wu, “Multi-agent\nten-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "“Long text generation via adversarial\ntraining with",
+          "Advances in Neural Information Processing Systems": "sor\nfusion for contextual\ntrajectory prediction,”\nin"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "the AAAI\nleaked information,”\nin Proceedings of",
+          "Advances in Neural Information Processing Systems": "Proceedings of\nthe IEEE Conference on Computer"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "Conference on Artiﬁcial Intelligence, vol. 32, no. 1,",
+          "Advances in Neural Information Processing Systems": "Vision and Pattern Recognition (CVPR), 2019, pp."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "2018.",
+          "Advances in Neural Information Processing Systems": "12 126–12 134."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "[5] L. Yu, W. Zhang, J. Wang, and Y. Yu, “Seqgan: Se-",
+          "Advances in Neural Information Processing Systems": "[16] A. Sadeghian, V. Kosaraju, A. Sadeghian, N. Hi-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "quence generative adversarial nets with policy gra-",
+          "Advances in Neural Information Processing Systems": "rose, H. Rezatoﬁghi, and S. Savarese, “Sophie: An"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "the AAAI Conference on\ndient,” in Proceedings of",
+          "Advances in Neural Information Processing Systems": "attentive gan for predicting paths compliant\nto so-"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "Artiﬁcial Intelligence, 2017.",
+          "Advances in Neural Information Processing Systems": "cial and physical constraints,” in Proceedings of the"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "IEEE Conference on Computer Vision and Pattern"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "[6] A. Alahi, K. Goel, V. Ramanathan, A. Robicquet,",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "",
+          "Advances in Neural Information Processing Systems": "Recognition (CVPR), 2019, pp. 1349–1358."
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "L. Fei-Fei,\nand S. Savarese,\n“Social LSTM: Hu-",
+          "Advances in Neural Information Processing Systems": ""
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "man trajectory prediction in crowded spaces,”\nin",
+          "Advances in Neural Information Processing Systems": "[17] P. Vasishta, D. Vaufreydaz,\nand A.\nSpalanzani,"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "Proceedings of\nthe IEEE Conference on Computer",
+          "Advances in Neural Information Processing Systems": "“Building\nPrior Knowledge:\nA Markov Based"
+        },
+        {
+          "uous spaces, with possible beneﬁts for other domains.": "11",
+          "Advances in Neural Information Processing Systems": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "Vision and Pattern Recognition (CVPR), 2016, pp."
+        },
+        {
+          "AUTHOR VERSION": "961–971."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[7] A. Gupta, J. Johnson, L. Fei-Fei, S. Savarese, and"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "A. Alahi, “Social gan: Socially acceptable trajecto-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "ries with generative adversarial networks,” in Pro-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "ceedings of\nthe IEEE Conference on Computer Vi-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "sion and Pattern Recognition (CVPR), 2018,\npp."
+        },
+        {
+          "AUTHOR VERSION": "2255–2264."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[8] N. Lee, W. Choi, P. Vernaza, C. B. Choy, P. H. Torr,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "and M. Chandraker, “Desire: Distant future predic-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "tion in dynamic scenes with interacting agents,” in"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Proceedings of\nthe IEEE Conference on Computer"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Vision and Pattern Recognition (CVPR), 2017, pp."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "336–345."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[9] T. Salimans, I. Goodfellow, W. Zaremba, V. Cheung,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "A. Radford, and X. Chen, “Improved techniques for"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "training gans,” Advances in Neural Information Pro-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "cessing Systems (NeurIPS), vol. 29, pp. 2234–2242,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "2016."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[10] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler,"
+        },
+        {
+          "AUTHOR VERSION": "and S. Hochreiter, “Gans trained by a two time-scale"
+        },
+        {
+          "AUTHOR VERSION": "update rule converge to a local nash equilibrium,”"
+        },
+        {
+          "AUTHOR VERSION": "Advances in Neural Information Processing Systems"
+        },
+        {
+          "AUTHOR VERSION": "(NeurIPS), vol. 30, pp. 6626–6637, 2017."
+        },
+        {
+          "AUTHOR VERSION": "[11] T. Miyato and M. Koyama, “cgans with projection"
+        },
+        {
+          "AUTHOR VERSION": "discriminator,” International Conference on Learn-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "ing Representations (ICLR), 2018."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[12] P.\nIsola,\nJ.-Y. Zhu,\nT. Zhou,\nand A. A. Efros,"
+        },
+        {
+          "AUTHOR VERSION": "“Image-to-image translation with conditional adver-"
+        },
+        {
+          "AUTHOR VERSION": "the IEEE Con-\nsarial networks,” in Proceedings of"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "ference on Computer Vision and Pattern Recognition"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "(CVPR), 2017, pp. 1125–1134."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[13] T.\nFernando,\nS.\nDenman,\nS.\nSridharan,\nand"
+        },
+        {
+          "AUTHOR VERSION": "C. Fookes, “Soft+ hardwired attention: An LSTM"
+        },
+        {
+          "AUTHOR VERSION": "framework for human trajectory prediction and ab-"
+        },
+        {
+          "AUTHOR VERSION": "normal event detection,” Neural networks, vol. 108,"
+        },
+        {
+          "AUTHOR VERSION": "pp. 466–478, 2018."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[14] F. Bartoli, G. Lisanti, L. Ballan, and A. Del Bimbo,"
+        },
+        {
+          "AUTHOR VERSION": "“Context-aware\ntrajectory prediction,”\nin Interna-"
+        },
+        {
+          "AUTHOR VERSION": "tional Conference on Pattern Recognition (ICPR)."
+        },
+        {
+          "AUTHOR VERSION": "IEEE, 2018, pp. 1941–1946."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[15] T. Zhao, Y. Xu, M. Monfort, W. Choi, C. Baker,"
+        },
+        {
+          "AUTHOR VERSION": "Y\n. Zhao, Y. Wang, and Y. N. Wu, “Multi-agent\nten-"
+        },
+        {
+          "AUTHOR VERSION": "sor\nfusion for contextual\ntrajectory prediction,”\nin"
+        },
+        {
+          "AUTHOR VERSION": "Proceedings of\nthe IEEE Conference on Computer"
+        },
+        {
+          "AUTHOR VERSION": "Vision and Pattern Recognition (CVPR), 2019, pp."
+        },
+        {
+          "AUTHOR VERSION": "12 126–12 134."
+        },
+        {
+          "AUTHOR VERSION": "[16] A. Sadeghian, V. Kosaraju, A. Sadeghian, N. Hi-"
+        },
+        {
+          "AUTHOR VERSION": "rose, H. Rezatoﬁghi, and S. Savarese, “Sophie: An"
+        },
+        {
+          "AUTHOR VERSION": "attentive gan for predicting paths compliant\nto so-"
+        },
+        {
+          "AUTHOR VERSION": "cial and physical constraints,” in Proceedings of the"
+        },
+        {
+          "AUTHOR VERSION": "IEEE Conference on Computer Vision and Pattern"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "Recognition (CVPR), 2019, pp. 1349–1358."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[17] P. Vasishta, D. Vaufreydaz,\nand A.\nSpalanzani,"
+        },
+        {
+          "AUTHOR VERSION": "“Building\nPrior Knowledge:\nA Markov Based"
+        },
+        {
+          "AUTHOR VERSION": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "AUTHOR VERSION": "database for audio-visual emotion and sentiment re-"
+        },
+        {
+          "AUTHOR VERSION": "IEEE transactions on pattern\nsearch in the wild,”"
+        },
+        {
+          "AUTHOR VERSION": "analysis and machine intelligence, vol. 43, no. 3, pp."
+        },
+        {
+          "AUTHOR VERSION": "1022–1040, 2019."
+        },
+        {
+          "AUTHOR VERSION": "J. L. Ba, J. R. Kiros, and G. E. Hinton, “Layer nor-"
+        },
+        {
+          "AUTHOR VERSION": "malization,” CoRR, vol. abs/1607.06450, 2016."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[31] T. Miyato, T. Kataoka, M. Koyama, and Y. Yoshida,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "“Spectral normalization for generative\nadversarial"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "International Conference on Learning\nnetworks,”"
+        },
+        {
+          "AUTHOR VERSION": "Representations (ICLR), 2018."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "[32] S. Ioffe and C. Szegedy, “Batch normalization: Ac-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "celerating deep network training by reducing inter-"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "nal covariate shift,” in International Conference on"
+        },
+        {
+          "AUTHOR VERSION": "Machine Learning (ICML), 2015, pp. 448–456."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "and J. Ba,\n“Adam:\nA method for"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "stochastic optimization,” CoRR, vol. abs/1412.6980,"
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": "2015."
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        },
+        {
+          "AUTHOR VERSION": ""
+        }
+      ],
+      "page": 12
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Social signal processing: Survey of an emerging domain",
+      "authors": [
+        "A Vinciarelli",
+        "M Pantic",
+        "H Bourlard"
+      ],
+      "year": "2009",
+      "venue": "Image and vision computing"
+    },
+    {
+      "citation_id": "2",
+      "title": "The matchnmingle dataset: a novel multi-sensor resource for the analysis of social interactions and group dynamics in-thewild during free-standing conversations and speed dates",
+      "authors": [
+        "L Cabrera-Quiros",
+        "A Demetriou",
+        "E Gedik",
+        "L Van Der Meij",
+        "H Hung"
+      ],
+      "year": "2018",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "3",
+      "title": "Salsa: A novel dataset for multimodal group behavior analysis",
+      "authors": [
+        "X Alameda-Pineda",
+        "J Staiano",
+        "R Subramanian",
+        "L Batrinca",
+        "E Ricci",
+        "B Lepri",
+        "O Lanz",
+        "N Sebe"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "4",
+      "title": "Long text generation via adversarial training with leaked information",
+      "authors": [
+        "J Guo",
+        "S Lu",
+        "H Cai",
+        "W Zhang",
+        "Y Yu",
+        "J Wang"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "5",
+      "title": "Seqgan: Sequence generative adversarial nets with policy gradient",
+      "authors": [
+        "L Yu",
+        "W Zhang",
+        "J Wang",
+        "Y Yu"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "6",
+      "title": "Social LSTM: Human trajectory prediction in crowded spaces",
+      "authors": [
+        "A Alahi",
+        "K Goel",
+        "V Ramanathan",
+        "A Robicquet",
+        "L Fei-Fei",
+        "S Savarese"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "7",
+      "title": "Social gan: Socially acceptable trajectories with generative adversarial networks",
+      "authors": [
+        "A Gupta",
+        "J Johnson",
+        "L Fei-Fei",
+        "S Savarese",
+        "A Alahi"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "8",
+      "title": "Desire: Distant future prediction in dynamic scenes with interacting agents",
+      "authors": [
+        "N Lee",
+        "W Choi",
+        "P Vernaza",
+        "C Choy",
+        "P Torr",
+        "M Chandraker"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "9",
+      "title": "Improved techniques for training gans",
+      "authors": [
+        "T Salimans",
+        "I Goodfellow",
+        "W Zaremba",
+        "V Cheung",
+        "A Radford",
+        "X Chen"
+      ],
+      "year": "2016",
+      "venue": "Advances in Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "10",
+      "title": "Gans trained by a two time-scale update rule converge to a local nash equilibrium",
+      "authors": [
+        "M Heusel",
+        "H Ramsauer",
+        "T Unterthiner",
+        "B Nessler",
+        "S Hochreiter"
+      ],
+      "year": "2017",
+      "venue": "Advances in Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "11",
+      "title": "cgans with projection discriminator",
+      "authors": [
+        "T Miyato",
+        "M Koyama"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "12",
+      "title": "Image-to-image translation with conditional adversarial networks",
+      "authors": [
+        "P Isola",
+        "J.-Y Zhu",
+        "T Zhou",
+        "A Efros"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "13",
+      "title": "Soft+ hardwired attention: An LSTM framework for human trajectory prediction and abnormal event detection",
+      "authors": [
+        "T Fernando",
+        "S Denman",
+        "S Sridharan",
+        "C Fookes"
+      ],
+      "year": "2018",
+      "venue": "Neural networks"
+    },
+    {
+      "citation_id": "14",
+      "title": "Context-aware trajectory prediction",
+      "authors": [
+        "F Bartoli",
+        "G Lisanti",
+        "L Ballan",
+        "A Del Bimbo"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Pattern Recognition (ICPR)"
+    },
+    {
+      "citation_id": "15",
+      "title": "Multi-agent tensor fusion for contextual trajectory prediction",
+      "authors": [
+        "T Zhao",
+        "Y Xu",
+        "M Monfort",
+        "W Choi",
+        "C Baker",
+        "Y Zhao",
+        "Y Wang",
+        "Y Wu"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "16",
+      "title": "Sophie: An attentive gan for predicting paths compliant to social and physical constraints",
+      "authors": [
+        "A Sadeghian",
+        "V Kosaraju",
+        "A Sadeghian",
+        "N Hirose",
+        "H Rezatofighi",
+        "S Savarese"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "17",
+      "title": "Building Prior Knowledge: A Markov Based Pedestrian Prediction Model Using Urban Environmental Data",
+      "authors": [
+        "P Vasishta",
+        "D Vaufreydaz",
+        "A Spalanzani"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the International Conference on Control, Automation, Robotics and Vision (ICARCV)"
+    },
+    {
+      "citation_id": "18",
+      "title": "Adversarial learning for neural dialogue generation",
+      "authors": [
+        "J Li",
+        "W Monroe",
+        "T Shi",
+        "S Jean",
+        "A Ritter",
+        "D Jurafsky"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the Conference on Empirical Methods in Natural Language Processing (CEMNLP)"
+    },
+    {
+      "citation_id": "19",
+      "title": "Adversarial ranking for language generation",
+      "authors": [
+        "K Lin",
+        "D Li",
+        "X He",
+        "Z Zhang",
+        "M.-T Sun"
+      ],
+      "year": "2017",
+      "venue": "Advances in Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "20",
+      "title": "Feudal networks for hierarchical reinforcement learning",
+      "authors": [
+        "A Vezhnevets",
+        "S Osindero",
+        "T Schaul",
+        "N Heess",
+        "M Jaderberg",
+        "D Silver",
+        "K Kavukcuoglu"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "21",
+      "title": "Long short-term memory",
+      "authors": [
+        "S Hochreiter",
+        "J Schmidhuber"
+      ],
+      "year": "1997",
+      "venue": "Neural computation"
+    },
+    {
+      "citation_id": "22",
+      "title": "Neural machine translation by jointly learning to align and translate",
+      "authors": [
+        "D Bahdanau",
+        "K Cho",
+        "Y Bengio"
+      ],
+      "year": "2015",
+      "venue": "International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "23",
+      "title": "Text understanding from scratch",
+      "authors": [
+        "X Zhang",
+        "Y Lecun"
+      ],
+      "year": "2015",
+      "venue": "Text understanding from scratch",
+      "arxiv": "arXiv:1502.01710"
+    },
+    {
+      "citation_id": "24",
+      "title": "Convolutional sequence to sequence learning",
+      "authors": [
+        "J Gehring",
+        "M Auli",
+        "D Grangier",
+        "D Yarats",
+        "Y Dauphin"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "25",
+      "title": "Geometric gan",
+      "authors": [
+        "J Lim",
+        "J Ye"
+      ],
+      "year": "2017",
+      "venue": "Geometric gan",
+      "arxiv": "arXiv:1705.02894"
+    },
+    {
+      "citation_id": "26",
+      "title": "Rethinking the inception architecture for computer vision",
+      "authors": [
+        "C Szegedy",
+        "V Vanhoucke",
+        "S Ioffe",
+        "J Shlens",
+        "Z Wojna"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "27",
+      "title": "The ami meeting corpus",
+      "authors": [
+        "I Mccowan",
+        "J Carletta",
+        "W Kraaij",
+        "S Ashby",
+        "S Bourban",
+        "M Flynn",
+        "M Guillemot",
+        "T Hain",
+        "J Kadlec",
+        "V Karaiskos"
+      ],
+      "year": "2005",
+      "venue": "Proceedings of the 5th international conference on methods and techniques in behavioral research"
+    },
+    {
+      "citation_id": "28",
+      "title": "Modeling collaborative multimodal behavior in group dialogues: The multisimo corpus",
+      "authors": [
+        "M Koutsombogera",
+        "C Vogel"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the Eleventh International Conference on Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "29",
+      "title": "European Language Resources Association (ELRA)",
+      "authors": [
+        "France Paris"
+      ],
+      "year": "2018",
+      "venue": "European Language Resources Association (ELRA)"
+    },
+    {
+      "citation_id": "30",
+      "title": "Sewa db: A rich database for audio-visual emotion and sentiment research in the wild",
+      "authors": [
+        "J Kossaifi",
+        "R Walecki",
+        "Y Panagakis",
+        "J Shen",
+        "M Schmitt",
+        "F Ringeval",
+        "J Han",
+        "V Pandit",
+        "A Toisoul",
+        "B Schuller"
+      ],
+      "year": "2019",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence"
+    },
+    {
+      "citation_id": "31",
+      "title": "Layer normalization",
+      "authors": [
+        "J Ba",
+        "J Kiros",
+        "G Hinton"
+      ],
+      "year": "2016",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "32",
+      "title": "Spectral normalization for generative adversarial networks",
+      "authors": [
+        "T Miyato",
+        "T Kataoka",
+        "M Koyama",
+        "Y Yoshida"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Learning Representations (ICLR)"
+    },
+    {
+      "citation_id": "33",
+      "title": "Batch normalization: Accelerating deep network training by reducing internal covariate shift",
+      "authors": [
+        "S Ioffe",
+        "C Szegedy"
+      ],
+      "year": "2015",
+      "venue": "International Conference on Machine Learning (ICML)"
+    },
+    {
+      "citation_id": "34",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "CoRR"
+    }
+  ]
+}

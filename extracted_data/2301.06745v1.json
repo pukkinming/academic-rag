@@ -1,0 +1,941 @@
+{
+  "paper_id": "2301.06745v1",
+  "title": "Bert-Erc: Fine-Tuning Bert Is Enough For Emotion Recognition In Conversation",
+  "published": "2023-01-17T08:03:32Z",
+  "authors": [
+    "Xiangyu Qin",
+    "Zhiyu Wu",
+    "Jinshi Cui",
+    "Tingting Zhang",
+    "Yanran Li",
+    "Jian Luan",
+    "Bin Wang",
+    "Li Wang"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Previous works on emotion recognition in conversation (ERC) follow a two-step paradigm, which can be summarized as first producing context-independent features via finetuning pretrained language models (PLMs) and then analyzing contextual information and dialogue structure information among the extracted features. However, we discover that this paradigm has several limitations. Accordingly, we propose a novel paradigm, i.e., exploring contextual information and dialogue structure information in the fine-tuning step, and adapting the PLM to the ERC task in terms of input text, classification structure, and training strategy. Furthermore, we develop our model BERT-ERC according to the proposed paradigm, which improves ERC performance in three aspects, namely suggestive text, fine-grained classification module, and two-stage training. Compared to existing methods, BERT-ERC achieves substantial improvement on four datasets, indicating its effectiveness and generalization capability. Besides, we also set up the limited resources scenario and the online prediction scenario to approximate real-world scenarios. Extensive experiments demonstrate that the proposed paradigm significantly outperforms the previous one and can be adapted to various scenes.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Emotion Recognition in Conversation (ERC) aims to identify the emotion of each utterance in the dialogue  (Poria et al. 2019) . This task has been popularly explored in the NLP research community  (Ghosal et al. 2019a; Li et al. 2021; Gao et al. 2021) , which has wide applications in building automatic conversational agents and mining user opinions.\n\nExisting ERC algorithms reveal multiple influencing factors for understanding conversation emotion. As shown in Figure  1 , we divided these factors into three groups: (1) query utterance information including the text of the query utterance; (2) contextual information including the text of the surrounding utterances (contexts); (  3  structure information consisting of non-textual information of the conversation, such as the speaker information, the emotion states, and the relative position of the utterances. To exploit these three kinds of information, previous works  (Ghosal et al. 2019b; Majumder et al. 2019; Ishiwatari et al. 2020; Shen et al. 2021 ) commonly follow a two-step paradigm of first extracting context-independent features via fine-tuning pretrained language models (PLMs) and then characterizing contextual information and dialogue structure information among the obtained features by their classifiers (models). For example, DialogRNN  (Majumder et al. 2019 ) first extracts utterance features with RoBERTalarge  (Liu et al. 2019 ) and then uses three GRUs  (Chung et al. 2014 ) to encode contextual information, speaker state, and emotion state, respectively. To verify the contribution of the contextual information and dialogue structure information analyzed in step two, we design a pilot experiment. Specifically, baseline in the experiment uses RoBERTa-large and MLP as the PLM and classifier respectively, suggesting that these two kinds of information remain unexplored.\n\nCompared to the methods following the previous paradigm in Table  1 , the baseline achieves comparable performance on MELD  (Poria et al. 2018 ) dataset, indicating that the two kinds of information encoded in the second step only yields trivial improvement (e.g. DialogRNN only outperforms the baseline by 0.22%). Through analysis, the previous paradigm has two flaws. Firstly, the context-independent features obtained by the PLM are fairly abstract, and thus pose obstacles to analyzing contextual information and di-alogue structure information. Secondly, the separation of fine-tuning step and training step leads to extra difficulty in modelling these two kinds of information. Considering these issues, EmoBERTa  (Kim and Vossen 2021)  discards the second step and uses entire contexts of the query utterance when fine-tuning. However, it lacks further reflections on the way to adapt the fine-tuning process to the ERC task. Thus, we raise several questions: How to use these three kinds of information when fine-tuning? How to optimize the fine-tuning process according to the characteristics of ERC? Motivated by these questions, we propose a new paradigm for ERC: integrating query utterance information, contextual information, and dialogue structure information when finetuning, and adapting the PLM to the ERC task in terms of input text, classification structure and training strategy. The comparison between the proposed paradigm and the previous one is shown in Figure  1 . Furthermore, we develop our model BERT-ERC according to the proposed paradigm, which promotes performance in three aspects, namely suggestive text, fine-grained classification module, and twostage training. (1) Regarding suggestive text, we use the utterances within a certain distance from the query utterance and several indicative tokens, such as speaker name and <mask>, to form the input text, thereby indicating speaker information and highlighting the query utterance emotion.\n\n(2) The fine-grained classification module considers the temporal structure (past-query-future) of the conversation and generates position-aware features. (3) Concerning the twostage training, we first train a coarse teacher model via finetuning the PLM with the above strategies. Then, we explicitly interpolate the predictions into the input text of the fine student model, allowing it to obtain contextual emotion state. Compared to existing algorithms, both teacher model and student model achieve substantial improvement on four datasets, indicating the effectiveness of these strategies.\n\nIn addition to achieving higher accuracy, we note the constraints of ERC in applications, which are ignored by previous works. Thus, we conduct extensive applicability experiments and adapt our paradigm to different scenes. Specifically, we set up the limited resource scenario and the online prediction scenario to approximate real-world scenes. For the former, we design a concise input text structure based on the speaker information to promote the performance of limited-scale PLMs. For the latter, we choose the large-scale PLM and tiny-scale PLM as the coarse teacher and fine student respectively to meet the real-time requirement.\n\nOverall, our contributions can be summarized as follows: (1) We reveal the limitations of the previous ERC paradigm with a pilot experiment. (2) We propose a new paradigm for ERC: integrating three influencing factors when fine-tuning, and adapting the PLM to the ERC task in terms of input text, classification structure, and training strategy. (3) We develop a new model in three aspects, namely suggestive text, fine-grained classification module, and two-stage training. Moreover, it outperforms existing methods and achieves the accuracy of 71.70% on IEMOCAP, 67.11% on MELD, 61.42% on DailyDialog, 39.84% on EmoryNLP. (4) We conduct numerous applicability experiments and adapt the proposed paradigm to different scenarios.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Emotion Recognition In Conversation",
+      "text": "ERC has received extensive attention in the past decades given its wide applications. Most existing algorithms follow a fixed paradigm that can be generalized as first producing context-independent features and then analyzing contextual information and dialogue structure information. Basically, these methods can be divided into two groups: recurrentbased methods and graph-based methods.\n\nRegarding the recurrent-based methods, HiGRU  (Jiao et al. 2019a ) uses two GRUs to explore utterance emotion and conversation emotion, respectively. Moreover, Dialo-gRNN  (Majumder et al. 2019)  employs three GRUs to encode context state, speaker state, and emotion state, respectively. COSMIC  (Ghosal et al. 2020)  is the latest recurrentbased algorithm, which introduces external knowledge into DialogRNN to achieve better performance.\n\nFor the graph-based methods, DialogGCN  (Ghosal et al. 2019b)  treats the conversation as a directed graph, where each utterance is connected with the contexts. Differently, DAG-ERC  (Shen et al. 2021 ) uses a directed acyclic graph to model the dialogue, where each utterance only receives information from the past utterances. Besides, some methods apply Transformer  (Vaswani et al. 2017) , in which self-attention can be viewed as a graph. Specifically, KET  (Zhong, Wang, and Miao 2019)  combines extra knowledge and transformer encoder to boost performance. DialogXL  (Shen et al. 2020 ) adapts the transformer to the ERC task via dialog-aware self-attention.\n\nUnlike the above methods, EmoBERTa (Kim and Vossen 2021) feeds the contexts of the query utterance into the PLM and explores contextual information when fine-tuning.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Fine-Tuning Methods",
+      "text": "Given the effectiveness of PLMs, researchers typically adapt them to downstream tasks via fine-tuning for better performance. Through our research, existing fine-tuning methods can be divided into three groups: text-based methods, structure-based methods and distillation-based methods.\n\nFor text-based methods, Prompt  (Kumar et al. 2016; Mc-Cann et al. 2018; Radford et al. 2019; Schick and Schütze 2020)  allows the similar structure between the input text of the downstream task and pretraining task. For example, when analyzing the emotion of \"Alice: I did well in the exam\", we may attach the prompt \"Alice felt <mask>\". The <mask> token enables the PLM to work in a familiar setting and thus improves its performance in the downstream task. Inspired by Prompt, we design the suggestive text, which indicates the dialogue structure via special tokens.\n\nStructure-based methods facilitate fine-tuning mainly in two ways: introducing external knowledge and enabling parameter-efficient transfer learning. For the former, K-BERT  (Liu et al. 2020 ) injects expertise into the PLM by constraining the self-attention module with a knowledge graph. Besides, prefix tuning (Li and Liang 2021) utilizes a domain word initialized module to emphasize the key content of the downstream task. For the latter, Adapter tuning  (Houlsby et al. 2019)  attaches small neural modules to each layer of the PLM. Moreover, LoRA  (Hu et al. 2021)  proposes trainable rank decomposition matrices to reduce trainable parameters. In our work, we design a classification structure based on the characteristics of the ERC task.\n\nConcerning distillation-based methods, they aim to maximally compress PLM size at the cost of limited performance loss. Specifically, TINYBERT  (Jiao et al. 2019b ) proposes a two-stage distillation framework for transformerbased models. Besides, DistilBERT  (Sanh et al. 2019 ) puts forward a lighter BERT  (Devlin et al. 2018 ) via the knowledge distillation strategy. However, they regard distillation loss as the only knowledge transfer pathway. Unlike the above methods, we shift our focus on promoting the performance of the student model and transfer knowledge via the input text of the student model for the first time.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methodology",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Task Definition",
+      "text": "Given a dialogue script along with the speaker information about each constituent utterance, ERC aims to analyze the sentiment of each utterance from a predefined set of emotions. Let [(u 1 , s 1 ), ..., (u N , s N )] denote a conversation containing N utterances, where s i represents the speaker of u i . As illustrated in Figure  2 , given an utterance u i , the object of ERC is to predict its emotion label y i ∈ Y according to the contexts [u 1 , ..., u N ] and the corresponding speaker information, where Y denotes the emotion set. In addition to the offline prediction, we also investigate online ERC (OERC) for practical needs. As shown in Figure  3 , given an utterance u i , OERC predicts the emotion label y i ∈ Y based on the preceding utterances [u 1 , ..., u i ] and speaker information.\n\nIn this paper, we define the ERC task as P (Y |X, M, S), where Y, X, M, S denote predictions, input text generation approach, PLM, and training strategy respectively. Furthermore, we design a new paradigm for ERC, which can be summarized as integrating three influencing factors (query utterance information, contextual information, and dialogue structure information) during fine-tuning, and adapting the PLM to the ERC task in terms of input text, classification structure and training strategy. In other words, we select the most appropriate (X, M , S) in different scenarios. According to the proposed paradigm, we develop our model BERT-ERC in three aspects: suggestive text, fine-grained classification module, and two-stage training. Details of these strategies will be presented as follows.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Suggestive Text",
+      "text": "Let [(u 1 , s 1 ), ..., (u N , s N )] denote the conversation, and x i represents the input text of the query utterance u i . Traditional algorithms only feed the query utterance into the PLM, i.e., x i = u i , which proved to be a suboptimal strategy. Thus, we use utterances within a certain distance from the query utterance to form the input text. Nonetheless, directly splicing different utterances probably yields negligible improvement, as the PLM comprehends limited knowledge of dialogue structure in pretraining. Accordingly, we explicitly introduce dialogue structure information and contextual information into the input text:\n\nwhere a, b denote the range of the contexts, X p , X q , and X f denote the corresponding strategy for past utterances, query utterance, and future utterances. We provide an example in Figure  2 , and details will be presented as follows.\n\nRegarding X q , we exploit three kinds of special tokens. Firstly, we place speaker says: ahead of the query utterance to provide speaker information. Secondly, <s> and </s> are employed to enclose the query utterance for emphasis. Thirdly, we apply the <mask> token to focus the model on the emotion state of the query utterance. In other words, the suggestive query utterance can be expressed by:\n\nFigure  2 : The pipeline of BERT-ERC.\n\nFor X p and X f , speaker says: serves as the only indication given the supporting role of the contexts:\n\nWe denote the above method as multi-speaker aggregation, as it involves all contexts within a certain distance from the query utterance. However, limited-scale PLMs still perform poorly in modelling contextual information and dialogue structure information even with these special tokens. Considering that utterances of the same speaker as the query one can better reflect the emotion state of the speaker, we propose single-speaker aggregation, thereby reducing the task to exploring the mood swings of a specific speaker. Formally, let X s p , X s q , and X s f denote the corresponding strategy for the three kinds of utterances in single-speaker aggregation. Thus, the aggregated input text can be expressed by:",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Fine-Grained Classification Module",
+      "text": "Given the input text x i of the query utterance u i , PLM generates the features of each constituent token. Traditional fine-tuning methods generally utilize the class token for classification, as the input of most tasks is a piece of text without any special structures. However, x i has principalsubordinate structure (query utterance in leading position, contexts in supporting status) and temporal structure (pastquery-future), indicating that the previous classifier is suboptimal for our model. Accordingly, we propose a finegrained classification module according to the traits of ERC, whose details will be presented as follows.\n\nLet [f 1 , ..., f l ] denote the features of x i , where [f a , ..., f b ] correspond to the query tokens. We first divide the tokens into past tokens, query tokens, and future tokens based on the position. Then, past features F p , query features F q , and future features F f are generated via mean operation:\n\nAfterwards, we get the concatenated feature F cls = [F p , F q , F f ], which contains both principal-subordinate structure information and temporal structure information. Similar to the processing of the class token, a fully connected layer followed by the Tanh activation function is utilized for projection. Finally, we use the Dropout  (Srivastava et al. 2014 ) layer to prevent overfitting and the MLP for classification. In other words, prediction ŷi can be computed by: ŷi = MLP(Dropout(Tanh(FC(F cls ))))\n\n(11)  Framework In two-stage training, we follow the coarse teacher -fine student framework. Firstly, the teacher model generates a pseudo label for each utterance and filters out the low confidence predictions. For a given dialogue [(u 1 , s 1 ), ..., (u N , s N )], let ŷi denotes the prediction of u i and p i represents the prediction confidence of ŷi . Thus, the utterance i embedded with knowledge can be expressed by f (u i , s i , ŷi , p i ), and f denotes the screening strategy:",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Two-Stage Training",
+      "text": "where p is a hyperparameter in our model. Secondly, we introduce the knowledge into the input text of the student model and change the suggestive text strategy of the student:\n\nwhere <emo> corresponds to the emotion label of ŷi . For example, we set <emo> to angrily if and only if ŷi denotes anger. In such a manner, the explicitly indicated contextual emotion states improve the performance of the student model. In test phase, we first make predictions with the teacher model and then generate the knowledge, which will be imparted to the student for refined predictions.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Combination Of Different Plms",
+      "text": "As mentioned above, we choose the combination of PLMs according to the experimental scenario. To achieve optimal accuracy, we use RoBERTa-large as the PLM of both teacher and student. However, large-scale PLMs cannot meet the real-time requirement of OERC, which is also a common issue in prevailing algorithms. To solve this problem, we divide OERC into the speaking stage and the prediction stage. The model is unoccupied in the former stage (3-5 seconds), as it needs the query utterance for emotion recognition. For the latter, the model is required to assess the emotion in 50-100 milliseconds. Considering the long duration of the first stage, the teacher-student framework perfectly fits OERC scenario. Specifically, in the speaking stage, a large-scale PLM is used to generate past emotion states. Then, in the prediction stage, we use a tiny-scale PLM as the student to conduct online prediction based on the text embedded with knowledge.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Datasets",
+      "text": "Our experiments involve four datasets, whose information is as follows. IEMOCAP  (Busso et al. 2008)",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Implementation Details",
+      "text": "We conduct experiments in three application scenarios. For offline prediction (Section 4.3), we fix all parameter settings and assess our model on four datasets. Moreover, in Section 4.4 and 4.5, we conduct experiments on IEMOCAP in limited resources scenario and OERC scenario to approximate real-world scenes respectively. Details are as follows.\n\nRegarding offline prediction, the proposed model predicts the emotion of each utterance with sufficient time, space and computational resources. To achieve the optimal performance, we use RoBERTa-large  (Liu et al. 2019 ) with the first 8 encoder layers frozen as the PLM. Moreover, we utilize the multi-speaker aggregation and set the knowledge confidence p to 0.7. For the limited resources scenario, such as mobile devices, due to the limitations of space and computational resources, we have to use limited-scale models. Besides, we expect more frozen parameters when fine-tuning for parameter reuse. Thus, we choose RoBERTabase  (Liu et al. 2019)  with the first 6 or 10 encoder layers frozen as the PLM. Concerning OERC, to exploit the time in the speaking stage, we use RoBERTa-large with the first 8 layers frozen as the PLM of the teacher. Besides, we employ BERT-tiny  (Turc et al. 2019 ) and BERT-medium  (Turc et al. 2019)  as the PLM of the student. Moreover, we set p to 0.5.\n\nScenario-independent settings are listed as follows. We truncate the input text to meet the requirement of PLMs. We use the Adam optimizer (Kingma and Ba 2014) with a learning rate of 9e-6 in experiments. Besides, we utilize a 1-layer MLP as the classifier unless otherwise specified. For all datasets, we train 10 epochs with the batch size of 8. Focal Loss  (Lin et al. 2017 ) is applied to alleviate the class imbalance problem. We implement all experiments on 4 NVIDIA Tesla V100 GPUs with the Pytorch framework.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Offline Prediction Scenario",
+      "text": "Comparison with the State-of-the-Art Methods We compare BERT-ERC with several state-of-the-art methods on four datasets in Table  2 . The first 8 lines present the performance of several traditional algorithms, which model contextual information and dialogue structure information based on the context-independent features. Through comparison, algorithms using contexts when fine-tuning (lines 9-14) outperform traditional methods, suggesting the significance of exploring contextual information and dialogue structure information in the extraction stage. Moreover, compared to EmoBERTa (Kim and Vossen 2021), our model achieves substantial improvement as we adapt the finetuning process to the ERC task. Concurrently, CoMPM (Lee and Lee 2021) and T-GCN (Lee and Choi 2021) insert contextual information into PLMs by extra models. Nonetheless, BERT-ERC still leads in most cases, which mainly benefits from the suggestive text and the fine classifier. Furthermore, we use the two-stage training strategy to generate the fine student model in line 13, which outperforms the coarse teacher in all datasets, indicating that proper knowledge can further boost the performance of our paradigm. Besides, we use a 2-layer MLP as the classifier on IEMOCAP and freeze more PLM layers on MELD to achieve the optimal performance on these two datasets (line 14). Overall, our model achieves leading performance on four datasets, demonstrating the advantages of the proposed paradigm.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Ablation Study",
+      "text": "We design an ablation study on IEMO-CAP to diagnose the proposed modules, whose results are shown in Table  3 . (1) The baseline model uses the query utterance as the input and employs the class token for classification. (2) The <mask> token emphasizes the emotion state of the query utterance and improves the performance by 0.76%. (3) We get the improvement of 10.83% via the contexts of the query utterance, demonstrating that exploring contextual information and dialogue structure information in the fine-tuning step is the most critical strategy in ERC. (4) FCM (line 4) further gains the progress of 0.88%, which can be credited to the introduced dialogue structure.\n\n(5) Inspired by ViT  (Dosovitskiy et al. 2020) , we believe that 2-layer classification MLP outperforms 1-layer MLP in high quality datasets. Compared to the latter, the former obtains the improvement of 1.72%. (  6 ) Compared to the teacher, the fine student model achieves the improvement of 0.55%, suggesting the effectiveness of the two-stage training.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Limited Resources Scenario",
+      "text": "To approximate the scene of conducting ERC on mobile devices, we set up the limited resources scenario and conduct experiments in Table  4 . According to the first 6 lines, limited-scale PLMs hazard existing algorithms, possibly due to the reduced modelling capability. Besides, our model suffers from a more severe performance drop, as it is built entirely on the PLM. However, BERT-ERC with a small PLM still outperforms most previous works, suggesting that integrating query utterance information, contextual information and dialogue structure information when fine-tuning is the most critical strategy in ERC. Moreover, single-speaker aggregation (line 9) obtains the progress of 2.11% compared to multi-speaker aggregation (line 8), indicating that focusing only on the mood swings of one speaker improves ERC performance in the resource-limited condition. Besides, we freeze the first 10 layers of RoBERTa-base for more parameter reuse and achieve the accuracy of 66.16% with single-speaker aggregation, which is comparable to the performance of existing methods. Insofar as we know, we are the first to consider PLM size and parameter reuse in ERC, and results show that our paradigm can be adapted to various scenarios by altering the text generation strategy.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Oerc",
+      "text": "In OERC scenario, we choose RoBERTa-large as the coarse teacher and use BERT-tiny and BERT-medium as the fine student. Turc et al.  (Turc et al. 2019)   ) and promotes the performance by 5.64% and 7.98%. It is worth noting that BERT-medium with teacher achieves 3× faster inference while still outperforming the state-of-the-art methods in offline prediction scenario. To further boost the performance of BERT-tiny, we utilize single-speaker aggregation (line 3) and achieve the improvement of 8.05%. Furthermore, we simplify the input text by replacing the preceding utterances with the revealed emotion states and achieves an accuracy of 63.27% with BERT-tiny. Reviewing the strategies in line 2 to 4, we discover that simpler input text advances limited-scale PLMs. However, these two strategies fail to benefit BERT-medium, as it has sufficient parameters to model dialogue structure and past utterances. Overall, the proposed two-stage training strategy yields great inference speed gains with limited accuracy loss and achieves great performance on different PLMs with the corresponding text generation approach.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "Given the flaws of the previous ERC paradigm, we put forward a new one in this paper and further develop the BERT-ERC model according to the proposed paradigm. Our model utilizes three strategies (suggestive text, fine-grained classification module, and two-stage training) to introduce dialogue structure information and contextual information into the PLM. Through extensive experiments, BERT-ERC achieves state-of-the-art performance on four datasets. Besides, we set up the limited resources scenario and OERC scenario to approximate real-world scenes. Overall, comprehensive experiments demonstrate the generalization ability and effectiveness of the proposed paradigm.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "A Component Analysis",
+      "text": "Through extensive experiments, BERT-ERC achieves the best available results on four datasets. In this part, we explore ways to adapt our model to different datasets in terms of knowledge, modelling capability and <mask> token.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "A.1 Knowledge",
+      "text": "As mentioned in Section 3.4.1, we propose task driven knowledge and common-sense-based knowledge. For classbalanced datasets with consistent distribution between training set and test set, such as IEMOCAP, task driven knowledge outperforms common-sense-based knowledge. Moreover, in EmoryNLP, where the distribution of the training set and test set is inconsistent, we first complete a ternary ERC task to prevent overfitting. Besides, in daily conversations, such as DailyDialog and MELD, where neutral emotion predominates, identifying it first yields optimal performance. Results in Section 4.3.1 indicate that the student with appropriate knowledge achieves great improvement.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "A.2 Modelling Capability",
+      "text": "Traditional ERC algorithms balance overfitting and underfitting by altering the complexity of the model. Differently, in our paradigm, we adjust the modelling capability via changing the number of frozen layers and MLP layers. As illustrated in the ablation study, 2-layer classification MLP outperforms 1-layer MLP in IEMOCAP, as the stronger representation capability contributes to the performance in high quality dataset. In addition, reducing parameters facilitates the generalization ability in low quality datasets. Specifically, in MELD, we freeze the first 16 layers of the RoBERTa-large and obtain the progress of 0.96% (67.11%) compared to the RoBERTa-large with the first 8 layers frozen (66.15%).",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "A.3 <Mask> Token",
+      "text": "We have demonstrated the effectiveness of the <mask> token in the ablation study. Practically, its effect becomes more pronounced as the task becomes more difficult. In Table  1 , we conduct an ablation study of the <mask> token on EmoryNLP, which serves as the most challenging dataset. As results illustrate, the model confronts instability and fitting problems without the <mask> token. Moreover, it also plays an important role in OERC. Specifically, the student model without <mask> token suffers a drop of 1.02%. Through analysis, the <mask> token benefits the model in two aspects. Firstly, in two-stage training, it allows the similar sentence structure between the query utterance and the preceding utterances in the student model, thereby emphasizing the past emotion state indicated by the pseudo labels. Secondly, it directly focuses the model on the emotion state of the query utterance and facilitates stable training.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B Stability Analysis",
+      "text": "Regarding all the aforementioned experiments, we set the random seed to 0 so as to facilitate reproduction. In this section, we investigate the stability of the proposed model",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "C Discussion",
+      "text": "",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "C.1 Time And Computational Resources",
+      "text": "The proposed paradigm utilizes the contexts of the query utterance in the fine-tuning step, thus leading to intensive computation. To solve this problem, we put forward several methods. (1) We demonstrate the effectiveness of singlespeaker aggregation in the limited resource scenario in Section 4.4, which enables concise input text. (2) We utilize a large-scale PLM and a tiny-scale PLM as the teacher and student, respectively, to meet the real-time requirement of OERC. However, these methods are not enough to eliminate the computational burden introduced by the contexts.\n\nInspired by the success of the SSA + K mode on BERTtiny in Section 4.6, the future work lies in the following aspects. Firstly, we will explore methods in which the tinyscale PLM transfers knowledge to itself. Secondly, we will further improve the strategy of replacing the contexts with the pseudo-labels and reduce the performance loss caused by this method.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "C.2 Error Study",
+      "text": "Reviewing the prediction results, our model performs poorly in two situations, namely ambiguous emotion and emotion shift.\n\nFor the former, BERT-ERC (teacher) fails to accurately differentiate similar emotions, such as happiness vs excited, peaceful vs neutral, and anger vs frustrated. Moreover, distinguishing other emotions from neutral in the datasets where the neutral emotion predominates is also a struggle. We believe that the proposed common-sense-based knowledge alleviates these issues to some extent, and the improved student performance also supports our idea. Moreover, fu-  For the latter, emotion shift is a great challenge in the ERC task, which means the emotions of two consecutive utterances from the same speaker are different. Existing ERC algorithms generally perform poorly in emotion shift, and our model is no exception. As shown in Table  3 , BERT-ERC achieves higher accuracy in recognizing samples without emotion shift than with it in most cases. Nonetheless, we still make significant progress in this scenario compared to previous works, and the comparison results are shown in Table  3 . Through analysis, we believe that improving the representation ability of the model serves as the optimal solution to this problem. As the proposed paradigm builds the entire training process on the PLM, we may exploit powerful PLMs to solve this problem in the future.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "D Comparison Experiments",
+      "text": "To better illustrate the advantages of the proposed paradigm, we additionally conduct comparison experiments in the three scenarios. Specifically, regarding the offline prediction, we visualize three utterances and the corresponding prediction results of BERT-ERC (teacher) and DAG-ERC on IEMOCAP dataset. For the limited resource scenario and the OERC scenario, we compare the number of trainable parameters and inference speed of several models, respectively.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "D.1 Visualization",
+      "text": "To intuitively show the advantages of the proposed model and the flaws of existing methods, we conduct visualization in Figure  1 . Further analysis is as follows.\n\nRegarding utterance (a, 1), both models make the correct prediction of the speaker emotion. However, DAG-ERC fails to understand the emotion change from utterance (a, 1) to utterance (a, 2) and thus makes a wrong judgement, while our model comprehends the mood swings in the conversation via introducing the dialogue structure information and contextual information into the fine-tuning step.\n\nIn dialogue b, Bob's words are split into utterance (b, 0) and utterance (b, 2), which poses obstacles to analyzing the emotion state of former utterance. In fact, the \"That I haven't been able to have a job.\" in utterance (b, 2) implies that the emotion state of both utterances is frustrated. However, the abstract utterance-level features in the previous paradigm make it difficult to analyze contextual information, thus leading to the wrong prediction of DAG-ERC. Differently, BERT-ERC inserts the contextual information into the PLMs and makes the correct prediction for utterance (b, 0). Moreover, in utterance (b, 3), DAG-ERC fails to distinguish the emotion state of Alice and Bob while our model addresses this issue via introducing the dialogue structure information into the PLMs.\n\nConcerning utterance (c, 1), which contains positive \"yeah, yeah, yeah\" and negative \"I'll have a little debt in the end.\", DAG-ERC classifies it as neutral. As a matter of fact, Alice points out the excitement of Bob in utterance (c, 2). Unfortunately, methods following the previous paradigm cannot extract such hints, as they do not consider contextual information and dialogue structure information until the second stage. Differently, the proposed paradigm explores  these two kinds of information when fine-tuning the PLMs and thus facilitates the comprehension of the interaction between the speakers.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "D.2 Trainable Parameters",
+      "text": "We compare the number of trainable parameters of several ERC models in Figure  2 (a). Methods following the previous paradigm, such as DAG-ERC, only utilize query utterance information when fine-tuning the PLMs, thus leading to the difficulty in analyzing contextual information and dialogue structure information. Moreover, EmoBERTa confronts the similar problem as it does not adapt the fine-tuning process to the ERC task. Thus, these algorithms make all parameters (including the parameters in the word embedding layer) trainable in the training process for better modelling capability. Differently, the proposed BERT-ERC-large (fr 8) freezes the first 8 encoder layers and the word embedding layer. As shown in Figure  2 (a), it significantly outperforms DAG-ERC and EmoBERTa with only half trainable parameters, which can be credited to the integration of query utterance information, contextual information, and dialogue structure information when fine-tuning the PLM. To meet practical needs, we use limited-scale PLMs in the limited resource scenario. As illustrated in Figure  2 (a), compared to DAG-ERC and EmoBERTa, BERT-ERC-base (fr 6) significantly reduces the trainable parameters, whereas still achieves better performance. Moreover, BERT-ERC-base (fr 10) also obtains comparable performance to these two methods with only a negligible number of trainable parameters. Overall, the proposed paradigm can be well adapted to the limited resources scenario and outperforms the methods that require a large amount of computational resources.",
+      "page_start": 12,
+      "page_end": 13
+    },
+    {
+      "section_name": "D.3 Inference Speed",
+      "text": "To evaluate the inference speed of the proposed model in the OERC scenario, we compare the prediction time of different ERC models on the test set of IEMOCAP (1623 utterances). As shown in Figure  2 (b), EmoBERTa and BERT-ERC-large take lots of time for inference, which can be ascribed to the introduced contexts when fine-tuning the PLMs. To address this issue, we propose the two-stage training strategy to utilize the time in the speaking stage. In such a manner, BERT-ERC-medium outperforms DAG-ERC in both accuracy and inference speed. Besides, we further reduce the PLM size to meet the speed requirement of several applications, such as automatic conversational agents. As shown in Figure  2 (b), BERT-ERC-tiny achieves the performance of 63.27% and the cost time in inference is almost negligible compared to other methods. Overall, with the combination of a large-scale PLM and a tiny-scale PLM, we meet the real-time requirement in the OERC scenario at the cost of limited performance loss.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "E Multi-Speaker Aggregation And Single-Speaker Aggregation",
+      "text": "To demonstrate the effectiveness of single-speaker aggregation in the resource-limited scenario, we conduct comparison experiments on four datasets using RoBERTa-base with the first 10 layers frozen as the PLM. As the results in Table  4  show, single-speaker aggregation outperforms multi-speaker aggregation in overall weighted fscore on all datasets. Moreover, it achieves better performance in most emotion-shift cases and emotion-constant cases. Accordingly, single-speaker aggregation not only provides a boost when conversational emotions remain stable, but also focuses the model on the mood swings of the speaker, thereby improving ERC performance in the emotion-shift cases. Compared to existing methods, which use RoBERTa-large as the PLM, our approach (BERT-ERC + RoBERTa-base(fr 10) + SSA) achieves comparable performance with only 2% trainable parameters.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: , we divided these factors into three groups: (1)",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: Furthermore, we develop",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: (a) Inﬂuencing factors in ERC. (b) Different paradigms for ERC.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: , given an utterance ui, the object of",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: , given an utterance",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: , and details will be presented as follows.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: The pipeline of BERT-ERC.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Two-stage training in OERC scenario.",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: Visualization of several utterances in the IEMOCAP dataset.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 1: Further analysis is as follows.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 2: (a) Limited resources scenario. (b) OERC scenario.",
+      "page": 12
+    },
+    {
+      "caption": "Figure 2: (a). Methods following the previous",
+      "page": 12
+    },
+    {
+      "caption": "Figure 2: (a), it signiﬁcantly outperforms DAG-",
+      "page": 12
+    },
+    {
+      "caption": "Figure 2: (a), compared to DAG-",
+      "page": 12
+    },
+    {
+      "caption": "Figure 2: (b), EmoBERTa and BERT-ERC-large",
+      "page": 12
+    },
+    {
+      "caption": "Figure 2: (b), BERT-ERC-tiny achieves the performance of",
+      "page": 12
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: , the baseline achieves comparable performance",
+      "data": [
+        {
+          "Method": "PLM",
+          "MELD": ""
+        },
+        {
+          "Method": "RoBERTa-large",
+          "MELD": "62.80\n63.02\n63.12\n63.61\n63.65"
+        },
+        {
+          "Method": "RoBERTa-large",
+          "MELD": "63.39"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table 3: (1) The baseline model uses the query",
+      "data": [
+        {
+          "Method": "DialogRNN + RoBERTa (Majumder et al. 2019)\nDialogGCN + RoBERTa (Ghosal et al. 2019b)\nRGAT + RoBERTa (Ishiwatari et al. 2020)\nKET (Zhong, Wang, and Miao 2019)\nDialogXL (Shen et al. 2020)\nDAGNN (Shen et al. 2021)\nCOSMIC (Ghosal et al. 2020)\nDAG-ERC (Shen et al. 2021)",
+          "IEMOCAP\nMELD\nDailyDialog\nEmoryNLP": "64.76\n63.61\n57.32\n37.44\n64.91\n63.02\n57.52\n38.10\n66.36\n62.80\n58.08\n37.78\n59.56\n58.18\n53.37\n33.95\n65.94\n62.41\n54.93\n34.73\n64.61\n63.12\n58.36\n37.98\n65.28\n65.21\n58.48\n38.11\n68.03\n63.65\n59.33\n39.02"
+        },
+        {
+          "Method": "EmoBERTa (Kim and Vossen 2021)",
+          "IEMOCAP\nMELD\nDailyDialog\nEmoryNLP": "68.57\n65.61\n-\n-"
+        },
+        {
+          "Method": "CoMPM (Lee and Lee 2021)\nT-GCN (Lee and Choi 2021)",
+          "IEMOCAP\nMELD\nDailyDialog\nEmoryNLP": "69.46\n66.52\n60.34\n38.93\n-\n65.36\n39.24\n61.91"
+        },
+        {
+          "Method": "BERT-ERC (teacher)\nBERT-ERC (student)\nBERT-ERC (best)",
+          "IEMOCAP\nMELD\nDailyDialog\nEmoryNLP": "69.43\n66.15\n60.71\n39.73\n70.84\n66.65\n61.42\n39.84\n61.42\n71.70\n67.11\n39.84"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 5: Performance comparison on IEMOCAP in OERC",
+      "data": [
+        {
+          "Method": "DialogRNN + RoBERTa-large\nDialogRNN + RoBERTa-base",
+          "IEMOCAP": "64.76\n62.75"
+        },
+        {
+          "Method": "DialogGCN + RoBERTa-large\nDialogGCN + RoBERTa-base",
+          "IEMOCAP": "64.91\n64.18"
+        },
+        {
+          "Method": "RGAT + RoBERTa-large\nRGAT + RoBERTa-base",
+          "IEMOCAP": "66.36\n65.22"
+        },
+        {
+          "Method": "BERT-ERC + RoBERTa-large + MSA\nBERT-ERC + RoBERTa-base (fr6) + MSA\nBERT-ERC + RoBERTa-base (fr6) + SSA",
+          "IEMOCAP": "69.43\n66.87\n68.98"
+        },
+        {
+          "Method": "BERT-ERC + RoBERTa-base (fr10) + MSA\nBERT-ERC + RoBERTa-base (fr10) + SSA",
+          "IEMOCAP": "63.22\n66.16"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 1: Ablation Study (%) of the <mask> token on",
+      "data": [
+        {
+          "Methods": "",
+          "IEMOCAP": "mean\nstd",
+          "MELD": "mean\nstd"
+        },
+        {
+          "Methods": "BERT-ERC (teacher)\nBERT-ERC (student)\nBERT-ERC (best)",
+          "IEMOCAP": "70.41\n0.63\n71.12\n0.56\n71.53\n0.21",
+          "MELD": "66.01\n0.21\n66.26\n0.33\n66.89\n0.27"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table 3: , BERT- tion via introducing the dialogue structure information and",
+      "data": [
+        {
+          "Methods": "",
+          "IEMOCAP": "ES",
+          "MELD": "ES",
+          "DailyDialog": "ES",
+          "EmoryNLP": "ES"
+        },
+        {
+          "Methods": "DialogRNN\nDialogXL\nDAG-ERC\nBERT-ERC (teacher)",
+          "IEMOCAP": "47.50\n55.00\n57.98\n59.38",
+          "MELD": "-\n-\n59.02\n60.02",
+          "DailyDialog": "-\n-\n57.26\n66.27",
+          "EmoryNLP": "-\n-\n37.29\n37.59"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table 4: show, single-speaker aggregation outperforms",
+      "data": [
+        {
+          "Overall (%)": "MSA",
+          "Emotion-shift (%)": "MSA",
+          "Emotion-constant (%)": "MSA"
+        },
+        {
+          "Overall (%)": "63.22",
+          "Emotion-shift (%)": "53.30",
+          "Emotion-constant (%)": "69.26"
+        },
+        {
+          "Overall (%)": "63.43",
+          "Emotion-shift (%)": "58.13",
+          "Emotion-constant (%)": "74.56"
+        },
+        {
+          "Overall (%)": "54.61",
+          "Emotion-shift (%)": "51.19",
+          "Emotion-constant (%)": "49.12"
+        },
+        {
+          "Overall (%)": "35.19",
+          "Emotion-shift (%)": "33.43",
+          "Emotion-constant (%)": "45.15"
+        }
+      ],
+      "page": 12
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "2",
+      "title": "Empirical evaluation of gated recurrent neural networks on sequence modeling",
+      "authors": [
+        "J Chung",
+        "C Gulcehre",
+        "K Cho",
+        "Y Bengio"
+      ],
+      "year": "2014",
+      "venue": "Empirical evaluation of gated recurrent neural networks on sequence modeling",
+      "arxiv": "arXiv:1412.3555"
+    },
+    {
+      "citation_id": "3",
+      "title": "Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2018",
+      "venue": "Pre-training of deep bidirectional transformers for language understanding",
+      "arxiv": "arXiv:1810.04805"
+    },
+    {
+      "citation_id": "4",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "A Dosovitskiy",
+        "L Beyer",
+        "A Kolesnikov",
+        "D Weissenborn",
+        "X Zhai",
+        "T Unterthiner",
+        "M Dehghani",
+        "M Minderer",
+        "G Heigold",
+        "S Gelly"
+      ],
+      "year": "2020",
+      "venue": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "arxiv": "arXiv:2010.11929"
+    },
+    {
+      "citation_id": "5",
+      "title": "Improving Empathetic Response Generation by Recognizing Emotion Cause in Conversations",
+      "authors": [
+        "J Gao",
+        "Y Liu",
+        "H Deng",
+        "W Wang",
+        "Y Cao",
+        "J Du",
+        "R Xu"
+      ],
+      "year": "2021",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "6",
+      "title": "COSMIC: COmmonSense knowledge for eMotion identification in conversations",
+      "authors": [
+        "D Ghosal",
+        "N Majumder",
+        "A Gelbukh",
+        "R Mihalcea",
+        "S Poria"
+      ],
+      "year": "2020",
+      "venue": "COSMIC: COmmonSense knowledge for eMotion identification in conversations",
+      "arxiv": "arXiv:2010.02795"
+    },
+    {
+      "citation_id": "7",
+      "title": "DialogueGCN: A Graph Convolutional Neural Network for Emotion Recognition in Conversation",
+      "authors": [
+        "D Ghosal",
+        "N Majumder",
+        "S Poria",
+        "N Chhaya",
+        "A Gelbukh"
+      ],
+      "year": "2019",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "8",
+      "title": "A graph convolutional neural network for emotion recognition in conversation",
+      "authors": [
+        "D Ghosal",
+        "N Majumder",
+        "S Poria",
+        "N Chhaya",
+        "A Gelbukh"
+      ],
+      "year": "2019",
+      "venue": "A graph convolutional neural network for emotion recognition in conversation",
+      "arxiv": "arXiv:1908.11540"
+    },
+    {
+      "citation_id": "9",
+      "title": "Distilling the knowledge in a neural network",
+      "authors": [
+        "G Hinton",
+        "O Vinyals",
+        "J Dean"
+      ],
+      "year": "2015",
+      "venue": "Distilling the knowledge in a neural network",
+      "arxiv": "arXiv:1503.02531"
+    },
+    {
+      "citation_id": "10",
+      "title": "Parameter-efficient transfer learning for NLP",
+      "authors": [
+        "N Houlsby",
+        "A Giurgiu",
+        "S Jastrzebski",
+        "B Morrone",
+        "Q De Laroussilhe",
+        "A Gesmundo",
+        "M Attariyan",
+        "S Gelly"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "11",
+      "title": "Lora: Low-rank adaptation of large language models",
+      "authors": [
+        "E Hu",
+        "Y Shen",
+        "P Wallis",
+        "Z Allen-Zhu",
+        "Y Li",
+        "S Wang",
+        "L Wang",
+        "W Chen"
+      ],
+      "year": "2021",
+      "venue": "Lora: Low-rank adaptation of large language models",
+      "arxiv": "arXiv:2106.09685"
+    },
+    {
+      "citation_id": "12",
+      "title": "Relation-aware graph attention networks with relational position encodings for emotion recognition in conversations",
+      "authors": [
+        "T Ishiwatari",
+        "Y Yasuda",
+        "T Miyazaki",
+        "J Goto"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "13",
+      "title": "Higru: Hierarchical gated recurrent units for utterance-level emotion recognition",
+      "authors": [
+        "W Jiao",
+        "H Yang",
+        "I King",
+        "M Lyu",
+        "X Jiao",
+        "Y Yin",
+        "L Shang",
+        "X Jiang",
+        "X Chen",
+        "L Li",
+        "F Wang",
+        "Q Liu"
+      ],
+      "year": "2019",
+      "venue": "Distilling bert for natural language understanding",
+      "arxiv": "arXiv:1904.04446"
+    },
+    {
+      "citation_id": "14",
+      "title": "EmoBERTa: Speaker-Aware Emotion Recognition in Conversation with RoBERTa",
+      "authors": [
+        "T Kim",
+        "P Vossen"
+      ],
+      "year": "2021",
+      "venue": "EmoBERTa: Speaker-Aware Emotion Recognition in Conversation with RoBERTa",
+      "arxiv": "arXiv:2108.12009"
+    },
+    {
+      "citation_id": "15",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2014",
+      "venue": "Adam: A method for stochastic optimization",
+      "arxiv": "arXiv:1412.6980"
+    },
+    {
+      "citation_id": "16",
+      "title": "Ask me anything: Dynamic memory networks for natural language processing",
+      "authors": [
+        "A Kumar",
+        "O Irsoy",
+        "P Ondruska",
+        "M Iyyer",
+        "J Bradbury",
+        "I Gulrajani",
+        "V Zhong",
+        "R Paulus",
+        "R Socher"
+      ],
+      "year": "2016",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "17",
+      "title": "Graph based network with contextualized representations of turns in dialogue",
+      "authors": [
+        "B Lee",
+        "Y Choi"
+      ],
+      "year": "2021",
+      "venue": "Graph based network with contextualized representations of turns in dialogue",
+      "arxiv": "arXiv:2109.04008"
+    },
+    {
+      "citation_id": "18",
+      "title": "CoMPM: Context Modeling with Speaker's Pre-trained Memory Tracking for Emotion Recognition in Conversation",
+      "authors": [
+        "J Lee",
+        "W Lee"
+      ],
+      "year": "2021",
+      "venue": "CoMPM: Context Modeling with Speaker's Pre-trained Memory Tracking for Emotion Recognition in Conversation",
+      "arxiv": "arXiv:2108.11626"
+    },
+    {
+      "citation_id": "19",
+      "title": "Prefix-tuning: Optimizing continuous prompts for generation",
+      "authors": [
+        "X Li",
+        "P Liang"
+      ],
+      "year": "2021",
+      "venue": "Prefix-tuning: Optimizing continuous prompts for generation",
+      "arxiv": "arXiv:2101.00190"
+    },
+    {
+      "citation_id": "20",
+      "title": "Towards an Online Empathetic Chatbot with Emotion Causes",
+      "authors": [
+        "Y Li",
+        "K Li",
+        "H Ning",
+        "X Xia",
+        "Y Guo",
+        "C Wei",
+        "J Cui",
+        "B Wang"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 44th International ACM SIGIR Conference on Research and Development in Information Retrieval"
+    },
+    {
+      "citation_id": "21",
+      "title": "A manually labelled multi-turn dialogue dataset",
+      "authors": [
+        "Y Li",
+        "H Su",
+        "X Shen",
+        "W Li",
+        "Z Cao",
+        "S Niu"
+      ],
+      "year": "2017",
+      "venue": "A manually labelled multi-turn dialogue dataset",
+      "arxiv": "arXiv:1710.03957"
+    },
+    {
+      "citation_id": "22",
+      "title": "Focal loss for dense object detection",
+      "authors": [
+        "T.-Y Lin",
+        "P Goyal",
+        "R Girshick",
+        "K He",
+        "P Dollár"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the IEEE international conference on computer vision"
+    },
+    {
+      "citation_id": "23",
+      "title": "K-bert: Enabling language representation with knowledge graph",
+      "authors": [
+        "W Liu",
+        "P Zhou",
+        "Z Zhao",
+        "Z Wang",
+        "Q Ju",
+        "H Deng",
+        "P Wang"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "24",
+      "title": "Roberta: A robustly optimized bert pretraining approach",
+      "authors": [
+        "Y Liu",
+        "M Ott",
+        "N Goyal",
+        "J Du",
+        "M Joshi",
+        "D Chen",
+        "O Levy",
+        "M Lewis",
+        "L Zettlemoyer",
+        "V Stoyanov"
+      ],
+      "year": "2019",
+      "venue": "Roberta: A robustly optimized bert pretraining approach",
+      "arxiv": "arXiv:1907.11692"
+    },
+    {
+      "citation_id": "25",
+      "title": "Dialoguernn: An attentive rnn for emotion detection in conversations",
+      "authors": [
+        "N Majumder",
+        "S Poria",
+        "D Hazarika",
+        "R Mihalcea",
+        "A Gelbukh",
+        "E Cambria"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "26",
+      "title": "The natural language decathlon: Multitask learning as question answering",
+      "authors": [
+        "B Mccann",
+        "N Keskar",
+        "C Xiong",
+        "R Socher"
+      ],
+      "year": "2018",
+      "venue": "The natural language decathlon: Multitask learning as question answering",
+      "arxiv": "arXiv:1806.08730"
+    },
+    {
+      "citation_id": "27",
+      "title": "Meld: A multimodal multiparty dataset for emotion recognition in conversations",
+      "authors": [
+        "S Poria",
+        "D Hazarika",
+        "N Majumder",
+        "G Naik",
+        "E Cambria",
+        "R Mihalcea"
+      ],
+      "year": "2018",
+      "venue": "Meld: A multimodal multiparty dataset for emotion recognition in conversations",
+      "arxiv": "arXiv:1810.02508"
+    },
+    {
+      "citation_id": "28",
+      "title": "Emotion Recognition in Conversation: Research Challenges, Datasets, and Recent Advances",
+      "authors": [
+        "S Poria",
+        "N Majumder",
+        "R Mihalcea",
+        "E Hovy"
+      ],
+      "year": "2019",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "29",
+      "title": "Language models are unsupervised multitask learners",
+      "authors": [
+        "A Radford",
+        "J Wu",
+        "R Child",
+        "D Luan",
+        "D Amodei",
+        "I Sutskever"
+      ],
+      "year": "2019",
+      "venue": "OpenAI blog"
+    },
+    {
+      "citation_id": "30",
+      "title": "Dis-tilBERT, a distilled version of BERT: smaller, faster, cheaper and lighter",
+      "authors": [
+        "V Sanh",
+        "L Debut",
+        "J Chaumond",
+        "T Wolf"
+      ],
+      "year": "2019",
+      "venue": "Dis-tilBERT, a distilled version of BERT: smaller, faster, cheaper and lighter",
+      "arxiv": "arXiv:1910.01108"
+    },
+    {
+      "citation_id": "31",
+      "title": "Exploiting cloze questions for few shot text classification and natural language inference",
+      "authors": [
+        "T Schick",
+        "H Schütze"
+      ],
+      "year": "2020",
+      "venue": "Exploiting cloze questions for few shot text classification and natural language inference",
+      "arxiv": "arXiv:2001.07676"
+    },
+    {
+      "citation_id": "32",
+      "title": "Dialogxl: All-in-one xlnet for multi-party conversation emotion recognition",
+      "authors": [
+        "W Shen",
+        "J Chen",
+        "X Quan",
+        "Z Xie"
+      ],
+      "year": "2020",
+      "venue": "Dialogxl: All-in-one xlnet for multi-party conversation emotion recognition",
+      "arxiv": "arXiv:2012.08695"
+    },
+    {
+      "citation_id": "33",
+      "title": "Directed acyclic graph network for conversational emotion recognition",
+      "authors": [
+        "W Shen",
+        "S Wu",
+        "Y Yang",
+        "X Quan"
+      ],
+      "year": "2021",
+      "venue": "Directed acyclic graph network for conversational emotion recognition",
+      "arxiv": "arXiv:2105.12907"
+    },
+    {
+      "citation_id": "34",
+      "title": "Dropout: a simple way to prevent neural networks from overfitting",
+      "authors": [
+        "N Srivastava",
+        "G Hinton",
+        "A Krizhevsky",
+        "I Sutskever",
+        "R Salakhutdinov"
+      ],
+      "year": "2014",
+      "venue": "The journal of machine learning research"
+    },
+    {
+      "citation_id": "35",
+      "title": "Well-read students learn better: On the importance of pretraining compact models",
+      "authors": [
+        "I Turc",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Well-read students learn better: On the importance of pretraining compact models",
+      "arxiv": "arXiv:1908.08962"
+    },
+    {
+      "citation_id": "36",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "37",
+      "title": "Emotion detection on tv show transcripts with sequence-based convolutional neural networks",
+      "authors": [
+        "S Zahiri",
+        "J Choi"
+      ],
+      "year": "2018",
+      "venue": "Workshops at the thirty-second aaai conference on artificial intelligence"
+    },
+    {
+      "citation_id": "38",
+      "title": "Knowledgeenriched transformer for emotion detection in textual conversations",
+      "authors": [
+        "P Zhong",
+        "D Wang",
+        "C Miao"
+      ],
+      "year": "2019",
+      "venue": "Knowledgeenriched transformer for emotion detection in textual conversations",
+      "arxiv": "arXiv:1909.10681"
+    }
+  ]
+}

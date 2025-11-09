@@ -1,0 +1,3768 @@
+{
+  "paper_id": "2401.16058v1",
+  "title": "Neuromorphic Valence And Arousal Estimation",
+  "published": "2024-01-29T11:13:18Z",
+  "authors": [
+    "Lorenzo Berlincioni",
+    "Luca Cultrera",
+    "Federico Becattini",
+    "Alberto Del Bimbo"
+  ],
+  "keywords": [
+    "valence",
+    "arousal",
+    "event camera",
+    "face analysis",
+    "neuromorphic vision"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Recognizing faces and their underlying emotions is an important aspect of biometrics. In fact, estimating emotional states from faces has been tackled from several angles in the literature. In this paper, we follow the novel route of using neuromorphic data to predict valence and arousal values from faces. Due to the difficulty of gathering event-based annotated videos, we leverage an event camera simulator to create the neuromorphic counterpart of an existing RGB dataset. We demonstrate that not only training models on simulated data can still yield state-of-the-art results in valence-arousal estimation, but also that our trained models can be directly applied to real data without further training to address the downstream task of emotion recognition. In the paper we propose several alternative models to solve the task, both frame-based and video-based.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Analyzing humans and their behaviors is one of the most important fields of artificial intelligence and computer vision. Such importance stems from the repercussions that a technology capable of understanding humans can have on society: being able to recognize an individual is fundamental for security; analyzing biometrics offers intriguing possibilities for patient monitoring in healthcare; understanding behaviors and emotions enables smart human-robot collaborations in private spaces as well as in industry. In synthesis, human understanding is revolutionizing our society and our behaviors, both in our private sphere and in workspaces, where humans and AI-driven robotic agents are starting to work alongside. To ensure a seamless interaction in this sense though, recognizing individuals and their behaviors is not enough. Robotic agents, let them be actual humanoid robots, vision-based software modules or conversational agents, must infer the mood of the human they are observing so to provide a more natural way of interacting as well as to better plan an appropriate reaction that ensures safety and an harmonious work environment.\n\nTherefore, in this paper, we focus on analyzing faces in order to estimate human moods and emotions. A lot of prior work exists in this field, mostly focusing on analyzing facial expressions to understand the underlying emotion. Several works in the field of expression recognition focused on detecting facial action units  Ekman and Friesen (1978) ;  Rudovic et al (2015) ;  Kaltwang et al (2015)  or they formulated the problem as close-set classification task over a limited number of emotions. A different, more recent, approach instead poses the problem as a regression task over two continuous dimensions measuring positive and negative affectivity (valence) and the level of excitement of the expressed emotion (arousal)  Panagakis et al (2016) ;  Gunes and Schuller (2013) .\n\nWe follow the latter approach of estimating valence and arousal, as it can provide a punctual frame-by-frame estimate of the mood in a continuous way and can then be translated into more specific interpretations such as emotion categories (Fig.  1 ). However, we argue that relying on traditional RGB cameras can have limitations in processing human faces effectively. Human emotions are often manifested through fast, inconceivable and involuntary facial muscle movements, that can be completed within a few milliseconds  Yan et al (2013) . Such movements might not even be fully observable with traditional RGB cameras. Nonetheless, for many practical applications, it is necessary to achieve a more fine-grained resolution of the continuously produced micro-movements of the human face. To address this issue, a few methods have been proposed recently that analyze faces with the use of a neuromorphic camera (often referred to as an event camera) rather than an RGB one  Berlincioni et al (2023); Becattini et al (2022) ;  Lenz et al (2020) ;  Ryan et al (2023) ;  Shariff et al (2023) ;  Bissarinova et al (2023) . Unlike traditional cameras, neuromorphic sensors work asynchronously and capture events, i.e. per-pixel illumination changes, and have highly desirable properties such as microsecond latency, high-dynamic ranges and low power consumption. Such properties enable event cameras to capture subtle variations and micro-expressions in human faces (and, therefore, emotions) at a remarkably high temporal resolution. In addition, analyzing faces with event cameras is also favorable for preserving the privacy of the subjects. Streams are in fact less interpretable for the human eye and can be scrambled in order to make the subjects unrecognizable  Ahmad et al (2023)  without altering the capacity of computer vision models.\n\nIn this paper, we present the first approach to model valence and arousal in human faces using neuromorphic data (Fig.  2 ). To address this task, we rely on an event simulator  Hu et al (2021)  capable of converting RGB videos into simulated event streams. This solution is sub-optimal compared to using real event-based videos but enables several key factors that would be hard and costly to obtain: on the one hand, it provides us with a fully labeled neuromorphic dataset, since valencearousal annotations can be directly transferred from the original dataset; on the other hand, it allows us to train computer vision models without the need of collecting additional data with an event camera, which also entails that we do not require any manual annotation. In addition, we perform zero-shot transfer experiments onto real event data, demonstrating also that our models can be adopted for the downstream task of emotion classification without any further training.\n\nIn summary, the main contributions of our paper are the following:\n\n• We investigate the problem of estimating valence and arousal from event streams. To the best of our knowledge, we are the first to address such a problem.  • We demonstrate that our models can be successfully applied also on real event streams from the NEFER dataset Berlincioni et al (  2023 ) and that we can address the task of emotion estimation directly from the predicted valence and arousal values, without additional training on the new data.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Previous Work",
+      "text": "Neuromorphic Vision Neuromorphic vision involves data acquisition methods based on event cameras, bio-inspired vision sensors that have been recently introduced Delbruckl (2016);  Posch et al (2014) . Unlike traditional vision systems, neuromorphic sensors generate asynchronous streams of events rather than a frame sequence with a predetermined frame-rate. Instead of obtaining frames from the camera, we now obtain events, which are local changes in the brightness of a single pixel. What makes these sensors extremely interesting is the fact that events can be fired at sub-millisecond rates  Lichtsteiner et al (2008)  When working with event data, a few considerations have to be taken into account. Notably, these neuromorphic sensors exhibit the distinctive characteristic of not outputting any data unless a localized change in brightness is detected, effectively conserving resources and minimizing bandwidth consumption  Finateu et al (2020) ;  Gallego et al (2020) . In general, the fact that events are not generated synchronously entails the need for an intermediate representation of events that can be processed, for instance, by deep learning architectures. Whereas dedicated architectures exist, such as Spiking Neural Networks  Barchid et al (2023) , a common way to proceed is to accumulate the events that happen in synchronous time intervals to generate frames that can be fed to a convolutional neural network. Several event aggregation strategies exist  Mueggler et al (2017) ;  Innocenti et al (2021) ;  Nguyen et al (2019) ;  Cannici et al (2020) , which are often capable of injecting some temporal context into the information contained in each pixel.\n\nIn this paper, we leverage event data for a newborn field of research, that is neuromorphic face analysis. Analyzing faces with an event camera in fact permits to capture high-frequency information that might be difficult to capture with standard cameras. For instance, facial action units are tied to extremely fast muscle movements that appear as small movements in a video  Yan et al (2013) . Just a few works exist involving event cameras and faces. Face detection  Bissarinova et al (2023)  and face pose estimation Savran and Bartolozzi (2020) have been addressed, but also lip reading  Bulzomi et al (2023)  and eye-blink detection  Lenz et al (2020) . Among the first attempts to estimate affective information from event videos,  Becattini et al (2022)  estimated positive or negative facial reactions when observing fashion items and  Berlincioni et al (2023)  classified 7 basic emotions. Differently from these works, we focus on estimating valence and arousal, which we belive to be a finer modeling of facial expressivity. In fact, we also experimentally demonstrate that emotions can be directly inferred from our predicted valence and arousal value, even when tested on a different dataset from the one used for training.\n\nEmotion estimation Most of the research in literature on emotion estimation focused on facial expression recognition, facial action unit detection, and expression classification  Savchenko et al (2022) ;  Kollias and Zafeiriou (2019) ;  Li and Zhang (2022) ;  Schoneveld et al (2021) . Mikels' Wheel of Emotions  Mikels et al (2005)  is a visual representation of emotion classes in the valence-arousal space, a widely-used emotion model from psychology. As shown in Fig.  1 , emotions on Mikel's wheel are separated into eight categories as well as two polarities (i.e., positive and negative).  Toisoul et al (2021)  propose a method for real-time applications to estimate both categorical and continuous emotions.  Kossaifi et al (2020)  introduces CP-Higher-Order Convolution, a tensor factorization framework unifying low-rank tensor decompositions and efficient convolutional block design. Enabling higher-order transduction, the approach facilitates training on a specific domain (e.g., 2D images) and generalizing seamlessly to higherorder data like videos, demonstrating superior performance in spatio-temporal facial emotion analysis on large-scale datasets. Different from the aforementioned works,  Parameshwara et al (2023)  employs a Siamese network trained with image pairs and a contrastive loss. This enables the network to estimate emotional dissimilarity and quantify valence and arousal differentials for given image pairs. Handrich et al (  2020 ) use a YOLO-based model to predict face bounding boxes, basic emotions and valence-arousal values.  Mitenkova et al (2019) , instead, propose a tensor-based method to predict continuous values of valence and arousal. Also  Kollias et al (2020)  introduce a data augumentation technique to train Deep Neural Network to perform valence-arousal estimation.\n\nOn the other hand, other methods prefer a more categorical approach, aiming to predict the 8 emotions on Mikels's wheel described earlier rather than continuous valence-arousal values.  Wen et al (2023) , for instance, proposes an approach based on multi-head attention for emotion classification, achieving remarkable results.  Savchenko (2021)  introduces a streamlined training approach for a lightweight CNN in facial analytics, achieving state-of-the-art results in videobased emotion analysis.  Mao et al (2023)  combine facial landmark and image features through two-stream pyramid cross-fusion design obtaining state-of-the-art results in emotion recognition. Unlike the approaches described so far, in this paper, we propose to focus on event videos, a domain that has been relatively unexplored in the literature but appears to be promising, particularly in areas such as face analysis and emotion recognition.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Simulating Neuromorphic Data",
+      "text": "Training a computer vision model based on neuromorphic streams is not straightforward. The main challenge that has to be faced is the lack of data sources from where to obtain meaningful samples.\n\nVideos cannot be crawled from the web and new datasets need to be recorded and labeled from scratch. Automatizing such pipeline is not trivial as off-the-shelf traditional computer vision models (e.g. face detectors) are ineffective on event frames. The intrinsic structure of the data itself makes it hard to annotate it since when no illumination change is detected by the sensor no signal is produced. Luckily, event camera simulators have been proposed in the literature, namely,  ESIM Rebecq et al (2018)  and  V2E Hu et al (2021) . These simulators are capable of producing neuromorphic counterparts from RGB videos. To this end, they first perform a temporal upsampling of RGB frames, with a rate that adapts to the video content and its estimated visual dynamics (the more the video changes, the more frames are added).\n\nThen, synthetic events are generated by analyzing the differences between adjacent frames.\n\nIn this paper, we adopt  V2E Hu et al (2021)  to convert an RGB dataset labeled with valence and arousal values for each frame. In particular, we use the AFEW-VA dataset  Kossaifi et al (2017) , which consists of a collection of 600 RGB videos extracted from movies. Each per-frame annotation is a discrete value in the range of -10 to 10. Along with these annotations, the positions of 68 facial landmarks are also provided. Videos range from around 10 frames to longer clips (more than 120 frames); in total, there are 30,000 frames in the entire dataset.\n\nOnce the videos are converted, we need to map the annotations onto event data. To do so, we assign to each annotation a timestamp corresponding to the one of the frame within the video. When we generate event frames (see Sec. 4) we then label them with valence and arousal by looking for the annotation with the closest timestamp to the average timestamp of the events in the neuromorphic frame.\n\nIn the following, we will outline our training pipeline for learning to predict valence and arousal from the simulated event streams, both leveraging frame-based models as well as video-based models. Interestingly, our experimental validation shows that we are able to obtain state-of-the-art results on the AFEW-VA dataset when comparing our results with RGB-based models from the literature. We also show that our trained models can be directly applied on real event data, demonstrating excellent zero-shot transfer capabilities on the related task of emotion recognition on the NEFER dataset  Berlincioni et al (2023) .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Valence And Arousal Estimation",
+      "text": "Given a video sequence v = {f 0 , f 1 , ..., f T -1 } of T frames, our goal is to regress a pair of valence and arousal values (v i , âi ) for each frame, so to match the correspondent ground truth values (v * i , a * i ) with i = 0, ..., T -1. The problem can be addressed by analyzing single frames or sequences of frames, thus providing a temporal context to the prediction. In the following, we will present several alternative models for predicting valence and arousal from both frames and video chunks.\n\nIn both cases, the methods we propose all leverage frame-based representations of events. Neuromorphic data, in fact, is natively represented as a list of asynchronous events, yet it is common practice to aggregate events into frames by gathering all the activations that happen within an aggregation time ∆t  Mueggler et al (2017) ;  Innocenti et al (2021) ;  Nguyen et al (2019) . This allows us to use standard computer vision models such as convolutional neural networks even with neuromorphic data.\n\nIn particular, we choose to represent events with the Temporal Binary Representation (TBR)  Innocenti et al (2021)  strategy. To compute the TBR frame encoding we do the following. After setting a fixed accumulation time ∆t, we can build a binary representation of the frame b by checking for the presence of any event at each location (x, y), that is b x,y = 1(x, y), where 1 is an indicator function that is equal to 1 is an event is present in position (x, y) during the accumulation interval and 0 otherwise.\n\nOnce the binary representation has been created, it is possible to collect N consecutive frames and concatenate them together as a tensor B ∈ R H×W ×N , where W and H are respectively the width and the height of the frame. This yields for each pixel a binary string B x,y = [b 0\n\nx,y , b 1 x,y , ..., b N -1 x,y ] that can be converted to a scalar through a binary-to-decimal conversion. By doing so, TBR manages to create a frame processable by traditional computer vision pipelines along with the benefit of retaining temporal information spanning across a time interval of N × ∆t within the value of each pixel while needing a minimal memory footprint. In our experiments, we used ∆t = 5 milliseconds and N = {8, 16}.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Models",
+      "text": "We follow two main protocols and therefore two main families of models. The frame-based ones are those models working with a single frame, which is they have a single (v, a) output given a single event-frame input. The video-based models instead work at video level, having an output per event frame and a sequence of frames as an input. For the frame-based models we utilize two architectures to address the task: ResNet18  He et al (2016)  and Vision Transformer (ViT)  Dosovitskiy et al (2020) . For the Vision Transformer configuration, we employ four attention heads with a depth of 4, utilizing patch sizes of 8. Across both ViT and ResNet, we maintain consistent input dimensions of 224 × 224 pixels. For the video-based models, we adopt four distinct architectures: IC3D, ResNet+LSTM, ResNet+Transformer and a custom architecture that we refer to as ResNet+Fusion. Both the ResNet+LSTM and ResNet+Transformer models utilize a pretrained ResNet18 on ImageNet, extracting features of dimension 1024. During the training phase, ResNet is kept frozen for both models. In the first case, the output features from ResNet are fed into a sequence of 3 LSTM layers with a hidden size of 256. In the second case, the features are processed by a transformerbased architecture with 4 heads, 6 encoders, and 6 decoders. Both models employ a final MLP (comprising two layers) for regressing valence and arousal values for each frame of the input sequence. Conversely, the ResNet+Fusion model employs an unfrozen ResNet18 during training. The resulting 1024-dimensional output features from ResNet are then directed into two distinct heads. The first head processes video-level features by stacking all the frame features together, while the second head handles frame-level features individually. Both heads generate 128-dimensional features using multiple linear layers. Subsequently, the features extracted from both heads are concatenated, and a final MLP, consisting of two linear layers, predicts valence and arousal values for each frame in the sequence. Significantly, this model excels in learning features at both video and frame levels, thereby enhancing its ability to discern subtle patterns throughout the entire sequence. Since we process several frames at a time, we have to fix the sequence length. In our experiments, we process chunks of 6 frames individually. Lastly, IC3D employs an architecture inspired by Inception3D  Carreira and Zisserman (2017) . However, unlike the approach in Carreira and Zisserman (2017), we utilize a single data stream, resulting in a single-branch architecture composed of 3D convolutions. The activation function employed in all MLPs across the models is ReLU. The models were trained using the AdamW optimizer with an initial learning rate of 0.0001. For every listed model we also employ a scheduler that halves the learning rate every 50 epochs.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Experiments",
+      "text": "In this section, we define our experimental methodology and showcase the primary outcomes of the proposed approach. We present the results of our simulated-data pipeline in terms of a valence-arousal regression task over the AFEW-VA dataset  Kossaifi et al (2017) ;  Toisoul et al (2021) , also by comparing the results with RGB baselines from the literature. We then demonstrate the zero-shot transfer capabilities of our models on a related downstream task using real event videos, i.e. emotion classification on the recently proposed NEFER dataset  Berlincioni et al (2023) .\n\nWe only train our models on the synthetically generated event videos obtained by applying the V2E simulator of the AFEW-VA (as presented in Sec. 3). The evaluation is then performed on AFEW-VA by following the experimental validation protocol of prior works known as subjectindependent  Kossaifi et al (2017)  and on NEFER by using the test split provided by the authors.\n\nHere we first introduce the metrics used to evaluate our models, then we present the results and perform an ablation study on the TBR encoding strategy, varying the number of bits N used in the data representation scheme.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Metrics",
+      "text": "We employ multiple metrics for performance evaluation over both AFEW-VA and NEFER datasets. Given that y * and ŷ represent the ground truth and the predicted values, we can define several metrics to evaluate the different models. On AFEW-VA we adopt the following ones:\n\n• Root Mean Square Error (RMSE) evaluates how close predicted values are from the target values:\n\n• Pearson Correlation Coefficient (PCC) measures how correlated predictions and target values are: Table  2  Result on the AFEW-VA event dataset for video-based models.\n\n• Sign Agreement (SAGR) is a measure to evaluate if the sign of the predicted value matches with the target.\n\n(3)",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Results",
+      "text": "In Tab. 1 and Tab. 2, a comparison between the proposed models for both the frame-based and video-based approaches is provided. Regarding frame-based models, ViT achieves the most interesting results, yet both models achieve an RMSE lower or equal to 0.2. To correctly interpret these results, it has to be noted that we represent valence and arousal values in the range [-1, 1], as commonly done for evaluation  Toisoul et al (2021) ;  Kossaifi et al (2017) .\n\nAs for video-based models, ResNet+Fusion stands out. Notably, ResNet+Fusion also emerges as the model with the overall best performance among all the approaches. Moreover, all video-based methods perform better than models trained to analyze just a single frame. This suggests that in order to predict valence and arousal effectively, providing a temporal context can be helpful. We believe that providing a temporal context also reduces the chance of having frames with low content due to lack of movement in the video (and therefore lack of events).\n\nInterestingly, for all methods, arousal appears to be easier than valence. This trend is also confirmed by prior works, as shown in Tab. 3. Here, we compare our best frame-based model  Both methods are capable of performing better or on par compared to prior works. This points towards the direction, also suggested by other works in the neuromorphic literature  Becattini et al (2022) ;  Berlincioni et al (2023) , that eventbased representations might help models to focus more on informative content, filtering out distractors such as background and textures that can interfere with the learning process.\n\nTo provide a better understanding, we also report some qualitative results obtained with ResNet+Fusion in Fig.  3  and Fig.  4 . It can be seen that the predictions tend to adhere to the overall trend of the ground truth.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Tbr Ablation Study",
+      "text": "We compare the use of different hyperparameters for the Temporal Binary Encoding. As previously stated, the natural output format for neuromorphic sensors is a continuous stream of events rather than an image. In order to leverage computer vision tools, such as CNNs, the image encoding policy plays a major role.\n\nIn this ablation study, our aim is to discern how varying the amount of bits N affects the TBR encoding scheme for valence and arousal estimation. Tab. 4 illustrates the outcomes for models trained on the AFEW-VA synthetic-event dataset using TBR encoding with N = 8 and N = 16. Notably, across all models in the table, employing an 8 -bit encoding consistently leads to superior performance in all metrics. This phenomenon arises because using 16 bits overly compresses events, resulting in a loss of valuable information. Conversely, opting for a lower bit count, while representing a smaller number of events, leads to a more precise and informative signal, thereby facilitating superior overall performance.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Zero-Shot Transfer On Nefer",
+      "text": "To establish the usefulness of training models using synthetic data, we analyze the zero-shot transfer capabilities of our models on a real event dataset. Since there are no existing event-based datasets in the literature with annotated valence and arousal values, we use the NEFER Berlincioni et al (2023) dataset, which addresses the related task of emotion recognition. Each sample is composed of an RGB video and an event stream, recorded with two separate cameras, and records the reaction from a user while being shown particular videos, chosen to trigger specific emotions. For each (user, video) pair both the expected emotion (A-priori) and the one reported by the test subjects (Reported) are given.\n\nIn order to map frame-level valence and arousal values predicted by our models onto video-level emotions, we adopt the following approach. We apply our model on every frame of a sequence, obtaining a temporal valence-arousal profile describing the whole video. Since samples in NEFER exhibit several static frames, with the emotion expressing itself only through extremely fast micro-movements, we choose to   We report the results of zero-shot transfer on NEFER in Tab. 5. We show both the best performing frame-based method from Tab. 1 (ViT) and the best performing video-based method from Tab. 2 (ResNet+Fusion). Interestingly, both approaches surpass the RGB baseline reported in  Berlincioni et al (2023)  in terms of classification accuracy. They also manage to achieve similar performance to the event-based model proposed in  Berlincioni et al (2023) , i.e. a 3D convolutional network directly trained to predict emotions. This demonstrates the effectiveness of relying on simulated events for training neuromorphic models, which can then be easily deployed to work with real event data. Note that we do not perform any additional training for the emotion classification task and we only rely on the aforementioned heuristic for inferring emotions from valence-arousal pairs.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Limitations And Future Work",
+      "text": "Whilst the use of neuromorphic sensors has multiple advantages, they also have drawbacks. Mainly, these types of cameras detect local changes in brightness which means that they yield a blank frame, in case a static scene is captured, as no event is generated. This issue can be tackled with several solutions, from a simple threshold heuristic that does not update the frame unless a certain amount of events is reached, to a more sophisticated memory-equipped neural network  Cannici et al (2020) .\n\nIn addition, the proposed data emulation pipeline, based on the V2E simulator, relies on good-quality input videos in order to properly approximate the event domain. In the case of heavily compressed input data, such as some of the videos in AFEW-VA, the block-sized artifacts of the MPEG compression end up as block-sized events firing synchronously (see Fig.  5 ). This is in stark contrast with the real sensors that do not exhibit this type of image noise. Such a limitation could be addressed by first restoring the original quality of the RGB frames, possibly using deep learning, e.g. GAN-based decompression frameworks  Galteri et al (2017) .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "In this paper, we have explored the possibility of estimating the valence and arousal of facial expressions from neuromorphic videos. To this end, we have adopted an event simulator to convert an existing RGB dataset and we have trained several models, both frame-based and video-based, on the resulting data. Interestingly, the models obtain state-of-the-art results and can also be applied zero-shot to address the downstream task of emotion recognition on real event videos, without any further training.",
+      "page_start": 9,
+      "page_end": 9
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Valence-Arousal unit circle. Values can be",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: ). However, we argue that relying",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: ). To address this task,",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Illustration of RGB and event frames in a sample video over its relative valence and arousal plot.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: , emotions on Mikel’s wheel",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: and Fig. 4. It can be seen",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: Qualitative samples for valence and arousal estimation on samples of the AFEW-VA dataset, obtained with the",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: Qualitative samples for valence and arousal esti-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 5: Compression artifacts showing after postprocessing",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: ). This is in",
+      "page": 9
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "†These authors contributed equally to this work.": "Abstract"
+        },
+        {
+          "†These authors contributed equally to this work.": "Recognizing faces and their underlying emotions is an important aspect of biometrics. In fact, estimat-"
+        },
+        {
+          "†These authors contributed equally to this work.": "ing emotional states from faces has been tackled from several angles in the literature. In this paper,"
+        },
+        {
+          "†These authors contributed equally to this work.": "we follow the novel route of using neuromorphic data to predict valence and arousal values from faces."
+        },
+        {
+          "†These authors contributed equally to this work.": "Due to the difficulty of gathering event-based annotated videos, we leverage an event camera simu-"
+        },
+        {
+          "†These authors contributed equally to this work.": "lator to create the neuromorphic counterpart of an existing RGB dataset. We demonstrate that not"
+        },
+        {
+          "†These authors contributed equally to this work.": "only training models on simulated data can still yield state-of-the-art results in valence-arousal esti-"
+        },
+        {
+          "†These authors contributed equally to this work.": "mation, but also that our trained models can be directly applied to real data without further training"
+        },
+        {
+          "†These authors contributed equally to this work.": "to address the downstream task of emotion recognition.\nIn the paper we propose several alternative"
+        },
+        {
+          "†These authors contributed equally to this work.": "models to solve the task, both frame-based and video-based."
+        },
+        {
+          "†These authors contributed equally to this work.": "Keywords: valence, arousal, event camera,\nface analysis, neuromorphic vision"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Keywords: valence, arousal, event camera,": "1 Introduction",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "Analyzing\nhumans\nand\ntheir\nbehaviors\nis\none",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": "sense\nthough,\nrecognizing\nindividuals"
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "of\nthe most\nimportant\nfields\nof\nartificial\nintel-",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": "behaviors is not enough. Robotic agents,"
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "ligence\nand\ncomputer\nvision.\nSuch\nimportance",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "stems\nfrom the\nrepercussions\nthat a technology",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": "modules or conversational agents, must"
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "capable\nof\nunderstanding\nhumans\ncan\nhave\non",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "society:\nbeing\nable\nto\nrecognize\nan\nindividual",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "is\nfundamental\nfor\nsecurity; analyzing biometrics",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "offers intriguing possibilities for patient monitor-",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": "safety and an harmonious work environment."
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "ing\nin healthcare; understanding behaviors\nand",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "emotions\nenables\nsmart human-robot\ncollabora-",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "tions\nin private spaces as well as\nin industry.\nIn",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "synthesis, human understanding\nis\nrevolutioniz-",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "ing\nour\nsociety and our behaviors, both in our",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "",
+          "face analysis, neuromorphic vision": ""
+        },
+        {
+          "Keywords: valence, arousal, event camera,": "private sphere and in workspaces, where humans",
+          "face analysis, neuromorphic vision": ""
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "Shariff\net\nal\n(2023); Bissarinova\net\nal\n(2023)."
+        },
+        {
+          "Arousal": "Fear\nSurprise",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "Unlike\ntraditional\ncameras,\nneuromorphic\nsen-"
+        },
+        {
+          "Arousal": "Anger",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "sors work asynchronously and capture events,\ni.e."
+        },
+        {
+          "Arousal": "Contempt",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "per-pixel\nillumination changes,\nand have highly"
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "desirable properties such as microsecond latency,"
+        },
+        {
+          "Arousal": "Disgust",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "high-dynamic ranges and low power consumption."
+        },
+        {
+          "Arousal": "Happiness",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "ANGRY",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "HAPPY",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "Such properties enable event cameras\nto capture"
+        },
+        {
+          "Arousal": "Neutral",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "Valence",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "subtle variations and micro-expressions in human"
+        },
+        {
+          "Arousal": "SAD\nRELAXED",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "faces\n(and,\ntherefore, emotions) at a remarkably"
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "high temporal\nresolution.\nIn addition, analyzing"
+        },
+        {
+          "Arousal": "Sadness",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "faces with event cameras is also favorable for pre-"
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "serving the privacy of the subjects. Streams are in"
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "fact less interpretable for the human eye and can"
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "be scrambled in order to make the subjects unrec-"
+        },
+        {
+          "Arousal": "Fig.\n1 Valence-Arousal\nunit\ncircle. Values\ncan\nbe",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "ognizable Ahmad et al (2023) without altering the"
+        },
+        {
+          "Arousal": "directly mapped into emotions Mikels et al (2005).",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "capacity of computer vision models."
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "In this paper, we present the first approach to"
+        },
+        {
+          "Arousal": "field of expression recognition focused on detect-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "model valence and arousal\nin human faces using"
+        },
+        {
+          "Arousal": "ing facial action units Ekman and Friesen (1978);",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "neuromorphic data (Fig. 2). To address this task,"
+        },
+        {
+          "Arousal": "Rudovic\net al\n(2015); Kaltwang et al\n(2015) or",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "we\nrely on an event\nsimulator Hu et\nal\n(2021)"
+        },
+        {
+          "Arousal": "they formulated the problem as\nclose-set\nclassi-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "capable of converting RGB videos into simulated"
+        },
+        {
+          "Arousal": "fication task over a limited number of emotions.",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "event streams. This solution is sub-optimal com-"
+        },
+        {
+          "Arousal": "A different, more recent, approach instead poses",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "pared to using real event-based videos but enables"
+        },
+        {
+          "Arousal": "the problem as a regression task over two contin-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "several key factors that would be hard and costly"
+        },
+        {
+          "Arousal": "uous dimensions measuring positive and negative",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "to obtain: on the one hand,\nit provides us with a"
+        },
+        {
+          "Arousal": "affectivity (valence) and the level of excitement of",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "fully labeled neuromorphic dataset, since valence-"
+        },
+        {
+          "Arousal": "the expressed emotion (arousal) Panagakis\net al",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "arousal\nannotations\ncan\nbe\ndirectly\ntransferred"
+        },
+        {
+          "Arousal": "(2016); Gunes and Schuller (2013).",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "from the original dataset; on the other hand,\nit"
+        },
+        {
+          "Arousal": "We\nfollow the\nlatter\napproach of\nestimating",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "allows us\nto train computer vision models with-"
+        },
+        {
+          "Arousal": "valence\nand arousal,\nas\nit\ncan provide\na punc-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "out the need of collecting additional data with an"
+        },
+        {
+          "Arousal": "tual\nframe-by-frame\nestimate\nof\nthe mood in a",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "event camera, which also entails\nthat we do not"
+        },
+        {
+          "Arousal": "continuous way and can then be translated into",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "require any manual annotation.\nIn addition, we"
+        },
+        {
+          "Arousal": "more specific interpretations such as emotion cat-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "perform zero-shot\ntransfer experiments onto real"
+        },
+        {
+          "Arousal": "egories\n(Fig. 1). However, we argue that\nrelying",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "event data, demonstrating also that our models"
+        },
+        {
+          "Arousal": "on\ntraditional RGB cameras\ncan\nhave\nlimita-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "can be adopted for the downstream task of emo-"
+        },
+        {
+          "Arousal": "tions in processing human faces effectively. Human",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "tion classification without any further training."
+        },
+        {
+          "Arousal": "emotions are often manifested through fast, incon-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "In\nsummary,\nthe main\ncontributions\nof\nour"
+        },
+        {
+          "Arousal": "ceivable and involuntary facial muscle movements,",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "paper are the following:"
+        },
+        {
+          "Arousal": "that can be completed within a few milliseconds",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "• We\ninvestigate\nthe\nproblem\nof\nestimating"
+        },
+        {
+          "Arousal": "Yan et al (2013). Such movements might not even",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "valence and arousal\nfrom event streams. To the"
+        },
+        {
+          "Arousal": "be fully observable with traditional RGB cameras.",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "best of our knowledge, we are the first to address"
+        },
+        {
+          "Arousal": "Nonetheless,\nfor many practical applications,\nit is",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "such a problem."
+        },
+        {
+          "Arousal": "necessary to achieve a more fine-grained resolution",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "• We\npropose\nseveral\ndeep\nlearning\nsolutions,"
+        },
+        {
+          "Arousal": "of\nthe\ncontinuously\nproduced micro-movements",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "proposing\ndifferent\nframe-based\nand\nvideo-"
+        },
+        {
+          "Arousal": "of\nthe human face. To address\nthis\nissue, a few",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "based architectures. To train such architectures"
+        },
+        {
+          "Arousal": "methods have been proposed recently that ana-",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "we\nrely on simulated event data, obtained by"
+        },
+        {
+          "Arousal": "lyze faces with the use of a neuromorphic camera",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "converting AFEW-VA Kossaifi et al (2017), an"
+        },
+        {
+          "Arousal": "(often referred to as an event camera) rather than",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "RGB dataset manually labeled for valence and"
+        },
+        {
+          "Arousal": "an RGB one Berlincioni\net al\n(2023); Becattini",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": ""
+        },
+        {
+          "Arousal": "",
+          "et al (2022); Lenz et al (2020); Ryan et al (2023);": "arousal."
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "• We demonstrate\nthat our models\ncan be\nsuc-\n(2020) and object detection in automotive Perot"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "cessfully applied also on real event streams from\net al (2020)."
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "the NEFER dataset Berlincioni et al (2023) and\nWhen working with event data, a few consid-"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "that we\ncan address\nthe\ntask of\nemotion esti-\nerations have to be taken into account. Notably,"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "mation directly from the predicted valence and\nthese neuromorphic sensors exhibit the distinctive"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "arousal values, without additional\ntraining on\ncharacteristic of not outputting any data unless"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "the new data.\na localized change in brightness is detected, effec-"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "tively conserving resources and minimizing band-"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "width consumption Finateu et al (2020); Gallego"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "2 Previous Work"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "et al (2020). In general, the fact that events are not"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "generated synchronously entails\nthe need for an\nNeuromorphic\nVision\nNeuromorphic\nvision"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "intermediate representation of events that can be\ninvolves\ndata\nacquisition\nmethods\nbased\non"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "processed,\nfor instance, by deep learning architec-\nevent\ncameras,\nbio-inspired\nvision\nsensors\nthat"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "tures. Whereas dedicated architectures exist, such\nhave been recently introduced Delbruckl\n(2016);"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "as Spiking Neural Networks Barchid et al (2023),\nPosch\net\nal\n(2014). Unlike\ntraditional\nvision"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "a common way to proceed is\nto accumulate\nthe\nsystems,\nneuromorphic\nsensors\ngenerate\nasyn-"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "events that happen in synchronous time intervals\nchronous\nstreams\nof\nevents\nrather\nthan\na"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "to generate frames that can be fed to a convolu-\nframe sequence with a predetermined frame-rate."
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "tional neural network. Several event aggregation\nInstead of obtaining frames from the camera, we"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "strategies\nexist Mueggler\net al\n(2017);\nInnocenti\nnow obtain events, which are local changes in the"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "et al\n(2021); Nguyen et al\n(2019); Cannici\net al\nbrightness of a single pixel. What makes these sen-"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "(2020), which are often capable of\ninjecting some\nsors extremely interesting is\nthe fact\nthat events"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "temporal context\ninto the information contained\ncan be fired at sub-millisecond rates Lichtsteiner"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "in each pixel.\net\nal\n(2008). To\nthis\nday,\nevent\ncameras\nhave"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "In this paper, we leverage event data for a new-\nbeen\napplied\nin\nseveral\ndomains. Of\nparticular"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "born field of\nresearch,\nthat\nis neuromorphic face\ninterest,\nis the possibility to enhance robots that"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "analysis. Analyzing\nfaces with an event\ncamera\nrequire quick response\ntimes with onboard low-"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "in fact permits\nto capture high-frequency infor-\nlatency devices. This has aided applications such"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "mation that might be difficult\nto\ncapture with\nas\nautonomous\ndrone\nnavigation Falanga\net\nal"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "standard cameras. For instance, facial action units\n(2020), SLAM Mueggler (2017); Mahlknecht et al"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "are tied to extremely fast muscle movements that\n(2022), tracking Seok and Lim (2020); Renner et al"
+        },
+        {
+          "Fig. 2\nIllustration of RGB and event frames in a sample video over its relative valence and arousal plot.": "appear as\nsmall movements\nin a video Yan et al"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(2013). Just a few works exist involving event cam-": "eras and faces. Face detection Bissarinova et al",
+          "of valence and arousal. Also Kollias et al\n(2020)": "introduce a data augumentation technique to train"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "(2023) and face pose estimation Savran and Bar-",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Deep Neural Network to perform valence-arousal"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tolozzi\n(2020) have been addressed, but also lip",
+          "of valence and arousal. Also Kollias et al\n(2020)": "estimation."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "reading Bulzomi et al (2023) and eye-blink detec-",
+          "of valence and arousal. Also Kollias et al\n(2020)": "On\nthe\nother\nhand,\nother methods\nprefer"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tion Lenz et al (2020). Among the first attempts to",
+          "of valence and arousal. Also Kollias et al\n(2020)": "a more\ncategorical\napproach,\naiming\nto predict"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "estimate affective information from event videos,",
+          "of valence and arousal. Also Kollias et al\n(2020)": "the 8 emotions on Mikels’s wheel described ear-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "Becattini et al (2022) estimated positive or nega-",
+          "of valence and arousal. Also Kollias et al\n(2020)": "lier\nrather\nthan continuous\nvalence-arousal\nval-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tive facial reactions when observing fashion items",
+          "of valence and arousal. Also Kollias et al\n(2020)": "ues. Wen et al\n(2023),\nfor\ninstance, proposes an"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "and Berlincioni et al (2023) classified 7 basic emo-",
+          "of valence and arousal. Also Kollias et al\n(2020)": "approach based on multi-head attention for emo-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tions. Differently from these works, we\nfocus on",
+          "of valence and arousal. Also Kollias et al\n(2020)": "tion classification,\nachieving\nremarkable\nresults."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "estimating valence and arousal, which we belive to",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Savchenko (2021) introduces a streamlined train-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "be a finer modeling of\nfacial expressivity.\nIn fact,",
+          "of valence and arousal. Also Kollias et al\n(2020)": "ing approach for a lightweight CNN in facial ana-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "we also experimentally demonstrate that emotions",
+          "of valence and arousal. Also Kollias et al\n(2020)": "lytics, achieving state-of-the-art\nresults\nin video-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "can be directly inferred from our predicted valence",
+          "of valence and arousal. Also Kollias et al\n(2020)": "based emotion analysis. Mao\net\nal\n(2023)\ncom-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "and arousal value, even when tested on a different",
+          "of valence and arousal. Also Kollias et al\n(2020)": "bine facial\nlandmark and image features through"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "dataset from the one used for training.",
+          "of valence and arousal. Also Kollias et al\n(2020)": "two-stream pyramid\ncross-fusion\ndesign\nobtain-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "Emotion estimation Most of the research in",
+          "of valence and arousal. Also Kollias et al\n(2020)": "ing state-of-the-art results in emotion recognition."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "literature on emotion estimation focused on facial",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Unlike\nthe\napproaches described so\nfar,\nin this"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "expression recognition,\nfacial\naction unit detec-",
+          "of valence and arousal. Also Kollias et al\n(2020)": "paper, we propose\nto\nfocus\non event\nvideos,\na"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tion, and expression classification Savchenko et al",
+          "of valence and arousal. Also Kollias et al\n(2020)": "domain that has been relatively unexplored in the"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "(2022); Kollias and Zafeiriou (2019); Li and Zhang",
+          "of valence and arousal. Also Kollias et al\n(2020)": "literature but appears\nto be promising, particu-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "(2022); Schoneveld et al (2021). Mikels’ Wheel of",
+          "of valence and arousal. Also Kollias et al\n(2020)": "larly in areas\nsuch as\nface analysis and emotion"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "Emotions Mikels\net\nal\n(2005)\nis\na visual\nrepre-",
+          "of valence and arousal. Also Kollias et al\n(2020)": "recognition."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "sentation of emotion classes in the valence-arousal",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "space, a widely-used emotion model from psychol-",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "3 Simulating Neuromorphic"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "ogy. As shown in Fig. 1, emotions on Mikel’s wheel",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Data"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "are separated into eight categories as well as two",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "polarities (i.e., positive and negative). Toisoul et al",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Training a computer vision model based on neuro-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "(2021) propose\na method for\nreal-time\napplica-",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "morphic streams is not straightforward. The main"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tions to estimate both categorical and continuous",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "challenge that has to be faced is the lack of data"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "emotions. Kossaifi\net\nal\n(2020)\nintroduces CP-",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "sources from where to obtain meaningful samples."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "Higher-Order Convolution, a tensor\nfactorization",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Videos cannot be crawled from the web and new"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "framework unifying\nlow-rank\ntensor decomposi-",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "datasets need to be\nrecorded and labeled from"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tions\nand\nefficient\nconvolutional\nblock\ndesign.",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "scratch. Automatizing such pipeline is not trivial"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "Enabling higher-order transduction, the approach",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "as off-the-shelf\ntraditional computer vision mod-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "facilitates training on a specific domain (e.g., 2D",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "els\n(e.g.\nface detectors)\nare\nineffective\non event"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "images)\nand\ngeneralizing\nseamlessly\nto\nhigher-",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "frames. The intrinsic structure of\nthe data itself"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "order\ndata\nlike\nvideos,\ndemonstrating\nsuperior",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "makes it hard to annotate it since when no illumi-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "performance\nin\nspatio-temporal\nfacial\nemotion",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "nation change is detected by the sensor no signal"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "analysis\non\nlarge-scale\ndatasets. Different\nfrom",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "is produced."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "the\naforementioned works, Parameshwara\net\nal",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "Luckily,\nevent\ncamera\nsimulators\nhave\nbeen"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "(2023)\nemploys a Siamese network trained with",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "proposed in the literature, namely, ESIM Rebecq"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "image pairs and a contrastive\nloss. This enables",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "et\nal\n(2018)\nand V2E Hu\net\nal\n(2021). These"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "the network to\nestimate\nemotional dissimilarity",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "simulators\nare\ncapable\nof\nproducing\nneuromor-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "and quantify valence and arousal differentials for",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "phic counterparts from RGB videos. To this end,"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "given\nimage\npairs. Handrich\net\nal\n(2020)\nuse",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "they first perform a temporal upsampling of RGB"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "a YOLO-based model\nto predict\nface bounding",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "frames, with a rate that adapts to the video con-"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "boxes,\nbasic\nemotions\nand\nvalence-arousal\nval-",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "tent and its estimated visual dynamics (the more"
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "ues. Mitenkova et al\n(2019),\ninstead, propose a",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "",
+          "of valence and arousal. Also Kollias et al\n(2020)": "the video changes,\nthe more\nframes are added)."
+        },
+        {
+          "(2013). Just a few works exist involving event cam-": "tensor-based method to predict continuous values",
+          "of valence and arousal. Also Kollias et al\n(2020)": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Then, synthetic events are generated by analyzing": "the differences between adjacent frames.",
+          "In both cases, the methods we propose all leverage": "frame-based representations of events. Neuromor-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "In this paper, we adopt V2E Hu et al (2021) to",
+          "In both cases, the methods we propose all leverage": "phic data,\nin fact,\nis natively represented as a list"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "convert an RGB dataset labeled with valence and",
+          "In both cases, the methods we propose all leverage": "of asynchronous\nevents, yet\nit\nis\ncommon prac-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "arousal values\nfor\neach frame.\nIn particular, we",
+          "In both cases, the methods we propose all leverage": "tice to aggregate events into frames by gathering"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "use the AFEW-VA dataset Kossaifi et al\n(2017),",
+          "In both cases, the methods we propose all leverage": "all the activations that happen within an aggrega-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "which consists of a collection of 600 RGB videos",
+          "In both cases, the methods we propose all leverage": "tion time ∆t Mueggler et al (2017); Innocenti et al"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "extracted from movies. Each per-frame annotation",
+          "In both cases, the methods we propose all leverage": "(2021); Nguyen et al (2019). This allows us to use"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "is a discrete value in the range of -10 to 10. Along",
+          "In both cases, the methods we propose all leverage": "standard computer vision models\nsuch as convo-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "with these annotations, the positions of 68 facial",
+          "In both cases, the methods we propose all leverage": "lutional neural networks even with neuromorphic"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "landmarks are also provided. Videos\nrange\nfrom",
+          "In both cases, the methods we propose all leverage": "data."
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "around 10 frames to longer clips (more than 120",
+          "In both cases, the methods we propose all leverage": "In particular, we\nchoose\nto\nrepresent\nevents"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "frames);\nin total,\nthere are 30,000 frames\nin the",
+          "In both cases, the methods we propose all leverage": "with the Temporal Binary Representation (TBR)"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "entire dataset.",
+          "In both cases, the methods we propose all leverage": "Innocenti\net al\n(2021)\nstrategy. To compute\nthe"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "Once\nthe\nvideos\nare\nconverted, we\nneed\nto",
+          "In both cases, the methods we propose all leverage": "TBR frame encoding we do the following. After"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "map the annotations onto event data. To do so,",
+          "In both cases, the methods we propose all leverage": "setting a fixed accumulation time ∆t, we can build"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "we assign to each annotation a timestamp corre-",
+          "In both cases, the methods we propose all leverage": "a binary representation of\nthe frame b by check-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "sponding to the one of the frame within the video.",
+          "In both cases, the methods we propose all leverage": "ing for the presence of any event at each location"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "When we generate\nevent\nframes\n(see Sec. 4) we",
+          "In both cases, the methods we propose all leverage": "(x, y), that is bx,y = 1(x, y), where 1 is an indica-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "then label them with valence and arousal by look-",
+          "In both cases, the methods we propose all leverage": "tor function that is equal to 1 is an event is present"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "ing for the annotation with the closest timestamp",
+          "In both cases, the methods we propose all leverage": "in position (x, y) during the accumulation interval"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "to\nthe\naverage\ntimestamp of\nthe\nevents\nin the",
+          "In both cases, the methods we propose all leverage": "and 0 otherwise."
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "neuromorphic frame.",
+          "In both cases, the methods we propose all leverage": "Once the binary representation has been cre-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "In the following, we will outline our\ntraining",
+          "In both cases, the methods we propose all leverage": "ated,\nit\nis\npossible\nto\ncollect\nN\nconsecutive"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "pipeline for learning to predict valence and arousal",
+          "In both cases, the methods we propose all leverage": "frames and concatenate them together as a tensor"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "from the simulated event streams, both leveraging",
+          "In both cases, the methods we propose all leverage": "B\n∈ RH×W ×N , where W and H are\nrespec-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "frame-based models as well as video-based models.",
+          "In both cases, the methods we propose all leverage": "tively\nthe width\nand\nthe\nheight\nof\nthe\nframe."
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "Interestingly,\nour\nexperimental validation shows",
+          "In both cases, the methods we propose all leverage": "This yields for each pixel a binary string Bx,y ="
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "that we are able to obtain state-of-the-art results",
+          "In both cases, the methods we propose all leverage": "[b0\n]\nthat\ncan\nbe\nconverted\nto\na\nx,y, b1\nx,y, ..., bN −1"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "on the AFEW-VA dataset when comparing our",
+          "In both cases, the methods we propose all leverage": "scalar through a binary-to-decimal conversion. By"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "results with RGB-based models\nfrom the\nlitera-",
+          "In both cases, the methods we propose all leverage": "doing so, TBR manages to create a frame process-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "ture. We also show that our trained models can be",
+          "In both cases, the methods we propose all leverage": "able by traditional computer vision pipelines along"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "directly applied on real event data, demonstrat-",
+          "In both cases, the methods we propose all leverage": "with the benefit of retaining temporal information"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "ing excellent zero-shot transfer capabilities on the",
+          "In both cases, the methods we propose all leverage": "spanning across a time interval of N × ∆t within"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "related task of emotion recognition on the NEFER",
+          "In both cases, the methods we propose all leverage": "the value of each pixel while needing a minimal"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "dataset Berlincioni et al (2023).",
+          "In both cases, the methods we propose all leverage": "memory footprint.\nIn our\nexperiments, we used"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "∆t = 5 milliseconds and N = {8, 16}."
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "4 Valence and Arousal",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "4.1 Models"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "Estimation",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "We follow two main protocols and therefore two"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "Given a video sequence v = {f0, f1, ..., fT −1} of",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "main families\nof models. The\nframe-based\nones"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "T frames, our goal\nis to regress a pair of valence",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "are\nthose models working with a\nsingle\nframe,"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "and\narousal\nvalues\nfor\neach\nframe,\nso\n(ˆvi, ˆai)",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "which is\nthey have\na\nsingle\n(v, a)\noutput\ngiven"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "to match the correspondent ground truth values",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "a single event-frame input. The video-based mod-"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "i , a∗\ni ) with i = 0, ..., T − 1. The problem can be",
+          "In both cases, the methods we propose all leverage": "els instead work at video level, having an output"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "addressed by analyzing single frames or sequences",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "per\nevent\nframe\nand\na\nsequence\nof\nframes\nas"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "of\nframes,\nthus providing a temporal\ncontext\nto",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "an input. For\nthe frame-based models we utilize"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "the prediction.\nIn the\nfollowing, we will present",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "two architectures\nto address\nthe\ntask: ResNet18"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "several alternative models\nfor predicting valence",
+          "In both cases, the methods we propose all leverage": ""
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "",
+          "In both cases, the methods we propose all leverage": "He\net\nal\n(2016)\nand Vision Transformer\n(ViT)"
+        },
+        {
+          "Then, synthetic events are generated by analyzing": "and arousal\nfrom both frames and video chunks.",
+          "In both cases, the methods we propose all leverage": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "former\nconfiguration, we\nemploy\nfour\nattention",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "In\nthis\nsection,\nwe\ndefine\nour\nexperimental"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "heads with\na\ndepth\nof\n4,\nutilizing\npatch\nsizes",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "methodology and showcase the primary outcomes"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "of\n8. Across\nboth ViT and ResNet, we main-",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "of the proposed approach. We present the results"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "tain\nconsistent\ninput\ndimensions\nof\n224 × 224",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "of\nour\nsimulated-data\npipeline\nin\nterms\nof\na"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "pixels.\nFor\nthe\nvideo-based models, we\nadopt",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "valence-arousal\nregression task over\nthe AFEW-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "four distinct architectures: IC3D, ResNet+LSTM,",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "VA dataset Kossaifi et\nal\n(2017); Toisoul\net\nal"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "ResNet+Transformer and a custom architecture",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "(2021), also by comparing the results with RGB"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "that we\nrefer\nto\nas ResNet+Fusion. Both\nthe",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "baselines\nfrom the\nliterature. We\nthen\ndemon-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "ResNet+LSTM and ResNet+Transformer mod-",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "strate\nthe\nzero-shot\ntransfer\ncapabilities\nof\nour"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "els utilize\na pretrained ResNet18\non ImageNet,",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "models on a related downstream task using real"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "extracting features of dimension 1024. During the",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "event\nvideos,\ni.e.\nemotion\nclassification\non\nthe"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "training phase, ResNet\nis\nkept\nfrozen for both",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "recently\nproposed NEFER dataset\nBerlincioni"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "models. In the first case, the output features from",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "et al (2023)."
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "ResNet are\nfed into a sequence of 3 LSTM lay-",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "We only train our models on the synthetically"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "ers with\na\nhidden\nsize\nof\n256.\nIn\nthe\nsecond",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "generated event videos obtained by applying the"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "case, the features are processed by a transformer-",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "V2E simulator\nof\nthe AFEW-VA (as presented"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "based architecture with 4 heads, 6 encoders, and",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "in Sec. 3). The\nevaluation is\nthen performed on"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "6\ndecoders. Both models\nemploy\na\nfinal MLP",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "AFEW-VA by following the experimental valida-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "(comprising\ntwo\nlayers)\nfor\nregressing\nvalence",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "tion protocol\nof prior works known as\nsubject-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "and arousal values\nfor\neach frame\nof\nthe\ninput",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "independent Kossaifi et al (2017) and on NEFER"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "sequence. Conversely,\nthe ResNet+Fusion model",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "by using the test split provided by the authors."
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "employs\nan unfrozen ResNet18 during\ntraining.",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "Here we first\nintroduce\nthe metrics used to"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "The\nresulting\n1024-dimensional\noutput\nfeatures",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "evaluate our models,\nthen we present\nthe results"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "from ResNet are\nthen directed into two distinct",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "and perform an ablation study on the TBR encod-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "heads. The first head processes\nvideo-level\nfea-",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "ing strategy, varying the number of bits N used in"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "tures by stacking all the frame features together,",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "the data representation scheme."
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "while the second head handles frame-level features",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "individually. Both heads generate 128-dimensional",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "features using multiple linear layers. Subsequently,",
+          "5 Experiments": "5.1 Metrics"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "the features extracted from both heads are con-",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "We\nemploy multiple metrics\nfor\nperformance"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "catenated,\nand\na\nfinal MLP,\nconsisting\nof\ntwo",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "evaluation\nover\nboth AFEW-VA and NEFER"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "linear\nlayers, predicts valence and arousal values",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "datasets. Given that y∗ and ˆy represent the ground"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "for each frame in the sequence. Significantly, this",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "truth and the predicted values, we can define sev-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "model\nexcels\nin learning features at both video",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "eral metrics to evaluate the different models. On"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "and\nframe\nlevels,\nthereby\nenhancing\nits\nability",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "AFEW-VA we adopt the following ones:"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "to discern subtle patterns\nthroughout\nthe\nentire",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "sequence. Since we process\nseveral\nframes\nat\na",
+          "5 Experiments": "• Root Mean\nSquare Error\n(RMSE)\nevaluates"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "time, we have to fix the sequence length.\nIn our",
+          "5 Experiments": "how close predicted values are from the target"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "experiments, we process chunks of 6 frames indi-",
+          "5 Experiments": "values:"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "vidually. Lastly,\nIC3D employs\nan\narchitecture",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "inspired by Inception3D Carreira and Zisserman",
+          "5 Experiments": "RM SE(y∗, ˆy) = (cid:112)E(y∗ − ˆy)2\n(1)"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "(2017). However, unlike the approach in Carreira",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "and Zisserman (2017), we utilize\na\nsingle data",
+          "5 Experiments": "• Pearson Correlation Coefficient\n(PCC) mea-"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "stream,\nresulting in a single-branch architecture",
+          "5 Experiments": "sures\nhow correlated\npredictions\nand\ntarget"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "composed of 3D convolutions. The activation func-",
+          "5 Experiments": "values are:"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "tion employed in all MLPs across\nthe models\nis",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "E(y∗ − µy∗ )(ˆy − µˆy)"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "ReLU. The models were trained using the AdamW",
+          "5 Experiments": "(2)\nP CC(y∗, ˆy) ="
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "",
+          "5 Experiments": "σy∗ σˆy"
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "optimizer with an initial\nlearning rate of 0.0001.",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "For every listed model we also employ a scheduler",
+          "5 Experiments": ""
+        },
+        {
+          "Dosovitskiy et al\n(2020). For\nthe Vision Trans-": "that halves the learning rate every 50 epochs.",
+          "5 Experiments": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 1: ResultontheAFEW-VAeventdatasetfor Kossaifietal(2020) RGB 0.24 0.24",
+      "data": [
+        {
+          "Model": "",
+          "Arousal": "PCC↑",
+          "Valence": "PCC↑",
+          "Modality": "",
+          "Arousal RMSE↓": "",
+          "Valence RMSE↓": ""
+        },
+        {
+          "Model": "Kossaifi et al (2017)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.23",
+          "Valence RMSE↓": "0.27"
+        },
+        {
+          "Model": "Mitenkova et al (2019)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.41",
+          "Valence RMSE↓": "0.40"
+        },
+        {
+          "Model": "",
+          "Arousal": "0.307",
+          "Valence": "0.110",
+          "Modality": "",
+          "Arousal RMSE↓": "",
+          "Valence RMSE↓": ""
+        },
+        {
+          "Model": "Kollias et al (2020)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.27",
+          "Valence RMSE↓": "0.48"
+        },
+        {
+          "Model": "",
+          "Arousal": "0.340",
+          "Valence": "0.005",
+          "Modality": "",
+          "Arousal RMSE↓": "",
+          "Valence RMSE↓": ""
+        },
+        {
+          "Model": "Handrich et al (2020)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.26",
+          "Valence RMSE↓": "0.28"
+        },
+        {
+          "Model": "Kossaifi et al (2020)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.24",
+          "Valence RMSE↓": "0.24"
+        },
+        {
+          "Model": "",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "",
+          "Arousal RMSE↓": "",
+          "Valence RMSE↓": ""
+        },
+        {
+          "Model": "Toisoul et al (2021)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.22",
+          "Valence RMSE↓": "0.23"
+        },
+        {
+          "Model": "Parameshwara et al (2023)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "RGB",
+          "Arousal RMSE↓": "0.19",
+          "Valence RMSE↓": "0.21"
+        },
+        {
+          "Model": "Ours (Frame)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "Event",
+          "Arousal RMSE↓": "0.17",
+          "Valence RMSE↓": "0.21"
+        },
+        {
+          "Model": "Ours (Video)",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "Event",
+          "Arousal RMSE↓": "0.12",
+          "Valence RMSE↓": "0.19"
+        },
+        {
+          "Model": "",
+          "Arousal": "",
+          "Valence": "",
+          "Modality": "Table 3 Comparison with the state-of-the-art on",
+          "Arousal RMSE↓": "",
+          "Valence RMSE↓": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 1: ResultontheAFEW-VAeventdatasetfor Kossaifietal(2020) RGB 0.24 0.24",
+      "data": [
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": ""
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Toisoul et al (2021)\nRGB\n0.22\n0.23"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Parameshwara et al (2023)\nRGB\n0.19\n0.21"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Ours (Frame)\nEvent\n0.17\n0.21"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Ours (Video)\nEvent\n0.12\n0.19"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Table 3 Comparison with the state-of-the-art on"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "AFEW-VA."
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": ""
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": ""
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": ""
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": ""
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Model\nEncoding Bits\nArousal RMSE↓\nValence RMSE↓"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "ResNet\n8\n0.124\n0.191"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "ViT\n8\n0.173\n0.211"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "IC3D\n8\n0.130\n0.201"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "ResNet+Transf.\n8\n0.133\n0.226"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "ResNet\n16\n0.176\n0.218"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "ViT\n16\n0.232\n0.305"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "IC3D\n16\n0.201\n0.302"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "ResNet+Transf\n16\n0.132\n0.230"
+        },
+        {
+          "Kossaifi et al (2020)\nRGB\n0.24\n0.24": "Table 4 Comparison of different models varying the"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table 1: ResultontheAFEW-VAeventdatasetfor Kossaifietal(2020) RGB 0.24 0.24",
+      "data": [
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "et al\n(2022); Berlincioni et al (2023),\nthat event-"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "based representations might help models to focus"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "more on informative content, filtering out distrac-"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "tors\nsuch as background and textures\nthat\ncan"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "interfere with the learning process."
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "To provide\na better understanding, we\nalso"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "report\nsome\nqualitative\nresults\nobtained with"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "ResNet+Fusion in Fig. 3 and Fig. 4. It can be seen"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "that the predictions tend to adhere to the overall"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "trend of the ground truth."
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "5.2.1 TBR ablation study"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "We compare the use of different hyperparameters"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "for the Temporal Binary Encoding. As previously"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "stated,\nthe natural output\nformat\nfor neuromor-"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "phic\nsensors\nis\na\ncontinuous\nstream of\nevents"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "rather\nthan an image.\nIn order\nto leverage com-"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "puter\nvision\ntools,\nsuch\nas CNNs,\nthe\nimage"
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": "encoding policy plays a major role."
+        },
+        {
+          "works\nin\nthe\nneuromorphic\nliterature Becattini": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1.00": ""
+        },
+        {
+          "1.00": "0.75"
+        },
+        {
+          "1.00": ""
+        },
+        {
+          "1.00": "0.50"
+        },
+        {
+          "1.00": "0.25"
+        },
+        {
+          "1.00": ""
+        },
+        {
+          "1.00": "Arousal/Valence Value\n0.00"
+        },
+        {
+          "1.00": ""
+        },
+        {
+          "1.00": ""
+        },
+        {
+          "1.00": "0.25"
+        },
+        {
+          "1.00": "0.50"
+        },
+        {
+          "1.00": "0.75"
+        },
+        {
+          "1.00": "1.00"
+        },
+        {
+          "1.00": ""
+        },
+        {
+          "1.00": ""
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "0.25": "0.50"
+        },
+        {
+          "0.25": "0.75"
+        },
+        {
+          "0.25": "1.00"
+        },
+        {
+          "0.25": ""
+        },
+        {
+          "0.25": ""
+        },
+        {
+          "0.25": "1.00"
+        },
+        {
+          "0.25": ""
+        },
+        {
+          "0.25": "0.75"
+        },
+        {
+          "0.25": ""
+        },
+        {
+          "0.25": "0.50"
+        },
+        {
+          "0.25": "0.25"
+        },
+        {
+          "0.25": "Arousal/Valence Value\n0.00"
+        },
+        {
+          "0.25": "0.25"
+        },
+        {
+          "0.25": "0.50"
+        },
+        {
+          "0.25": "0.75"
+        },
+        {
+          "0.25": "1.00"
+        },
+        {
+          "0.25": ""
+        },
+        {
+          "0.25": ""
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "frame-based ResNet+Fusion model.",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Neutral",
+          "the AFEW-VA dataset, obtained with the": "a more\nprecise\nand\ninformative\nsignal,\nthereby"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Arousal",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "facilitating superior overall performance."
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Fear",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Surprise",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Anger",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Contempt",
+          "the AFEW-VA dataset, obtained with the": "5.3 Zero-Shot Transfer on NEFER"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Disgust",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Happiness\nANGRY",
+          "the AFEW-VA dataset, obtained with the": "To\nestablish\nthe\nusefulness\nof\ntraining models"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "HAPPY",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Valence",
+          "the AFEW-VA dataset, obtained with the": "using\nsynthetic\ndata, we\nanalyze\nthe\nzero-shot"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "SAD\nRELAXED",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "transfer capabilities of our models on a real event"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Sadness",
+          "the AFEW-VA dataset, obtained with the": "dataset. Since\nthere are no existing event-based"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "datasets in the literature with annotated valence"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "and arousal values, we use\nthe NEFER Berlin-"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Predicted Arousal Valence Coordinate",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Ground Truth Arousal Valence Coordinate",
+          "the AFEW-VA dataset, obtained with the": "cioni\net\nal\n(2023) dataset, which addresses\nthe"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "related task of emotion recognition. Each sample"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Fig. 4 Qualitative samples\nfor valence and arousal esti-",
+          "the AFEW-VA dataset, obtained with the": "is composed of an RGB video and an event stream,"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "mation on samples\nof\nthe AFEW-VA dataset,\nobtained",
+          "the AFEW-VA dataset, obtained with the": "recorded with two separate cameras, and records"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "with the\nframe-based ResNet+Fusion model. Estimated",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "the reaction from a user while being shown par-"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "and ground truth valence and arousal are shown as points",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "ticular videos, chosen to trigger specific emotions."
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "on the wheel of emotions.",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "For each (user, video) pair both the expected emo-"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "tion (A-priori) and the one reported by the test"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "trained on the AFEW-VA synthetic-event dataset",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "subjects (Reported) are given."
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "using TBR encoding with N = 8 and N = 16.",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "In\norder\nto map\nframe-level\nvalence\nand"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Notably, across all models in the table, employing",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "arousal\nvalues\npredicted\nby\nour models\nonto"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "an 8 − bit\nencoding\nconsistently leads\nto\nsupe-",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "video-level\nemotions,\nwe\nadopt\nthe\nfollowing"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "rior performance in all metrics. This phenomenon",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "approach. We apply our model on every frame of"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "arises\nbecause\nusing\n16\nbits\noverly\ncompresses",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "a sequence, obtaining a temporal valence-arousal"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "events, resulting in a loss of valuable information.",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "profile\ndescribing\nthe whole\nvideo.\nSince\nsam-"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "Conversely,\nopting\nfor\na\nlower bit\ncount, while",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "ples\nin NEFER exhibit\nseveral\nstatic\nframes,"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "representing a smaller number of events,\nleads to",
+          "the AFEW-VA dataset, obtained with the": ""
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "with the\nemotion expressing itself only through"
+        },
+        {
+          "Fig. 3 Qualitative samples\nfor valence and arousal estimation on samples of": "",
+          "the AFEW-VA dataset, obtained with the": "extremely\nfast micro-movements, we\nchoose\nto"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table 5: Zero-shottransferonNEFER.Wetrainour",
+      "data": [
+        {
+          "Method": "RGB Berlincioni et al (2023)",
+          "Train": "NEFER",
+          "Test": "NEFER",
+          "Accuracy": "14.60"
+        },
+        {
+          "Method": "Event Berlincioni et al (2023)",
+          "Train": "NEFER",
+          "Test": "NEFER",
+          "Accuracy": "22.95"
+        },
+        {
+          "Method": "Ours (Frame)",
+          "Train": "AFEW",
+          "Test": "NEFER",
+          "Accuracy": "19.20"
+        },
+        {
+          "Method": "Ours (Video)",
+          "Train": "AFEW",
+          "Test": "NEFER",
+          "Accuracy": "20.80"
+        },
+        {
+          "Method": "Table 5",
+          "Train": "Zero-shot transfer on NEFER. We train our",
+          "Test": "",
+          "Accuracy": ""
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table 5: Zero-shottransferonNEFER.Wetrainour",
+      "data": [
+        {
+          "Method\nTrain\nTest\nAccuracy": "RGB Berlincioni et al (2023)\nNEFER\nNEFER\n14.60"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "Event Berlincioni et al (2023)\nNEFER\nNEFER\n22.95"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "Ours (Frame)\nAFEW\nNEFER\n19.20"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "Ours (Video)\nAFEW\nNEFER\n20.80"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "Table 5\nZero-shot transfer on NEFER. We train our"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "models on simulated events from the AFEW dataset and"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "we test on real events from NEFER."
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "select\nonly\na\nrepresentative\nframe\nF\nto\nclas-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "sify\nthe whole\nvideo. We\npick\nF\nas\nthe\none"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "with the\nvalence-arousal pair\n(Fv, Fa) which is"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "farthest\nfrom the\naverage\nof\nthe\nsequence. At"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "this\npoint, we\ncompare\nagainst\na\nset\n(Fv, Fa)"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "of prototypes\ncorresponding to each emotion in"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "the dataset (Disgust, Contempt, Happiness, Fear,"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "Anger, Surprise, Sadness). We obtain such tem-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "plates T = (TD, TC, TH , TF , TA, TSu, TSa) by aver-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "aging the valence and arousal values estimated by"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "our model on every frame of every video labeled"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "with the corresponding emotion in the training set"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "of NEFER. The final classification ˆc\nis obtained"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "by taking the argmin of the distance between the"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "valence-arousal pair of the reference frame and the"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "emotion templates: ˆc = argminidist(F, Ti). As a"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "distance function, we use the Euclidean distance."
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "We report the results of zero-shot transfer on"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "NEFER in Tab. 5. We\nshow both the best per-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "forming frame-based method from Tab. 1 (ViT)"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "and\nthe\nbest\nperforming\nvideo-based method"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "from Tab. 2 (ResNet+Fusion). Interestingly, both"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "approaches\nsurpass\nthe RGB baseline\nreported"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "in Berlincioni\net\nal\n(2023)\nin terms\nof\nclassifi-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "cation\naccuracy. They\nalso manage\nto\nachieve"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "similar\nperformance\nto\nthe\nevent-based model"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "proposed in Berlincioni\net\nal\n(2023),\ni.e.\na\n3D"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "convolutional network directly trained to predict"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "emotions. This demonstrates\nthe effectiveness of"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "relying on simulated events for training neuromor-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "phic models, which can then be easily deployed to"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "work with real event data. Note that we do not"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "perform any additional\ntraining for\nthe\nemotion"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "classification task and we only rely on the afore-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "mentioned heuristic\nfor\ninferring\nemotions\nfrom"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "valence-arousal pairs."
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "6 Limitations and Future"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "work"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "Whilst the use of neuromorphic sensors has multi-"
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": ""
+        },
+        {
+          "Method\nTrain\nTest\nAccuracy": "ple advantages, they also have drawbacks. Mainly,"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Part XX 16, Springer, pp 136–152"
+        },
+        {
+          "Declarations": "Funding:\nthis work was partially supported by the",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "”Forecasting and Estimation of Actions and Trajec-",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Carreira J, Zisserman A (2017) Quo vadis, action"
+        },
+        {
+          "Declarations": "tories\nfor Human-robot\nintERactions\n(FEATHER)”",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "recognition?\na\nnew model\nand\nthe\nkinetics"
+        },
+        {
+          "Declarations": "project, funded by the University of Siena according to",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "dataset.\nIn: Proc. of\nthe\nIEEE Conference on"
+        },
+        {
+          "Declarations": "the PIANO PER LO SVILUPPO DELLA RICERCA",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "(PSR 2023). This work was partially supported by the",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Computer Vision and Pattern Recognition, pp"
+        },
+        {
+          "Declarations": "European Commission under European Horizon 2020",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "6299–6308"
+        },
+        {
+          "Declarations": "Programme, grant number 951911 - AI4Media.",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "Conflicts of\ninterest/Competing interests: none",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Delbruckl T (2016) Neuromorophic vision sens-"
+        },
+        {
+          "Declarations": "Availability of data and material : not applicable",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "ing\nand\nprocessing.\nIn:\nESSCIRC\nConfer-"
+        },
+        {
+          "Declarations": "Code availability: not available",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "ence 2016: 42nd European Solid-State Circuits"
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Conference, pp 7–14, https://doi.org/10.1109/"
+        },
+        {
+          "Declarations": "References",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "ESSCIRC.2016.7598232"
+        },
+        {
+          "Declarations": "Ahmad S, Morerio P, Del Bue A (2023) Person",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Dosovitskiy A, Beyer L, Kolesnikov A, et al (2020)"
+        },
+        {
+          "Declarations": "re-identification without identification via event",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "An image is worth 16x16 words: Transformers"
+        },
+        {
+          "Declarations": "anonymization.\nIn: Proc.\nof\nthe\nIEEE/CVF",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "for\nimage\nrecognition at\nscale. arXiv preprint"
+        },
+        {
+          "Declarations": "International Conference on Computer Vision,",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "arXiv:201011929"
+        },
+        {
+          "Declarations": "pp 11132–11141",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Ekman P, Friesen WV (1978) Facial action coding"
+        },
+        {
+          "Declarations": "Barchid\nS, Mennesson\nJ, Eshraghian\nJ,\net\nal",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "system. Environmental Psychology & Nonver-"
+        },
+        {
+          "Declarations": "(2023) Spiking neural networks for frame-based",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "bal Behavior"
+        },
+        {
+          "Declarations": "and event-based single object localization. Neu-",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Falanga D, Kleber K,\nScaramuzza D (2020)"
+        },
+        {
+          "Declarations": "rocomputing 559:126805",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Dynamic obstacle avoidance for quadrotors with"
+        },
+        {
+          "Declarations": "Becattini\nF,\nPalai\nF,\nDel\nBimbo\nA\n(2022)",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "event cameras. Science Robotics 5(40):eaaz9712"
+        },
+        {
+          "Declarations": "Understanding\nhuman\nreactions\nlooking\nat",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Finateu T, Niwa A, Matolin D,\net\nal\n(2020)"
+        },
+        {
+          "Declarations": "facial microexpressions with an event\ncamera.",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "5.10\na\n1280×720\nback-illuminated\nstacked"
+        },
+        {
+          "Declarations": "IEEE Transactions\non\nIndustrial\nInformatics",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "temporal\ncontrast\nevent-based\nvision\nsensor"
+        },
+        {
+          "Declarations": "18(12):9112–9121",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "with\n4.86µm pixels,\n1.066geps\nreadout,\npro-"
+        },
+        {
+          "Declarations": "Berlincioni\nL,\nCultrera\nL, Albisani\nC,\net\nal",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "grammable event-rate controller and compres-"
+        },
+        {
+          "Declarations": "(2023) Neuromorphic event-based facial expres-",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "sive\ndata-formatting\npipeline.\nIn:\n2020\nIEEE"
+        },
+        {
+          "Declarations": "sion recognition.\nIn: Proc.\nof\nthe\nIEEE/CVF",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "International Solid- State Circuits Conference -"
+        },
+        {
+          "Declarations": "Conference\non Computer Vision and Pattern",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "(ISSCC), pp 112–114, https://doi.org/10.1109/"
+        },
+        {
+          "Declarations": "Recognition, pp 4108–4118",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "ISSCC19947.2020.9063149"
+        },
+        {
+          "Declarations": "Bissarinova U, Rakhimzhanova T, Kenzhebalin",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Gallego G, Delbr¨uck T, Orchard G, et al\n(2020)"
+        },
+        {
+          "Declarations": "D,\net\nal\n(2023) Faces\nin event\nstreams\n(fes):",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Event-based\nvision: A survey.\nIEEE transac-"
+        },
+        {
+          "Declarations": "An annotated face dataset\nfor\nevent\ncameras.",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "tions on pattern analysis and machine\nintelli-"
+        },
+        {
+          "Declarations": "TechRxiv",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "gence 44(1):154–180"
+        },
+        {
+          "Declarations": "Bulzomi H, Schweiker M, Gruel A,\net al\n(2023)",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Galteri L, Seidenari L, Bertini M,\net\nal\n(2017)"
+        },
+        {
+          "Declarations": "End-to-end neuromorphic lip-reading. In: Proc.",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Deep generative\nadversarial\ncompression arti-"
+        },
+        {
+          "Declarations": "of\nthe\nIEEE/CVF Conference\non Computer",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "fact\nremoval.\nIn: Proc.\nof\nthe\nIEEE Inter-"
+        },
+        {
+          "Declarations": "Vision and Pattern Recognition, pp 4100–4107",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "national Conference\non Computer Vision, pp"
+        },
+        {
+          "Declarations": "",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "4826–4835"
+        },
+        {
+          "Declarations": "Cannici M,\nCiccone M,\nRomanoni\nA,\net\nal",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": ""
+        },
+        {
+          "Declarations": "(2020) A differentiable\nrecurrent\nsurface\nfor",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "Gunes\nH,\nSchuller\nB\n(2013)\nCategorical"
+        },
+        {
+          "Declarations": "asynchronous\nevent-based data.\nIn: Computer",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "and\ndimensional\naffect\nanalysis\nin\ncon-"
+        },
+        {
+          "Declarations": "Vision–ECCV 2020: 16th European Conference,",
+          "Glasgow, UK, August 23–28, 2020, Proceedings,": "tinuous\ninput:\nCurrent\ntrends\nand\nfuture"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "directions.\nImage\nand\nVision\nComput-": "ing\n31(2):120–136.\nhttps://doi.org/https:",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "torized higher-order cnns with an application to"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "//doi.org/10.1016/j.imavis.2012.06.016,\nURL",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "spatio-temporal\nemotion estimation.\nIn: Proc."
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "https://www.sciencedirect.com/science/",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "of\nthe\nIEEE/CVF Conference\non Computer"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "article/pii/S0262885612001084, affect Analysis",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Vision and Pattern Recognition, pp 6060–6069"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "In Continuous Input",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Lenz G, Ieng SH, Benosman R (2020) Event-based"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Handrich S, Dinges L, Al-Hamadi A, et al (2020)",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "face detection and tracking using the dynamics"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Simultaneous prediction of valence/arousal and",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "of eye blinks. Frontiers in Neuroscience 14:587"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "emotions\non\naffectnet,\naff-wild\nand\nafew-va.",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "J, Zhang Z (2022) Facial\nexpression\nrecog-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Procedia Computer Science 170:634–641",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "nition\nusing\nvanilla\nvit\nbackbones with mae"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "He K, Zhang X, Ren S, et al\n(2016) Deep resid-",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "pretraining. arXiv preprint arXiv:220711081"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "ual\nlearning for image recognition.\nIn: Proc. of",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Lichtsteiner P, Posch C, Delbruck T (2008) A"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "the\nIEEE conference on computer vision and",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "128× 128 120 db 15 µs\nlatency asynchronous"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "pattern recognition, pp 770–778",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "temporal\ncontrast\nvision\nsensor.\nIEEE Jour-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Hu Y, Liu\nSC, Delbruck T (2021)\nv2e: From",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "nal of Solid-State Circuits 43(2):566–576. https:"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "video\nframes\nto\nrealistic\nDVS\nevents.\nIn:",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "//doi.org/10.1109/JSSC.2007.914337"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "2021\nIEEE/CVF\nConference\non\nComputer",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Mahlknecht F, Gehrig D, Nash J,\net\nal\n(2022)"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Vision\nand\nPattern\nRecognition Workshops",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Exploring\nevent\ncamera-based\nodometry\nfor"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "(CVPRW).\nIEEE, URL http://arxiv.org/abs/",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "planetary robots. IEEE Robotics and Automa-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "2006.07722",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "tion Letters 7(4):8651–8658. https://doi.org/10."
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Innocenti SU, Becattini F, Pernici F, et al (2021)",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "1109/LRA.2022.3187826"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Temporal binary representation for event-based",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Mao J, Xu R, Yin X, et al (2023) Poster v2: A sim-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "action recognition.\nIn: 2020 25th International",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "pler and stronger\nfacial expression recognition"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Conference\non Pattern Recognition\n(ICPR),",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "network. arXiv preprint arXiv:230112149"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "IEEE, pp 10426–10432",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "JA, Fredrickson BL, Larkin GR,\net\nal"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Kaltwang S, Todorovic S, Pantic M (2015) Doubly",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "(2005)\nEmotional\ncategory\ndata\non\nimages"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "sparse\nrelevance\nvector machine\nfor\ncontinu-",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "from the international affective picture system."
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "ous\nfacial behavior estimation.\nIEEE Transac-",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Behavior research methods 37:626–630"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "tions on Pattern Analysis and Machine Intelli-",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "gence 38:1–1. https://doi.org/10.1109/TPAMI.",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Mitenkova A, Kossaifi J, Panagakis Y, et al (2019)"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "2015.2501824",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Valence and arousal estimation in-the-wild with"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "tensor methods.\nIn: 2019 14th IEEE Interna-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Kollias D, Zafeiriou S (2019) Expression, affect,",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "tional Conference on Automatic Face & Gesture"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "action\nunit\nrecognition:\nAff-wild2,\nmulti-",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Recognition (FG 2019), IEEE, pp 1–7"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "task\nlearning\nand\narcface.\narXiv\npreprint",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "arXiv:191004855",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Mueggler E (2017) Event-based vision for high-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "speed robotics. PhD thesis, University of Zurich"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Kollias D, Cheng\nS, Ververas E,\net\nal\n(2020)",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Deep neural network augmentation: Generating",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Mueggler E, Bartolozzi C, Scaramuzza D (2017)"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "faces for affect analysis. International Journal of",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Fast event-based corner detection. University of"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Computer Vision 128:1455–1484",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Zurich"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "Kossaifi J, Tzimiropoulos G, Todorovic S,\net al",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "Nguyen A, Do TT, Caldwell DG, et al (2019) Real-"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "(2017)\nAfew-va\ndatabase\nfor\nvalence\nand",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "time 6dof pose relocalization for event cameras"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "arousal estimation in-the-wild. Image Vis Com-",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "with stacked spatial\nlstm networks. In: Proc. of"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "put 65:23–36. URL https://api.semanticscholar.",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": "the IEEE/CVF Conference on Computer Vision"
+        },
+        {
+          "directions.\nImage\nand\nVision\nComput-": "org/CorpusID:7961100",
+          "Kossaifi J, Toisoul A, Bulat A, et al\n(2020) Fac-": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "gent Systems and Informatics (SISY), IEEE, pp"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Panagakis Y, Nicolaou M, Zafeiriou S, et al (2016)",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "119–124"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Robust\ncorrelated\nand\nindividual\ncomponent",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "analysis.\nIEEE transactions on pattern analy-",
+          "IEEE 19th International Symposium on Intelli-": "Savchenko AV, Savchenko LV, Makarov I\n(2022)"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "sis\nand machine\nintelligence\n38(8):1665–1678.",
+          "IEEE 19th International Symposium on Intelli-": "Classifying emotions and engagement in online"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "https://doi.org/10.1109/TPAMI.2015.2497700",
+          "IEEE 19th International Symposium on Intelli-": "learning\nbased\non\na\nsingle\nfacial\nexpression"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "recognition neural network. IEEE Transactions"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Parameshwara R, Radwan I, Asthana A,\net\nal",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "on Affective Computing 13(4):2132–2143"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "(2023)\nEfficient\nlabelling\nof\naffective\nvideo",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "datasets via few-shot & multi-task contrastive",
+          "IEEE 19th International Symposium on Intelli-": "Savran A, Bartolozzi C (2020) Face pose align-"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "learning.\nIn: Proc. of\nthe 31st ACM Interna-",
+          "IEEE 19th International Symposium on Intelli-": "ment\nwith\nevent\ncameras.\nSensors\n20(24)."
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "tional Conference on Multimedia, pp 6161–6170",
+          "IEEE 19th International Symposium on Intelli-": "https://doi.org/10.3390/s20247079, URL https:"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "//www.mdpi.com/1424-8220/20/24/7079"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Perot E, De Tournemire P, Nitti D, et al\n(2020)",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Learning to detect objects with a 1 megapixel",
+          "IEEE 19th International Symposium on Intelli-": "Schoneveld L, Othmani A, Abdelkawy H (2021)"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "event camera. Advances in Neural\nInformation",
+          "IEEE 19th International Symposium on Intelli-": "Leveraging\nrecent\nadvances\nin\ndeep\nlearning"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Processing Systems 33:16639–16652",
+          "IEEE 19th International Symposium on Intelli-": "for\naudio-visual\nemotion\nrecognition. Pattern"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "Recognition Letters 146:1–7"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Posch\nC,\nSerrano-Gotarredona\nT,\nLinares-",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Barranco\nB,\net\nal\n(2014)\nRetinomorphic",
+          "IEEE 19th International Symposium on Intelli-": "Seok H, Lim J\n(2020) Robust\nfeature\ntracking"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "event-based\nvision\nsensors:\nBioinspired",
+          "IEEE 19th International Symposium on Intelli-": "in dvs event\nstream using bezier mapping.\nIn:"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "cameras\nwith\nspiking\noutput.\nProc\nof",
+          "IEEE 19th International Symposium on Intelli-": "Proc. of the IEEE/CVF Winter Conference on"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "the\nIEEE\n102(10):1470–1484.\nhttps:",
+          "IEEE 19th International Symposium on Intelli-": "Applications of Computer Vision (WACV)"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "//doi.org/10.1109/JPROC.2014.2346153",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "Shariff W, Dilmaghani MS, Kielty P, et al (2023)"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Rebecq H, Gehrig D, Scaramuzza D (2018) ESIM:",
+          "IEEE 19th International Symposium on Intelli-": "Neuromorphic\ndriver monitoring\nsystems: A"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "an\nopen\nevent\ncamera\nsimulator.\nConf\non",
+          "IEEE 19th International Symposium on Intelli-": "computationally\nefficient\nproof-of-concept\nfor"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Robotics Learning (CoRL)",
+          "IEEE 19th International Symposium on Intelli-": "driver distraction detection.\nIEEE Open Jour-"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "nal of Vehicular Technology"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Renner A, Evanusa M, Orchard G,\net al\n(2020)",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Event-based attention and tracking on neuro-",
+          "IEEE 19th International Symposium on Intelli-": "Toisoul A, Kossaifi J, Bulat A, et al (2021) Esti-"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "morphic hardware. In: 2020 2nd IEEE Interna-",
+          "IEEE 19th International Symposium on Intelli-": "mation of continuous valence and arousal\nlevels"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "tional Conference on Artificial Intelligence Cir-",
+          "IEEE 19th International Symposium on Intelli-": "from faces\nin\nnaturalistic\nconditions. Nature"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "cuits and Systems (AICAS), pp 132–132, https:",
+          "IEEE 19th International Symposium on Intelli-": "Machine Intelligence URL https://www.nature."
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "//doi.org/10.1109/AICAS48895.2020.9073789",
+          "IEEE 19th International Symposium on Intelli-": "com/articles/s42256-020-00280-0"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Rudovic O, Pavlovic V, Pantic M (2015) Context-",
+          "IEEE 19th International Symposium on Intelli-": "Wen Z, Lin W, Wang T, et al (2023) Distract your"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "sensitive dynamic ordinal\nregression for\ninten-",
+          "IEEE 19th International Symposium on Intelli-": "attention: Multi-head cross attention network"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "sity\nestimation\nof\nfacial\naction\nunits.\nPat-",
+          "IEEE 19th International Symposium on Intelli-": "for\nfacial\nexpression recognition. Biomimetics"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "tern Analysis and Machine\nIntelligence,\nIEEE",
+          "IEEE 19th International Symposium on Intelli-": "8(2):199"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Transactions\non\n37:944–958.\nhttps://doi.org/",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "Yan WJ, Wu Q, Liang J, et al\n(2013) How fast"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "10.1109/TPAMI.2014.2356192",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "",
+          "IEEE 19th International Symposium on Intelli-": "are\nthe\nleaked\nfacial\nexpressions: The\ndura-"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Ryan C,\nElrasad A,\nShariff W,\net\nal\n(2023)",
+          "IEEE 19th International Symposium on Intelli-": "tion of micro-expressions. Journal of Nonverbal"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Real-time multi-task facial analytics with event",
+          "IEEE 19th International Symposium on Intelli-": "Behavior 37:217–230"
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "cameras. IEEE Access",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "Savchenko\nAV\n(2021)\nFacial\nexpression\nand",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "attributes\nrecognition\nbased\non\nmulti-task",
+          "IEEE 19th International Symposium on Intelli-": ""
+        },
+        {
+          "and Pattern Recognition Workshops, pp 0–0": "learning of lightweight neural networks. In: 2021",
+          "IEEE 19th International Symposium on Intelli-": ""
+        }
+      ],
+      "page": 12
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Person re-identification without identification via event anonymization",
+      "authors": [
+        "S Ahmad",
+        "P Morerio",
+        "Del Bue"
+      ],
+      "year": "2023",
+      "venue": "Proc. of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "2",
+      "title": "Spiking neural networks for frame-based and event-based single object localization",
+      "authors": [
+        "S Barchid",
+        "J Mennesson",
+        "J Eshraghian"
+      ],
+      "year": "2023",
+      "venue": "Neurocomputing"
+    },
+    {
+      "citation_id": "3",
+      "title": "Understanding human reactions looking at facial microexpressions with an event camera",
+      "authors": [
+        "F Becattini",
+        "F Palai",
+        "Del Bimbo"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Industrial Informatics"
+    },
+    {
+      "citation_id": "4",
+      "title": "Neuromorphic event-based facial expression recognition",
+      "authors": [
+        "L Berlincioni",
+        "L Cultrera",
+        "C Albisani"
+      ],
+      "year": "2023",
+      "venue": "Proc. of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "5",
+      "title": "Faces in event streams (fes): An annotated face dataset for event cameras",
+      "authors": [
+        "U Bissarinova",
+        "T Rakhimzhanova",
+        "D Kenzhebalin"
+      ],
+      "year": "2023",
+      "venue": "Faces in event streams (fes): An annotated face dataset for event cameras"
+    },
+    {
+      "citation_id": "6",
+      "title": "End-to-end neuromorphic lip-reading",
+      "authors": [
+        "H Bulzomi",
+        "M Schweiker",
+        "A Gruel"
+      ],
+      "year": "2023",
+      "venue": "Proc. of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "7",
+      "title": "A differentiable recurrent surface for asynchronous event-based data",
+      "authors": [
+        "M Cannici",
+        "M Ciccone",
+        "A Romanoni"
+      ],
+      "year": "2020",
+      "venue": "Computer Vision-ECCV 2020: 16th European Conference"
+    },
+    {
+      "citation_id": "8",
+      "title": "Quo vadis, action recognition? a new model and the kinetics dataset",
+      "authors": [
+        "J Carreira",
+        "A Zisserman"
+      ],
+      "year": "2017",
+      "venue": "Proc. of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "9",
+      "title": "Neuromorophic vision sensing and processing",
+      "authors": [
+        "T Delbruckl"
+      ],
+      "year": "2016",
+      "venue": "ESSCIRC Conference 2016: 42nd European Solid-State Circuits Conference",
+      "doi": "10.1109/ESSCIRC.2016.7598232"
+    },
+    {
+      "citation_id": "10",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "A Dosovitskiy",
+        "L Beyer",
+        "A Kolesnikov"
+      ],
+      "year": "2020",
+      "venue": "An image is worth 16x16 words: Transformers for image recognition at scale"
+    },
+    {
+      "citation_id": "11",
+      "title": "Facial action coding system",
+      "authors": [
+        "P Ekman",
+        "W Friesen"
+      ],
+      "year": "1978",
+      "venue": "Environmental Psychology & Nonverbal Behavior"
+    },
+    {
+      "citation_id": "12",
+      "title": "Dynamic obstacle avoidance for quadrotors with event cameras",
+      "authors": [
+        "D Falanga",
+        "K Kleber",
+        "D Scaramuzza"
+      ],
+      "year": "2020",
+      "venue": "Science Robotics"
+    },
+    {
+      "citation_id": "13",
+      "title": "10 a 1280×720 back-illuminated stacked temporal contrast event-based vision sensor with 4.86µm pixels, 1.066geps readout, programmable event-rate controller and compressive data-formatting pipeline",
+      "authors": [
+        "T Finateu",
+        "A Niwa",
+        "D Matolin"
+      ],
+      "year": "2020",
+      "venue": "2020 IEEE International Solid-State Circuits Conference -(ISSCC)",
+      "doi": "10.1109/ISSCC19947.2020.9063149"
+    },
+    {
+      "citation_id": "14",
+      "title": "Event-based vision: A survey. IEEE transactions on pattern analysis and machine intelligence",
+      "authors": [
+        "G Gallego",
+        "T Delbrück",
+        "G Orchard"
+      ],
+      "year": "2020",
+      "venue": "Event-based vision: A survey. IEEE transactions on pattern analysis and machine intelligence"
+    },
+    {
+      "citation_id": "15",
+      "title": "Deep generative adversarial compression artifact removal",
+      "authors": [
+        "L Galteri",
+        "L Seidenari",
+        "M Bertini"
+      ],
+      "year": "2017",
+      "venue": "Proc. of the IEEE International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "16",
+      "title": "Categorical and dimensional affect analysis in continuous input: Current trends and future directions",
+      "authors": [
+        "H Gunes",
+        "B Schuller"
+      ],
+      "year": "2013",
+      "venue": "Image and Vision Computing",
+      "doi": "10.1016/j.imavis.2012.06.016"
+    },
+    {
+      "citation_id": "18",
+      "title": "Simultaneous prediction of valence/arousal and emotions on affectnet, aff-wild and afew-va",
+      "authors": [
+        "S Handrich",
+        "L Dinges",
+        "A Al-Hamadi"
+      ],
+      "year": "2020",
+      "venue": "Procedia Computer Science"
+    },
+    {
+      "citation_id": "19",
+      "title": "Deep residual learning for image recognition",
+      "authors": [
+        "K He",
+        "X Zhang",
+        "S Ren"
+      ],
+      "year": "2016",
+      "venue": "Proc. of the IEEE conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "20",
+      "title": "2e: From video frames to realistic DVS events",
+      "authors": [
+        "Y Hu",
+        "S Liu",
+        "T Delbruck"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)"
+    },
+    {
+      "citation_id": "21",
+      "title": "Temporal binary representation for event-based action recognition",
+      "authors": [
+        "S Innocenti",
+        "F Becattini",
+        "F Pernici"
+      ],
+      "year": "2020",
+      "venue": "25th International Conference on Pattern Recognition (ICPR)"
+    },
+    {
+      "citation_id": "22",
+      "title": "Doubly sparse relevance vector machine for continuous facial behavior estimation",
+      "authors": [
+        "S Kaltwang",
+        "S Todorovic",
+        "M Pantic"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+      "doi": "10.1109/TPAMI.2015.2501824"
+    },
+    {
+      "citation_id": "23",
+      "title": "Expression, affect, action unit recognition: Aff-wild2, multitask learning and arcface",
+      "authors": [
+        "D Kollias",
+        "S Zafeiriou"
+      ],
+      "year": "2019",
+      "venue": "Expression, affect, action unit recognition: Aff-wild2, multitask learning and arcface"
+    },
+    {
+      "citation_id": "24",
+      "title": "Deep neural network augmentation: Generating faces for affect analysis",
+      "authors": [
+        "D Kollias",
+        "S Cheng",
+        "E Ververas"
+      ],
+      "year": "2020",
+      "venue": "International Journal of Computer Vision"
+    },
+    {
+      "citation_id": "25",
+      "title": "Afew-va database for valence and arousal estimation in-the-wild",
+      "authors": [
+        "J Kossaifi",
+        "G Tzimiropoulos",
+        "S Todorovic"
+      ],
+      "year": "2017",
+      "venue": "Image Vis Comput"
+    },
+    {
+      "citation_id": "26",
+      "title": "Factorized higher-order cnns with an application to spatio-temporal emotion estimation",
+      "authors": [
+        "J Kossaifi",
+        "A Toisoul",
+        "A Bulat"
+      ],
+      "year": "2020",
+      "venue": "Proc. of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "27",
+      "title": "Event-based face detection and tracking using the dynamics of eye blinks",
+      "authors": [
+        "G Lenz",
+        "S Ieng",
+        "R Benosman"
+      ],
+      "year": "2020",
+      "venue": "Frontiers in Neuroscience"
+    },
+    {
+      "citation_id": "28",
+      "title": "Facial expression recognition using vanilla vit backbones with mae pretraining",
+      "authors": [
+        "J Li",
+        "Z Zhang"
+      ],
+      "year": "2022",
+      "venue": "Facial expression recognition using vanilla vit backbones with mae pretraining"
+    },
+    {
+      "citation_id": "29",
+      "title": "A 128× 128 120 db 15 µs latency asynchronous temporal contrast vision sensor",
+      "authors": [
+        "P Lichtsteiner",
+        "C Posch",
+        "T Delbruck"
+      ],
+      "year": "2008",
+      "venue": "IEEE Journal of Solid-State Circuits",
+      "doi": "10.1109/JSSC.2007.914337"
+    },
+    {
+      "citation_id": "30",
+      "title": "Exploring event camera-based odometry for planetary robots",
+      "authors": [
+        "F Mahlknecht",
+        "D Gehrig",
+        "J Nash"
+      ],
+      "year": "2022",
+      "venue": "IEEE Robotics and Automation Letters",
+      "doi": "10.1109/LRA.2022.3187826"
+    },
+    {
+      "citation_id": "31",
+      "title": "Poster v2: A simpler and stronger facial expression recognition network",
+      "authors": [
+        "J Mao",
+        "R Xu",
+        "X Yin"
+      ],
+      "year": "2023",
+      "venue": "Poster v2: A simpler and stronger facial expression recognition network"
+    },
+    {
+      "citation_id": "32",
+      "title": "Emotional category data on images from the international affective picture system",
+      "authors": [
+        "J Mikels",
+        "B Fredrickson",
+        "G Larkin"
+      ],
+      "year": "2005",
+      "venue": "Behavior research methods"
+    },
+    {
+      "citation_id": "33",
+      "title": "Valence and arousal estimation in-the-wild with tensor methods",
+      "authors": [
+        "A Mitenkova",
+        "J Kossaifi",
+        "Y Panagakis"
+      ],
+      "year": "2019",
+      "venue": "14th IEEE International Conference on Automatic Face & Gesture Recognition"
+    },
+    {
+      "citation_id": "34",
+      "title": "Event-based vision for highspeed robotics",
+      "authors": [
+        "E ; Mueggler",
+        "C Bartolozzi",
+        "D Scaramuzza"
+      ],
+      "year": "2017",
+      "venue": "Event-based vision for highspeed robotics"
+    },
+    {
+      "citation_id": "35",
+      "title": "Realtime 6dof pose relocalization for event cameras with stacked spatial lstm networks",
+      "authors": [
+        "A Nguyen",
+        "T Do",
+        "D Caldwell"
+      ],
+      "year": "2019",
+      "venue": "Proc. of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops"
+    },
+    {
+      "citation_id": "36",
+      "title": "Robust correlated and individual component analysis",
+      "authors": [
+        "Y Panagakis",
+        "M Nicolaou",
+        "S Zafeiriou"
+      ],
+      "year": "2016",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence",
+      "doi": "10.1109/TPAMI.2015.2497700"
+    },
+    {
+      "citation_id": "37",
+      "title": "Efficient labelling of affective video datasets via few-shot & multi-task contrastive learning",
+      "authors": [
+        "R Parameshwara",
+        "I Radwan",
+        "A Asthana"
+      ],
+      "year": "2023",
+      "venue": "Proc. of the 31st ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "38",
+      "title": "Learning to detect objects with a 1 megapixel event camera",
+      "authors": [
+        "E Perot",
+        "De Tournemire",
+        "P Nitti"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "39",
+      "title": "Retinomorphic event-based vision sensors: Bioinspired cameras with spiking output",
+      "authors": [
+        "C Posch",
+        "T Serrano-Gotarredona",
+        "B Linares-Barranco"
+      ],
+      "year": "2014",
+      "venue": "Proc of the IEEE",
+      "doi": "10.1109/JPROC.2014.2346153"
+    },
+    {
+      "citation_id": "40",
+      "title": "ESIM: an open event camera simulator",
+      "authors": [
+        "H Rebecq",
+        "D Gehrig",
+        "D Scaramuzza"
+      ],
+      "year": "2018",
+      "venue": "Conf on Robotics Learning (CoRL)"
+    },
+    {
+      "citation_id": "41",
+      "title": "Event-based attention and tracking on neuromorphic hardware",
+      "authors": [
+        "A Renner",
+        "M Evanusa",
+        "G Orchard"
+      ],
+      "year": "2020",
+      "venue": "2020 2nd IEEE International Conference on Artificial Intelligence Circuits and Systems (AICAS)",
+      "doi": "10.1109/AICAS48895.2020.9073789"
+    },
+    {
+      "citation_id": "42",
+      "title": "Contextsensitive dynamic ordinal regression for intensity estimation of facial action units. Pattern Analysis and Machine Intelligence",
+      "authors": [
+        "O Rudovic",
+        "V Pavlovic",
+        "M Pantic"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on",
+      "doi": "10.1109/TPAMI.2014.2356192"
+    },
+    {
+      "citation_id": "43",
+      "title": "Real-time multi-task facial analytics with event cameras",
+      "authors": [
+        "C Ryan",
+        "A Elrasad",
+        "W Shariff"
+      ],
+      "year": "2023",
+      "venue": "Real-time multi-task facial analytics with event cameras"
+    },
+    {
+      "citation_id": "44",
+      "title": "Facial expression and attributes recognition based on multi-task learning of lightweight neural networks",
+      "authors": [
+        "A Savchenko"
+      ],
+      "year": "2021",
+      "venue": "IEEE 19th International Symposium on Intelligent Systems and Informatics (SISY)"
+    },
+    {
+      "citation_id": "45",
+      "title": "Classifying emotions and engagement in online learning based on a single facial expression recognition neural network",
+      "authors": [
+        "A Savchenko",
+        "L Savchenko",
+        "I Makarov"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "46",
+      "title": "Face pose alignment with event cameras",
+      "authors": [
+        "A Savran",
+        "C Bartolozzi"
+      ],
+      "year": "2020",
+      "venue": "Sensors",
+      "doi": "10.3390/s20247079"
+    },
+    {
+      "citation_id": "47",
+      "title": "Leveraging recent advances in deep learning for audio-visual emotion recognition",
+      "authors": [
+        "L Schoneveld",
+        "A Othmani",
+        "H Abdelkawy"
+      ],
+      "year": "2021",
+      "venue": "Pattern Recognition Letters"
+    },
+    {
+      "citation_id": "48",
+      "title": "Robust feature tracking in dvs event stream using bezier mapping",
+      "authors": [
+        "H Seok",
+        "J Lim"
+      ],
+      "year": "2020",
+      "venue": "Proc. of the IEEE/CVF Winter Conference on Applications of Computer Vision"
+    },
+    {
+      "citation_id": "49",
+      "title": "Neuromorphic driver monitoring systems: A computationally efficient proof-of-concept for driver distraction detection",
+      "authors": [
+        "W Shariff",
+        "M Dilmaghani",
+        "P Kielty"
+      ],
+      "year": "2023",
+      "venue": "Neuromorphic driver monitoring systems: A computationally efficient proof-of-concept for driver distraction detection"
+    },
+    {
+      "citation_id": "50",
+      "title": "Estimation of continuous valence and arousal levels from faces in naturalistic conditions",
+      "authors": [
+        "A Toisoul",
+        "J Kossaifi",
+        "A Bulat"
+      ],
+      "year": "2021",
+      "venue": "Nature Machine Intelligence URL"
+    },
+    {
+      "citation_id": "51",
+      "title": "Distract your attention: Multi-head cross attention network for facial expression recognition",
+      "authors": [
+        "Z Wen",
+        "Lin Wang"
+      ],
+      "year": "2023",
+      "venue": "Biomimetics"
+    },
+    {
+      "citation_id": "52",
+      "title": "How fast are the leaked facial expressions: The duration of micro-expressions",
+      "authors": [
+        "W Yan",
+        "Q Wu",
+        "J Liang"
+      ],
+      "year": "2013",
+      "venue": "Journal of Nonverbal Behavior"
+    }
+  ]
+}

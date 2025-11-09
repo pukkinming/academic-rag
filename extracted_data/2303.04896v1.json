@@ -1,0 +1,3465 @@
+{
+  "paper_id": "2303.04896v1",
+  "title": "Using Positive Matching Contrastive Loss With Facial Action Units To Mitigate Bias In Facial Expression Recognition",
+  "published": "2023-03-08T21:28:02Z",
+  "authors": [
+    "Varsha Suresh",
+    "Desmond C. Ong"
+  ],
+  "keywords": [
+    "facial expression recognition",
+    "fairness",
+    "contrastive loss"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Machine learning models automatically learn discriminative features from the data, and are therefore susceptible to learn strongly-correlated biases, such as using protected attributes like gender and race. Most existing bias mitigation approaches aim to explicitly reduce the model's focus on these protected features. In this work, we propose to mitigate bias by explicitly guiding the model's focus towards task-relevant features using domain knowledge, and we hypothesize that this can indirectly reduce the dependence of the model on spurious correlations it learns from the data. We explore bias mitigation in facial expression recognition systems using facial Action Units (AUs) as the task-relevant feature. To this end, we introduce Feature-based Positive Matching Contrastive Loss which learns the distances between the positives of a sample based on the similarity between their corresponding AU embeddings. We compare our approach with representative baselines and show that incorporating task-relevant features via our method can improve model fairness at minimal cost to classification performance.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "The performance of machine learning models depends on the quality of the dataset that they are trained on; any bias in the dataset will be learnt by the model  [1] ,  [2] . One example is dataset imbalance: if in a Facial Expression Recognition training dataset, there are more Male faces with Angry labels than Female faces, then given this spurious correlation, the model might learn to associate features associated with Male faces (which is task-irrelevant), with the output class Angry. Such task-irrelevant cues may be shortcuts that the model learns to achieve better performance, but which reduce generalizability to new data  [3] -  [5] . Moreover, for moral, ethical, and legal reasons, we may want to ensure that the model is unbiased with respect to certain protected attributes, such as race and gender.\n\nGenerally, there are two broad classes of approaches to mitigate bias in machine learning models. The first class of approaches require knowledge of the labels of the protected attribute. If one has labels of the protected attribute, one could try to compensate for the statistical distribution of the attribute  [6] , use the labels in contrastive-based approaches  [4] , or to \"train out\" the bias using adversarial-based approaches  [7] -  [10] .\n\nThe second class of approaches do not require labels of the protected attribute during training (although for evaluating our bias mitigation techniques, we would still require labels). Most methods in this class use a helper model that is trained with the knowledge of the type of bias-causing features (such as texture biases in CNN models), and the information from these helper models is used to debias the main models  [4] ,  [11] ,  [12] . Other approaches utilise the learning dynamics of neural networks, which have been shown to learn biased cues faster than task-relevant features  [3] ,  [5] .\n\nIn this work, we propose a different approach to reducing bias. Instead of explicitly reducing the model's reliance on task-irrelevant features, we instead propose to guide the model to focus on a set of task-relevant features-and in doing so, reducing bias in the model. In particular, in the case of Facial Expression Recognition, we consider Facial Action Units (AUs)  [13] , which have been widely studied in Facial Expression Recognition research  [14] -  [17] . We introduce feature-based Positive Matching Contrastive Loss, which uses extracted AUs to compute similarities between faces with the same emotion label (i.e., among positive samples). We use these similarities in a contrastive loss to weigh the distances between each sample and its positive samples. We compare our work with representative baselines using two datasets (RAF-DB and IASLab), and find that, compared to existing approaches which do and do not use bias labels, our approach performs very well at reducing bias.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ii. Related Work",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Bias Mitigation For Machine Learning Models",
+      "text": "We review existing approaches based on whether they require explicit labels of the protected attribute (i.e., labels of the potential bias) during training.\n\n978-1-6654-5908-2/22/$31.00 ©2022 IEEE arXiv:2303.04896v1 [cs.CV] 8 Mar 2023 1) Bias mitigation with labels: One set of approaches makes the model aware of the bias such as by explicitly predicting bias labels in a multi-task setting  [18] ,  [19] , compensating for the distributional statistics of the protected classes  [6]  or by incorporating the bias labels in the loss computation  [4] . Alternatively, adversarial-based approaches explicitly try to make the model \"blind\" to the bias labels by using a confusion loss  [7] ,  [10]  or gradient reversal techniques  [9] ,  [20] . Although most existing bias mitigation approaches use bias labels for mitigation, this may not always be practical as it is difficult to exhaustively list all the factors that may induce bias in real-life conditions. In addition, a majority of existing datasets do not contain bias label annotations, which may limit the utility of these approaches.\n\n2) Bias mitigation without labels: Recently, there has been a shift in bias mitigation strategies towards debiasing the models without using bias labels. A majority of these approaches train an auxiliary model to debias the primary model  [4] ,  [11] ,  [12] . The auxiliary model is generally trained to predict the task using biased features. For example, Convolutional Neural Networks(CNNs) are biased towards textures  [21] , and so one approach to debias object recognition models is to train an auxiliary model to use textures. For instance,  [4]  used the distance between samples from embedding space of the auxiliary model to weigh the positives samples in the contrastive objective of the primary model such that when two positives are closer in the embedding space, they should be weighed less in the primary model.\n\nAnother set of approaches harnesses the learning dynamics of neural networks to mitigate bias  [3] ,  [5] . If the dataset contains strong biases, then the model learns early on in training to differentiate samples based on these easier-to-learn bias features, which hampers the model's ability to learn task-relevant features  [3] ,  [5] ,  [22] ,  [23] . For example,  [3]  introduced Spectral Decoupling which uses a L2-regularisation penalty term to decouple the features from the learning dynamics of neural networks, which in turn gives the model a chance to learn from all the features.  [5]  used the observations from the model learning dynamics to select easy and hard samples for the main model with the help of an auxiliary model.\n\nOur work does not require bias labels nor knowledge of the bias features. Instead of explicitly removing the dependence of the model on the task-irrelevant features, we aim to increase the importance of task-relevant features, obtained using domain knowledge. We hypothesize that doing so would in turn diminish the model's dependence on the bias features.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Bias Mitigation Strategies In Facial Expression Recognition",
+      "text": "Facial expression recognition have been widely deployed in various commercial settings such as in automated candidate screening where companies use videos from applicants to filter candidates based on their facial expressions. Recently, these algorithms have come under scrutiny for reinforcing biases against certain groups of people, such as people with disabilities  [24] . Similarly, Rhue  [25]  investigated two commercial expression recognition software, Face++ and Microsoft AI, and found that these two commercial offerings rated Black basketball players (in their professional website pictures) as displaying much more negative emotions than White players.\n\nYet, there are only a few papers that have focused on mitigating bias in the context of facial expression recognition. One example is  [8] , who investigated existing bias-mitigation techniques that use bias labels for gender-and race-bias mitigation in facial expression recognition of six basic emotions, and found promising results for adversarial approaches.\n\nIn a recent study,  [26]  used Facial Action Units to mitigate annotation bias, which occurs when human annotators extend their personal/social biases into the data annotation. In this work, while we are less concerned with annotation bias, we also use Facial Action Units as the task-relevant feature to develop fairer expression recognition models.\n\n1) Facial Action Units for Facial Expression Recognition: We use the Facial Action Coding System (FACS) as the taskrelevant features for Facial Expression Recognition. FACS  [13]  is an anatomically-based coding system which codes facial muscular movements into a set of Action Units (AU), which gives a description of facial muscle movements. Action Units have been widely used in the study of facial expression and perception  [27] -  [29] .\n\n[14] used a FACS-based deep learning architecture to retrieve images that display similar facial expressions in FER2013, an in-the-wild facial expression dataset. Another detailed investigation by  [15]  found that there is activity in CNN-based FER models in the regions of the face corresponding to the locations of relevant Facial Action Units, which suggests a high correlation between the facial expressions and facial action units. Thus, there is literature to support the claim that these extracted AUs are meaningful indicators of facial expression, and hence we may be able to use these AU features as task-relevant features to guide the model towards these features, and away from task-irrelevant features.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Iii. Approach",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Model Fairness",
+      "text": "How do we measure if a model is \"fair\"? This is not a trivial question, and there have been different notions of fairness discussed in the literature  [1] ,  [30] ,  [31] . In our context, let us consider a model trained to detect happiness (or not), ŷ ∈ {0, 1}, in a dataset containing the sensitive or protected attribute gender, male or female {a m , a f } ∈ A. We may desire for our model to have the same level of accuracy in predicting \"truly\" happy men and as it does for predicting \"truly\" happy women, or in other words, to have the same true positive detection rate (of happiness, y) across groups a ∈ A. This is in line with the notion of equality of opportunity  [1] ,  [30] , where we ideally want:\n\nwhere ŷ is the predicted label, y is the target label, for the protected classes {a f , a m } ∈ A. In this work, we focus on equality of opportunity as it maintains a balance in achieving fairness by equalising the true positive rates amongst different protected groups  [30] .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Feature-Based Positive Matching Loss",
+      "text": "In standard supervised classification, the model learns input features that yields the best classification accuracysometimes, some of these output-relevant features may correspond to protected attributes such as race and gender. For example, if the training dataset is imbalanced or has other types of bias in it, such that some protected attributes are more correlated with some output classes (e.g., White faces that tend to be labelled as Happy, compared to Black), then the model would learn to associate these attributes with the output (e.g., see  [25]  for an example for emotion classification and race).\n\nIn this work, we propose a different approach. How about if we guide the model to pay attention to certain types of input features that we know, from theory, relate to the output? In the case of emotion classification, there has been systematic research characterizing facial muscle movements, which has been formalized in the Facial Action Coding System  [13] ,  [27]  and provides an informative set of features from which to infer emotions.\n\nWe introduce feature-based Positive Matching Contrastive Loss which provides extrinsic guidance to the model using task-relevant features, without the need for explicit bias labels. We hypothesize that such guidance will help the model focus on task-relevant similarities (such as facial muscle movements) over task-irrelevant features (that may be associated with race and/or gender).\n\nLet the latent embedding of a sample i using a Convolutional Neural Network-based feature extractor be h i , and let the embeddings of its positive samples (i.e., the other samples {p} ∈ P i that share the same output class as i) be\n\nWe use a similarity function to calculate the pair-wise similarities between i and its positives {p} ∈ P i , to obtain: {S(h i , h 1 ), • • • , S(h i , h Pi )}. Next, we repeat the same similarity calculations with the AU embeddings of sample i, A i , along with its positives {A 1 • • • , A Pi }, and we use these to weight the similarity scores of the h embeddings in the loss:\n\nwhere N is the total number of samples in a batch. We normalise both AU embeddings A i and latent embeddings h i , and we use cosine similarity for S(., .).\n\nTo obtain the AU embeddings, we use the recentlyintroduced AU detection model, JAA-Net  [32] , to get the raw intensities for 12 AUs 1  in the range of 0 to 1. The AU extraction step is performed prior to the training of the CNNbased feature extractor. During training, each 12-dimensional raw AU vector is projected into a latent space using a nonlinear layer with a dimension of 32 with a ReLU activation. This network is trained along with the feature extractor to get the corresponding AU embedding A i .\n\nFor feature extraction (Fig.  1 ), we fine-tune ResNet50 pretrained with VGGFace2 weights  [33] -  [35] . The output of the ResNet-50 network is further projected down to a latent space using a non-linear layer with a dimension of 128 with ReLU activation to obtain h i which is used for computing L pos-match (Eqn. 2). For facial expression classification, as done in standard fine-tuning, the output from ResNet-50 is passed through a classification layer and trained using a Cross Entropy Loss. Therefore, the combined objective is given by:",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Evaluation A. Datasets",
+      "text": "We used two emotion-classification datasets with seven labels: {happy, sad, angry, fear, surprise, disgust, and neutral}.\n\n• RAF-DB  [36] ,  [37]   We first perform face detection using RetinaFace  [39] . Samples with no faces detected are discarded and if multiple faces are detected then we take the largest face. Each image with a detected face will be passed through JAA-Net to obtain a 12-dimensional AU intensity vector.\n\n2) Model Training: We trained our models using Stochastic Gradient Descent with a momentum of 0.9, a learning rate of 1e-03 and batch size of 32. We trained the models for 30 epochs using a step learning rate scheduler with step size of 10 and decay factor γ of 0.5, and did early stopping, choosing the best model based on validation accuracy. We resized the the shorter side of images to 256 pixels and perform center cropping of 224 × 224 pixels to shape the input to the feature-extractor  [33] . The images are normalised using each respective dataset's mean and standard deviation. To prevent over-fitting, we augmented the datasets by performing horizontal flipping for a randomly-chosen 50% of the images.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Evaluation Metric 1) Expression Classification:",
+      "text": "For classification performance, we use classification accuracy and weighted-F1 score.\n\n2) Fairness measure: We use as our fairness measure the equality of opportunity  [30]  given in Eqn. 1. Following previous research  [8] ,  [31] , we use the worst-case min-max ratio, which is the ratio of the minimum accuracy across all protected groups to the maximum accuracy across all protected groups. For example, if gender is the protected group and if the classification accuracy of emotions for males is lower than that for females, then the ratio would be the accuracy for males over the accuracy for females. The closer the min-max ratio is to unity, the smaller the disparity between the truepositive rate between protected groups, and hence the \"more fair\" the model is. Formally, if a d is the protected group with the highest classification accuracy (for emotions):\n\nwhere K is the number of group defined by the protected attribute, N is the total number of samples, N a is the number of samples belonging to protected group a, and 1 is the indicator function, then this worst-case ratio, the Fairness Score, is given by:",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "D. Comparison Methods",
+      "text": "We compare our approach with two classes of approaches: mitigation approaches that require labels of the protected attribute like race and gender, and mitigation approaches that do not require these labels. We note that our Positive Matching Contrastive Loss method does not require these labels.\n\n1) Mitigation approaches that require bias-labels:\n\n• Domain-aware. Instead of a (# of class)-way classifier, this approach trains a (# of classes × # of groups)-way classifier to make the model aware of the bias labels (\"fairness by awareness\"  [18] ,  [40] ). We replace the final classification layer of the vanilla model to accommodate for the increased classification categories. In the case of IASLab, this becomes a 14-class classification (7 emotion classes × 2 gender groups), while in the case of RAF-DB, this becomes a 42-class classification (7 emotion classes × 2 gender groups 6  × 3 races). • Domain-unaware. We follow  [7]  and use gradient reversal on the domain classification to make the model unlearn the domain features. For IASLab, we classify the gender (2-way classification) and RAF-DB we classify both gender-race combined labels (6-way classification 6 ). 2) Mitigation approaches that do not require bias-labels:\n\n• Baseline (Cross Entropy Loss). This is the standard baseline, which uses a Cross-Entropy Loss to predict facial expressions L CE . This is also our approach without the Positive Matching Loss (Eqn. 3 without L pos-match ). • Spectral Decoupling. This method  [3]   to the loss term, and training is the same as the vanilla model. Hyper-parameters in this model are the penalty coefficient, set to 2e-05, and the annealing steps, set based on when the vanilla model overfits (400 steps for IASLab and 3,500 for RAF-DB). In addition, we also implemented Spectral Decoupling with our method (Spectral Decoupling + Positive Matching Loss).",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "V. Results And Discussion",
+      "text": "We first consider how the various methods perform on gender fairness, in Table  II . Recall that the Fairness score (Eqn. 4) is the ratio of the minimum classification accuracy within each group to the maximum accuracy, and values closer to 1 indicate more similar performances across groups. To orient the reader, the baseline model using Cross Entropy Loss (i.e., with no bias mitigation), achieves a 90.2% accuracy for males and 96.1% accuracy for females on the IASLab dataset; the fairness score is thus 90.2/96.1 = 93.8%. Compared to this, our Positive Matching Contrastive Loss method yielded a greater fairness of 97.1%, and was the best performing of all methods. If we examined the fairness for specific emotion classes (Table  III ), our method also achieves the best fairness for 5 of the 7 classes, and for sadness, Spectral Decoupling plus our Positive Matching loss achieves the best fairness.\n\nFor gender fairness on the RAF-DB dataset, we find that neither our method, nor most of the other methods we tried (except for Domain-unaware), improved overall fairness beyond the Cross Entropy Baseline (96.9%). When we took a closer look at the performance on RAF-DB for specific emotion classes, in Table  III , we find that out of the seven classes, our method yielded the best fairness for four classes (anger, fear, happiness and sadness).\n\nIf we next consider fairness by race (only in the RAF-DB dataset), in Table  IV , the best performing method that does not use bias labels is the Spectral Decoupling of  [3]  augmented with our Positive Matching Contrastive Loss, which achieves a Fairness of 98.6%. When we consider fairness for specific emotion classes, we again find that our approach achieves the best fairness on four of the seven classes, (neutral, anger, disgust and fear), and for surprise, Spectral Decoupling plus our Positive Matching loss achieves the best fairness.\n\nOne point of discussion is that the datasets do not have balanced gender and race ratios. For IASLab, the Female:Male ratio is 64:36 (Table  I ), while for RAF-DB it is a little closer at 57:43 (if we remove those with unknown labels), but still has more Female than Male faces. The racial distribution in the RAF-DB dataset is also heavily imbalanced, with almost 77% of the faces being Caucasian, 15% Asian, and only 8% African-American (and these are just three of many races). While overall the fairness scores seem high, these imbalances do translate to some troubling fairness values when we examine specific classes. For example, for race in RAF-DB and considering the classification of fear, the baseline cross entropy method achieves a Fairness Score of 49.5%, which suggests that the true positive rate for identifying fear in one race is half that of identifying fear in another. (Our method does not improve fairness for this particular class either). Finally, we consider the impact of bias mitigation strategies on classification performance. Intuitively, we might expect that optimizing for two objectives (i.e., a fairness objective in addition to classification accuracy) may result in lower classification performance. We can see in Table V that this is indeed the case for RAF-DB, where all the bias mitigation strategies underperformed the cross entropy baseline on classification accuracy. The Domain-Unaware method overall had the smallest drop in accuracy (-0.3%), and our Positive Matching method had the smallest drop in accuracy among the strategies that do not require labels (-0.4%). For the IASLab dataset, we observed that, in fact, the Domain-Aware   method increased classification accuracy by 1.2%, and our Positive Matching method had the largest increase in accuracy among the strategies that do not require labels (0.3%). Thus, especially compared to the other bias mitigation strategies that do not require labels, our proposed method not only increases fairness scores of the model, but also maintains classification performance compared to the standard (un-biasmitigated) classifier.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Vi. Limitations And Future Work",
+      "text": "Our main premise is that a valid approach to bias mitigation is to guide the model to focus on a set of task-relevant features instead of protected attributes. In the specific case of facial expression recognition, we can appeal to many decades of work in psychology to suggest that there may be some desirable task-relevant features such as facial Action Units. However, there is evidence that socio-cultural variations exist within the expressions associated with similar emotions. For instance,  [41]  found significant differences in AU06 and AU12 intensities across gender, race, and age for happy emotion. Similarly, there is evidence that people across cultures regulate their display of emotions differently leading to variations in emotion intensities displayed  [42] ,  [43] . In the future, understanding the effects of these differences can help further reduce irrelevant intra-class variations leading to fairer models. Also, generalising this approach to other domains would require tailored, specific domain knowledge, which may have to be hand-crafted, or perhaps extracted from external knowledge bases. There is plenty of evidence suggesting that incorporating domain-relevant context into deep-learning models leads to better performance  [44] -  [48] , and in this work we show that using domain knowledge could also help build fairer models.\n\nFuture work could more deeply study the quality of the task-relevant features, for example by varying the type/number of the AUs used, or including other external knowledge sources. While we analyzed the performance of our method on specific emotion classes, another important future direction is to understand how we can extend this approach to optimize for fairness in specific classes, which is especially important in cases where we have larger number of classes that may be more closely confusable, such as in fine-grained emotion classification  [49] -  [52] .",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Vii. Conclusion",
+      "text": "In this work, we introduced feature-based Positive Matching Contrastive loss which reduces (equality of opportunity) bias in facial expression recognition models by explicitly guiding the model towards task-relevant features-Facial Action Units. Our method aims to bring the hidden representations of positive samples (samples with same emotion label) closer together according to their similarity in task-relevant features (Action Units). Our approach was able to improve fairness at minimal cost to classification performance when compared to existing bias mitigation methods in two commonly used facial expression recognition datasets. This work is a step towards developing fairer machine learning models which is in turn important for the ethical deployment of these models in society.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Ethical Statement",
+      "text": "Machine learning models have been widely deployed in multiple settings that directly affect peoples' lives, and has been shown to be biased by race for emotion recognition  [25] . There is a pressing need to study bias mitigation strategies, especially in facial expression recognition. Our work is a step in this direction, by offering a way to improve fairness without the need to use labels of the protected attributes (such as race and gender labels), by guiding the model to focus on features that are directly relevant to the task at hand.",
+      "page_start": 7,
+      "page_end": 7
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: An overview of our proposed Positive Matching Contrastive Loss. xi is",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: ), we ﬁne-tune ResNet50 pre-",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "varshasuresh@u.nus.edu, desmond.ong@utexas.edu"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "Abstract—Machine\nlearning models\nautomatically\nlearn dis-\napproaches\nrequire knowledge of\nthe labels of\nthe protected"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "criminative features from the data, and are therefore susceptible"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "attribute. If one has labels of the protected attribute, one could"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "to\nlearn\nstrongly-correlated\nbiases,\nsuch\nas\nusing\nprotected"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "try to compensate for the statistical distribution of the attribute"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "attributes\nlike\ngender\nand race. Most\nexisting bias mitigation"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "[6], use the labels\nin contrastive-based approaches\n[4], or\nto"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "approaches aim to explicitly reduce the model’s\nfocus on these"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "“train out” the bias using adversarial-based approaches\n[7]–\nprotected features.\nIn this work, we propose\nto mitigate bias"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "by\nexplicitly\nguiding\nthe model’s\nfocus\ntowards\ntask-relevant\n[10]."
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "features\nusing\ndomain\nknowledge,\nand we\nhypothesize\nthat"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "The\nsecond class of\napproaches do not\nrequire\nlabels of"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "this\ncan\nindirectly\nreduce\nthe\ndependence\nof\nthe model\non"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "the protected attribute during training (although for evaluating"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "spurious\ncorrelations\nit\nlearns\nfrom the data. We\nexplore bias"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "our bias mitigation techniques, we would still\nrequire labels)."
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "mitigation in facial\nexpression recognition systems using facial"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "Most methods in this class use a helper model\nthat\nis trained\nAction Units\n(AUs)\nas\nthe\ntask-relevant\nfeature. To\nthis\nend,"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "we introduce Feature-based Positive Matching Contrastive Loss\nwith the knowledge of the type of bias-causing features (such"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "which learns the distances between the positives of a sample based"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "as texture biases in CNN models), and the information from"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "on the similarity between their corresponding AU embeddings."
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "these helper models\nis used to debias\nthe main models\n[4],"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "We\ncompare\nour\napproach with\nrepresentative\nbaselines\nand"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "[11],\n[12]. Other approaches utilise the learning dynamics of"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "show that\nincorporating task-relevant\nfeatures via our method"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "neural networks, which have been shown to learn biased cues\ncan\nimprove model\nfairness\nat minimal\ncost\nto\nclassiﬁcation"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "performance.\nfaster\nthan task-relevant\nfeatures [3],\n[5]."
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "Index\nTerms—facial\nexpression\nrecognition,\nfairness,\ncon-"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "In this work, we propose a different approach to reducing"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "trastive loss"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "bias.\nInstead of\nexplicitly reducing the model’s\nreliance on"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "task-irrelevant features, we instead propose to guide the model"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "I.\nINTRODUCTION"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "to\nfocus\non\na\nset\nof\ntask-relevant\nfeatures—and\nin\ndoing"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "The performance of machine learning models depends on\nso,\nreducing\nbias\nin\nthe model.\nIn\nparticular,\nin\nthe\ncase"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "the quality of\nthe dataset\nthat\nthey are trained on; any bias in\nof Facial Expression Recognition, we consider Facial Action"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "the dataset will be learnt by the model [1], [2]. One example is\nUnits\n(AUs)\n[13], which\nhave\nbeen widely\nstudied\nin Fa-"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "dataset\nimbalance:\nif in a Facial Expression Recognition train-\ncial Expression Recognition research [14]–[17]. We introduce"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "ing dataset,\nthere are more Male faces with Angry labels than\nfeature-based Positive Matching Contrastive Loss, which uses"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "Female faces,\nthen given this spurious correlation,\nthe model\nextracted AUs to compute similarities between faces with the"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "might\nlearn to associate features associated with Male faces\nsame\nemotion label\n(i.e.,\namong positive\nsamples). We use"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "(which is\ntask-irrelevant), with the output class Angry. Such\nthese similarities in a contrastive loss to weigh the distances"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "task-irrelevant cues may be shortcuts that\nthe model\nlearns to\nbetween each sample and its positive samples. We compare"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "achieve better performance, but which reduce generalizability\nour work with\nrepresentative\nbaselines\nusing\ntwo\ndatasets"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "to new data [3]–[5]. Moreover,\nfor moral, ethical, and legal\n(RAF-DB and IASLab), and ﬁnd that, compared to existing"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "reasons, we may want\nto ensure that\nthe model\nis unbiased\napproaches which do and do not use bias labels, our approach"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "with respect\nto certain protected attributes, such as race and\nperforms very well at\nreducing bias."
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "gender."
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "II. RELATED WORK\nGenerally,\nthere\nare\ntwo\nbroad\nclasses\nof\napproaches\nto"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "mitigate bias\nin machine learning models. The ﬁrst class of"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "A. Bias mitigation for Machine Learning models"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "This\nresearch is\nsupported in part by the National Research Foundation,"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "We\nreview existing\napproaches\nbased\non whether\nthey"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "Singapore under its AI Singapore Programme (AISG Award No: AISG2-RP-"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "require\nexplicit\nlabels of\nthe protected attribute\n(i.e.,\nlabels"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "2020-016),\nand by a Singapore Ministry of Education Academic Research"
+        },
+        {
+          "3Department of\nInformation Systems and Analytics, National University of Singapore": "Fund Tier 1 grant\nto DCO.\nof\nthe potential bias) during training."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "makes\nthe model\naware\nof\nthe\nbias\nsuch\nas\nby\nexplicitly",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "basketball players\n(in their professional website pictures) as"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "predicting bias labels in a multi-task setting [18],\n[19], com-",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "displaying much more negative emotions than White players."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "pensating\nfor\nthe\ndistributional\nstatistics\nof\nthe\nprotected",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "Yet,\nthere\nare\nonly\na\nfew papers\nthat\nhave\nfocused\non"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "classes\n[6]\nor\nby\nincorporating\nthe\nbias\nlabels\nin\nthe\nloss",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "mitigating bias in the context of facial expression recognition."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "computation [4]. Alternatively,\nadversarial-based approaches",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "One example is [8], who investigated existing bias-mitigation"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "explicitly try to make the model “blind” to the bias labels by",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "techniques that use bias labels for gender- and race-bias mit-"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "using a confusion loss [7], [10] or gradient reversal techniques",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "igation in facial expression recognition of six basic emotions,"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "[9],\n[20]. Although most existing bias mitigation approaches",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "and found promising results for adversarial approaches."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "use bias labels for mitigation,\nthis may not always be practical",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "In a recent study, [26] used Facial Action Units to mitigate"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "as\nit\nis difﬁcult\nto exhaustively list all\nthe factors\nthat may",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "annotation bias, which occurs when human annotators extend"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "induce bias\nin real-life conditions.\nIn addition, a majority of",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "their personal/social biases\ninto the data\nannotation.\nIn this"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "existing datasets do not contain bias label annotations, which",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "work, while we are less concerned with annotation bias, we"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "may limit\nthe utility of\nthese approaches.",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "also use Facial Action Units\nas\nthe\ntask-relevant\nfeature\nto"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "2) Bias mitigation without\nlabels: Recently,\nthere has been",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "develop fairer expression recognition models."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "a shift in bias mitigation strategies towards debiasing the mod-",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "1) Facial Action Units for Facial Expression Recognition:"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "els without using bias labels. A majority of\nthese approaches",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "We use the Facial Action Coding System (FACS) as the task-"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "train\nan\nauxiliary model\nto\ndebias\nthe\nprimary model\n[4],",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "relevant features for Facial Expression Recognition. FACS [13]"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "[11],\n[12]. The auxiliary model\nis generally trained to predict",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "is\nan anatomically-based coding system which codes\nfacial"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "the\ntask\nusing\nbiased\nfeatures. For\nexample, Convolutional",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "muscular movements into a set of Action Units (AU), which"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "Neural Networks(CNNs) are biased towards textures [21], and",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "gives a description of facial muscle movements. Action Units"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "so\none\napproach\nto\ndebias\nobject\nrecognition models\nis\nto",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "have been widely used in the study of\nfacial expression and"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "train\nan\nauxiliary model\nto\nuse\ntextures. For\ninstance,\n[4]",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "perception [27]–[29]."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "used\nthe\ndistance\nbetween\nsamples\nfrom embedding\nspace",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "[14]\nused\na\nFACS-based\ndeep\nlearning\narchitecture\nto"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "of\nthe auxiliary model\nto weigh the positives\nsamples\nin the",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "retrieve\nimages\nthat\ndisplay\nsimilar\nfacial\nexpressions\nin"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "contrastive objective of the primary model such that when two",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "FER2013,\nan in-the-wild facial\nexpression dataset. Another"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "positives are closer\nin the embedding space,\nthey should be",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "detailed investigation by [15]\nfound that\nthere\nis\nactivity in"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "weighed less in the primary model.",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "CNN-based FER models in the regions of the face correspond-"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "Another set of approaches harnesses the learning dynamics",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "ing to the\nlocations of\nrelevant Facial Action Units, which"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "of\nneural\nnetworks\nto mitigate\nbias\n[3],\n[5].\nIf\nthe\ndataset",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "suggests a high correlation between the facial expressions and"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "contains\nstrong\nbiases,\nthen\nthe model\nlearns\nearly\non\nin",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "facial\naction\nunits. Thus,\nthere\nis\nliterature\nto\nsupport\nthe"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "training to differentiate samples based on these easier-to-learn",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "claim that\nthese extracted AUs are meaningful\nindicators of"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "bias\nfeatures, which\nhampers\nthe model’s\nability\nto\nlearn",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "facial expression, and hence we may be able to use these AU"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "task-relevant\nfeatures\n[3],\n[5],\n[22],\n[23]. For\nexample,\n[3]",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "features as task-relevant\nfeatures to guide the model\ntowards"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "introduced Spectral Decoupling which uses a L2-regularisation",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "these features, and away from task-irrelevant\nfeatures."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "penalty term to decouple the features from the learning dynam-",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "ics of neural networks, which in turn gives the model a chance",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "III. APPROACH"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "to learn from all\nthe features.\n[5] used the observations from",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "A. Model Fairness"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "the model\nlearning dynamics to select easy and hard samples",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "How do we measure if a model is “fair”? This is not a trivial"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "for\nthe main model with the help of an auxiliary model.",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "question,\nand\nthere\nhave\nbeen\ndifferent\nnotions\nof\nfairness"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "Our work does not require bias labels nor knowledge of the",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "discussed in the literature [1],\n[30],\n[31].\nIn our context,\nlet"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "bias features. Instead of explicitly removing the dependence of",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "us\nconsider\na model\ntrained\nto\ndetect\nhappiness\n(or\nnot),"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "the model on the task-irrelevant\nfeatures, we aim to increase",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "y ∈ {0, 1},\nin a dataset containing the sensitive or protected"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "the\nimportance of\ntask-relevant\nfeatures, obtained using do-",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "attribute gender, male or female {am, af } ∈ A. We may desire"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "main knowledge. We hypothesize that doing so would in turn",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "for our model\nto have the same level of accuracy in predicting"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "diminish the model’s dependence on the bias features.",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "“truly” happy men and as it does for predicting “truly” happy"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "B. Bias mitigation strategies in Facial Expression Recognition",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "women,\nor\nin\nother words,\nto\nhave\nthe\nsame\ntrue\npositive"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "detection rate\n(of happiness, y)\nacross groups a ∈ A. This"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "Facial expression recognition have been widely deployed in",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "is in line with the notion of equality of opportunity [1],\n[30],"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "various commercial\nsettings\nsuch as\nin automated candidate",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "where we ideally want:"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "screening where companies use videos from applicants to ﬁlter",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "candidates based on their\nfacial expressions. Recently,\nthese",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "(1)\nP (ˆy = 1|y = 1, A = af ) = P (ˆy = 1|y = 1, A = am)"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "algorithms have\ncome under\nscrutiny for\nreinforcing biases",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": ""
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "against certain groups of people, such as people with disabili-",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "where ˆy is\nthe predicted label, y is\nthe target\nlabel,\nfor\nthe"
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "ties\n[24]. Similarly, Rhue\n[25]\ninvestigated two commercial",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "In this work, we focus on\nprotected classes {af , am} ∈ A."
+        },
+        {
+          "1) Bias mitigation with\nlabels:\nOne\nset\nof\napproaches": "expression\nrecognition\nsoftware, Face++ and Microsoft AI,",
+          "and found that\nthese\ntwo commercial offerings\nrated Black": "equality of opportunity as it maintains a balance in achieving"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": ""
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": "to\npair-wise similarities between i and its positives {p} ∈ Pi,"
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": ""
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": "obtain: {S(hi, h1), · · ·\n, S(hi, hPi)}. Next, we repeat the same"
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": "similarity calculations with the AU embeddings of sample i,"
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": "Ai, along with its positives {A1 · · ·\n, APi}, and we use these"
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": "to weight the similarity scores of the h embeddings in the loss:"
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": ""
+        },
+        {
+          "{h1, · · ·\n, hPi}. We use a similarity function to calculate the": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ResNet-50\nCross Entropy": "Classifier",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "loss",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "To\nobtain\nthe AU embeddings, we\nuse\nthe\nrecently-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "introduced AU detection model,\nJAA-Net\n[32],\nto\nget\nthe"
+        },
+        {
+          "ResNet-50\nCross Entropy": "Emotion prediction",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "raw intensities\nfor 12 AUs1\nin the range of 0 to 1. The AU"
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "extraction step is performed prior to the training of the CNN-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "Fig. 1. An overview of our proposed Positive Matching Contrastive Loss. xi is",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "the input\nis a latent embedding of the input\nimage used to compute\nimage, hi",
+          "and we use cosine similarity for S(., .).": "based feature extractor. During training, each 12-dimensional"
+        },
+        {
+          "ResNet-50\nCross Entropy": "is AU embedding obtained after projection. Both\nthe contrastive loss, and Ai",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "raw AU vector\nis projected into a latent\nspace using a non-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "computing the\nloss,\nin Eqn. 2. Dashed\nhi\nand Ai was normalised before",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "linear\nlayer with a dimension of 32 with a ReLU activation."
+        },
+        {
+          "ResNet-50\nCross Entropy": "arrows\nrepresent pre-processing steps\n(extracting AU from input data)\nand",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "solid arrows\nrepresents connections\nthat are updated during model\ntraining.",
+          "and we use cosine similarity for S(., .).": "This network is trained along with the feature extractor to get"
+        },
+        {
+          "ResNet-50\nCross Entropy": "Images shown are taken from the RAF-DB dataset.",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "the corresponding AU embedding Ai."
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "For\nfeature extraction (Fig. 1), we ﬁne-tune ResNet50 pre-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "trained with VGGFace2 weights\n[33]–[35]. The\noutput\nof"
+        },
+        {
+          "ResNet-50\nCross Entropy": "fairness by equalising the true positive rates amongst different",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "the ResNet-50 network is\nfurther projected down to a latent"
+        },
+        {
+          "ResNet-50\nCross Entropy": "protected groups [30].",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "space using a non-linear\nlayer with a dimension of 128 with"
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "computing\nReLU activation to obtain hi which is used for"
+        },
+        {
+          "ResNet-50\nCross Entropy": "B. Feature-based Positive Matching Loss",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "Lpos-match (Eqn. 2). For facial expression classiﬁcation, as done"
+        },
+        {
+          "ResNet-50\nCross Entropy": "In standard supervised classiﬁcation,\nthe model\nlearns\nin-",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "in standard ﬁne-tuning,\nthe output\nfrom ResNet-50 is passed"
+        },
+        {
+          "ResNet-50\nCross Entropy": "put\nfeatures\nthat\nyields\nthe\nbest\nclassiﬁcation\naccuracy—",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "through a classiﬁcation layer and trained using a Cross Entropy"
+        },
+        {
+          "ResNet-50\nCross Entropy": "sometimes,\nsome of\nthese output-relevant\nfeatures may cor-",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "Loss. Therefore,\nthe combined objective is given by:"
+        },
+        {
+          "ResNet-50\nCross Entropy": "respond to protected attributes\nsuch as\nrace and gender. For",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "(3)\n09Lﬁnal = Lpos-match + LCE"
+        },
+        {
+          "ResNet-50\nCross Entropy": "example,\nif\nthe\ntraining dataset\nis\nimbalanced or has other",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "types of bias in it, such that some protected attributes are more",
+          "and we use cosine similarity for S(., .).": "IV. EVALUATION"
+        },
+        {
+          "ResNet-50\nCross Entropy": "correlated with some output classes (e.g., White faces that tend",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "A. Datasets"
+        },
+        {
+          "ResNet-50\nCross Entropy": "to be labelled as Happy, compared to Black),\nthen the model",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "We used two emotion-classiﬁcation datasets with seven la-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "would learn to associate these attributes with the output (e.g.,",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "bels: {happy, sad, angry,\nfear, surprise, disgust, and neutral}."
+        },
+        {
+          "ResNet-50\nCross Entropy": "see [25]\nfor an example for emotion classiﬁcation and race).",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "• RAF-DB [36],\n[37] consists of crowd-sourced face im-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "In this work, we propose a different approach. How about if",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "ages\nfrom the\nInternet. All\nthe\nimages\nare\nlabelled"
+        },
+        {
+          "ResNet-50\nCross Entropy": "we guide the model\nto pay attention to certain types of\ninput",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "with race, gender\nand age\nattributes,\nand we will\ncon-"
+        },
+        {
+          "ResNet-50\nCross Entropy": "features\nthat we know,\nfrom theory,\nrelate to the output? In",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "race\ngender\nsider mitigation\nof\nbias\nby\nand\n2. The"
+        },
+        {
+          "ResNet-50\nCross Entropy": "the case of emotion classiﬁcation,\nthere has been systematic",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "train/validation/test\nsplit\nis 9816 / 2455 / 3068 samples"
+        },
+        {
+          "ResNet-50\nCross Entropy": "research characterizing facial muscle movements, which has",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "respectively. We used the\ncropped and aligned version"
+        },
+        {
+          "ResNet-50\nCross Entropy": "been formalized in the Facial Action Coding System [13], [27]",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "provided by the authors."
+        },
+        {
+          "ResNet-50\nCross Entropy": "and provides an informative set of features from which to infer",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "•\nIASLab3\nis a lab-controlled dataset which comprises of"
+        },
+        {
+          "ResNet-50\nCross Entropy": "emotions.",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "posed expressions that also have gender annotations.\nIn"
+        },
+        {
+          "ResNet-50\nCross Entropy": "We introduce feature-based Positive Matching Contrastive",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "this dataset, all images are modiﬁed to have eyes centered"
+        },
+        {
+          "ResNet-50\nCross Entropy": "Loss which provides\nextrinsic guidance\nto the model using",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "in the same location4. We use a train/validation/test split"
+        },
+        {
+          "ResNet-50\nCross Entropy": "task-relevant features, without the need for explicit bias labels.",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "We hypothesize that such guidance will help the model\nfocus",
+          "and we use cosine similarity for S(., .).": "1AU01: Inner brow raiser, AU02: Outer brow raiser, AU04: Brow lowerer,"
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "AU06: Cheek Raiser, AU07: Lid tightener, AU10: Upper Lip Raiser, AU12:"
+        },
+        {
+          "ResNet-50\nCross Entropy": "on task-relevant similarities (such as facial muscle movements)",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "Lip Corner Puller, AU14: Dimpler, AU15: Lip Corner Depressor, AU17: Chin"
+        },
+        {
+          "ResNet-50\nCross Entropy": "over task-irrelevant features (that may be associated with race",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "Raiser, AU23: Lip Tightener, and AU24: Lip Pressor."
+        },
+        {
+          "ResNet-50\nCross Entropy": "and/or gender).",
+          "and we use cosine similarity for S(., .).": "2In RAF-DB some\nsamples\nare\nlabelled\n”Unsure”. Following\nprevious"
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "works,\nfor\nfairness evaluation we do not use these samples."
+        },
+        {
+          "ResNet-50\nCross Entropy": "Let\nthe\nlatent\nembedding of\na\nsample\ni using a Convo-",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "3Development\nof\nthe\nInterdisciplinary\nAffective\nScience\nLaboratory"
+        },
+        {
+          "ResNet-50\nCross Entropy": "lutional Neural Network-based feature\nand\nextractor be hi,",
+          "and we use cosine similarity for S(., .).": ""
+        },
+        {
+          "ResNet-50\nCross Entropy": "",
+          "and we use cosine similarity for S(., .).": "(IASLab)\nFace\nSet was\nsupported\nby\nthe National\nInstitutes\nof Health"
+        },
+        {
+          "ResNet-50\nCross Entropy": "let\nthe\nembeddings\nof\nits\npositive\nsamples\n(i.e.,\nthe\nother",
+          "and we use cosine similarity for S(., .).": "Director’s Pioneer Award (DP1OD003312)\nto Lisa Feldman Barrett."
+        },
+        {
+          "ResNet-50\nCross Entropy": "that\nshare the same output class as\ni) be\nsamples {p} ∈ Pi",
+          "and we use cosine similarity for S(., .).": "4https://www.affective-science.org/face-set.shtml"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Gender\nMale\nFemale\nUnsure": "IASLab\n414 (35.9%)\n740 (64.1%)\n-",
+          "Fairness by Gender": "IASLab\nMale Acc\nFemale Acc\nFairness"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "w/\nDomain-aware\n91.5 (2.3)\n97.3 (1.0)\n94.0 (2.8)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "RAF-DB\n3,893 (40.2%)\n5,179 (53.5%)\n609 (6.3%)",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "labels\nDomain-unaware\n89.4 (2.3)\n94.7 (2.1)\n94.4 (3.4)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "Race\nCaucasian\nAfrican-American\nAsian",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "Cross Entropy Baseline\n90.2 (3.5)\n96.1 (2.8)\n93.8 (2.1)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "RAF-DB\n7,420 (76.6%)\n767 (7.9%)\n1,494 (15.4%)",
+          "Fairness by Gender": "97.1 (2.3)\nw/o\nPositive Matching (ours)\n92.8 (1.0)\n95.3 (1.7)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "TABLE I",
+          "Fairness by Gender": "labels\nSpectral Decoupling\n89.4 (2.3)\n92.4 (2.1)\n95.5 (2.8)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "BREAKDOWN OF DATA BY RESPECT TO GENDER (TOP) AND RACE",
+          "Fairness by Gender": "Spectral Decoupling + Ours\n88.9 (0.9)\n91.4 (2.7)\n96.4 (2.1)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "(BOTTOM). ONLY RAF-DB HAS RACE ANNOTATIONS.",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "RAF-DB\nMale Acc\nFemale Acc\nFairness"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "w/\nDomain-aware\n82.1 (0.5)\n85.6 (0.7)\n95.9 (1.0)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "labels\nDomain-unaware\n84.8 (0.5)\n87.2 (0.3)\n97.3 (0.5)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "96.9 (1.1)\nCross Entropy Baseline\n84.7 (0.7)\n87.4 (0.4)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "w/o\nPositive Matching (ours)\n83.8 (0.7)\n87.4 (0.5)\n96.0 (1.1)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "of 1,151 / 144 / 145 samples.",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "labels\nSpectral Decoupling\n81.8 (0.7)\n85.0 (0.8)\n96.3 (0.4)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "Spectral Decoupling + Ours\n82.2 (0.8)\n85.1 (0.6)\n96.5 (1.5)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "B.\nImplementation Details",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "TABLE II"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "1) AU Detection: We use the py-feat5\n[38] package to",
+          "Fairness by Gender": "OVERALL GENDER FAIRNESS MEASURE FOR IASLAB (TOP) AND"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "RAF-DB DATASET (BOTTOM). VALUES ARE AVERAGED OVER 5 RUNS"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "implement JAA-Net\nfor detecting AUs from training images.",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "WITH STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "We ﬁrst perform face detection using RetinaFace [39]. Sam-",
+          "Fairness by Gender": "THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD."
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "ples with no faces detected are discarded and if multiple faces",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "are detected then we take the largest\nface. Each image with",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "a detected face will be passed through JAA-Net\nto obtain a",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "indicator\nfunction,\nthen\nthis worst-case\nratio,\nthe\nFairness"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "12-dimensional AU intensity vector.",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "Score,\nis given by:"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "2) Model Training: We trained our models using Stochastic",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "1\n(cid:80)N"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "Gradient Descent with a momentum of 0.9, a learning rate of",
+          "Fairness by Gender": "(cid:26)\n(cid:27)\n1( ˆyi=yi|A=ak)\ni=1"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "Nak"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "1e-03 and batch size of 32. We\ntrained the models\nfor 30",
+          "Fairness by Gender": "F =\nmin\n(4)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "1\n(cid:80)N"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "ak∈K\\{ad}\n1( ˆyi=yi|A=ad)"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "epochs\nusing\na\nstep\nlearning\nrate\nscheduler with\nstep\nsize",
+          "Fairness by Gender": "i=1\nNad"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "γ\nof\n10\nand\ndecay\nfactor\nof\n0.5,\nand\ndid\nearly\nstopping,",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "choosing the best model based on validation accuracy. We",
+          "Fairness by Gender": "D. Comparison Methods"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "resized the the shorter side of images to 256 pixels and perform",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "We compare our approach with two classes of approaches:"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "center\ncropping of 224 × 224 pixels\nto shape\nthe\ninput\nto",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "mitigation\napproaches\nthat\nrequire\nlabels\nof\nthe\nprotected"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "the\nfeature-extractor\n[33]. The\nimages\nare normalised using",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "attribute like race and gender, and mitigation approaches that"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "each\nrespective\ndataset’s mean\nand\nstandard\ndeviation. To",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "do not require these labels. We note that our Positive Matching"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "prevent over-ﬁtting, we augmented the datasets by performing",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "Contrastive Loss method does not\nrequire these labels."
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "horizontal ﬂipping for a randomly-chosen 50% of the images.",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "1) Mitigation approaches that require bias-labels:"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "• Domain-aware.\nInstead of a (# of class)-way classiﬁer,"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "C. Evaluation metric",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "this approach trains a (# of classes × # of groups)-way"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "1) Expression\nClassiﬁcation:\nFor\nclassiﬁcation\nperfor-",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "classiﬁer\nto make\nthe model\naware\nof\nthe\nbias\nlabels"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "mance, we use classiﬁcation accuracy and weighted-F1 score.",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "(“fairness by awareness” [18], [40]). We replace the ﬁnal"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "2) Fairness measure: We\nuse\nas\nour\nfairness measure",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "classiﬁcation layer of\nthe vanilla model\nto accommodate"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "the equality of opportunity [30] given in Eqn. 1. Following",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "for\nthe increased classiﬁcation categories.\nIn the case of"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "previous\nresearch [8],\n[31], we use the worst-case min-max",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "IASLab, this becomes a 14-class classiﬁcation (7 emotion"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "ratio, which is\nthe ratio of\nthe minimum accuracy across all",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "classes × 2 gender groups), while in the case of RAF-DB,"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "protected groups to the maximum accuracy across all protected",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "this becomes a 42-class classiﬁcation (7 emotion classes"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "groups. For\nexample,\nif\ngender\nis\nthe\nprotected\ngroup\nand",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "× 2 gender groups6 × 3 races)."
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "if\nthe classiﬁcation accuracy of emotions\nfor males\nis\nlower",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "• Domain-unaware. We\nfollow [7]\nand use gradient\nre-"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "than that for females,\nthen the ratio would be the accuracy for",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "versal on the domain classiﬁcation to make\nthe model"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "males over\nthe accuracy for\nfemales. The closer\nthe min-max",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "unlearn the domain features. For IASLab, we classify the"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "ratio is\nto unity,\nthe smaller\nthe disparity between the true-",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "gender\n(2-way classiﬁcation)\nand RAF-DB we\nclassify"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "positive rate between protected groups, and hence the “more",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "both gender-race combined labels (6-way classiﬁcation6)."
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "fair” the model\nis. Formally,\nif ad is the protected group with",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "2) Mitigation approaches that do not require bias-labels:"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "the highest classiﬁcation accuracy (for emotions):",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "• Baseline\n(Cross Entropy Loss). This\nis\nthe\nstandard"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "baseline, which\nuses\na Cross-Entropy Loss\nto\npredict"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "1 N\nN(cid:88) i\nad = argmax\n1( ˆyi=yi|A=a)",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "a\na∈K",
+          "Fairness by Gender": "facial expressions LCE. This is also our approach without"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "=1",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "the Positive Matching Loss (Eqn. 3 without Lpos-match)."
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "where K is\nthe number of group deﬁned by the protected",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "•\nSpectral Decoupling. This method\n[3] mitigates\nbias"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "attribute, N is the total number of samples, Na is the number",
+          "Fairness by Gender": ""
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "",
+          "Fairness by Gender": "without\nthe need of bias\nlabels. A L2 penalty is added"
+        },
+        {
+          "Gender\nMale\nFemale\nUnsure": "of\nsamples\nbelonging\nto\nprotected\ngroup\na,\nand 1 is\nthe",
+          "Fairness by Gender": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fairness by Gender, broken down by Emotion": "Anger"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "155"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "64 : 36"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "81.1 (9.7)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "72.1 (19.5)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "77.3 (15.9)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "87.1 (10.7)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "80.0 (10.0)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "81.1 (9.7)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": ""
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "538"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "65 : 33"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "91.9 (5.5)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "92.2 (4.2)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "89.4 (2.4)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "92.7 (3.7)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "89.4 (3.1)"
+        },
+        {
+          "Fairness by Gender, broken down by Emotion": "85.4 (3.8)"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "with our Positive Matching Contrastive Loss, which achieves"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "a Fairness of 98.6%. When we consider\nfairness\nfor\nspeciﬁc"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "emotion classes, we again ﬁnd that our approach achieves the"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "best\nfairness on four of\nthe\nseven classes,\n(neutral, anger,"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "disgust and fear), and for surprise, Spectral Decoupling plus"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "our Positive Matching loss achieves the best\nfairness."
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "One point of discussion is\nthat\nthe datasets do not have"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "balanced gender and race ratios. For IASLab, the Female:Male"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "ratio is 64:36 (Table I), while for RAF-DB it\nis a little closer"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "at 57:43 (if we remove those with unknown labels), but still"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "has more Female\nthan Male\nfaces. The\nracial\ndistribution"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "in\nthe RAF-DB dataset\nis\nalso\nheavily\nimbalanced, with"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "almost 77% of\nthe\nfaces being Caucasian, 15% Asian,\nand"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "only 8% African-American (and these are just\nthree of many"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "races). While\noverall\nthe\nfairness\nscores\nseem high,\nthese"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "imbalances do translate to some troubling fairness values when"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "we examine speciﬁc classes. For example, for race in RAF-DB"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "and considering the classiﬁcation of\nfear,\nthe baseline cross"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "entropy method achieves\na Fairness Score of 49.5%, which"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "suggests that\nthe true positive rate for\nidentifying fear in one"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "race is half\nthat of\nidentifying fear\nin another.\n(Our method"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "does not\nimprove fairness for\nthis particular class either)."
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": ""
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "Finally, we consider the impact of bias mitigation strategies"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "on\nclassiﬁcation\nperformance.\nIntuitively, we might\nexpect"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "that optimizing for\ntwo objectives\n(i.e.,\na\nfairness objective"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "in\naddition\nto\nclassiﬁcation\naccuracy) may\nresult\nin\nlower"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "classiﬁcation performance. We\ncan see\nin Table V that\nthis"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "is\nindeed the\ncase\nfor RAF-DB, where\nall\nthe bias mitiga-"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "tion strategies underperformed the cross entropy baseline on"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "classiﬁcation accuracy. The Domain-Unaware method overall"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "had the smallest drop in accuracy (-0.3%), and our Positive"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "Matching method had the\nsmallest drop in accuracy among"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "the\nstrategies\nthat\ndo\nnot\nrequire\nlabels\n(-0.4%).\nFor\nthe"
+        },
+        {
+          "STANDARD DEVIATION IN PARENTHESIS. BEST SCORES AMONGST THE APPROACHES WITHOUT BIAS LABELS ARE GIVEN IN BOLD. RATIO VALUES": "IASLab dataset, we observed that,\nin fact,\nthe Domain-Aware"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Cross Entropy Baseline": "Positive Matching (ours)",
+          "86.3 (0.3)": "85.8 (0.2)",
+          "88.6 (1.0)": "87.8 (1.0)",
+          "86.5 (1.1)": "87.0 (0.8)",
+          "96.9 (0.9)": "97.6 (0.9)"
+        },
+        {
+          "Cross Entropy Baseline": "Spectral Decoupling",
+          "86.3 (0.3)": "83.8 (0.8)",
+          "88.6 (1.0)": "84.7 (1.0)",
+          "86.5 (1.1)": "84.4 (1.0)",
+          "96.9 (0.9)": "97.7 (0.8)"
+        },
+        {
+          "Cross Entropy Baseline": "Spectral Decoupling + Ours",
+          "86.3 (0.3)": "84.0 (0.2)",
+          "88.6 (1.0)": "84.4 (1.0)",
+          "86.5 (1.1)": "84.6 (0.5)",
+          "96.9 (0.9)": "98.6 (0.4)"
+        },
+        {
+          "Cross Entropy Baseline": "Neutral",
+          "86.3 (0.3)": "Anger",
+          "88.6 (1.0)": "Fear",
+          "86.5 (1.1)": "Happiness",
+          "96.9 (0.9)": "Sadness"
+        },
+        {
+          "Cross Entropy Baseline": "72 : 11 : 17",
+          "86.3 (0.3)": "86 : 5 : 9",
+          "88.6 (1.0)": "84 : 5 : 12",
+          "86.5 (1.1)": "76 : 8 : 16",
+          "96.9 (0.9)": "75 : 7 : 18"
+        },
+        {
+          "Cross Entropy Baseline": "93.9 (3.2)",
+          "86.3 (0.3)": "69.0 (10.6)",
+          "88.6 (1.0)": "58.9 (13.6)",
+          "86.5 (1.1)": "97.3 (0.9)",
+          "96.9 (0.9)": "89.7 (4.0)"
+        },
+        {
+          "Cross Entropy Baseline": "94.4 (2.7)",
+          "86.3 (0.3)": "69.9 (3.0)",
+          "88.6 (1.0)": "48.8 (9.9)",
+          "86.5 (1.1)": "98.1 (1.5)",
+          "96.9 (0.9)": "84.5 (3.3)"
+        },
+        {
+          "Cross Entropy Baseline": "93.8 (2.6)",
+          "86.3 (0.3)": "68.6 (7.2)",
+          "88.6 (1.0)": "49.5 (6.8)",
+          "86.5 (1.1)": "96.5 (1.7)",
+          "96.9 (0.9)": "92.8 (4.9)"
+        },
+        {
+          "Cross Entropy Baseline": "95.2 (3.2)",
+          "86.3 (0.3)": "72.8 (8.9)",
+          "88.6 (1.0)": "47.3 (9.6)",
+          "86.5 (1.1)": "96.1 (1.5)",
+          "96.9 (0.9)": "92.8 (3.0)"
+        },
+        {
+          "Cross Entropy Baseline": "93.5 (2.4)",
+          "86.3 (0.3)": "64.0 (10.6)",
+          "88.6 (1.0)": "36.6 (14.8)",
+          "86.5 (1.1)": "96.9 (2.0)",
+          "96.9 (0.9)": "90.0 (3.6)"
+        },
+        {
+          "Cross Entropy Baseline": "90.1 (3.7)",
+          "86.3 (0.3)": "65.6 (7.4)",
+          "88.6 (1.0)": "41.8 (9.3)",
+          "86.5 (1.1)": "95.3 (2.1)",
+          "96.9 (0.9)": "90.9 (2.1)"
+        },
+        {
+          "Cross Entropy Baseline": "",
+          "86.3 (0.3)": "",
+          "88.6 (1.0)": "",
+          "86.5 (1.1)": "",
+          "96.9 (0.9)": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": ""
+        },
+        {
+          "Fairness by Race (RAF-DB)": "Disgust"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "77 : 5 : 18"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "63.0 (9.8)"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "66.9 (10.6)"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "62.3 (7.6)"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "69.4 (15.2)"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "60.9 (6.5)"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "64.8 (7.6)"
+        },
+        {
+          "Fairness by Race (RAF-DB)": "TABLE IV"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "desirable"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "However,"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "intensities"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "their"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "in"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "ing domain-relevant context"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "of"
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": ""
+        },
+        {
+          "ROUNDING.)": "for"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "facial action units when doing expression recognition?” in Proceedings"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "at minimal cost\nto classiﬁcation performance when compared",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "of\nthe IEEE International Conference on Computer Vision Workshops,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "to existing bias mitigation methods\nin two commonly used",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2015, pp. 19–27."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "facial\nexpression\nrecognition\ndatasets. This work\nis\na\nstep",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[16] M. Valstar and M. Pantic, “Fully automatic facial action unit detection"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "and temporal\nanalysis,”\nin 2006 Conference on Computer Vision and"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "towards developing fairer machine learning models which is",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Pattern Recognition Workshop (CVPRW’06).\nIEEE, 2006, pp. 149–"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in turn important\nfor\nthe ethical deployment of\nthese models",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "149."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in society.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[17]\nL. Yao, Y. Wan, H. Ni, and B. Xu, “Action unit classiﬁcation for\nfacial"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "expression recognition using active learning and svm,” in Multimedia"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Tools and Applications, vol. 80, no. 16.\nSpringer, 2021, pp. 24 287–"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "ETHICAL STATEMENT",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "24 301."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[18] C. Dwork, M. Hardt, T. Pitassi, O. Reingold, and R. Zemel, “Fairness"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Machine\nlearning models\nhave\nbeen widely\ndeployed\nin",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "through awareness,” in Proceedings of the 3rd Innovations in Theoretical"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Computer Science Conference, 2012, pp. 214–226."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "multiple\nsettings\nthat directly affect peoples’\nlives,\nand has",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[19] Y. Wang, X. Wang, A. Beutel,\nF.\nProst,\nJ. Chen,\nand E. H. Chi,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "been shown to be biased by race for emotion recognition [25].",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "“Understanding and improving fairness-accuracy trade-offs in multi-task"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "There is a pressing need to study bias mitigation strategies,",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "the 27th ACM SIGKDD Conference on\nlearning,”\nin Proceedings of"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Knowledge Discovery & Data Mining, 2021, pp. 1748–1757."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "especially in facial expression recognition. Our work is a step",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[20] A. Beutel,\nJ. Chen, Z. Zhao,\nand E. H. Chi,\n“Data\ndecisions\nand"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in this direction, by offering a way to improve fairness without",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "theoretical implications when adversarially learning fair representations,”"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "the need to use labels of the protected attributes (such as race",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "arXiv preprint arXiv:1707.00075, 2017."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[21] Y. Li, Q. Yu, M. Tan, J. Mei, P. Tang, W. Shen, A. Yuille et al., “Shape-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "and gender labels), by guiding the model\nto focus on features",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "texture debiased neural network training,” in International Conference"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "that are directly relevant\nto the task at hand.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "on Learning Representations, 2020."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[22] G. Parascandolo, A. Neitz, A. Orvieto, L. Gresele, and B. Sch¨olkopf,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "“Learning explanations\nthat\nare hard to vary,”\nin Ninth International"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "REFERENCES",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Conference on Learning Representations (ICLR 2021), 2021."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[23]\nE. Kim,\nJ. Lee,\nand J. Choo,\n“Biaswap: Removing dataset bias with"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[1] N. Mehrabi, F. Morstatter, N. Saxena, K. Lerman, and A. Galstyan, “A",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "the IEEE/CVF\nbias-tailored swapping augmentation,” in Proceedings of"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "survey on bias and fairness\nin machine learning,” in ACM Computing",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "International Conference on Computer Vision, 2021, pp. 14 992–15 001."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Surveys (CSUR), vol. 54, no. 6.\nACM New York, NY, USA, 2021, pp.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[24] M. Whittaker, M. Alper, C. L. Bennett,\nS. Hendren, L. Kaziunas,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "1–35.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "M. Mills, M. R. Morris, J. Rankin, E. Rogers, M. Salas et al., “Disability,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[2] B. Hutchinson and M. Mitchell, “50 years of test (un) fairness: Lessons",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "bias, and ai,” in AI Now Institute, 2019."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "the Conference on Fairness,\nfor machine learning,” in Proceedings of",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[25]\nL. Rhue,\n“Racial\ninﬂuence\non\nautomated\nperceptions\nof\nemotions,”"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Accountability, and Transparency, 2019, pp. 49–58.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Available at SSRN 3281765, 2018."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[3] M. Pezeshki, O. Kaba, Y. Bengio, A. C. Courville, D. Precup, and G. La-",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[26] Y. Chen\nand\nJ.\nJoo,\n“Understanding\nand mitigating\nannotation\nbias"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "joie, “Gradient starvation: A learning proclivity in neural networks,” in",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "of\nthe\nIEEE/CVF\nin\nfacial\nexpression\nrecognition,”\nin Proceedings"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Advances in Neural\nInformation Processing Systems, vol. 34, 2021.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "International Conference on Computer Vision, 2021, pp. 14 980–14 991."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[4] Y. Hong and E. Yang, “Unbiased classiﬁcation through bias-contrastive",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[27]\nJ. F. Cohn, Z. Ambadar, and P. Ekman, “Observer-based measurement of"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in Neural\nInformation Pro-\nand bias-balanced learning,”\nin Advances",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "facial expression with the facial action coding system,” in The Handbook"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "cessing Systems, vol. 34, 2021.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "of Emotion Elicitation and Assessment, vol. 1, no. 3, 2007, pp. 203–221."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[5]\nJ. Nam, H. Cha, S. Ahn,\nJ. Lee, and J. Shin, “Learning from failure:",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[28]\nE. L. Rosenberg and P. Ekman, What the face reveals: Basic and applied"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in Neural\nDe-biasing\nclassiﬁer\nfrom biased\nclassiﬁer,”\nin Advances",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "studies of spontaneous expression using the Facial Action Coding System"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Information Processing Systems, vol. 33, 2020, pp. 20 673–20 684.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "(FACS).\nOxford University Press, 2020."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[6]\nZ. Wang, K. Qinami,\nI. C. Karakozis, K. Genova, P. Nair, K. Hata,",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[29] M. A. Sayette, J. F. Cohn, J. M. Wertz, M. A. Perrott, and D. J. Parrott,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "and O. Russakovsky, “Towards fairness in visual\nrecognition: Effective",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "“A psychometric\nevaluation\nof\nthe\nfacial\naction\ncoding\nsystem for"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "the IEEE/CVF Confer-\nstrategies for bias mitigation,” in Proceedings of",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "assessing spontaneous expression,” in Journal of Nonverbal Behavior,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "ence on Computer Vision and Pattern Recognition, 2020, pp. 8919–8928.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "vol. 25, no. 3.\nSpringer, 2001, pp. 167–185."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[7] B. H. Zhang, B. Lemoine,\nand M. Mitchell,\n“Mitigating\nunwanted",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[30] M. Hardt, E. Price, and N. Srebro, “Equality of opportunity in super-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "biases with adversarial learning,” in Proceedings of the 2018 AAAI/ACM",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "vised learning,” in Advances in Neural Information Processing Systems,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Conference on AI, Ethics, and Society, 2018, pp. 335–340.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "vol. 29, 2016."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[8]\nT. Xu,\nJ. White, S. Kalkan,\nand H. Gunes,\n“Investigating\nbias\nand",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[31] A. Ghosh, L. Genuit,\nand M. Reagan,\n“Characterizing\nintersectional"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "fairness\nin facial expression recognition,” in European Conference on",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Intelligence\ngroup fairness with worst-case comparisons,” in Artiﬁcial"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Computer Vision.\nSpringer, 2020, pp. 506–523.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Diversity, Belonging, Equity, and Inclusion.\nPMLR, 2021, pp. 22–34."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[9] D. Madras, E. Creager, T. Pitassi, and R. Zemel, “Learning adversarially",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[32]\nZ. Shao, Z. Liu,\nJ. Cai, and L. Ma, “JAA-Net:\njoint\nfacial action unit"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "fair\nand transferable\nrepresentations,”\nin International Conference on",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "detection and face\nalignment via\nadaptive\nattention,”\nin International"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Machine Learning.\nPMLR, 2018, pp. 3384–3393.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Journal of Computer Vision, vol. 129, no. 2.\nSpringer, 2021, pp. 321–"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[10] M. Alvi, A. Zisserman, and C. Nell˚aker, “Turning a blind eye: Explicit",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "340."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "removal of biases and variation from deep neural network embeddings,”",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[33] Q. Cao, L. Shen, W. Xie, O. M. Parkhi, and A. Zisserman, “VGGFace2:"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in Proceedings of the European Conference on Computer Vision (ECCV)",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "A dataset for recognising faces across pose and age,” in 2018 13th IEEE"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Workshops, 2018, pp. 0–0.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "International Conference on Automatic Face & Gesture recognition (FG"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[11] H. Bahng, S. Chun, S. Yun, J. Choo, and S. J. Oh, “Learning de-biased",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2018).\nIEEE, 2018, pp. 67–74."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "representations with biased representations,” in International Conference",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[34]\nS. T. Ly, N.-T. Do, G. Lee, S.-H. Kim, and H.-J. Yang, “Multimodal"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "on Machine Learning.\nPMLR, 2020, pp. 528–539.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2D and\n3D for\nin-the-wild\nfacial\nexpression\nrecognition.”\nin CVPR"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[12] R. Cadene, C. Dancette, M. Cord, D. Parikh et al., “Rubi: Reducing",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Workshops, 2019, pp. 2927–2934."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "unimodal biases for visual question answering,” in Advances in Neural",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[35] Q.\nT. Ngo\nand\nS. Yoon,\n“Facial\nexpression\nrecognition\nbased\non"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Information Processing Systems, vol. 32, 2019.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "weighted-cluster\nloss and deep transfer\nlearning using a highly imbal-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[13]\nP. Ekman, W. V. Freisen,\nand S. Ancoli,\n“Facial\nsigns of\nemotional",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "anced dataset,”\nin Sensors, vol. 20, no. 9.\nMultidisciplinary Digital"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "experience.” in Journal of Personality and Social Psychology, vol. 39,",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Publishing Institute, 2020, p. 2639."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "no. 6.\nAmerican Psychological Association, 1980, p. 1125.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[36]\nS. Li, W. Deng, and J. Du, “Reliable crowdsourcing and deep locality-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[14]\nT. T. D. Pham, S. Kim, Y. Lu, S.-W. Jung, and C.-S. Won, “Facial action",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2017\npreserving\nlearning\nfor\nexpression\nrecognition\nin\nthe wild,”\nin"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "units-based image retrieval\nfor\nfacial expression recognition,” in IEEE",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "IEEE Conference on Computer Vision and Pattern Recognition (CVPR)."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Access, vol. 7.\nIEEE, 2019, pp. 5200–5207.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "IEEE, 2017, pp. 2584–2593."
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "facial action units when doing expression recognition?” in Proceedings"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "at minimal cost\nto classiﬁcation performance when compared",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "of\nthe IEEE International Conference on Computer Vision Workshops,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "to existing bias mitigation methods\nin two commonly used",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2015, pp. 19–27."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "facial\nexpression\nrecognition\ndatasets. This work\nis\na\nstep",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[16] M. Valstar and M. Pantic, “Fully automatic facial action unit detection"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "and temporal\nanalysis,”\nin 2006 Conference on Computer Vision and"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "towards developing fairer machine learning models which is",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Pattern Recognition Workshop (CVPRW’06).\nIEEE, 2006, pp. 149–"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in turn important\nfor\nthe ethical deployment of\nthese models",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "149."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in society.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[17]\nL. Yao, Y. Wan, H. Ni, and B. Xu, “Action unit classiﬁcation for\nfacial"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "expression recognition using active learning and svm,” in Multimedia"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Tools and Applications, vol. 80, no. 16.\nSpringer, 2021, pp. 24 287–"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "ETHICAL STATEMENT",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "24 301."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[18] C. Dwork, M. Hardt, T. Pitassi, O. Reingold, and R. Zemel, “Fairness"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Machine\nlearning models\nhave\nbeen widely\ndeployed\nin",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "through awareness,” in Proceedings of the 3rd Innovations in Theoretical"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Computer Science Conference, 2012, pp. 214–226."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "multiple\nsettings\nthat directly affect peoples’\nlives,\nand has",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[19] Y. Wang, X. Wang, A. Beutel,\nF.\nProst,\nJ. Chen,\nand E. H. Chi,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "been shown to be biased by race for emotion recognition [25].",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "“Understanding and improving fairness-accuracy trade-offs in multi-task"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "There is a pressing need to study bias mitigation strategies,",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "the 27th ACM SIGKDD Conference on\nlearning,”\nin Proceedings of"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Knowledge Discovery & Data Mining, 2021, pp. 1748–1757."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "especially in facial expression recognition. Our work is a step",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[20] A. Beutel,\nJ. Chen, Z. Zhao,\nand E. H. Chi,\n“Data\ndecisions\nand"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in this direction, by offering a way to improve fairness without",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "theoretical implications when adversarially learning fair representations,”"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "the need to use labels of the protected attributes (such as race",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "arXiv preprint arXiv:1707.00075, 2017."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[21] Y. Li, Q. Yu, M. Tan, J. Mei, P. Tang, W. Shen, A. Yuille et al., “Shape-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "and gender labels), by guiding the model\nto focus on features",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "texture debiased neural network training,” in International Conference"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "that are directly relevant\nto the task at hand.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "on Learning Representations, 2020."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[22] G. Parascandolo, A. Neitz, A. Orvieto, L. Gresele, and B. Sch¨olkopf,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "“Learning explanations\nthat\nare hard to vary,”\nin Ninth International"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "REFERENCES",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Conference on Learning Representations (ICLR 2021), 2021."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[23]\nE. Kim,\nJ. Lee,\nand J. Choo,\n“Biaswap: Removing dataset bias with"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[1] N. Mehrabi, F. Morstatter, N. Saxena, K. Lerman, and A. Galstyan, “A",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "the IEEE/CVF\nbias-tailored swapping augmentation,” in Proceedings of"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "survey on bias and fairness\nin machine learning,” in ACM Computing",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "International Conference on Computer Vision, 2021, pp. 14 992–15 001."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Surveys (CSUR), vol. 54, no. 6.\nACM New York, NY, USA, 2021, pp.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[24] M. Whittaker, M. Alper, C. L. Bennett,\nS. Hendren, L. Kaziunas,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "1–35.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "M. Mills, M. R. Morris, J. Rankin, E. Rogers, M. Salas et al., “Disability,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[2] B. Hutchinson and M. Mitchell, “50 years of test (un) fairness: Lessons",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "bias, and ai,” in AI Now Institute, 2019."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "the Conference on Fairness,\nfor machine learning,” in Proceedings of",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[25]\nL. Rhue,\n“Racial\ninﬂuence\non\nautomated\nperceptions\nof\nemotions,”"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Accountability, and Transparency, 2019, pp. 49–58.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Available at SSRN 3281765, 2018."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[3] M. Pezeshki, O. Kaba, Y. Bengio, A. C. Courville, D. Precup, and G. La-",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[26] Y. Chen\nand\nJ.\nJoo,\n“Understanding\nand mitigating\nannotation\nbias"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "joie, “Gradient starvation: A learning proclivity in neural networks,” in",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "of\nthe\nIEEE/CVF\nin\nfacial\nexpression\nrecognition,”\nin Proceedings"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Advances in Neural\nInformation Processing Systems, vol. 34, 2021.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "International Conference on Computer Vision, 2021, pp. 14 980–14 991."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[4] Y. Hong and E. Yang, “Unbiased classiﬁcation through bias-contrastive",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[27]\nJ. F. Cohn, Z. Ambadar, and P. Ekman, “Observer-based measurement of"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in Neural\nInformation Pro-\nand bias-balanced learning,”\nin Advances",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "facial expression with the facial action coding system,” in The Handbook"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "cessing Systems, vol. 34, 2021.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "of Emotion Elicitation and Assessment, vol. 1, no. 3, 2007, pp. 203–221."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[5]\nJ. Nam, H. Cha, S. Ahn,\nJ. Lee, and J. Shin, “Learning from failure:",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[28]\nE. L. Rosenberg and P. Ekman, What the face reveals: Basic and applied"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in Neural\nDe-biasing\nclassiﬁer\nfrom biased\nclassiﬁer,”\nin Advances",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "studies of spontaneous expression using the Facial Action Coding System"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Information Processing Systems, vol. 33, 2020, pp. 20 673–20 684.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "(FACS).\nOxford University Press, 2020."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[6]\nZ. Wang, K. Qinami,\nI. C. Karakozis, K. Genova, P. Nair, K. Hata,",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[29] M. A. Sayette, J. F. Cohn, J. M. Wertz, M. A. Perrott, and D. J. Parrott,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "and O. Russakovsky, “Towards fairness in visual\nrecognition: Effective",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "“A psychometric\nevaluation\nof\nthe\nfacial\naction\ncoding\nsystem for"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "the IEEE/CVF Confer-\nstrategies for bias mitigation,” in Proceedings of",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "assessing spontaneous expression,” in Journal of Nonverbal Behavior,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "ence on Computer Vision and Pattern Recognition, 2020, pp. 8919–8928.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "vol. 25, no. 3.\nSpringer, 2001, pp. 167–185."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[7] B. H. Zhang, B. Lemoine,\nand M. Mitchell,\n“Mitigating\nunwanted",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[30] M. Hardt, E. Price, and N. Srebro, “Equality of opportunity in super-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "biases with adversarial learning,” in Proceedings of the 2018 AAAI/ACM",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "vised learning,” in Advances in Neural Information Processing Systems,"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Conference on AI, Ethics, and Society, 2018, pp. 335–340.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": ""
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "vol. 29, 2016."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[8]\nT. Xu,\nJ. White, S. Kalkan,\nand H. Gunes,\n“Investigating\nbias\nand",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[31] A. Ghosh, L. Genuit,\nand M. Reagan,\n“Characterizing\nintersectional"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "fairness\nin facial expression recognition,” in European Conference on",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Intelligence\ngroup fairness with worst-case comparisons,” in Artiﬁcial"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Computer Vision.\nSpringer, 2020, pp. 506–523.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Diversity, Belonging, Equity, and Inclusion.\nPMLR, 2021, pp. 22–34."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[9] D. Madras, E. Creager, T. Pitassi, and R. Zemel, “Learning adversarially",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[32]\nZ. Shao, Z. Liu,\nJ. Cai, and L. Ma, “JAA-Net:\njoint\nfacial action unit"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "fair\nand transferable\nrepresentations,”\nin International Conference on",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "detection and face\nalignment via\nadaptive\nattention,”\nin International"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Machine Learning.\nPMLR, 2018, pp. 3384–3393.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Journal of Computer Vision, vol. 129, no. 2.\nSpringer, 2021, pp. 321–"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[10] M. Alvi, A. Zisserman, and C. Nell˚aker, “Turning a blind eye: Explicit",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "340."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "removal of biases and variation from deep neural network embeddings,”",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[33] Q. Cao, L. Shen, W. Xie, O. M. Parkhi, and A. Zisserman, “VGGFace2:"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "in Proceedings of the European Conference on Computer Vision (ECCV)",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "A dataset for recognising faces across pose and age,” in 2018 13th IEEE"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Workshops, 2018, pp. 0–0.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "International Conference on Automatic Face & Gesture recognition (FG"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[11] H. Bahng, S. Chun, S. Yun, J. Choo, and S. J. Oh, “Learning de-biased",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2018).\nIEEE, 2018, pp. 67–74."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "representations with biased representations,” in International Conference",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[34]\nS. T. Ly, N.-T. Do, G. Lee, S.-H. Kim, and H.-J. Yang, “Multimodal"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "on Machine Learning.\nPMLR, 2020, pp. 528–539.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2D and\n3D for\nin-the-wild\nfacial\nexpression\nrecognition.”\nin CVPR"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[12] R. Cadene, C. Dancette, M. Cord, D. Parikh et al., “Rubi: Reducing",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Workshops, 2019, pp. 2927–2934."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "unimodal biases for visual question answering,” in Advances in Neural",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[35] Q.\nT. Ngo\nand\nS. Yoon,\n“Facial\nexpression\nrecognition\nbased\non"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Information Processing Systems, vol. 32, 2019.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "weighted-cluster\nloss and deep transfer\nlearning using a highly imbal-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[13]\nP. Ekman, W. V. Freisen,\nand S. Ancoli,\n“Facial\nsigns of\nemotional",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "anced dataset,”\nin Sensors, vol. 20, no. 9.\nMultidisciplinary Digital"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "experience.” in Journal of Personality and Social Psychology, vol. 39,",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "Publishing Institute, 2020, p. 2639."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "no. 6.\nAmerican Psychological Association, 1980, p. 1125.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "[36]\nS. Li, W. Deng, and J. Du, “Reliable crowdsourcing and deep locality-"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "[14]\nT. T. D. Pham, S. Kim, Y. Lu, S.-W. Jung, and C.-S. Won, “Facial action",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "2017\npreserving\nlearning\nfor\nexpression\nrecognition\nin\nthe wild,”\nin"
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "units-based image retrieval\nfor\nfacial expression recognition,” in IEEE",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "IEEE Conference on Computer Vision and Pattern Recognition (CVPR)."
+        },
+        {
+          "(Action Units). Our\napproach was\nable\nto improve\nfairness": "Access, vol. 7.\nIEEE, 2019, pp. 5200–5207.",
+          "[15]\nP. Khorrami, T. Paine, and T. Huang, “Do deep neural networks learn": "IEEE, 2017, pp. 2584–2593."
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "preserving learning for unconstrained facial expression recognition,” in"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "IEEE Transactions on Image Processing, vol. 28, no. 1.\nIEEE, 2019,"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "pp. 356–370."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[38]\nJ. H. Cheong, T. Xie, S. Byrne, and L. J. Chang, “Py-feat: Python facial"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "expression analysis toolbox,” in arXiv preprint arXiv:2104.03509, 2021."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[39]\nJ. Deng,\nJ. Guo, E. Ververas,\nI. Kotsia, and S. Zafeiriou, “Retinaface:"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "Single-shot multi-level\nface localisation in the wild,” in Proceedings of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "the IEEE/CVF Conference on Computer Vision and Pattern Recognition,"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "2020, pp. 5203–5212."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[40] K. Yang, K. Qinami, L. Fei-Fei, J. Deng, and O. Russakovsky, “Towards"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "fairer datasets: Filtering and balancing the distribution of the people sub-"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "the 2020 Conference\ntree in the imagenet hierarchy,” in Proceedings of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "on Fairness, Accountability, and Transparency, 2020, pp. 547–558."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[41] Y. Fan, J. C. Lam, and V. O. Li, “Demographic effects on facial emotion"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "expression: an interdisciplinary investigation of the facial action units of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "happiness,” Scientiﬁc Reports, vol. 11, no. 1, pp. 1–11, 2021."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[42] D. Matsumoto, A. Olide,\nJ. Schug, B. Willingham,\nand M. Callan,"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "“Cross-cultural\njudgments of\nspontaneous\nfacial\nexpressions of\nemo-"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "tion,” Journal of Nonverbal Behavior, vol. 33, no. 4, pp. 213–238, 2009."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[43] H. A. Elfenbein and N. Ambady, “On the universality and cultural speci-"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "ﬁcity of emotion recognition: a meta-analysis.” Psychological Bulletin,"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "vol. 128, no. 2, p. 203, 2002."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[44]\nZ. Cui, T. Song, Y. Wang,\nand Q.\nJi,\n“Knowledge\naugmented\ndeep"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "neural networks for joint facial expression and action unit recognition,”"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "in Advances in Neural\nInformation Processing Systems, vol. 33, 2020,"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "pp. 14 338–14 349."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[45] Y. Chen,\nJ. Wang, S. Chen, Z. Shi,\nand J. Cai,\n“Facial motion prior"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "networks for\nfacial expression recognition,” in 2019 IEEE Visual Com-"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "munications and Image Processing (VCIP).\nIEEE, 2019, pp. 1–4."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[46] V. Suresh and D. C. Ong,\n“Using knowledge-embedded attention to"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "augment pre-trained language models for ﬁne-grained emotion recogni-"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "the 9th International Conference on Affective\ntion,” in Proceedings of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "Computing and Intelligent\nInteraction (ACII 2021), 2021."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[47]\nP. Zhong, D. Wang,\nand C. Miao,\n“Knowledge-enriched transformer"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "the\nfor emotion detection in textual conversations,” in Proceedings of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "2019 Conference on Empirical Methods in NLP and the 9th Intl. Joint"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "Conference on NLP (EMNLP-IJCNLP), 2019, pp. 165–176."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[48] A. Roy and S. Pan, “Incorporating extra knowledge to enhance word"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "the 29th International Joint Conference\nembedding,” in Proceedings of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "on Artiﬁcial\nIntelligence,\nIJCAI-20, 2020, pp. 4929–4935."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[49] R. Panda, J. Zhang, H. Li, J.-Y. Lee, X. Lu, and A. K. Roy-Chowdhury,"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "“Contemplating visual emotions: Understanding and overcoming dataset"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "the European Conference on Computer Vision\nbias,” in Proceedings of"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "(ECCV), 2018."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[50] V. Suresh and D. C. Ong,\n“Not\nall negatives\nare\nequal: Label-aware"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "contrastive loss for ﬁne-grained text classiﬁcation,” in Proceedings of the"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "2021 Conference on Empirical Methods in Natural Language Processing"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "(EMNLP), 2021."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[51] D. Demszky, D. Movshovitz-Attias, J. Ko, A. Cowen, G. Nemade, and"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "S. Ravi, “GoEmotions: A dataset of ﬁne-grained emotions,” in Proceed-"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "ings of\nthe 58th Annual Meeting of\nthe Association for Computational"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "Linguistics, 2020, pp. 4040–4054."
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "[52]\nL. Liang, C. Lang, Y. Li, S. Feng,\nand J. Zhao,\n“Fine-grained facial"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "expression recognition in the wild,” in IEEE Transactions on Information"
+        },
+        {
+          "[37]\nS.\nLi\nand W. Deng,\n“Reliable\ncrowdsourcing\nand\ndeep\nlocality-": "Forensics and Security, vol. 16.\nIEEE, 2020, pp. 482–494."
+        }
+      ],
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "A survey on bias and fairness in machine learning",
+      "authors": [
+        "N Mehrabi",
+        "F Morstatter",
+        "N Saxena",
+        "K Lerman",
+        "A Galstyan"
+      ],
+      "year": "2021",
+      "venue": "ACM Computing Surveys (CSUR)"
+    },
+    {
+      "citation_id": "2",
+      "title": "50 years of test (un) fairness: Lessons for machine learning",
+      "authors": [
+        "B Hutchinson",
+        "M Mitchell"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the Conference on Fairness, Accountability, and Transparency"
+    },
+    {
+      "citation_id": "3",
+      "title": "Gradient starvation: A learning proclivity in neural networks",
+      "authors": [
+        "M Pezeshki",
+        "O Kaba",
+        "Y Bengio",
+        "A Courville",
+        "D Precup",
+        "G Lajoie"
+      ],
+      "year": "2021",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "4",
+      "title": "Unbiased classification through bias-contrastive and bias-balanced learning",
+      "authors": [
+        "Y Hong",
+        "E Yang"
+      ],
+      "year": "2021",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "5",
+      "title": "Learning from failure: De-biasing classifier from biased classifier",
+      "authors": [
+        "J Nam",
+        "H Cha",
+        "S Ahn",
+        "J Lee",
+        "J Shin"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "6",
+      "title": "Towards fairness in visual recognition: Effective strategies for bias mitigation",
+      "authors": [
+        "Z Wang",
+        "K Qinami",
+        "I Karakozis",
+        "K Genova",
+        "P Nair",
+        "K Hata",
+        "O Russakovsky"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "7",
+      "title": "Mitigating unwanted biases with adversarial learning",
+      "authors": [
+        "B Zhang",
+        "B Lemoine",
+        "M Mitchell"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 2018 AAAI/ACM Conference on AI, Ethics, and Society"
+    },
+    {
+      "citation_id": "8",
+      "title": "Investigating bias and fairness in facial expression recognition",
+      "authors": [
+        "T Xu",
+        "J White",
+        "S Kalkan",
+        "H Gunes"
+      ],
+      "year": "2020",
+      "venue": "European Conference on Computer Vision"
+    },
+    {
+      "citation_id": "9",
+      "title": "Learning adversarially fair and transferable representations",
+      "authors": [
+        "D Madras",
+        "E Creager",
+        "T Pitassi",
+        "R Zemel"
+      ],
+      "year": "2018",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "10",
+      "title": "Turning a blind eye: Explicit removal of biases and variation from deep neural network embeddings",
+      "authors": [
+        "M Alvi",
+        "A Zisserman",
+        "C Nellåker"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the European Conference on Computer Vision (ECCV) Workshops"
+    },
+    {
+      "citation_id": "11",
+      "title": "Learning de-biased representations with biased representations",
+      "authors": [
+        "H Bahng",
+        "S Chun",
+        "S Yun",
+        "J Choo",
+        "S Oh"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "12",
+      "title": "Rubi: Reducing unimodal biases for visual question answering",
+      "authors": [
+        "R Cadene",
+        "C Dancette",
+        "M Cord",
+        "D Parikh"
+      ],
+      "year": "2019",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "13",
+      "title": "Facial signs of emotional experience",
+      "authors": [
+        "P Ekman",
+        "W Freisen",
+        "S Ancoli"
+      ],
+      "year": "1980",
+      "venue": "Journal of Personality and Social Psychology"
+    },
+    {
+      "citation_id": "14",
+      "title": "Facial action units-based image retrieval for facial expression recognition",
+      "authors": [
+        "T Pham",
+        "S Kim",
+        "Y Lu",
+        "S.-W Jung",
+        "C.-S Won"
+      ],
+      "year": "2019",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "15",
+      "title": "Do deep neural networks learn facial action units when doing expression recognition",
+      "authors": [
+        "P Khorrami",
+        "T Paine",
+        "T Huang"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the IEEE International Conference on Computer Vision Workshops"
+    },
+    {
+      "citation_id": "16",
+      "title": "Fully automatic facial action unit detection and temporal analysis",
+      "authors": [
+        "M Valstar",
+        "M Pantic"
+      ],
+      "year": "2006",
+      "venue": "2006 Conference on Computer Vision and Pattern Recognition Workshop (CVPRW'06)"
+    },
+    {
+      "citation_id": "17",
+      "title": "Action unit classification for facial expression recognition using active learning and svm",
+      "authors": [
+        "L Yao",
+        "Y Wan",
+        "H Ni",
+        "B Xu"
+      ],
+      "year": "2021",
+      "venue": "Multimedia Tools and Applications"
+    },
+    {
+      "citation_id": "18",
+      "title": "Fairness through awareness",
+      "authors": [
+        "C Dwork",
+        "M Hardt",
+        "T Pitassi",
+        "O Reingold",
+        "R Zemel"
+      ],
+      "year": "2012",
+      "venue": "Proceedings of the 3rd Innovations in Theoretical Computer Science Conference"
+    },
+    {
+      "citation_id": "19",
+      "title": "Understanding and improving fairness-accuracy trade-offs in multi-task learning",
+      "authors": [
+        "Y Wang",
+        "X Wang",
+        "A Beutel",
+        "F Prost",
+        "J Chen",
+        "E Chi"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining"
+    },
+    {
+      "citation_id": "20",
+      "title": "Data decisions and theoretical implications when adversarially learning fair representations",
+      "authors": [
+        "A Beutel",
+        "J Chen",
+        "Z Zhao",
+        "E Chi"
+      ],
+      "year": "2017",
+      "venue": "Data decisions and theoretical implications when adversarially learning fair representations",
+      "arxiv": "arXiv:1707.00075"
+    },
+    {
+      "citation_id": "21",
+      "title": "Shapetexture debiased neural network training",
+      "authors": [
+        "Y Li",
+        "Q Yu",
+        "M Tan",
+        "J Mei",
+        "P Tang",
+        "W Shen",
+        "A Yuille"
+      ],
+      "year": "2020",
+      "venue": "International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "22",
+      "title": "Learning explanations that are hard to vary",
+      "authors": [
+        "G Parascandolo",
+        "A Neitz",
+        "A Orvieto",
+        "L Gresele",
+        "B Schölkopf"
+      ],
+      "venue": "Ninth International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "23",
+      "title": "Biaswap: Removing dataset bias with bias-tailored swapping augmentation",
+      "authors": [
+        "E Kim",
+        "J Lee",
+        "J Choo"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "24",
+      "title": "Disability, bias, and ai",
+      "authors": [
+        "M Whittaker",
+        "M Alper",
+        "C Bennett",
+        "S Hendren",
+        "L Kaziunas",
+        "M Mills",
+        "M Morris",
+        "J Rankin",
+        "E Rogers",
+        "M Salas"
+      ],
+      "year": "2019",
+      "venue": "Disability, bias, and ai"
+    },
+    {
+      "citation_id": "25",
+      "title": "Racial influence on automated perceptions of emotions",
+      "authors": [
+        "L Rhue"
+      ],
+      "year": "2018",
+      "venue": "SSRN 3281765"
+    },
+    {
+      "citation_id": "26",
+      "title": "Understanding and mitigating annotation bias in facial expression recognition",
+      "authors": [
+        "Y Chen",
+        "J Joo"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "27",
+      "title": "Observer-based measurement of facial expression with the facial action coding system",
+      "authors": [
+        "J Cohn",
+        "Z Ambadar",
+        "P Ekman"
+      ],
+      "year": "2007",
+      "venue": "The Handbook of Emotion Elicitation and Assessment"
+    },
+    {
+      "citation_id": "28",
+      "title": "What the face reveals: Basic and applied studies of spontaneous expression using the Facial Action Coding System (FACS)",
+      "authors": [
+        "E Rosenberg",
+        "P Ekman"
+      ],
+      "year": "2020",
+      "venue": "What the face reveals: Basic and applied studies of spontaneous expression using the Facial Action Coding System (FACS)"
+    },
+    {
+      "citation_id": "29",
+      "title": "A psychometric evaluation of the facial action coding system for assessing spontaneous expression",
+      "authors": [
+        "M Sayette",
+        "J Cohn",
+        "J Wertz",
+        "M Perrott",
+        "D Parrott"
+      ],
+      "year": "2001",
+      "venue": "Journal of Nonverbal Behavior"
+    },
+    {
+      "citation_id": "30",
+      "title": "Equality of opportunity in supervised learning",
+      "authors": [
+        "M Hardt",
+        "E Price",
+        "N Srebro"
+      ],
+      "year": "2016",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "31",
+      "title": "Characterizing intersectional group fairness with worst-case comparisons",
+      "authors": [
+        "A Ghosh",
+        "L Genuit",
+        "M Reagan"
+      ],
+      "year": "2021",
+      "venue": "Artificial Intelligence Diversity, Belonging, Equity, and Inclusion"
+    },
+    {
+      "citation_id": "32",
+      "title": "JAA-Net: joint facial action unit detection and face alignment via adaptive attention",
+      "authors": [
+        "Z Shao",
+        "Z Liu",
+        "J Cai",
+        "L Ma"
+      ],
+      "year": "2021",
+      "venue": "International Journal of Computer Vision"
+    },
+    {
+      "citation_id": "33",
+      "title": "VGGFace2: A dataset for recognising faces across pose and age",
+      "authors": [
+        "Q Cao",
+        "L Shen",
+        "W Xie",
+        "O Parkhi",
+        "A Zisserman"
+      ],
+      "year": "2018",
+      "venue": "2018 13th IEEE International Conference on Automatic Face & Gesture recognition"
+    },
+    {
+      "citation_id": "34",
+      "title": "Multimodal 2D and 3D for in-the-wild facial expression recognition",
+      "authors": [
+        "S Ly",
+        "N.-T Do",
+        "G Lee",
+        "S.-H Kim",
+        "H.-J Yang"
+      ],
+      "year": "2019",
+      "venue": "CVPR Workshops"
+    },
+    {
+      "citation_id": "35",
+      "title": "Facial expression recognition based on weighted-cluster loss and deep transfer learning using a highly imbalanced dataset",
+      "authors": [
+        "Q Ngo",
+        "S Yoon"
+      ],
+      "year": "2020",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "36",
+      "title": "Reliable crowdsourcing and deep localitypreserving learning for expression recognition in the wild",
+      "authors": [
+        "S Li",
+        "W Deng",
+        "J Du"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "37",
+      "title": "Reliable crowdsourcing and deep localitypreserving learning for unconstrained facial expression recognition",
+      "authors": [
+        "S Li",
+        "W Deng"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Image Processing"
+    },
+    {
+      "citation_id": "38",
+      "title": "Py-feat: Python facial expression analysis toolbox",
+      "authors": [
+        "J Cheong",
+        "T Xie",
+        "S Byrne",
+        "L Chang"
+      ],
+      "year": "2021",
+      "venue": "Py-feat: Python facial expression analysis toolbox",
+      "arxiv": "arXiv:2104.03509"
+    },
+    {
+      "citation_id": "39",
+      "title": "Retinaface: Single-shot multi-level face localisation in the wild",
+      "authors": [
+        "J Deng",
+        "J Guo",
+        "E Ververas",
+        "I Kotsia",
+        "S Zafeiriou"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "40",
+      "title": "Towards fairer datasets: Filtering and balancing the distribution of the people subtree in the imagenet hierarchy",
+      "authors": [
+        "K Yang",
+        "K Qinami",
+        "L Fei-Fei",
+        "J Deng",
+        "O Russakovsky"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 Conference on Fairness, Accountability, and Transparency"
+    },
+    {
+      "citation_id": "41",
+      "title": "Demographic effects on facial emotion expression: an interdisciplinary investigation of the facial action units of happiness",
+      "authors": [
+        "Y Fan",
+        "J Lam",
+        "V Li"
+      ],
+      "year": "2021",
+      "venue": "Scientific Reports"
+    },
+    {
+      "citation_id": "42",
+      "title": "Cross-cultural judgments of spontaneous facial expressions of emotion",
+      "authors": [
+        "D Matsumoto",
+        "A Olide",
+        "J Schug",
+        "B Willingham",
+        "M Callan"
+      ],
+      "year": "2009",
+      "venue": "Journal of Nonverbal Behavior"
+    },
+    {
+      "citation_id": "43",
+      "title": "On the universality and cultural specificity of emotion recognition: a meta-analysis",
+      "authors": [
+        "H Elfenbein",
+        "N Ambady"
+      ],
+      "year": "2002",
+      "venue": "Psychological Bulletin"
+    },
+    {
+      "citation_id": "44",
+      "title": "Knowledge augmented deep neural networks for joint facial expression and action unit recognition",
+      "authors": [
+        "Z Cui",
+        "T Song",
+        "Y Wang",
+        "Q Ji"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "45",
+      "title": "Facial motion prior networks for facial expression recognition",
+      "authors": [
+        "Y Chen",
+        "J Wang",
+        "S Chen",
+        "Z Shi",
+        "J Cai"
+      ],
+      "year": "2019",
+      "venue": "2019 IEEE Visual Communications and Image Processing"
+    },
+    {
+      "citation_id": "46",
+      "title": "Using knowledge-embedded attention to augment pre-trained language models for fine-grained emotion recognition",
+      "authors": [
+        "V Suresh",
+        "D Ong"
+      ],
+      "venue": "Proceedings of the 9th International Conference on Affective Computing and Intelligent Interaction"
+    },
+    {
+      "citation_id": "47",
+      "title": "Knowledge-enriched transformer for emotion detection in textual conversations",
+      "authors": [
+        "P Zhong",
+        "D Wang",
+        "C Miao"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference on Empirical Methods in NLP and the 9th Intl. Joint Conference on NLP (EMNLP-IJCNLP)"
+    },
+    {
+      "citation_id": "48",
+      "title": "Incorporating extra knowledge to enhance word embedding",
+      "authors": [
+        "A Roy",
+        "S Pan"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 29th International Joint Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "49",
+      "title": "Contemplating visual emotions: Understanding and overcoming dataset bias",
+      "authors": [
+        "R Panda",
+        "J Zhang",
+        "H Li",
+        "J.-Y Lee",
+        "X Lu",
+        "A Roy-Chowdhury"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the European Conference on Computer Vision (ECCV)"
+    },
+    {
+      "citation_id": "50",
+      "title": "Not all negatives are equal: Label-aware contrastive loss for fine-grained text classification",
+      "authors": [
+        "V Suresh",
+        "D Ong"
+      ],
+      "venue": "Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "51",
+      "title": "GoEmotions: A dataset of fine-grained emotions",
+      "authors": [
+        "D Demszky",
+        "D Movshovitz-Attias",
+        "J Ko",
+        "A Cowen",
+        "G Nemade",
+        "S Ravi"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "52",
+      "title": "Fine-grained facial expression recognition in the wild",
+      "authors": [
+        "L Liang",
+        "C Lang",
+        "Y Li",
+        "S Feng",
+        "J Zhao"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Information Forensics and Security"
+    }
+  ]
+}

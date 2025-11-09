@@ -1,0 +1,984 @@
+{
+  "paper_id": "2510.20256v1",
+  "title": "Calibrating Multimodal Consensus For Emotion Recognition",
+  "published": "2025-10-23T06:25:10Z",
+  "authors": [
+    "Guowei Zhong",
+    "Junjie Li",
+    "Huaiyu Zhu",
+    "Ruohong Huan",
+    "Yun Pan"
+  ],
+  "keywords": [
+    "Multimodal emotion recognition",
+    "multimodal fusion",
+    "multimodal learning",
+    "modality semantic inconsistency Multimodal Prediction: Ground Truth: Multimodal: Text: Audio: Vision: 0.4 -0.6 0.0 0.8 -0.4806 -0.5467 Text Prediction: Multimodal Prediction: Ground Truth: Multimodal: Text: Audio: Vision: -0.6 1.0 0.2 -1.0 0.1281"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In recent years, Multimodal Emotion Recognition (MER) has made substantial progress. Nevertheless, most existing approaches neglect the semantic inconsistencies that may arise across modalities, such as conflicting emotional cues between text and visual inputs. Besides, current methods are often dominated by the text modality due to its strong representational capacity, which can compromise recognition accuracy. To address these challenges, we propose a model termed Calibrated Multimodal Consensus (CMC). CMC introduces a Pseudo Label Generation Module (PLGM) to produce pseudo unimodal labels, enabling unimodal pretraining in a self-supervised fashion. It then employs a Parameter-free Fusion Module (PFM) and a Multimodal Consensus Router (MCR) for multimodal finetuning, thereby mitigating text dominance and guiding the fusion process toward a more reliable consensus. Experimental results demonstrate that CMC achieves performance on par with or superior to state-ofthe-art methods across four datasets, CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI, and exhibits notable advantages in scenarios with semantic inconsistencies on CH-SIMS and CH-SIMS v2. The implementation of this work is publicly accessible at https://github.com/gw-zhong/CMC.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "W ITH the rapid growth of social media, users' emotional expressions have become increasingly diverse, evolving from traditional text-based formats to multimodal video content that incorporates text, audio, and visual elements. Multimodal Emotion Recognition (MER) seeks to integrate information from these heterogeneous modalities to more accurately identify human emotions, making it a key task in affective computing.\n\nDespite the extensive research conducted in the MER field, including studies on multimodal fusion  [1] -  [8] , modality missingness  [9] -  [15] , and out-of-distribution generalization  [16] -  [20] , most methods still suffer from two major limitations.\n\nFirst, they neglect potential semantic inconsistencies across modalities. Second, because text features typically rely on pretrained language models (e.g., BERT  [21] ), whereas audio and visual modalities often depend on traditional handcrafted features, models are frequently dominated by the text modality, whose stronger representational capacity can adversely affect overall recognition performance.\n\nTherefore, the key challenge lies not in simply performing multimodal fusion, but in establishing a reliable multimodal consensus in which all modalities contribute collaboratively without being dominated by the strongest one.\n\nAs shown in Fig.  1 , even with the inclusion of audio and visual modalities, existing method struggles to make accurate predictions when faced with semantic inconsistencies across modalities. In two video clips from the CH-SIMS  [22]  dataset, the multimodal emotions expressed by the characters conflict with the text unimodal emotions. Taking EMT-DLFR  [13]  as an example, because the representational power of text features derived from pretrained language models far exceeds that of audio and visual features based on handcrafted descriptors, the model is incorrectly dominated by the text modality in the examples shown in Fig.  1 . As a result, it disregards the modalities that correctly convey the emotions and ultimately produces recognition errors. Moreover, the prediction results show that although incorporating audio and visual information alongside text can partially mitigate the dominance of the text modality and move the prediction closer to the correct multimodal label, the weak representational capacity of the audio and visual modalities still prevents the model from accurately identifying emotions.\n\nOverall, existing MER approaches typically frame multimodal learning as a feature fusion task, implicitly assuming that all modalities contribute consistently. In practice, however, modalities in MER may convey conflicting cues, and naive fusion often amplifies the effects of dominant or noisy modalities. As a result, prior methods struggle to establish a genuine multimodal consensus in which the final decision reflects balanced and reliable contributions from all modalities.\n\nTo address these challenges, we propose the Calibrated Multimodal Consensus (CMC) model, which redefines the objective of MER as establishing a calibrated multimodal consensus rather than relying on naive fusion. The CMC model comprises two stages and three modules. In the first stage, the Pseudo Label Generation Module (PLGM) produces pseudo unimodal labels to enable unimodal pretraining in a selfsupervised manner. In the second stage, the Parameter-free Fusion Module (PFM) performs modality fusion while preserving Fig.  1 . Two examples of recognition errors caused by semantic conflicts between modalities in the CH-SIMS dataset for EMT-DLFR. \"Text Prediction\" refers to results obtained using only the text modality, whereas \"Multimodal Prediction\" refers to results obtained using all three modalities. Note: In the CH-SIMS dataset, the annotated emotional polarity ranges from -1 to 1, with smaller values indicating more negative emotions.\n\nthe original semantic information of each modality. Finally, the Multimodal Consensus Router (MCR) automatically adjusts the confidence weights of modality-specific predictions to achieve an accurate multimodal consensus.\n\nIn summary, the main contributions of this paper are as follows:\n\n• We propose a novel calibrated consensus model, CMC, which effectively mitigates the challenges of semantic inconsistency across modalities and text modality dominance.\n\n• Within CMC, we design the PLGM to generate pseudo labels for each modality based on gradients and to enable unimodal pretraining in a self-supervised manner. We introduce the PFM to perform multimodal fusion without additional parameters while preserving the semantic information of the original modalities. We further propose the MCR, which automatically assigns adaptive weights to modality-specific predictions to achieve an accurate multimodal consensus. • CMC achieves performance on par with or superior to state-of-the-art methods across four datasets, CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI, and demonstrates notable advantages in handling semantic inconsistencies on CH-SIMS and CH-SIMS v2.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Related Work",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Multimodal Fusion",
+      "text": "In traditional MER, researchers primarily focused on developing effective fusion strategies.\n\nTsai et al.  [23]  introduced the Multimodal Transformer (MulT), which extends the Transformer architecture  [24]  by incorporating cross-modal and self-attention to model interactions both within and across modalities. Lv et al.  [25]  proposed a message hub that separately stores multimodal information and employs a progressive strategy to facilitate crossmodal interactions across Transformer layers. Liang et al.  [26]  highlighted that distribution mismatches between modalityspecific features could reduce the effectiveness of cross-modal attention and therefore proposed a modality-invariant crossmodal attention mechanism to mitigate such differences. To address the high computational cost of MulT, Cheng et al.  [27]  introduced the Sparse Phased Block (SP-Block) to sample long sequences and further reduced complexity by employing a shared attention matrix for multimodal interactions. Guo et al.  [28]  developed a method that dynamically adjusts word embeddings using information from non-linguistic modalities. Yang et al.  [29]  proposed a fusion framework that learns both modality-specific and modality-invariant representations to fully exploit cross-modal complementarity. Li et al.  [30]  introduced a decoupled multimodal distillation approach that enhances the distinctiveness of each modality's representation, thereby alleviating heterogeneity across modalities. Zhuang et al.  [31]  designed the Global-Local Modal (GLoMo) fusion framework, which leverages expert networks to automatically select and integrate key local representations from each modality while preserving global information during fusion. To reduce the reliance on large-scale labeled datasets, Li et al.  [32]  proposed a gradient-based active learning method with curriculum enhancement that strategically selects valuable samples from unlabeled data pools. Yuan et al.  [33]  presented the Multimodal Consistency-based Teacher (MC-Teacher), which applies a semi-supervised learning strategy to leverage unlabeled data and improve MER performance. Wang et al.  [34]  proposed a Disentangled-Language-Focused (DLF) framework for language-centered multimodal representation learning, introducing four geometric metrics to enhance disentanglement and further developing the Language-Focused Attractor (LFA), which uses language-guided cross-attention to enrich language representations with complementary modality-specific information. Yang et al.  [35]  introduced the Multimodal Sentiment Analysis and Emotion Recognition Adapter (MSE-Adapter), a lightweight plug-in that enables Large Language Models (LLMs) to perform MER tasks while retaining their general capabilities. Finally, Zhao et al.  [36]  proposed decomposing unimodal representations into emotion-specific and emotionirrelevant features, using only the former to reduce interference from irrelevant information in MER tasks.\n\nDespite advances in modeling cross-modal interactions, most fusion strategies implicitly assume semantic consistency across modalities and lack mechanisms to detect or resolve cross-modal conflicts. As a result, they are vulnerable to modality dominance and cannot ensure an accurate multimodal consensus when semantic inconsistencies occur.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Multi-Task Learning",
+      "text": "In recent years, researchers have increasingly focused on potential semantic inconsistencies between modalities in MER and have explored capturing both unimodal and multimodal representations simultaneously through multi-task learning.\n\nYu et al.  [22]  introduced the CH-SIMS dataset for Chinese sentiment analysis, which provides both multimodal and Fig.  2 . The overall framework of the CMC model. CMC mainly comprises three core modules: the Pseudo Label Generation Module (PLGM), the Parameterfree Fusion Module (PFM), and the Multimodal Consensus Router (MCR). In the unimodal pretraining stage, the PLGM generates pseudo unimodal labels to enable self-supervised pretraining of unimodal models. During the multimodal finetuning stage, the hidden representations of each modality are fused through the PFM, after which the MCR assigns weights to each modality. Finally, these weights are applied to perform weighted fusion of the unimodal model predictions, producing the final emotion recognition results. independent unimodal annotations, addressing the limitation of MER datasets containing only unified multimodal labels. They also proposed a late-fusion-based multi-task learning framework as a benchmark. Later, Yu et al.  [37]  developed a label generation module using self-supervised strategies to obtain unimodal supervision signals and jointly trained unimodal and multimodal tasks to capture both consistency and divergence. Liu et al.  [38]  highlighted the role of nonverbal cues in MER and released CH-SIMS v2, an extension of CH-SIMS. They further proposed the Acoustic Visual Mixup Consistent (AV-MC) framework, which combines audio and visual modalities from different videos to enhance the model's ability to interpret diverse nonverbal contexts for emotion recognition. Sun et al.  [39]  introduced the Sequential Fusion of Text-close and Text-far Representations (SFTTR) framework, designed to distill multimodal representations from text-close and text-far contexts. Luo et al.  [40]  proposed TriagedMSA to address emotional divergence across modalities, incorporating the Sentiment Disagreement Triage (SDT) network to distinguish between consistent and divergent samples, thereby reducing mutual interference. To handle these samples separately, they introduced the Sentiment Commonality Attention (SCA) and Sentiment Selection Attention (SSA) networks. In addition, they developed the Adaptive Polarity Detection (APD) algorithm to dynamically assess emotional consistency or divergence across modalities, ensuring generalization to datasets lacking unimodal labels.\n\nAlthough multi-task frameworks incorporate unimodal supervision, most of them primarily aim to enrich representations rather than to calibrate multimodal consensus. And most models remain large and lack lightweight designs, which limits their applicability in resource-constrained settings.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Method A. Problem Definition",
+      "text": "The MER task aims to recognize human emotions from multiple modalities in video data, typically including text, audio, and vision. After feature extraction, we obtain text features X t ∈ R lt×dt , audio features X a ∈ R la×da , and visual features X v ∈ R lv×dv , where l t , l a , and l v denote the sequence lengths, and d t , d a , and d v represent the feature dimensions of each modality. These modality-specific feature sequences X t , X a , and X v are then input into a multimodal fusion encoder f m to generate a joint multimodal representation h m = f m (X t , X a , X v ). Finally, this representation h m is passed to a multimodal classifier p m , which outputs the final emotion prediction ŷ = p m (h m ).\n\nIn contrast to conventional MER formulations, we frame our problem as calibrating multimodal consensus: ensuring that the final decision reflects reliable contributions from all modalities while preventing any erroneous modality from dominating the others.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Overall Framework",
+      "text": "In this section, we describe the forward propagation process of CMC, which comprises two training stages. The first stage pretrains individual unimodal models, and the second stage finetunes the fusion model to calibrate multimodal consensus. The overall architecture is illustrated in Fig.  2 . The detailed implementations of the PLGM, PFM, and MCR modules are presented in the following subsections.\n\n1) Unimodal Pretraining: For each modality sequence X k (k ∈ {t, a, v}) obtained after feature extraction, we employ a unimodal encoder f k (k ∈ {t, a, v}) to generate the corresponding unimodal representation ĥk :\n\nwhere B denotes the batch size and d represents the dimensionality of the shared feature space, to which each modality sequence is projected via a one-dimensional convolution. The specific implementations of the unimodal encoder f k for different modalities are as follows:\n\nFor the audio and visual sequences, we apply onedimensional batch normalization before the one-dimensional convolution to ensure numerical stability of the features. For the text sequence, since the features are extracted using BERT, batch normalization is unnecessary.\n\nSubsequently, we average over the temporal dimension to obtain the utterance-level representation h ′ k :\n\nTo reduce heterogeneity across modalities, we normalize the utterance-level representation h ′ k :\n\nwhere ∥ • ∥ 2 denotes the L2 norm. The normalized representations from each modality are then passed to their respective classifiers p k to generate the predictions ŷk :\n\nwhere c is the number of classes. The classifier p k is implemented as follows:\n\nNext, we employ the proposed PLGM to dynamically generate pseudo labels y kp , enabling self-supervised learning for unimodal models:\n\nwhere y kp is initialized with y m , the multimodal label at the start of training, and is iteratively updated in each training batch.\n\nTo enhance the alignment of representations from different modalities within a shared feature space, we encourage samples from the same class to be close to one another, while samples from different classes remain distant. To achieve this, we adopt the Supervised Contrastive (SupCon) Loss introduced by Khosla et al.  [41]  as an additional constraint:\n\nwhere [•; •; •] denotes concatenation. Finally, the unimodal models are pretrained by jointly optimizing the two loss functions:\n\n2) Multimodal Finetuning: In the unimodal pretraining step, we obtained a trained encoder f k and classifier p k for each modality. During multimodal finetuning, each modality sequence X k is first passed through the corresponding encoder f k to produce the unimodal representation ĥk . These representations are then averaged and normalized to form the utterancelevel representation h k (Eq. 4). To allow each modality to incorporate complementary information from other modalities while retaining its own core features, we introduce the PFM:\n\nNext, we extract the representation of each modality from hx to obtain hk ∈ R B×d . We then feed hk into the pretrained classifier p k to generate the prediction ŷm k for each modality:\n\nNext, we aggregate the representations of the three modalities to form the utterance-level multimodal representation h m :\n\nTo mitigate the dominance of the text modality in MER and reduce the risk of incorrect predictions, we propose the MCR, which computes the modality weight scores w m (corresponding to text, audio, and vision modalities, constrained to sum to 1):\n\nFrom w m , we extract the weight score for each modality, denoted as\n\nSubsequently, we compute the final fused emotion prediction ŷm by performing a weighted sum of the modality weight scores and their corresponding prediction results:\n\nMulti-task Learning: To achieve joint optimization of unimodal models and multimodal fusion, we train the CMC model using a multi-task learning framework. First, the loss function for the multimodal task is computed based on the fused emotion prediction ŷm :\n\nwhere y m denotes the multimodal label. To allow the unimodal encoder f k and classifier p k to adjust according to the fusion results from the PFM, we also compute the unimodal loss in MER:\n\nThese two components jointly form the loss for the MER task:\n\nFurthermore, to maintain alignment of representations across modalities in the feature space, we adopt the Supervised Contrastive Loss during multimodal finetuning. The final multimodal finetuning objective is defined as:",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Pseudo Label Generation Module",
+      "text": "In this section, we introduce the proposed Pseudo Label Generation Module (PLGM). The PLGM leverages multimodal labels as a reference, evaluates recognition accuracy by incorporating the gradient norms of the model outputs, and updates pseudo labels using an Exponential Moving Average (EMA) to improve training stability.\n\nAt the beginning of training, we initialize the pseudo unimodal labels for each modality using the multimodal label:\n\nwhere y sof t kp represents the soft unimodal label for modality k, and OneHot(•) denotes the conversion of the multimodal label y m into the corresponding one-hot vector. The hard unimodal label for modality k is then obtained by applying the argmax operation:\n\nTo allow the model to refine the pseudo unimodal labels based on its own predictions during training, we first compute the gradient of the cross-entropy loss with respect to the model output ŷk . This gradient is used to evaluate the recognition quality of different samples in each modality k:\n\nTo identify potentially adjustable labels, we compute the gradient norms of ŷk with respect to the one-hot representations of all possible classes:\n\nwhere cls denotes the class index (cls = 0, . . . , c -1, with c being the total number of classes). Consequently, we obtain a set of gradient norms for all classes:\n\nNext, we apply the argmin operation to determine the potential label y r kp :\n\nIt is important to note that y r kp and y kp may either coincide or differ. To further distinguish these cases, we categorize the dataset samples into three types: 1) Easy samples (correct label, clear semantics): y r kp is identical to y kp . In this case, the gradient norm between the model output ŷk and y kp is the smallest, indicating that the network's prediction is close to y kp .\n\n2) Hard samples (correct label, ambiguous semantics): y r kp differs from y kp , but the gradient norms between ŷk and both y r kp and y kp are comparable, suggesting that the model's prediction is ambiguous.\n\n3) Incorrect samples (incorrect label): y r kp differs from y kp . Here, the gradient norm between ŷk and y r kp is substantially smaller than that between ŷk and y kp , indicating that the original label y kp is erroneous and should be replaced by y r kp . To further quantify these three cases, we compute the fusion coefficient α k between y kp and y r kp using the gradient norms:\n\nwhere\n\nFinally, using α k , we fuse y kp and y r kp to obtain the refined soft label y sof t kp :\n\nTo ensure that the updates of pseudo unimodal labels remain smooth and avoid excessive oscillations that could compromise training stability, we adopt the Exponential Moving Average (EMA) method for label updates:\n\nwhere i denotes the current iteration, and m kp is a hyperparameter that controls the retention of historical label information. Furthermore, to better preserve the optimal model during unimodal pretraining with pseudo labels and to mitigate overfitting to label noise (as pseudo labels are inherently imperfect), we also apply EMA to maintain an EMA version of the unimodal model, denoted as θ kema 1  :\n\nwhere i again denotes the current iteration, and m k θ is a hyperparameter that governs the retention of historical model parameters.\n\nFinally, to stabilize pseudo label generation and model preservation in the later stages of training, the hyperparameters m kp and m k θ are dynamically adjusted. Specifically, they are updated as follows, such that their values gradually approach 1 as the number of epochs increases:\n\nwhere E denotes the current training epoch (E ≥ 1), and γ k {p,θ} is a decay factor that controls the growth rate of m k {p,θ} .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "D. Parameter-Free Fusion Module",
+      "text": "In this section, we introduce the proposed Parameter-free Fusion Module (PFM). The PFM is constructed on the basis of cosine similarity and regulates the strength of information fusion across modalities by adjusting the temperature coefficient. This design ensures that, while facilitating information exchange among modalities, the unique semantics of each modality are preserved, thereby enhancing recognition accuracy.\n\nSpecifically, the input to the PFM is h x ∈ R B×3×d , obtained by concatenating h t , h a , and h v . Since each utterance-level representation h k (k ∈ {t, a, v}) is already L2-normalized, the cosine similarity s between modalities can be directly computed via matrix multiplication:\n\nwhere h ′ x ∈ R B×d×3 represents the transpose of h x with respect to the last two dimensions. To prevent excessive loss of modality-specific information during fusion, we adopt a temperature-based similarity score:\n\nwhere τ is a hyperparameter that regulates the preservation of each modality's information. Finally, the fused representation is obtained by multiplying the similarity score β with h x : \"supervised\" denotes the labeled version of CH-SIMS v2. The number on the left side of the \"/\" indicates the count of samples with consistent modality semantics, while the number on the right side of the \"/\" indicates the count of samples with inconsistent modality semantics. If no parentheses are provided, it means the dataset cannot distinguish whether modality semantics are consistent due to the absence of ground-truth unimodal labels.\n\nFor simplicity, all subsequent mentions of CH-SIMS v2 in this paper refer to the labeled version.\n\nAt this stage, each modality integrates information from the others while largely preserving its own characteristics, thereby offering more reliable references for subsequent MER fusion decisions.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "E. Multimodal Consensus Router",
+      "text": "In this section, we introduce the proposed Multimodal Consensus Router (MCR). The MCR computes confidence scores for each modality from the fused multimodal features and employs these scores to weight the modality-specific predictions. This process suppresses the dominance of any single modality and enhances robustness, particularly in scenarios involving semantic conflicts.\n\nSpecifically, to capture the global multimodal information of each sample and objectively evaluate the confidence of each modality, we first sum the three modality-specific representations in hx ∈ R B×3×d , obtained from the PFM, to form the multimodal representation h m ∈ R B×d (Eq. 12). We then pass h m through a linear layer that projects it from d dimensions to 3 dimensions:\n\nThe weights for each modality are then obtained using the Softmax function:\n\nBy assigning distinct weights to each modality, the model achieves more reliable multimodal consensus, thereby enhancing robustness, particularly in scenarios involving semantic inconsistencies.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Iv. Experiments",
+      "text": "A. Experimental Setup 1) Datasets: To comprehensively evaluate the proposed CMC model, we conducted experiments on four widely used Chinese and English MER datasets: CH-SIMS  [22] , CH-SIMS v2  [38] , CMU-MOSI  [42] , and CMU-MOSEI  [43] .\n\nThe following provides a brief description of each dataset.\n\nCH-SIMS  [22] : A Chinese multimodal video emotion recognition dataset containing 2,281 clips collected from movies, TV dramas, and variety shows. Each clip includes multimodal annotations, independent unimodal annotations, and emotion intensity scores ranging from -1 (strongly negative) to +1 (strongly positive). CH-SIMS v2  [38] : An extended version of CH-SIMS with 4,403 labeled and 10,161 unlabeled video clips. Like CH-SIMS, it provides emotion intensity scores ranging from -1 to +1. In this paper, only the labeled clips are used for training.\n\nCMU-MOSI  [42] : A benchmark dataset of YouTube movie review videos annotated across three modalities, text, vision, and audio. It consists of monologue-style videos where users express opinions on diverse topics. CMU-MOSI includes 2,199 opinion videos from 93 speakers, with emotion intensity scores ranging from -3 (strongly negative) to +3 (strongly positive).\n\nCMU-MOSEI  [43] : A large-scale multimodal video emotion recognition dataset comprising 22,856 opinion videos. Similar to CMU-MOSI, it provides emotion intensity scores ranging from -3 to +3.\n\nThe overall dataset statistics are summarized in Table  I .\n\n2) Feature Extraction: Text: Textual features are extracted and finetuned using the pretrained BERT BASE  [21] .\n\nAudio: For the CH-SIMS dataset, audio features are extracted with LibROSA  [44] , including log fundamental frequency (log F0), mel-frequency cepstral coefficients (MFCCs), and Constant-Q chroma (CQT) features. For the CH-SIMS v2 dataset, audio features are obtained using OpenSMILE  [45] , producing eGeMAPS Low-Level Descriptor (LLD) features. For the CMU-MOSI and CMU-MOSEI datasets, audio features are extracted with COVAREP  [46] , which primarily include quasi open quotient, normalized amplitude quotient, glottal source parameters, and other features.\n\nVision: For the CH-SIMS and CH-SIMS v2 datasets, visual features are extracted with OpenFace  [47] , covering facial landmarks, facial action units, head pose, head orientation, eye gaze, and other features. For the CMU-MOSI and CMU-MOSEI datasets, visual features are extracted with Facet 2  .\n\nThe overall statistics of these modality features are summarized in Table  II .\n\n3) Evaluation Metrics: For the CH-SIMS and CH-SIMS v2 datasets, to investigate model performance under conditions of modality semantic inconsistency, we divided the test sets (D test ) into two subsets: modality semantic consistent (D msc ) and modality semantic inconsistent (D msi )  3  . Thus, D test = D msc ∪ D msi . We report binary classification accuracy (nonpositive (≤0) vs. positive (>0)) on these three test sets. For the CMU-MOSI and CMU-MOSEI datasets, we report binary classification accuracy Acc2 (negative (<0) vs. non-negative (≥0)) along with the corresponding F1 score. Binary classification accuracy is calculated as:\n\nwhere T P denotes true positives, T N true negatives, F P false positives, and F N false negatives. The F 1 Score, defined as the harmonic mean of P recision and Recall, is computed as:\n\nwhere",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "4) Implementation Details:",
+      "text": "In our experiments, we applied grid search to optimize three hyperparameters, transformer layers, attention heads, and output dropout, while keeping all other parameters fixed. The search space was defined as follows: transformer layers {1, 2, 3, 4, 5}, attention heads {1, 2, 4, 8}, and output dropout {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}.\n\nTo further constrain the hyperparameter search space, several parameters were fixed: the number of epochs was set to 100, early stopping patience to 10, batch size to 64, and the initial learning rate to 1e-3. The initial momentum for text pseudo labels m 0 tp was set to 0.8, and for audio and vision pseudo labels m 0 {a,v} p to 0.99. The decay factor for text, audio, and vision pseudo labels γ {t,a,v} p was 0.5. The initial momentum of the EMA models was set to 0.8 for text (m 0 t θ ), 0.9 for audio (m 0 a θ ), and 0.6 for vision (m 0 v θ ). The corresponding EMA decay factors were γ t θ =2.5, γ a θ =5.0, and γ v θ =2.0.\n\nThe optimal hyperparameter configurations obtained for different datasets are reported in Table  III .\n\nAll experiments were conducted on a single NVIDIA GeForce RTX 4090 D GPU. The random seed was fixed at 1111. The software environment consisted of Python 3.10 and PyTorch 2.7.1, with the Adam optimizer  [48]  used for training.\n\n5) Baselines: To evaluate the effectiveness of the proposed CMC model, we compared it against several state-of-the-art methods: Self-MM  [37] , AV-MC  [38] , EMT-DLFR  [13] , MC-Teacher  [33] , SFTTR  [39] , TriagedMSA  [40] , SDRS  [36] , and MSE-Adapter  [35] .",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "B. Comparison With State-Of-The-Art Methods",
+      "text": "To comprehensively evaluate the performance of the CMC model, we conducted experiments on four unaligned MER datasets: CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI, as summarized in Table  IV . The results show that CMC achieves strong performance with fewer parameters and reaches state-of-the-art levels in most cases. It only slightly lags behind SDRS  [36]  on the CMU-MOSI dataset and behind MSE-Adapter  [35]  based on LLaMA2-7B and ChatGLM3-6B on the CMU-MOSEI dataset (while our method is built on the 0.1B BERT BASE ).\n\nSpecifically, on the full test set D test of CH-SIMS, CMC improves binary classification accuracy by 2.11% over the previous best, SDRS. On the D msc subset, it outperforms AV-MC  [38]  by 2.93%, and on the D msi subset, it surpasses SFTTR  [39]  by 4.59%.\n\nOn the full test set D test of CH-SIMS v2, CMC achieves a 0.10% improvement in binary classification accuracy over the previous best, MC-Teacher  [33]   4  . On the D msc subset, CMC outperforms MSE-ChatGLM3-6B by 0.82%, and on the D msi subset, it surpasses MSE-ChatGLM3-6B by 1.65%.\n\nThe improvements on the semantically inconsistent subsets D msi clearly demonstrate that CMC goes beyond simple feature fusion to establish a robust multimodal consensus that resists the misleading dominance of any single modality.\n\nAlthough CMC does not achieve the best results on CMU-MOSI and CMU-MOSEI, it still delivers highly competitive performance. On CMU-MOSI, Acc2 and F1 are only 0.37% and 0.38% lower than SDRS, respectively. On CMU-MOSEI, Acc2 and F1 are both 2.45% lower than MSE-ChatGLM3-6B. However, the Pretrained Language Model (PLM) BERT BASE used in CMC contains only about 1.67% of the parameters of ChatGLM3-6B, and the non-PLM components of CMC comprise only about 4.23% of those in MSE-ChatGLM3-6B.\n\nThese findings reveal a key limitation of prior MER methods: although many emphasize richer fusion architectures or incorporate auxiliary supervision, they largely overlook how consensus is established across modalities. Without explicit consensus calibration, models risk suppressing informative but weak modalities or being misled by dominant yet erroneous ones. In contrast, our experimental results show that CMC effectively calibrates multimodal consensus through PLGM, PFM, and MCR, thereby producing more accurate emotion predictions and achieving competitive performance.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "C. Ablation Studies",
+      "text": "To further evaluate the contribution of each proposed module, we conducted ablation studies on four datasets: CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI, as presented in Table  V . In these experiments, we also introduced a variant of CMC in the multimodal finetuning stage (i.e., CMC-variant) and carried out corresponding analyses, as shown in Fig.  3 .\n\nAs indicated in the table, for CMC, removing PLGM, PFM, or MCR generally results in reduced binary classification   The metric reported on CH-SIMS and CH-SIMS v2 is binary classification accuracy. \"single-task\" indicates that, during the multimodal finetuning stage, only the multimodal label is used to compute the training loss. \"CMC-variant\" refers to the variant forms of multimodal finetuning, as illustrated in Fig.  3 .\n\naccuracy. To further investigate the effect of multi-task optimization on unimodal models during multimodal finetuning, we removed the loss derived from unimodal labels and trained the model solely using multimodal labels. As shown in the \"single-task\" row, this setting leads to a substantial drop in binary classification accuracy. Moreover, to assess the impact of PFM under the single-task scenario, we removed PFM as well. The \"single-task w/o PFM\" row demonstrates that this modification also causes a performance decline in most cases.\n\nWe further examined the performance of a variant that freezes all parameters except MCR under the single-task scenario without PFM, which represents the most intuitive model design. As shown in Fig.  3 , the key difference between CMC and CMC-variant lies in whether the unimodal models are frozen during multimodal finetuning. In CMC-variant, all unimodal models are frozen and only MCR is trained with multimodal labels. In contrast, in CMC, all unimodal models remain trainable, are equipped with the multimodal fusion module PFM, and are further optimized via multi-task learning.\n\nFrom the \"CMC-variant\" row, it can be observed that this variant achieves the best binary classification accuracy on D test and D msi of CH-SIMS and CH-SIMS v2, even surpassing the original CMC. We attribute this to the uncertainty and noise introduced when multimodal labels are used to generate pseudo unimodal labels. By training only MCR during multimodal finetuning, CMC-variant reduces model degrees of freedom, thereby mitigating overfitting to noisy labels and acting as an implicit form of regularization. This enables superior performance on the semantically inconsistent subset D msi , and consequently higher accuracy on the full test set D test . However, CMC-variant does not outperform CMC on CMU-MOSI and CMU-MOSEI. We attribute this to the weaker representation of audio and visual features extracted with COVAREP and Facet in these datasets, which limits MCR's ability to extract meaningful information from non-text modalities for calibrating multimodal consensus. In contrast, in CH-SIMS and CH-SIMS v2, both BERT-based textual features and OpenFace-based visual features exhibit stronger representational capacity, enabling MCR to perform more accurate multimodal consensus calibration.\n\nTo more clearly demonstrate the variability in non-textual modality quality across datasets, we conducted unimodal experiments on audio and visual inputs using CMC, as reported in Table  VI . The results show that visual features extracted by OpenFace (CH-SIMS, CH-SIMS v2) outperform those extracted by Facet (CMU-MOSI, CMU-MOSEI), thereby providing richer information for multimodal consensus calibration in MCR.\n\nTherefore, although CMC-variant is simpler and more intuitive, it is highly dependent on the quality of modality features. By contrast, while CMC requires training more parameters, it demonstrates greater robustness and reduced dependence on modality feature quality.\n\nIn conclusion, CMC effectively addresses the MER task through the PLGM, PFM, and MCR modules. The experiment with model variant suggests that pretraining unimodal models using PLGM and calibrating multimodal consensus with MCR are particularly promising, highlighting potential directions for future research. The metric reported on CH-SIMS and CH-SIMS v2 is binary classification accuracy. The suffix \"-GT\" denotes that ground truth unimodal labels are employed during unimodal pretraining.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "V. Discussions",
+      "text": "",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "A. Experiments Under Groud Truth Unimodal Lables",
+      "text": "To further evaluate the effectiveness of PLGM, we conducted comparative experiments on the CH-SIMS and CH-SIMS v2 datasets. During unimodal pretraining, we employed the ground truth unimodal labels provided by the datasets rather than the pseudo labels generated by PLGM, as shown in Table  VII .\n\nThe results in the table show that using ground truth unimodal labels for pretraining yields higher binary classification accuracy on the modality semantic-inconsistent subset D msi of both datasets. This improvement arises because more accurate labels enable finer optimization of each unimodal model. Consequently, during multimodal finetuning, the outputs ŷm k (k ∈ {t, a, v}) of each unimodal model are more precise, leading to a more reliable multimodal consensus through MCR in scenarios with modality semantic inconsistency.\n\nFurthermore, on the overall test set D test of both datasets, using pseudo unimodal labels does not substantially affect performance. Notably, on the CH-SIMS v2 dataset, CMC achieves a binary classification accuracy 0.10% higher than that of CMC-GT, further confirming the reliability of the pseudo unimodal labels generated by PLGM.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "B. Effect Of Temperature On Modality Retention And Integration In Pfm",
+      "text": "To further investigate the effect of temperature on modality retention and integration in the PFM, and consequently on model performance, we adopted the configuration of Wang et al.  [49]  and conducted experiments on the CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI datasets. The experiments examined temperatures ranging from 0.05 to 1.0, as summarized in TableVIII.\n\nAs shown in the table, the model generally achieves optimal performance at a temperature of 0.07. For CMC, the best performance on the D msi subset CH-SIMS occurs at 0.05, whereas on the D msi subset of CH-SIMS v2, it occurs at 0.7.\n\nOverall, across all cases, the model performs better at temperatures below 1.0. This finding highlights the importance of preserving each modality's intrinsic information in the PFM, without excessive interference from other modalities. Moreover, adopting a lower temperature such as 0.07 typically sharpens the Softmax distribution, thereby enhancing the model's recognition capability. The metric reported on CH-SIMS and CH-SIMS v2 is binary classification accuracy. The range of temperature values is adopted from Wang et al.  [49] .",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "C. Effect Of Semantic Consistency Ratio In Training Set",
+      "text": "To further investigate why CMC outperforms CMC-GT on the D msc subsets of the CH-SIMS and CH-SIMS v2 datasets (Table  VII ), we conducted experiments by varying the retention rate of modality semantically consistent samples in the training set, while keeping the validation and test sets unchanged. We then evaluated model performance on D test , D msc , and D msi (Figs.  4  and 5 ).\n\nThe results show that for the overall test set D test and the modality semantically inconsistent subset D msi , CMC-GT generally achieves higher binary classification accuracy than CMC as the retention rate of modality semantically consistent samples increases, across both CH-SIMS and CH-SIMS v2. However, for the modality semantically consistent subset D msc , the rate of improvement in CMC's accuracy surpasses that of CMC-GT as the retention rate rises. To quantify this, we applied linear fitting using least squares: on D msc of CH-SIMS, the slopes are 4.53 for CMC and 4.30 for CMC-GT; on CH-SIMS v2, the slopes are 6.77 for CMC and 4.02 for CMC-GT. These findings suggest that CMC achieves higher accuracy than CMC-GT on D msc (  to overfitting on the relatively simpler modality semantically consistent samples. Consequently, as the retention rate of these samples increases, CMC's accuracy improves more rapidly than that of CMC-GT. In summary, CMC-GT performs better under modality semantic inconsistency, while CMC, relying on multimodal labels, shows faster improvement under modality semantic consistency. This indicates that although PLGM can effectively generate pseudo unimodal labels, the weaker representation capacity of non-text modalities constrains their quality, leaving the generated pseudo unimodal labels influenced by the biases of the initial multimodal labels.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "D. Visualization Of Pseudo Label Generation",
+      "text": "To further demonstrate the effectiveness of PLGM, we visualized the pseudo label generation process for the text modality 5 on the CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI datasets, as shown in Fig.  6 .\n\nAs illustrated, in the CH-SIMS and CH-SIMS v2 datasets, phrases such as \"doesn't notice me\" and \"wet his pants\" express negative emotions, enabling the model to revise the original \"Positive\" multimodal label into a \"Negative\" text unimodal label. Conversely, keywords such as \"harmonious\", \"joyful\", and \"admire\" convey positive emotions, allowing the model to adjust the original \"Negative\" multimodal label into a \"Positive\" text unimodal label.\n\nFor the CMU-MOSI and CMU-MOSEI datasets, which do not contain ground truth unimodal labels, PLGM can still 5 Among the three modalities, text features extracted from pretrained language models exhibit stronger representational capacity than audio and visual features obtained using traditional tools. Consequently, text features are more reliable in generating accurate pseudo labels based on their own representations. Therefore, we select the text modality as a representative example to illustrate the effectiveness of PLGM. effectively refine the original multimodal labels and generate accurate pseudo text unimodal labels. For instance, in CMU-MOSI, the phrase \"fell out\" conveys negative emotion, prompting the model to revise the \"Positive\" multimodal label to a \"Negative\" text unimodal label. Similarly, expressions such as \"a fan of\" and \"looking forward to\" indicate positive emotions, leading the model to adjust the \"Negative\" multimodal label to a \"Positive\" text unimodal label. In CMU-MOSEI, phrases such as \"R rated\" and \"don't let them see this at all\" denote negative emotions, while \"really beneficial\" and \"that allows me to buy more of it\" reflect positive emotions. In both cases, PLGM successfully corrects the erroneous multimodal labels.\n\nOverall, these experiments confirm that PLGM can efficiently and accurately correct mislabeled multimodal annotations by leveraging key emotional expressions in text. This correction is achieved in a simple, parameter-free manner, thereby generating high-quality pseudo unimodal labels to supervise unimodal model training.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "E. Visualization Of Mcr In Calibrating Consensus",
+      "text": "To further validate the effectiveness of MCR, we conducted visualization experiments on the CH-SIMS and CH-SIMS v2 datasets, as shown in Fig.  7 .\n\nThe results indicate that MCR can accurately recognize human emotions in both cases of consistent and inconsistent modality semantics after adjustment. In particular, for samples with inconsistent modality semantics, even when the text modality conveys an opposite emotion, MCR still achieves correct recognition by preventing the text modality from dominating.\n\nFor instance, in the CH-SIMS dataset, words such as \"intimidating\" and \"scary\" in the text modality clearly express negative emotions. However, MCR assigns greater trust to the smiling vision modality and correctly identifies the video clip as positive. Similarly, in the CH-SIMS v2 dataset, the word \"starry-eyed\" in the text modality suggests a positive emotion, yet MCR relies more on the frowning vision modality and accurately classifies the clip as negative. Moreover, we observed that the audio modality, which generally exhibits weaker representational capacity, occasionally makes incorrect predictions. Nevertheless, these errors rarely affect the final recognition, as MCR typically assigns lower confidence scores to the audio modality. This demonstrates the robustness of MCR in mitigating the influence of erroneous modalities.\n\nOverall, MCR effectively calibrates multimodal consensus by adaptively assigning confidence scores to different modalities, thereby suppressing misleading inputs and ensuring accurate emotion recognition. Its robustness further enables it to reduce the negative impact of unreliable modalities.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "Vi. Conclusion",
+      "text": "In summary, this paper introduces the CMC model to address the challenges of modality semantic inconsistency and text modality dominance in MER. By incorporating the PLGM, PFM, and MCR modules and adopting a twostage multi-task training strategy, the model reduces the overreliance on the text modality, guides the fusion process toward accurate multimodal consensus, and thereby enables more reliable recognition. For future work, we plan to integrate Multimodal Large Language Models (MLLMs) to enhance the representational capacity of non-text modalities and to explore pseudo label generation mechanisms based on model-wide gradient optimization to further improve model performance.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: , even with the inclusion of audio and",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: As a result, it disregards the",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: Two examples of recognition errors caused by semantic conflicts between modalities in the CH-SIMS dataset for EMT-DLFR. “Text Prediction” refers",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: The overall framework of the CMC model. CMC mainly comprises three core modules: the Pseudo Label Generation Module (PLGM), the Parameter-",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: The detailed",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: As indicated in the table, for CMC, removing PLGM, PFM,",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: The overall framework of the CMC-variant model. During the multimodal finetuning stage, the parameters of the Encoder fk and Projector pk for",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: accuracy. To further investigate the effect of multi-task op-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 3: , the key difference between",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: Performance comparison between CMC and CMC-GT on various test sets of CH-SIMS. “CMC-GT” denotes that ground truth unimodal labels are",
+      "page": 10
+    },
+    {
+      "caption": "Figure 5: Performance comparison between CMC and CMC-GT on various test sets of CH-SIMS v2. “CMC-GT” denotes that ground truth unimodal labels",
+      "page": 10
+    },
+    {
+      "caption": "Figure 6: Visualization of the text pseudo label generation process on the CH-SIMS, CH-SIMS v2, CMU-MOSI, and CMU-MOSEI datasets. Words highlighted",
+      "page": 11
+    },
+    {
+      "caption": "Figure 6: As illustrated, in the CH-SIMS and CH-SIMS v2 datasets,",
+      "page": 11
+    },
+    {
+      "caption": "Figure 7: The results indicate that MCR can accurately recognize",
+      "page": 11
+    },
+    {
+      "caption": "Figure 7: Visualization of the MCR correction process on the CH-SIMS and CH-SIMS v2 datasets. Words highlighted in red denote emotion-related keywords.",
+      "page": 12
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Unimodal Pretraining\nText Text CE yˆt\nEncoder Projector Loss\nAudio Audio CE yˆa\nEncoder Projector Loss\nVision Vision CE yˆv\nEncoder Projector Loss": "",
+          "Column_2": "Text\nEncoder\nAudio\nEncoder\nVision\nEncoder",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "yˆt\nyˆa\nyˆv",
+          "Column_8": "",
+          "Column_9": "y\ntp\ny\nap\ny\nvp"
+        },
+        {
+          "Unimodal Pretraining\nText Text CE yˆt\nEncoder Projector Loss\nAudio Audio CE yˆa\nEncoder Projector Loss\nVision Vision CE yˆv\nEncoder Projector Loss": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "Loss\nCE",
+          "Column_9": ""
+        },
+        {
+          "Unimodal Pretraining\nText Text CE yˆt\nEncoder Projector Loss\nAudio Audio CE yˆa\nEncoder Projector Loss\nVision Vision CE yˆv\nEncoder Projector Loss": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "Loss\nCE",
+          "Column_9": ""
+        },
+        {
+          "Unimodal Pretraining\nText Text CE yˆt\nEncoder Projector Loss\nAudio Audio CE yˆa\nEncoder Projector Loss\nVision Vision CE yˆv\nEncoder Projector Loss": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "Loss",
+          "Column_9": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "PLGM P G s e e n u e d r o at L io a n b M el odule CE LossC Lo ro s s s s-Entropy\nMCR M Co u n lt s i e m n o su d s a l Router SupCon LossS C u o p n e tr r a v s is ti e v d e Loss\nFreeze Patameter": "",
+          "Column_2": "Unimodal Pretraining\nText Text CE yˆt\nEncoder Projector Loss\nAudio Audio CE yˆa\nEncoder Projector Loss\nVision Vision CE yˆv\nEncoder Projector Loss",
+          "Column_3": "",
+          "Column_4": "",
+          "y m Pseudo Label Generation Initialization\nIterative Update\ny\nPLGM kp": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "",
+          "Column_10": "y\ntp\ny\nap\ny\nvp"
+        },
+        {
+          "PLGM P G s e e n u e d r o at L io a n b M el odule CE LossC Lo ro s s s s-Entropy\nMCR M Co u n lt s i e m n o su d s a l Router SupCon LossS C u o p n e tr r a v s is ti e v d e Loss\nFreeze Patameter": "",
+          "Column_2": "",
+          "Column_3": "Text\nEncoder\nAudio\nEncoder\nVision\nEncoder",
+          "Column_4": "",
+          "y m Pseudo Label Generation Initialization\nIterative Update\ny\nPLGM kp": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "yˆt\nyˆa\nyˆv",
+          "Column_9": "",
+          "Column_10": ""
+        },
+        {
+          "PLGM P G s e e n u e d r o at L io a n b M el odule CE LossC Lo ro s s s s-Entropy\nMCR M Co u n lt s i e m n o su d s a l Router SupCon LossS C u o p n e tr r a v s is ti e v d e Loss\nFreeze Patameter": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "y m Pseudo Label Generation Initialization\nIterative Update\ny\nPLGM kp": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "Loss\nCE",
+          "Column_10": ""
+        },
+        {
+          "PLGM P G s e e n u e d r o at L io a n b M el odule CE LossC Lo ro s s s s-Entropy\nMCR M Co u n lt s i e m n o su d s a l Router SupCon LossS C u o p n e tr r a v s is ti e v d e Loss\nFreeze Patameter": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "y m Pseudo Label Generation Initialization\nIterative Update\ny\nPLGM kp": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "Loss\nCE",
+          "Column_10": ""
+        },
+        {
+          "PLGM P G s e e n u e d r o at L io a n b M el odule CE LossC Lo ro s s s s-Entropy\nMCR M Co u n lt s i e m n o su d s a l Router SupCon LossS C u o p n e tr r a v s is ti e v d e Loss\nFreeze Patameter": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "y m Pseudo Label Generation Initialization\nIterative Update\ny\nPLGM kp": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "Loss",
+          "Column_10": ""
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Ground Truth\nM: Positive\nT: Negative\n他就是这样，心理素质不行，刚才差 Epoch 1 Epoch 15 Epoch 30 Epoch 4\n点吓得尿裤子了\nHe's just like that, with poor\npsychological quality. He almost wet his\npants just now from fright.": "Ground Truth\nM: Negative\nT: Positive\n你很喜欢演蒙面英雄是吧，哇塞我好 Epoch 1 Epoch 15 Epoch 30 Epoch 4\n崇拜你哦\nYou really like playing the masked hero,\ndon't you? Wow, I admire you so much! Examples from CH-SIMS v2",
+          "Column_2": "",
+          "Column_3": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "T: Positive恭喜侯爷，凯旋归来 Text Prediction Audio Prediction Vision Prediction Multimodal Prediction\nCongratulations, My Lord, on\nyour triumphant return.\nA: Positive\nV: Positive": "M: Positive MCR Weights 0.4135 0.1982 0.3883\nT: Negative特别尊贵的感觉，感觉很害\n怕 演 … 过 … 戏 ，也不熟两个人也没有 Text Prediction Audio Prediction Vision Prediction Multimodal Prediction\nIt feels incredibly intimidating\nand a bit scary..., we’re not even\nfamiliar with each other, and\nwe’ve never acted together before.\nA: Positive\nV: Positive\nM: Positive MCR Weights 0.2346 0.1741 0.5913\nExamples from CH-SIMS",
+          "T: Negative怎么一到我这就不让说呢 Text Prediction Audio Prediction Vision Prediction Multimodal Prediction\nWhy is it that whenever it comes\nto me, I'm not allowed to speak?\nA: Negative\nV: Negative\nM: Negative MCR Weights 0.2682 0.3003 0.4315": ""
+        },
+        {
+          "T: Positive恭喜侯爷，凯旋归来 Text Prediction Audio Prediction Vision Prediction Multimodal Prediction\nCongratulations, My Lord, on\nyour triumphant return.\nA: Positive\nV: Positive": "",
+          "T: Negative怎么一到我这就不让说呢 Text Prediction Audio Prediction Vision Prediction Multimodal Prediction\nWhy is it that whenever it comes\nto me, I'm not allowed to speak?\nA: Negative\nV: Negative\nM: Negative MCR Weights 0.2682 0.3003 0.4315": "T: Positive我一看到帅哥就星星眼，控制 Text Prediction Audio Prediction Vision Prediction Multimodal Prediction\n不住啊\nI can't help but get starry-eyed\nwhenever I see a handsome guy. I\njust can't control it.\nA: Neutral\nV: Negative\nM: Negative MCR Weights 0.2352 0.2472 0.5176\nExamples from CH-SIMS v2"
+        }
+      ],
+      "page": 12
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Tensor fusion network for multimodal sentiment analysis",
+      "authors": [
+        "A Zadeh",
+        "M Chen",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2017",
+      "venue": "Proc. Conf. Empirical Methods Natural Lang. Process"
+    },
+    {
+      "citation_id": "2",
+      "title": "Efficient low-rank multimodal fusion with modalityspecific factors",
+      "authors": [
+        "Z Liu",
+        "Y Shen",
+        "V Lakshminarasimhan",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Proc. Assoc. Comput. Linguistics"
+    },
+    {
+      "citation_id": "3",
+      "title": "Words can shift: Dynamically adjusting word representations using nonverbal behaviors",
+      "authors": [
+        "Y Wang",
+        "Y Shen",
+        "Z Liu",
+        "P Liang",
+        "A Zadeh",
+        "L.-P Morency"
+      ],
+      "year": "2019",
+      "venue": "Proc. AAAI Conf"
+    },
+    {
+      "citation_id": "4",
+      "title": "Trisat: Trimodal representation learning for multimodal sentiment analysis",
+      "authors": [
+        "R Huan",
+        "G Zhong",
+        "P Chen",
+        "R Liang"
+      ],
+      "year": "2024",
+      "venue": "IEEE/ACM Trans. Audio Speech Lang. Process"
+    },
+    {
+      "citation_id": "5",
+      "title": "Distinguishing visually similar images: Triplet contrastive learning framework for image-text retrieval",
+      "authors": [
+        "P Ouyang",
+        "J Chen",
+        "Q Ma",
+        "Z Wang",
+        "C Bai"
+      ],
+      "year": "2024",
+      "venue": "Proc. IEEE Int. Conf. Multimedia Expo"
+    },
+    {
+      "citation_id": "6",
+      "title": "Sparse information perception network for remote sensing cross-modal retrieval",
+      "authors": [
+        "P Ouyang",
+        "Q Ma",
+        "C Bai"
+      ],
+      "year": "2025",
+      "venue": "IEEE Trans. Geosci. Remote Sens"
+    },
+    {
+      "citation_id": "7",
+      "title": "Emoe: Modality-specific enhanced dynamic emotion experts",
+      "authors": [
+        "Y Fang",
+        "W Huang",
+        "G Wan",
+        "K Su",
+        "M Ye"
+      ],
+      "year": "2025",
+      "venue": "Proc. IEEE Conf. Comput. Vis. Pattern Recognit"
+    },
+    {
+      "citation_id": "8",
+      "title": "Gradient and structure consistency in multimodal emotion recognition",
+      "authors": [
+        "Q Shi",
+        "M Ye",
+        "W Huang",
+        "B Du",
+        "X Zong"
+      ],
+      "year": "2025",
+      "venue": "IEEE Trans. Image Process"
+    },
+    {
+      "citation_id": "9",
+      "title": "Found in translation: Learning robust joint representations by cyclic translations between modalities",
+      "authors": [
+        "H Pham",
+        "P Liang",
+        "T Manzini",
+        "L.-P Morency",
+        "B Póczos"
+      ],
+      "year": "2019",
+      "venue": "Proc. AAAI Conf"
+    },
+    {
+      "citation_id": "10",
+      "title": "Transmodality: An end2end fusion method with transformer for multimodal sentiment analysis",
+      "authors": [
+        "Z Wang",
+        "Z Wan",
+        "X Wan"
+      ],
+      "year": "2020",
+      "venue": "Proc. Web Conf"
+    },
+    {
+      "citation_id": "11",
+      "title": "Ctfn: Hierarchical learning for multimodal sentiment analysis using coupledtranslation fusion network",
+      "authors": [
+        "J Tang",
+        "K Li",
+        "X Jin",
+        "A Cichocki",
+        "Q Zhao",
+        "W Kong"
+      ],
+      "venue": "Proc. Assoc. Comput. Linguistics, 2021"
+    },
+    {
+      "citation_id": "12",
+      "title": "Transformer-based feature reconstruction network for robust multimodal sentiment analysis",
+      "authors": [
+        "Z Yuan",
+        "W Li",
+        "H Xu",
+        "W Yu"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2021"
+    },
+    {
+      "citation_id": "13",
+      "title": "Efficient multimodal transformer with dual-level feature restoration for robust multimodal sentiment analysis",
+      "authors": [
+        "L Sun",
+        "Z Lian",
+        "B Liu",
+        "J Tao"
+      ],
+      "year": "2023",
+      "venue": "IEEE Trans. Affective Comput"
+    },
+    {
+      "citation_id": "14",
+      "title": "Gcnet: Graph completion network for incomplete multimodal learning in conversation",
+      "authors": [
+        "Z Lian",
+        "L Chen",
+        "L Sun",
+        "B Liu",
+        "J Tao"
+      ],
+      "year": "2023",
+      "venue": "IEEE Trans. Pattern Anal. Mach. Intell"
+    },
+    {
+      "citation_id": "15",
+      "title": "Unimf: A unified multimodal framework for multimodal sentiment analysis in missing modalities and unaligned multimodal sequences",
+      "authors": [
+        "R Huan",
+        "G Zhong",
+        "P Chen",
+        "R Liang"
+      ],
+      "year": "2023",
+      "venue": "IEEE Trans. Multimedia"
+    },
+    {
+      "citation_id": "16",
+      "title": "Counterfactual reasoning for out-of-distribution multimodal sentiment analysis",
+      "authors": [
+        "T Sun",
+        "W Wang",
+        "L Jing",
+        "Y Cui",
+        "X Song",
+        "L Nie"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2022"
+    },
+    {
+      "citation_id": "17",
+      "title": "Towards multimodal sentiment analysis debiasing via bias purification",
+      "authors": [
+        "D Yang",
+        "M Li",
+        "D Xiao",
+        "Y Liu",
+        "K Yang",
+        "Z Chen",
+        "Y Wang",
+        "P Zhai",
+        "K Li",
+        "L Zhang"
+      ],
+      "year": "2024",
+      "venue": "Proc. Eur. Conf. Comput. Vis"
+    },
+    {
+      "citation_id": "18",
+      "title": "General debiasing for multimodal sentiment analysis",
+      "authors": [
+        "T Sun",
+        "J Ni",
+        "W Wang",
+        "L Jing",
+        "Y Wei",
+        "L Nie"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2023"
+    },
+    {
+      "citation_id": "19",
+      "title": "Bcd-mm: Multimodal sentiment analysis model with dual-bias-aware feature learning and attention mechanisms",
+      "authors": [
+        "L Ma",
+        "J Li",
+        "D Shao",
+        "J Yan",
+        "J Wang",
+        "Y Yan"
+      ],
+      "year": "2024",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "20",
+      "title": "Muldef: A model-agnostic debiasing framework for robust multimodal sentiment analysis",
+      "authors": [
+        "R Huan",
+        "G Zhong",
+        "P Chen",
+        "R Liang"
+      ],
+      "year": "2024",
+      "venue": "IEEE Trans. Multimedia"
+    },
+    {
+      "citation_id": "21",
+      "title": "Bert: Pre-training of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proc. Conf. North Amer. Chapter Assoc"
+    },
+    {
+      "citation_id": "22",
+      "title": "Ch-sims: A chinese multimodal sentiment analysis dataset with finegrained annotation of modality",
+      "authors": [
+        "W Yu",
+        "H Xu",
+        "F Meng",
+        "Y Zhu",
+        "Y Ma",
+        "J Wu",
+        "J Zou",
+        "K Yang"
+      ],
+      "year": "2020",
+      "venue": "Proc. Assoc. Comput. Linguistics"
+    },
+    {
+      "citation_id": "23",
+      "title": "Multimodal transformer for unaligned multimodal language sequences",
+      "authors": [
+        "Y.-H Tsai",
+        "S Bai",
+        "P Liang",
+        "J Kolter",
+        "L.-P Morency",
+        "R Salakhutdinov"
+      ],
+      "year": "2019",
+      "venue": "Proc. Assoc. Comput. Linguistics"
+    },
+    {
+      "citation_id": "24",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Proc. Adv. Neural Inf. Process. Syst."
+    },
+    {
+      "citation_id": "25",
+      "title": "Progressive modality reinforcement for human multimodal emotion recognition from unaligned multimodal sequences",
+      "authors": [
+        "F Lv",
+        "X Chen",
+        "Y Huang",
+        "L Duan",
+        "G Lin"
+      ],
+      "year": "2021",
+      "venue": "Proc. IEEE Conf. Comput. Vis. Pattern Recognit"
+    },
+    {
+      "citation_id": "26",
+      "title": "Attention is not enough: Mitigating the distribution discrepancy in asynchronous multimodal sequence fusion",
+      "authors": [
+        "T Liang",
+        "G Lin",
+        "L Feng",
+        "Y Zhang",
+        "F Lv"
+      ],
+      "year": "2021",
+      "venue": "Proc. IEEE Int. Conf. Comput. Vis"
+    },
+    {
+      "citation_id": "27",
+      "title": "Multimodal phased transformer for sentiment analysis",
+      "authors": [
+        "J Cheng",
+        "I Fostiropoulos",
+        "B Boehm",
+        "M Soleymani"
+      ],
+      "year": "2021",
+      "venue": "Proc. Conf. Empirical Methods Natural Lang. Process"
+    },
+    {
+      "citation_id": "28",
+      "title": "Dynamically adjust word representations using unaligned multimodal information",
+      "authors": [
+        "J Guo",
+        "J Tang",
+        "W Dai",
+        "Y Ding",
+        "W Kong"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2022"
+    },
+    {
+      "citation_id": "29",
+      "title": "Learning modalityspecific and-agnostic representations for asynchronous multimodal language sequences",
+      "authors": [
+        "D Yang",
+        "H Kuang",
+        "S Huang",
+        "L Zhang"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2022"
+    },
+    {
+      "citation_id": "30",
+      "title": "Decoupled multimodal distilling for emotion recognition",
+      "authors": [
+        "Y Li",
+        "Y Wang",
+        "Z Cui"
+      ],
+      "year": "2023",
+      "venue": "Proc. IEEE Conf. Comput. Vis. Pattern Recognit"
+    },
+    {
+      "citation_id": "31",
+      "title": "Glomo: Global-local modal fusion for multimodal sentiment analysis",
+      "authors": [
+        "Y Zhuang",
+        "Y Zhang",
+        "Z Hu",
+        "X Zhang",
+        "J Deng",
+        "F Ren"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2024"
+    },
+    {
+      "citation_id": "32",
+      "title": "Grace: Gradient-based active learning with curriculum enhancement for multimodal sentiment analysis",
+      "authors": [
+        "X Li",
+        "W Ye",
+        "Y Zhang",
+        "X Sun"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2024"
+    },
+    {
+      "citation_id": "33",
+      "title": "Multimodal consistency-based teacher for semi-supervised multimodal sentiment analysis",
+      "authors": [
+        "Z Yuan",
+        "J Fang",
+        "H Xu",
+        "K Gao"
+      ],
+      "year": "2024",
+      "venue": "IEEE/ACM Trans. Audio Speech Lang. Process"
+    },
+    {
+      "citation_id": "34",
+      "title": "Dlf: Disentangledlanguage-focused multimodal sentiment analysis",
+      "authors": [
+        "P Wang",
+        "Q Zhou",
+        "Y Wu",
+        "T Chen",
+        "J Hu"
+      ],
+      "year": "2025",
+      "venue": "Proc. AAAI Conf"
+    },
+    {
+      "citation_id": "35",
+      "title": "Mse-adapter: A lightweight plugin endowing llms with the capability to perform multimodal sentiment analysis and emotion recognition",
+      "authors": [
+        "Y Yang",
+        "X Dong",
+        "Y Qiang"
+      ],
+      "year": "2025",
+      "venue": "Proc. AAAI Conf"
+    },
+    {
+      "citation_id": "36",
+      "title": "Sdrs: Sentiment-aware disentangled representation shifting for multimodal sentiment analysis",
+      "authors": [
+        "S Zhao",
+        "Z Yang",
+        "H Shi",
+        "X Feng",
+        "L Meng",
+        "B Qin",
+        "C Yan",
+        "J Tao",
+        "G Ding"
+      ],
+      "year": "2025",
+      "venue": "IEEE Trans. Affective Comput"
+    },
+    {
+      "citation_id": "37",
+      "title": "Learning modality-specific representations with self-supervised multi-task learning for multimodal sentiment analysis",
+      "authors": [
+        "W Yu",
+        "H Xu",
+        "Z Yuan",
+        "J Wu"
+      ],
+      "year": "2021",
+      "venue": "Proc. AAAI Conf"
+    },
+    {
+      "citation_id": "38",
+      "title": "Make acoustic and visual cues matter: Ch-sims v2. 0 dataset and av-mixup consistent module",
+      "authors": [
+        "Y Liu",
+        "Z Yuan",
+        "H Mao",
+        "Z Liang",
+        "W Yang",
+        "Y Qiu",
+        "T Cheng",
+        "X Li",
+        "H Xu",
+        "K Gao"
+      ],
+      "year": "2022",
+      "venue": "Proc. Int. Conf. Multimodal Interact"
+    },
+    {
+      "citation_id": "39",
+      "title": "Sequential fusion of text-close and text-far representations for multimodal sentiment analysis",
+      "authors": [
+        "K Sun",
+        "M Tian"
+      ],
+      "venue": "Proc. Int. Conf. Comput. Linguistics, 2025"
+    },
+    {
+      "citation_id": "40",
+      "title": "Triagedmsa: Triaging sentimental disagreement in multimodal sentiment analysis",
+      "authors": [
+        "Y Luo",
+        "W Liu",
+        "Q Sun",
+        "S Li",
+        "J Li",
+        "R Wu",
+        "X Tang"
+      ],
+      "year": "2025",
+      "venue": "IEEE Trans. Affective Comput"
+    },
+    {
+      "citation_id": "41",
+      "title": "Supervised contrastive learning",
+      "authors": [
+        "P Khosla",
+        "P Teterwak",
+        "C Wang",
+        "A Sarna",
+        "Y Tian",
+        "P Isola",
+        "A Maschinot",
+        "C Liu",
+        "D Krishnan"
+      ],
+      "year": "2020",
+      "venue": "Supervised contrastive learning"
+    },
+    {
+      "citation_id": "42",
+      "title": "Multimodal sentiment intensity analysis in videos: Facial gestures and verbal messages",
+      "authors": [
+        "A Zadeh",
+        "R Zellers",
+        "E Pincus",
+        "L.-P Morency"
+      ],
+      "year": "2016",
+      "venue": "IEEE Intell. Syst"
+    },
+    {
+      "citation_id": "43",
+      "title": "Multimodal language analysis in the wild: Cmu-mosei dataset and interpretable dynamic fusion graph",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Proc. Assoc. Comput. Linguistics"
+    },
+    {
+      "citation_id": "44",
+      "title": "librosa: Audio and music signal analysis in python",
+      "authors": [
+        "B Mcfee",
+        "C Raffel",
+        "D Liang",
+        "D Ellis",
+        "M Mcvicar",
+        "E Battenberg",
+        "O Nieto"
+      ],
+      "year": "2015",
+      "venue": "SciPy"
+    },
+    {
+      "citation_id": "45",
+      "title": "Opensmile: the munich versatile and fast open-source audio feature extractor",
+      "authors": [
+        "F Eyben",
+        "M Wöllmer",
+        "B Schuller"
+      ],
+      "venue": "Proc. ACM Int. Conf. Multimedia, 2010"
+    },
+    {
+      "citation_id": "46",
+      "title": "Covarep-a collaborative voice analysis repository for speech technologies",
+      "authors": [
+        "G Degottex",
+        "J Kane",
+        "T Drugman",
+        "T Raitio",
+        "S Scherer"
+      ],
+      "year": "2014",
+      "venue": "Proc. IEEE Int. Conf. Acoust. Speech Signal Process"
+    },
+    {
+      "citation_id": "47",
+      "title": "Openface: an open source facial behavior analysis toolkit",
+      "authors": [
+        "T Baltrušaitis",
+        "P Robinson",
+        "L.-P Morency"
+      ],
+      "year": "2016",
+      "venue": "Proc. Winter Conf. Appl. Comput. Vis"
+    },
+    {
+      "citation_id": "48",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2014",
+      "venue": "Adam: A method for stochastic optimization",
+      "arxiv": "arXiv:1412.6980"
+    },
+    {
+      "citation_id": "49",
+      "title": "Understanding the behaviour of contrastive loss",
+      "authors": [
+        "F Wang",
+        "H Liu"
+      ],
+      "year": "2021",
+      "venue": "Proc. IEEE Conf. Comput. Vis. Pattern Recognit"
+    }
+  ]
+}

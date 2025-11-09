@@ -1,0 +1,3627 @@
+{
+  "paper_id": "2112.11202v2",
+  "title": "Contrast And Generation Make Bart A Good Dialogue Emotion Recognizer",
+  "published": "2021-12-21T13:38:00Z",
+  "authors": [
+    "Shimin Li",
+    "Hang Yan",
+    "Xipeng Qiu"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In dialogue systems, utterances with similar semantics may have distinctive emotions under different contexts. Therefore, modeling long-range contextual emotional relationships with speaker dependency plays a crucial part in dialogue emotion recognition. Meanwhile, distinguishing the different emotion categories is non-trivial since they usually have semantically similar sentiments. To this end, we adopt supervised contrastive learning to make different emotions mutually exclusive to identify similar emotions better. Meanwhile, we utilize an auxiliary response generation task to enhance the model's ability of handling context information, thereby forcing the model to recognize emotions with similar semantics in diverse contexts. To achieve these objectives, we use the pretrained encoder-decoder model BART as our backbone model since it is very suitable for both understanding and generation tasks. The experiments on four datasets demonstrate that our proposed model obtains significantly more favorable results than the state-of-the-art model in dialogue emotion recognition. The ablation study further demonstrates the effectiveness of supervised contrastive loss and generative loss 1 .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "With the development and popularization of personal intelligent terminal technology and social networks, the importance of constructing a dialogue system that can comprehend user emotions and intentions and conduct effective dialogue interactions has increased significantly. A critical module in the dialogue system is the natural language understanding module that analyzes user behaviors like intents or emotions. Analyzing user sentiments with contextual relationships is an advanced step for simple sentiment classification tasks and is more suitable for usage scenarios in the real world with more research value. The task of emotion recognition in conversation (ERC) is to assign emotion labels to all the utterances in a historical dialogue with a contextual relationship. At the same time, each historical dialogue contains interactions between multiple different speakers, as illustrated in Figure  1 .\n\nThere are three challenges for ERC.\n\n(1) The first challenge is that the emotion of each utterance may be affected\n\n[Jade]: Oh, Bob, he was nothing compared to you. I had to bite my lip to keep from screaming your name.\n\n[Chandler]: Well, that makes me feel so good.\n\n[Jade]: It was just so awkward and bumpy\n\n[Ross]: Bumpy?\n\n[Chandler]: Well, maybe he had some kind of, uh, new, cool style, that you're not familiar with.\n\n[Jade]: Well, there really wasn't much time to get used to it, you know what I mean? by contextual information. For example, specific emotions will depend on certain utterances of the context. Meanwhile, utterances with the same expression may have completely different emotions in various contexts. Therefore, effectively modeling the context dependency and the speaker dependency is the main factor distinguishing this task from traditional sentiment classification. (2) The second challenge is that each speaker's emotion is influenced by the utterance of other speakers in the conversation, so there may exist a sudden change in a speaker's emotion. (3) The third challenge lies in semantically similar but different categories of emotions, such as \"frustrated\" to \"sad\", \"happy\" to \"excited\", etc. It is difficult to distinguish these semantically similar sentiment categories.\n\nRecent related work addressed contextual dependencies and speaker relations using various graph networks  (Shen et al. 2021b; Ghosal et al. 2019; Ishiwatari et al. 2020; Sheng et al. 2020) . However, as the number of layers deepens, the phenomenon of over-smoothing  (Chen et al. 2020a ) starts to appear, resulting in the representation of similar sentiments tending to be indistinguishable. This work deals with the above challenges by better modeling the context and speaker information and auxiliary generation task.\n\nFirstly, we introduce a dialogue-level Transformer  (Vaswani et al. 2017 ) layer to model the long-range context dependencies between utterances. A pre-trained language model captures the representation of each utterance. Compared to previous approaches that only adopt pre-trained models as a feature extractor  (Liu et al. 2019 ) and employ the extracted features as the node representation of downstream graph networks, a pure Transformer structure makes fewer prior structural assumptions  (Lin et al. 2021) .\n\nSecondly, we adopt supervised contrastive learning (SCL)  (Khosla et al. 2020)  to alleviate the difficulty in categorizing similar emotions, which makes samples with same sentiments cohesive and different sentiments mutually exclusive under the fully utilization of label information. Compared with the cross-entropy loss for noisy labels, the supervised contrastive loss can increase the stability of training and improve the generalization of the model  (Gunel et al. 2021) . Unlike the regular SCL, we copy the hidden state of all samples in a batch and detach off its gradient as its multiview representation. The reason is that the categories in existing ERC datasets are highly unbalanced, and some categories may exist in a batch with only one sample. If only the original SCL is used, it will lead to incorrect loss calculation.\n\nThirdly, we introduce an auxiliary response generation task to enhance the ability of capturing the context information for ERC. The prediction of the following utterance makes the model fully consider contextual dependencies, thus forcing the model to consider the information in the context and rely on the current utterance itself when recognizing the sentiment in the conversation. Moreover, by splicing the speaker directly before utterance as a hint for speaker information, the dependency between speakers and utterances is modeled adequately without additional parameters.\n\nFinally, we utilize BART  (Lewis et al. 2020 ), a pre-trained Transformer with an encoder-decoder structure, as our backbone model and enhance it by contrastive and generative loss. Our proposed COnstrastive-and-Generation-enhanced BART (CoG-BART) obtains state-of-the-art results on four ERC datasets compared to the baseline models. Additionally, ablation experiments and case studies prove the effectiveness of the contrastive and generative losses in the ERC task.\n\nTo summarize, our main contributions can be concluded as follows:\n\n• To the best of our knowledge, we utilize supervised contrastive learning for the first time in ERC and significantly improve the model's ability to distinguish different sentiments.\n\n• By incorporating response generation as an auxiliary task, the performance of ERC is improved when certain contextual information is involved. • Our model is easy-to-implemented since it does not depend on external resources, like graph-based methods.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Related Work",
+      "text": "This section will introduce related works in ERC. Due to context-dependency and speaker dependency properties, it is natural for researchers to employ graph neural networks. Therefore, many works have constructed various task-specific graph structures. Meanwhile, with the excellent performance of the pre-trained model in diverse downstream tasks, an increasing number of works adopt the pretrained model as the feature extractor for the input of the downstream model or directly fine-tune it with downstream datasets. Therefore, this section divides the related work into two categories: graph-based models and pre-train-based models.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Dialog Emotion Recognition",
+      "text": "Graph-based model Considering the unidirectionality of information interaction, DAG  (Shen et al. 2021b ) utilizes directed acyclic graphs to model the information interaction between utterance and speaker. DialogGCN  (Ghosal et al. 2019)  adopts the basic graph neural network to model the relationship between contexts. SumAggGIN  (Sheng et al. 2020 ) adds an aggregation module based on DialogGCN to additionally consider phrase-level information other than utterance-level. By simulating the process of human reasoning, DialogCRN  (Hu, Wei, and Huai 2021)  proposes to apply several reasoning modules to extract and integrate clues of emotional reasoning. To make the model better understand the additional general information involved in the dialogue process, KET  (Zhong, Wang, and Miao 2019)  combines external knowledge with a hierarchical Transformer. By appending sequence information into the graph network, RGAT  (Ishiwatari et al. 2020 ) uses relational position encoding to combine position information into the graph network structure to consider the dependency between speakers. TODKAT  (Zhu et al. 2021)  integrates topic detection into the pre-training model and fuses commonsense knowledge into Transformer  (Vaswani et al. 2017) .\n\nPre-train-based model Suppose each utterance is regarded as an independent sentence, regardless of its contextdependence and speaker information. In that case, the problem can be transformed into a simple sentence classification so that pre-trained models  (Qiu et al. 2020 ) such as BERT  (Devlin et al. 2019) , BART  (Lewis et al. 2020) , and RoBERTa  (Liu et al. 2019 ) can be used directly for finetuning. HiTrans  (Li et al. 2020 ) adopts BERT to extract utterance features, followed by transformer structure for modeling context. Considering speaker dependence, the auxiliary task of judging whether two utterances are the same speaker is used to model the speaker information. COS-MIC  (Ghosal et al. 2020)  exploits RoBERTa as the feature extractor of each utterance and model the dependency of the context with RNN. In addition, the common knowledge transformer COMET  (Bosselut et al. 2019)    pays attention to different aspects of dialogue information.  Ide and Kawahara (2021)  trained BART with both generation and classification in a multi-task format, though their method focused on response generation, treating emotion recognition as an auxiliary task. However, we focus on ERC and apply supervised contrastive loss as an additional optimization goal.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Contrastive Learning",
+      "text": "Unsupervised contrastive learning In the field of computer vision, SimCLR  (Chen et al. 2020b)",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Methodology Problem Definition",
+      "text": "In dialogue emotion recognition, the data is composed of multiple conversations {c 1 , c 2 , • • • , c N }, with each conversation composed of several utterances\n\nwhere S indicates the categories of emotions. For an utterance, it is comprised of several tokens\n\nEvery utterance in a conversation c i is uttered by one speaker which can be represented as p\n\nand p(u i ) ∈ P , where P indicates the categories or names of the speakers. Accordingly, the whole problem can be expressed as getting the emotional label of each utterance based on the context and speaker information in a piece of conversation:",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Supervised Contrastive Learning For Erc",
+      "text": "Utterance Encoding To model the dependencies between speaker and utterance, for a certain utterance u t in a conversation, we splice the speaker's name or category before the utterance. After tokenizing the utterance prepended with the speaker information, we get:\n\nwhere s and /s are treated as special tokens to indicate the beginning and end of an utterance. Then the token se-quence after tokenization is fed to the shared embedding layer of BART to acquire the hidden state of each token in utterance before sending it to the encoder and decoder of BART. After sending H t to BART, the representation of the current utterance H t is acquired:\n\nwhere H t , H t ∈ R s×d , and s, d indicates the length of the sequence and hidden dimension respectively.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Dialogue Modeling",
+      "text": "The representation H t obtained by the BART-Model is max-pooled to obtain the aggregated representation of the utterances as follows:\n\nTo model the historical context information of the dialogue, we exploit a dialogue-level Transformer  (Vaswani et al. 2017 ) layer as the context encoder. The multi-head attention mechanism can capture the interaction between different dialogues in multiple rounds of dialogue and aggregate different features to obtain the final implicit representation, thereby fully modeling the complex dependence between different utterances and context relations. For all utterances in a context, the multi-head attention score of the hidden state between two different utterances in a conversation ȟj , ȟk can be calculated by the following formulas:\n\nwhere\n\nare parameters that can be optimized, d q , d k and d v are dimensions of query, key and value vectors, n indicates the number of heads.\n\nTherefore, the utterance representation that models the context-dependence can be obtained through the abovementioned dialogue-level Transformer:\n\nwhere H win ∈ R bs×d indicates utterances in a conversation within the window size bs and H d-win ∈ R bs×d denotes the utterances after context modeling.\n\nSupervised Contrastive Learning Supervised contrastive learning assumes that some crucial aspects get attention and allows few-shot learning to be more stable when fine-tuned on pre-trained models  (Gunel et al. 2021) . For ERC, the number of samples in each category in some datasets  (Li et al. 2017 ) is highly unbalanced, while the supervised contrastive learning will mask itself when calculating the loss. If only one sample exists for a category in the batch, it cannot be directly applied to calculate the loss. Therefore, a copy of the hidden state of the utterance H d-win is made to obtain H d-win , and its gradient is detached. Hence the parameter optimization is maintained stable.\n\nFor a batch with N training samples, each sample is operated by the above mechanism to obtain multiview 2N samples, then the supervised contrastive loss of all samples in a batch can be expressed by the following equation:\n\nwhere\n\n} indicate the index of the samples in a multiview batch, τ ∈ R + denotes the temperature coefficient used to control the distance between instances, P (i) = I j=i -{i} represents samples with the same category as i while excluding itself, A(i) = I -{i, N + i} indicates samples in the multiview batch except itself.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Auxiliary Response Generation",
+      "text": "To facilitate the model to consider richer contextual information when determining utterance sentiment, the model is required to generate its following utterance u t+1 given the current utterance u t . The output hidden state of each token in u t+1 is generated by the BART decoder sequentially.\n\nHt = BART-Encoder(H t ), (13) hd j = BART-Decoder( Ht ; hd <j ),\n\nwhere θ is the parameters of BART need to be optimized.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Model Training",
+      "text": "The loss of model training consists of three parts: the hidden state H d-win obtained after context modeling passes through a multilayer perceptron to obtain logits for calculating crossentropy loss. The other part is the supervised contrastive loss and the loss of response generation. The loss is a weighted sum of the three components, and the sum of their weights equals one.\n\nwhere y i,c represents the label of a certain utterance, ŷi,c indicates the probability distribution of category c output by the dense layer, α denotes the weight for supervised contrastive loss and β is the weight for loss of response generation.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experimental Settings",
+      "text": "This section will elaborate on the datasets, baseline models, experimental conditions, and parameter settings adopt in the experiment.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Experimental Setup",
+      "text": "The code framework and initial weight of BART come from Huggingface's Transformers  (Wolf et al. 2020)",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Datasets",
+      "text": "This section will introduce four benchmark datasets: MELD  (Poria et al. 2019) , EmoryNLP  (Zahiri and Choi 2018) , Dai-lyDialog  (Li et al. 2017) , and IEMOCAP  (Busso et al. 2008)  for comparison with the baseline models.\n\nMELD This dataset comes from the dialogue content of the characters in the American drama Friends. MELD originally contained multi-modal data, but we used only the text data for the experiments.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Emorynlp (Enlp) This Dataset Also Comes From",
+      "text": "Friends, and the difference from MELD is the annotation of utterance's emotional label category. The emotional tags contained in this dataset are: joyful, neutral, powerful, mad, sad, scared, and peaceful.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Dailydialog (Dd)",
+      "text": "Manually compiled data sets about daily communication. The annotation method used in this data set is Ekman's emotion type  (Ekman 1993) , which includes six basic emotion tags, including happiness, surprise, anger, disgust, fear, and sadness.\n\nIEMOCAP Like MELD, it is a multi-modal dataset. The content is derived from the lines in the scripts of the two actors, and the emotional tags included are excited, neutral, frustrated, sad, happy, and angry.\n\nThe detailed statistics of the four datasets are shown in Table  1 , where \"#Dial\" indicates the number of dialogue in train/dev/test, \"#Utter\" represents the number of all utterances in dialogue, and \"#CLS\" denotes the number of categories of each dataset.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Metrics",
+      "text": "For MELD, EmoryNLP and IEMOCAP, we adopt weighted average F1 as the evaluation metrics. In that \"neutral\" occupies the majority in DailyDialog, micro-F1 is employed as the evaluation metric for this data set, and we ignore the label \"neutral\" when calculating the results as in the previous works  (Zhu et al. 2021; Shen et al. 2021b) .",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Results And Analysis",
+      "text": "",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Main Results",
+      "text": "Table  2  and 3 record the results of comparing CoG-BART with the baseline models on four datasets.\n\nAmong the pre-train-based models and their variants, the selected baseline models are BERT  (Devlin et al. 2019) , RoBERTa  (Liu et al. 2019) , HiTrans  (Li et al. 2020) , Di-alogXL  (Shen et al. 2021a ) and XLNet  (Yang et al. 2019) . In MELD  (Poria et al. 2019 ), CoG-BART has an approximate absolute 1.24% improvement over the previous state-of-theart BART-large  (Lewis et al. 2020) .\n\nFor graph-based models, KET  (Zhong, Wang, and Miao 2019) , RGAT  (Ishiwatari et al. 2020) , DialogGCN  (Ghosal et al. 2019) , DialogCRN  (Hu, Wei, and Huai 2021) , COS-MIC  (Ghosal et al. 2020) , and DAG-ERC  (Shen et al. 2021b ) are listed.\n\nCompared to the graph-based model, CoG-BART improves 0.53 points over COSMIC  (Ghosal et al. 2020) . It is worth noting that RoBERTa-large is used as the feature extractor in COSMIC, while CoG-BART only adopts BARTlarge as the backbone structure to obtain competitive results, indicating that adequate knowledge transfer of pre-trained models which effectively model the dependencies between contexts can also yield promising results in MELD.\n\nWe can observe from the results in EmoryNLP (Zahiri and Choi 2018) that the graph-based model using the pre-trained model as the feature extractor works better overall than the model applying only the pre-trained model as the backbone network. Meanwhile, CoG-BART still achieves results with significant improvement. Also, the graph-based model can obtain higher F1 overall on IEMOCAP  (Busso et al. 2008    The micro-F1 values of CoG-BART in DailyDialog are lower compared to the results of some graph neural network models. Still, it can achieve similar results to some pre-trainbased models such as BERT  (Devlin et al. 2019) , RoBERTa  (Liu et al. 2019)  and DialogXL  (Shen et al. 2021a ). Therefore, the graph-based model may have the advantage over pre-train-based models by more adequately modeling context dependencies on this dataset.  The Potency of Supervised Contrastive Learning Qualitative Analysis of SCL To conduct a qualitative analysis of supervised contrastive learning, we utilize t-SNE  (Hinton and Roweis 2002)  to visualize the distribution of high-dimensional hidden states obtained by the model trained with supervised contrastive loss. By controlling different sizes of α, the ratio of supervised contrastive loss is controlled to 0% and 80%, respectively, to obtain the hidden state output by the model under different levels of supervised contrastive learning.\n\nAs illustrated in Figure  3 , when the supervised contrastive loss is not exploited, that is, when the cross-entropy loss function is completely adopted, the overlap rate of samples between different labels is particularly high, especially for some samples with similar emotions, which increase the difficulty of learning the decision boundaries. As the proportion of supervised contrastive loss increases, it can be distinctly observed that the degree of coupling between different classes is gradually enlarged, and the same classes begin to cohesive. It is worth mentioning that although the distance within the class has been reduced, the uniformity  (Wang and Isola 2020)  between samples has been well maintained, indicating that the information has been well preserved and no representation collapse has occurred.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Quantitative Analysis Of Scl",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Effect Of Response Generation",
+      "text": "Response generation has a facilitating effect on modeling context dependence to some extent. As the two cases in Figure  4  illustrate, if only the current utterance itself is considered, the expression may cause the model to misjudge the sentiment of the current utterance, while generating responses leads the model to pay more attention to contextual information, thus making correct predictions which consistent with the scenario. As for the impact of different weights of response generation loss, Table  4  illustrates that when fixing α and adjusting β, there is also a slight impact on the model's overall performance.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Ablation Analysis",
+      "text": "To investigate the impacts of individual modules and combinations of several components on the overall effect of the model, this section conducts an ablation study on three modules in CoG-BART. As illustrated in Table  5 , the selected datasets are MELD and IEMOCAP, where \"-\" indicates the removal of the single method or several methods, \"Gen\" denotes the auxiliary task of response generation, \"SCL loss\" means supervised contrastive loss, and \"Speaker\" indicates the splicing of speaker label before utterance.\n\nFrom the results of MELD, removing any of the three modules makes the overall performance worse, while dis-carding the supervised contrastive loss and response generation has the greatest impact on the performance of CoG-BART in MELD. These indicate that supervised contrastive loss leverage label information better compared to crossentropy loss, thus effectively distinguishing different sentiments.\n\nConsistent results are also obtained in IEMOCAP, indicating that the improvement in model performance from these three modules transfers well across these datasets. However, the more unexpected finding was that removing the speaker's information made CoG-BART most degraded in IEMOCAP. By analyzing this dataset, we found that it involved 302 speakers, so it may be crucial to fully model the speaker information for this dataset. It also proves the effectiveness of the simple method of splicing the speaker information directly in front of the utterance. Furthermore, removing the supervised contrastive loss alone degrades the performance by 1.95 points on IEMOCAP, indicating that supervised contrastive learning significantly impacts CoG-BART on this dataset. The results after removing Dialoglevel Transformer suggest that this module improves overall performance by modelling longer contextual dependencies.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "We propose supervised contrastive learning with response generation as an auxiliary task for BART, namely CoG-BART, for emotion recognition in conversation (ERC). First, supervised contrastive learning is introduced into the training process to distinguish similar emotions, reducing intraclass distance and increasing inter-class variance. Meanwhile, the response generation is adopted as an auxiliary task; hence, the model categorizes utterances with similar semantics but different emotions by considering the context. The results obtained on four datasets compared with the current state-of-the-art baseline methods demonstrate the proposed method's effectiveness. Furthermore, ablation studies demonstrate that supervised contrastive learning can effectively improve the model's efficacy in recognizing emotions, thus improving the overall performance. Also, response generation as an auxiliary task helps the model fully consider the context to discern the emotions of semantically similar utterances in varying contexts.",
+      "page_start": 7,
+      "page_end": 7
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: There are three challenges for ERC. (1) The ﬁrst chal-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: The conversation ﬂow chart in multi-person dia-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: The overall framework of CoG-BART. The utterance is fed into BART for N utterances in a batch to get its hidden",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: The t-SNE visualization results of the model out-",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: , when the supervised contrastive",
+      "page": 6
+    },
+    {
+      "caption": "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.",
+      "page": 7
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "tion. The ablation study further demonstrates the effective-": ""
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "ness of supervised contrastive loss and generative loss1."
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": ""
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": ""
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "Introduction"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "With the development and popularization of personal\nintel-"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "ligent\nterminal\ntechnology and social networks,\nthe impor-"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "tance of constructing a dialogue system that can comprehend"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "user emotions and intentions and conduct effective dialogue"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "interactions has increased signiﬁcantly. A critical module in"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "the dialogue system is the natural\nlanguage understanding"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "module that analyzes user behaviors like intents or emotions."
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "Analyzing user sentiments with contextual\nrelationships is"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "an advanced step for simple sentiment classiﬁcation tasks"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "and is more suitable for usage scenarios in the real world"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "with more research value. The task of emotion recognition"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "in conversation (ERC) is to assign emotion labels to all\nthe"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "utterances in a historical dialogue with a contextual relation-"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "ship. At the same time, each historical dialogue contains in-"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "teractions between multiple different speakers, as illustrated"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "in Figure 1."
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "There are three challenges\nfor ERC.\n(1) The ﬁrst chal-"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "lenge is that\nthe emotion of each utterance may be affected"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": ""
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "*Corresponding Author."
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "Copyright © 2022, Association for the Advancement of Artiﬁcial"
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "Intelligence (www.aaai.org). All rights reserved."
+        },
+        {
+          "tion. The ablation study further demonstrates the effective-": "1https://github.com/whatissimondoing/CoG-BART."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "to bite my lip to keep from screaming your name."
+        },
+        {
+          "Abstract": "In dialogue systems, utterances with similar semantics may",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "have distinctive emotions under different contexts. Therefore,",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "[Chandler]: Well, that makes me feel so good."
+        },
+        {
+          "Abstract": "modeling long-range contextual emotional relationships with",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "speaker dependency plays a crucial part\nin dialogue emotion",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "recognition. Meanwhile, distinguishing the different emotion",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "[Jade]: It was just so awkward and bumpy"
+        },
+        {
+          "Abstract": "categories is non-trivial since they usually have semantically",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "similar\nsentiments. To this end, we adopt\nsupervised con-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "trastive learning to make different emotions mutually exclu-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "[Ross]: Bumpy?"
+        },
+        {
+          "Abstract": "sive to identify similar emotions better. Meanwhile, we utilize",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "an auxiliary response generation task to enhance the model’s",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "[Chandler]: Well, maybe he had some kind of, uh, new,"
+        },
+        {
+          "Abstract": "ability of handling context\ninformation,\nthereby forcing the",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "cool style, that you‘re not familiar with."
+        },
+        {
+          "Abstract": "model\nto recognize emotions with similar\nsemantics\nin di-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "verse contexts. To achieve these objectives, we use the pre-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "[Jade]: Well, there really wasn’t much time to get used to"
+        },
+        {
+          "Abstract": "trained encoder-decoder model BART as our backbone model",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "it, you know what I mean?"
+        },
+        {
+          "Abstract": "since it is very suitable for both understanding and generation",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "tasks. The experiments on four datasets demonstrate that our",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "proposed model obtains signiﬁcantly more favorable results",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "Figure 1: The conversation ﬂow chart\nin multi-person dia-"
+        },
+        {
+          "Abstract": "than the state-of-the-art model\nin dialogue emotion recogni-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "logue emotion recognition. The solid line indicates that\nthe"
+        },
+        {
+          "Abstract": "tion. The ablation study further demonstrates the effective-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "previous utterance directly inﬂuences the current speaker’s"
+        },
+        {
+          "Abstract": "ness of supervised contrastive loss and generative loss1.",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "emotion. The dashed line signiﬁes that\nthe same speaker is"
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "inﬂuenced by other utterances and expresses different emo-"
+        },
+        {
+          "Abstract": "Introduction",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "tions."
+        },
+        {
+          "Abstract": "With the development and popularization of personal\nintel-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "ligent\nterminal\ntechnology and social networks,\nthe impor-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "tance of constructing a dialogue system that can comprehend",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "by contextual\ninformation. For example, speciﬁc emotions"
+        },
+        {
+          "Abstract": "user emotions and intentions and conduct effective dialogue",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "will depend on certain utterances of the context. Meanwhile,"
+        },
+        {
+          "Abstract": "interactions has increased signiﬁcantly. A critical module in",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "utterances with the same expression may have completely"
+        },
+        {
+          "Abstract": "the dialogue system is the natural\nlanguage understanding",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "different emotions in various contexts. Therefore, effectively"
+        },
+        {
+          "Abstract": "module that analyzes user behaviors like intents or emotions.",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "modeling the context dependency and the speaker depen-"
+        },
+        {
+          "Abstract": "Analyzing user sentiments with contextual\nrelationships is",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "dency is the main factor distinguishing this task from tradi-"
+        },
+        {
+          "Abstract": "an advanced step for simple sentiment classiﬁcation tasks",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "tional sentiment classiﬁcation. (2) The second challenge is"
+        },
+        {
+          "Abstract": "and is more suitable for usage scenarios in the real world",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "that each speaker’s emotion is inﬂuenced by the utterance of"
+        },
+        {
+          "Abstract": "with more research value. The task of emotion recognition",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "other speakers in the conversation, so there may exist a sud-"
+        },
+        {
+          "Abstract": "in conversation (ERC) is to assign emotion labels to all\nthe",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "den change in a speaker’s emotion. (3) The third challenge"
+        },
+        {
+          "Abstract": "utterances in a historical dialogue with a contextual relation-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "lies in semantically similar but different categories of emo-"
+        },
+        {
+          "Abstract": "ship. At the same time, each historical dialogue contains in-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "tions, such as “frustrated” to “sad”, “happy” to “excited”,"
+        },
+        {
+          "Abstract": "teractions between multiple different speakers, as illustrated",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "etc.\nIt\nis difﬁcult\nto distinguish these semantically similar"
+        },
+        {
+          "Abstract": "in Figure 1.",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "sentiment categories."
+        },
+        {
+          "Abstract": "There are three challenges\nfor ERC.\n(1) The ﬁrst chal-",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "Recent\nrelated work addressed contextual dependencies"
+        },
+        {
+          "Abstract": "lenge is that\nthe emotion of each utterance may be affected",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "and speaker\nrelations using various graph networks (Shen"
+        },
+        {
+          "Abstract": "",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "et al. 2021b; Ghosal et al. 2019; Ishiwatari et al. 2020; Sheng"
+        },
+        {
+          "Abstract": "*Corresponding Author.",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": ""
+        },
+        {
+          "Abstract": "Copyright © 2022, Association for the Advancement of Artiﬁcial",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "et al. 2020). However, as the number of layers deepens,\nthe"
+        },
+        {
+          "Abstract": "Intelligence (www.aaai.org). All rights reserved.",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "phenomenon of over-smoothing (Chen et al. 2020a) starts to"
+        },
+        {
+          "Abstract": "1https://github.com/whatissimondoing/CoG-BART.",
+          "[Jade]: Oh, Bob, he was nothing compared to you. I had": "appear, resulting in the representation of similar sentiments"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "terance features, followed by transformer structure for mod-"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "eling context. Considering speaker dependence,\nthe auxil-"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "iary task of\njudging whether\ntwo utterances are the same"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "speaker\nis used to model\nthe\nspeaker\ninformation. COS-"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "MIC (Ghosal\net\nal. 2020)\nexploits RoBERTa\nas\nthe\nfea-"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "ture extractor of each utterance and model\nthe dependency"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "of the context with RNN. In addition,\nthe common knowl-"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "edge transformer COMET (Bosselut et al. 2019)\nis incor-"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "porated to introduce world knowledge. Based on XLNet,"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "DialogXL (Shen et al. 2021a) changes\nthe segment-level"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "structure to utterance-level and uses memory to record the"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "historical context. Meanwhile, by adopting different mask"
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": ""
+        },
+        {
+          "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-": "mechanisms on different attention heads, each attention head"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "tending to be indistinguishable.": "This work deals with the above challenges by better mod-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "This\nsection will\nintroduce\nrelated works\nin ERC. Due"
+        },
+        {
+          "tending to be indistinguishable.": "eling the context and speaker information and auxiliary gen-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "to context-dependency and speaker dependency properties,"
+        },
+        {
+          "tending to be indistinguishable.": "eration task.",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "it\nis natural\nfor\nresearchers\nto employ graph neural net-"
+        },
+        {
+          "tending to be indistinguishable.": "Firstly,\nwe\nintroduce\na\ndialogue-level\nTransformer",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "works. Therefore, many works\nhave\nconstructed\nvarious"
+        },
+        {
+          "tending to be indistinguishable.": "(Vaswani et al. 2017) layer to model the long-range context",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "task-speciﬁc graph structures. Meanwhile, with the excel-"
+        },
+        {
+          "tending to be indistinguishable.": "dependencies between utterances. A pre-trained language",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "lent performance of the pre-trained model\nin diverse down-"
+        },
+        {
+          "tending to be indistinguishable.": "model captures the representation of each utterance. Com-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "stream tasks, an increasing number of works adopt\nthe pre-"
+        },
+        {
+          "tending to be indistinguishable.": "pared to previous\napproaches\nthat only adopt pre-trained",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "trained model as the feature extractor\nfor\nthe input of\nthe"
+        },
+        {
+          "tending to be indistinguishable.": "models as a feature extractor (Liu et al. 2019) and employ",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "downstream model or directly ﬁne-tune it with downstream"
+        },
+        {
+          "tending to be indistinguishable.": "the extracted features as the node representation of down-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "datasets. Therefore,\nthis\nsection divides\nthe\nrelated work"
+        },
+        {
+          "tending to be indistinguishable.": "stream graph networks, a pure Transformer structure makes",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "into two categories: graph-based models and pre-train-based"
+        },
+        {
+          "tending to be indistinguishable.": "fewer prior structural assumptions (Lin et al. 2021).",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "models."
+        },
+        {
+          "tending to be indistinguishable.": "Secondly, we adopt supervised contrastive learning (SCL)",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "(Khosla et al. 2020) to alleviate the difﬁculty in categoriz-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "Dialog Emotion Recognition"
+        },
+        {
+          "tending to be indistinguishable.": "ing similar emotions, which makes samples with same senti-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "Graph-based model\nConsidering the unidirectionality of"
+        },
+        {
+          "tending to be indistinguishable.": "ments cohesive and different sentiments mutually exclusive",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "information interaction, DAG (Shen et al. 2021b) utilizes di-"
+        },
+        {
+          "tending to be indistinguishable.": "under\nthe fully utilization of\nlabel\ninformation. Compared",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "rected acyclic graphs to model\nthe information interaction"
+        },
+        {
+          "tending to be indistinguishable.": "with the cross-entropy loss for noisy labels,\nthe supervised",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "between utterance and speaker. DialogGCN (Ghosal et al."
+        },
+        {
+          "tending to be indistinguishable.": "contrastive loss can increase the stability of training and im-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "2019) adopts the basic graph neural network to model\nthe"
+        },
+        {
+          "tending to be indistinguishable.": "prove the generalization of\nthe model\n(Gunel et al. 2021).",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "relationship between contexts. SumAggGIN (Sheng et al."
+        },
+        {
+          "tending to be indistinguishable.": "Unlike the regular SCL, we copy the hidden state of all sam-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "2020) adds an aggregation module based on DialogGCN"
+        },
+        {
+          "tending to be indistinguishable.": "ples in a batch and detach off\nits gradient as its multiview",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "to additionally consider phrase-level information other than"
+        },
+        {
+          "tending to be indistinguishable.": "representation. The reason is that\nthe categories in existing",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "utterance-level. By simulating the process of human reason-"
+        },
+        {
+          "tending to be indistinguishable.": "ERC datasets are highly unbalanced, and some categories",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "ing, DialogCRN (Hu, Wei, and Huai 2021) proposes to ap-"
+        },
+        {
+          "tending to be indistinguishable.": "may exist in a batch with only one sample. If only the origi-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "ply several reasoning modules to extract and integrate clues"
+        },
+        {
+          "tending to be indistinguishable.": "nal SCL is used, it will lead to incorrect loss calculation.",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "of emotional\nreasoning. To make the model better under-"
+        },
+        {
+          "tending to be indistinguishable.": "Thirdly, we introduce an auxiliary response generation",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "stand the additional general\ninformation involved in the di-"
+        },
+        {
+          "tending to be indistinguishable.": "task to enhance the ability of capturing the context\ninfor-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "alogue process, KET (Zhong, Wang, and Miao 2019) com-"
+        },
+        {
+          "tending to be indistinguishable.": "mation for ERC. The prediction of the following utterance",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "bines external knowledge with a hierarchical Transformer."
+        },
+        {
+          "tending to be indistinguishable.": "makes\nthe model\nfully consider contextual dependencies,",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "By appending sequence information into the graph network,"
+        },
+        {
+          "tending to be indistinguishable.": "thus\nforcing the model\nto consider\nthe information in the",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "RGAT (Ishiwatari et al. 2020) uses relational position en-"
+        },
+        {
+          "tending to be indistinguishable.": "context and rely on the current utterance itself when rec-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "coding to combine position information into the graph net-"
+        },
+        {
+          "tending to be indistinguishable.": "ognizing the sentiment\nin the conversation. Moreover, by",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "work structure to consider the dependency between speak-"
+        },
+        {
+          "tending to be indistinguishable.": "splicing the speaker directly before utterance as a hint\nfor",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "ers. TODKAT (Zhu et al. 2021)\nintegrates topic detection"
+        },
+        {
+          "tending to be indistinguishable.": "speaker information,\nthe dependency between speakers and",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "into the pre-training model and fuses commonsense knowl-"
+        },
+        {
+          "tending to be indistinguishable.": "utterances is modeled adequately without additional param-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "edge into Transformer (Vaswani et al. 2017)."
+        },
+        {
+          "tending to be indistinguishable.": "eters.",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "Finally, we utilize BART (Lewis et al. 2020), a pre-trained",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "Pre-train-based model\nSuppose\neach\nutterance\nis\nre-"
+        },
+        {
+          "tending to be indistinguishable.": "Transformer with an encoder-decoder structure, as our back-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "garded as an independent sentence, regardless of its context-"
+        },
+        {
+          "tending to be indistinguishable.": "bone model and enhance it by contrastive and generative",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "dependence and speaker information. In that case, the prob-"
+        },
+        {
+          "tending to be indistinguishable.": "loss. Our proposed COnstrastive-and-Generation-enhanced",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "lem can be transformed into a simple sentence classiﬁca-"
+        },
+        {
+          "tending to be indistinguishable.": "BART (CoG-BART) obtains state-of-the-art results on four",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "tion so that pre-trained models\n(Qiu et al. 2020)\nsuch as"
+        },
+        {
+          "tending to be indistinguishable.": "ERC datasets compared to the baseline models. Addition-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "BERT (Devlin et al. 2019), BART (Lewis et al. 2020), and"
+        },
+        {
+          "tending to be indistinguishable.": "ally, ablation experiments and case studies prove the effec-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "RoBERTa (Liu et al. 2019) can be used directly for ﬁne-"
+        },
+        {
+          "tending to be indistinguishable.": "tiveness of the contrastive and generative losses in the ERC",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "tuning. HiTrans (Li et al. 2020) adopts BERT to extract ut-"
+        },
+        {
+          "tending to be indistinguishable.": "task.",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "terance features, followed by transformer structure for mod-"
+        },
+        {
+          "tending to be indistinguishable.": "To summarize, our main contributions can be concluded",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "eling context. Considering speaker dependence,\nthe auxil-"
+        },
+        {
+          "tending to be indistinguishable.": "as follows:",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "iary task of\njudging whether\ntwo utterances are the same"
+        },
+        {
+          "tending to be indistinguishable.": "• To the best of our knowledge, we utilize supervised con-",
+          "Related Work": "speaker\nis used to model\nthe\nspeaker\ninformation. COS-"
+        },
+        {
+          "tending to be indistinguishable.": "trastive learning for\nthe ﬁrst\ntime in ERC and signiﬁ-",
+          "Related Work": "MIC (Ghosal\net\nal. 2020)\nexploits RoBERTa\nas\nthe\nfea-"
+        },
+        {
+          "tending to be indistinguishable.": "cantly improve the model’s ability to distinguish different",
+          "Related Work": "ture extractor of each utterance and model\nthe dependency"
+        },
+        {
+          "tending to be indistinguishable.": "sentiments.",
+          "Related Work": "of the context with RNN. In addition,\nthe common knowl-"
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "edge transformer COMET (Bosselut et al. 2019)\nis incor-"
+        },
+        {
+          "tending to be indistinguishable.": "• By\nincorporating\nresponse\ngeneration\nas\nan\nauxiliary",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "porated to introduce world knowledge. Based on XLNet,"
+        },
+        {
+          "tending to be indistinguishable.": "task,\nthe performance of ERC is improved when certain",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "DialogXL (Shen et al. 2021a) changes\nthe segment-level"
+        },
+        {
+          "tending to be indistinguishable.": "contextual information is involved.",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "structure to utterance-level and uses memory to record the"
+        },
+        {
+          "tending to be indistinguishable.": "• Our model\nis easy-to-implemented since it does not de-",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "historical context. Meanwhile, by adopting different mask"
+        },
+        {
+          "tending to be indistinguishable.": "pend on external resources, like graph-based methods.",
+          "Related Work": ""
+        },
+        {
+          "tending to be indistinguishable.": "",
+          "Related Work": "mechanisms on different attention heads, each attention head"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "BART\nBART\nBART\nBART\nBART": "LGEN\nLGEN\nLGEN\nLGEN\nLGEN"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Figure 2: The overall framework of CoG-BART. The utterance is fed into BART for N utterances in a batch to get\nits hidden"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "state. The representation of the utterance obtained after max-pooling the hidden state of each utterance is fed to the upper-level"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "dialogue-level Transformer for modeling context dependencies. The obtained context-dependent utterance representations are"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "utilized to compute the cross-entropy loss and supervised contrastive loss. In addition, the two adjacent utterance pairs are used"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "for the auxiliary response generation."
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "pays attention to different aspects of dialogue information.\nmance in few-shot\nlearning scenarios. SimCSE (Gao, Yao,"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Ide and Kawahara (2021) trained BART with both genera-\nand Chen 2021) uses entailment pair\nin the annotated NLI"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "tion and classiﬁcation in a multi-task format,\nthough their\ndataset as the positive sample and the contradict pair as the"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "method focused on response generation,\ntreating emotion\nnegative sample in supervised contrastive learning."
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "recognition as an auxiliary task. However, we focus on ERC"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "and apply supervised contrastive loss as an additional opti-\nMethodology"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "mization goal."
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Problem Deﬁnition"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "In dialogue emotion recognition,\nthe data is composed of"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Contrastive Learning"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "multiple conversations {c1, c2, · · ·\n, cN }, with each conver-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Unsupervised contrastive learning\nIn the ﬁeld of com-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "sation composed of several utterances ci = [u1, u2, · · ·\n, um]"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "puter vision, SimCLR (Chen et al. 2020b)\ntakes pictures"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "=\n∈\nand\nemotion\nS,\n{y1, y2, · · ·\n, ym}\nlabels Yci"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "obtained from the\nsame\nimage\nthrough randomly differ-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "S\nwhere\nindicates\nthe\ncategories\nof\nemotions.\nFor\nan"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "ent\ndata\naugmentation methods\nas\npositive\nsamples\nand"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "=\nutterance,\nit\nis\ncomprised\nof\nseveral\ntokens\nut"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "other pictures as negative samples,\nthereby optimizing con-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "[wt,1, wt,2, · · ·\n, wt,n]. Every utterance in a conversation ci is"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "trastive\nloss. The naive\nsentence\nrepresentation obtained"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "uttered by one speaker which can be represented as p(ci) ="
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "by BERT has poor performance in semantic text similarity"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "[p(u1), · · ·\n, p(ui), · · ·\n, p(um)] and p(ui) ∈ P , where P in-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "tasks. Therefore, ConSERT (Yan et al. 2021) introduces self-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "dicates the categories or names of the speakers. Accordingly,"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "supervised contrast\nloss in the ﬁne-tuning stage of BERT."
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "the whole problem can be expressed as getting the emotional"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "MBERT (Kim, Yoo, and Lee 2021) does not use data aug-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "label of each utterance based on the context and speaker in-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "mentation to construct positive samples but uses BERT with"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "formation in a piece of conversation: Yci = f (ci, p(ci))."
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "frozen parameters and ﬁne-tunable parameters as a special"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "siamese model to construct positive samples."
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Supervised Contrastive Learning for ERC"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "Supervised contrastive learning\nTo make full use of la-\nUtterance Encoding\nTo model the dependencies between"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "bel information, Khosla et al. (2020) extends it to supervised\nspeaker and utterance, for a certain utterance ut in a conver-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "contrastive learning based on self-supervised training so that\nsation, we splice the speaker’s name or category before the"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "samples belonging to the same label are gathered in the em-\nutterance. After tokenizing the utterance prepended with the"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "bedding space while pushing samples of different categories\nspeaker information, we get:"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "away. Given that cross-entropy loss may cause model train-"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "(1)\nut = (cid:2)(cid:104)s(cid:105), wt,1, · · ·\n, wt,i, · · ·\n, wt,|nt|, (cid:104)/s(cid:105)(cid:3) ,"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "ing instability and converge to a local optimum, SCL (Gunel"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "et al. 2021) introduces supervised contrastive loss in the ﬁne-\nwhere (cid:104)s(cid:105) and (cid:104)/s(cid:105) are treated as special\ntokens to indicate"
+        },
+        {
+          "BART\nBART\nBART\nBART\nBART": "tuning stage, which greatly improves\nthe model’s perfor-\nthe beginning and end of an utterance. Then the token se-"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "layer of BART to acquire the hidden state of each token in",
+          "For ERC, the number of samples in each category in some": "datasets (Li et al. 2017) is highly unbalanced, while the su-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "utterance before sending it\nto the encoder and decoder of",
+          "For ERC, the number of samples in each category in some": "pervised contrastive learning will mask itself when calcu-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "to BART, the representation of the\nBART. After sending Ht",
+          "For ERC, the number of samples in each category in some": "lating the loss.\nIf only one sample exists for a category in"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "the batch, it cannot be directly applied to calculate the loss."
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "current utterance (cid:98)Ht is acquired:",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "Therefore, a copy of the hidden state of the utterance Hd-win"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "(2)\nHt = EmbeddingLayer(˜ut),",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "is made to obtain H d-win, and its gradient is detached. Hence"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "the parameter optimization is maintained stable."
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "(3)\nHt = BART-Model(Ht),",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "For a batch with N training samples, each sample is oper-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "where Ht, (cid:98)Ht ∈ Rs×d, and s, d indicates the length of the",
+          "For ERC, the number of samples in each category in some": "ated by the above mechanism to obtain multiview 2N sam-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "sequence and hidden dimension respectively.",
+          "For ERC, the number of samples in each category in some": "ples, then the supervised contrastive loss of all samples in a"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "batch can be expressed by the following equation:"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "Dialogue Modeling\nThe\nrepresentation\nobtained by\nHt",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "the BART-Model\nis max-pooled to obtain the aggregated",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "representation of the utterances as follows:",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "(10)\nX = [Hd-win, H d-win],"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "ˇ",
+          "For ERC, the number of samples in each category in some": "−1\n(cid:88)"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "(4)\nht = max-pooling( (cid:98)Ht).",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "(cid:88) i\nSIM(p, i),\n(11)\nLSCL ="
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "|P (i)|"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "∈I"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "To model\nthe historical\ncontext\ninformation of\nthe di-",
+          "For ERC, the number of samples in each category in some": "p∈P (i)"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "alogue, we exploit a dialogue-level Transformer\n(Vaswani",
+          "For ERC, the number of samples in each category in some": "exp((Xi · Xp)/τ )"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": ",\nSIM(p, i) = log\n(12)"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "et al. 2017) layer as the context encoder. The multi-head at-",
+          "For ERC, the number of samples in each category in some": "(cid:80)"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "a∈A(i) exp(Xi · Xa/τ )"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "tention mechanism can capture the interaction between dif-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "ferent dialogues in multiple rounds of dialogue and aggre-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "where X ∈ R2N ×d, i ∈ I = {1, 2, · · ·\n, 2N } indicate the"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "gate different features to obtain the ﬁnal\nimplicit represen-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "index of\nthe samples\nin a multiview batch, τ\n∈ R+ de-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "tation,\nthereby fully modeling the complex dependence be-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "notes\nthe temperature coefﬁcient used to control\nthe dis-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "tween different utterances and context relations. For all ut-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "tance between instances, P (i) = Ij=i − {i} represents"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "terances in a context,\nthe multi-head attention score of\nthe",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "samples with the same category as i while excluding itself,"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "hidden state between two different utterances in a conversa-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "A(i) = I − {i, N + i} indicates samples in the multiview"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "tion ˇhj, ˇhk can be calculated by the following formulas:",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "batch except itself."
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "QK T",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "√\nAtten(Q, K, V ) = softmax(\n)V,\n(5)",
+          "For ERC, the number of samples in each category in some": "Auxiliary Response Generation"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "dk",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "To facilitate the model\nto consider\nricher contextual\ninfor-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "),\n(6)\nheadi = Atten(ˇhjW Q\n, ˇhkW K\n, ˇhkW V",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "mation when determining utterance sentiment,\nthe model\nis"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "(7)\nMultiHead(Q, K, V ) = [head1; · · ·\n; headn]W O,",
+          "For ERC, the number of samples in each category in some": "required to generate its following utterance ut+1 given the"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "current utterance ut. The output hidden state of each token"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "∈ Rd×dv\nwhere W Q\n∈ Rd×dq , W K\n∈ Rd×dk , W V\nand",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "i\ni\ni",
+          "For ERC, the number of samples in each category in some": "in ut+1 is generated by the BART decoder sequentially."
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "W O ∈ Rd×d are parameters that can be optimized, dq, dk",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "are dimensions of query, key and value vectors, n\nand dv",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "´"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "indicates the number of heads.",
+          "For ERC, the number of samples in each category in some": "(13)\nHt = BART-Encoder(Ht),"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "Therefore,\nthe utterance representation that models\nthe",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "hd\n(14)\nj = BART-Decoder( ´Ht; `hd\n<j),"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "context-dependence\ncan\nbe\nobtained\nthrough\nthe\nabove-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "mentioned dialogue-level Transformer:",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "(15)\nut+1,j = Softmax(`hd\nj ),"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "(8)\nHwin = [ˇht, ˇht+1, · · ·\n, ˇht+bs−1],",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "N(cid:88) i\n(16)\nLGen = −\nlog p(ut+1|ut, θ),"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "(9)\nHd-win = Dialogue-Transformer(Hwin),",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "=1"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "where Hwin ∈ Rbs×d indicates utterances in a conversation",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "where θ is the parameters of BART need to be optimized."
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "within the window size bs and Hd-win ∈ Rbs×d denotes the",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "utterances after context modeling.",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "",
+          "For ERC, the number of samples in each category in some": "Model Training"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "Supervised\nContrastive\nLearning\nSupervised\ncon-",
+          "For ERC, the number of samples in each category in some": ""
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "trastive\nlearning\nassumes\nthat\nsome\ncrucial\naspects\nget",
+          "For ERC, the number of samples in each category in some": "The loss of model training consists of three parts: the hidden"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "attention and allows\nfew-shot\nlearning to be more\nstable",
+          "For ERC, the number of samples in each category in some": "state Hd-win obtained after context modeling passes through"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "when ﬁne-tuned on pre-trained models (Gunel et al. 2021).",
+          "For ERC, the number of samples in each category in some": "a multilayer perceptron to obtain logits for calculating cross-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "The\ntypical\ncontrastive\nlearning\nuses\nonly\none\npair\nof",
+          "For ERC, the number of samples in each category in some": "entropy loss. The other part is the supervised contrastive loss"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "positive examples, while all other\nsamples are treated as",
+          "For ERC, the number of samples in each category in some": "and the loss of response generation. The loss is a weighted"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "negative\nexamples. Supervised contrastive\nlearning treats",
+          "For ERC, the number of samples in each category in some": "sum of the three components, and the sum of their weights"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "all examples with the same label\nin the batch as positive",
+          "For ERC, the number of samples in each category in some": "equals one. The overall\nframework of CoG-BART is illus-"
+        },
+        {
+          "quence after\ntokenization is\nfed to the shared embedding": "examples by making full use of label information.",
+          "For ERC, the number of samples in each category in some": "trated in Figure 2."
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 2: and 3 record the results of comparing CoG-BART",
+      "data": [
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "sad, scared, and peaceful."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "#Dial\nTrain\n11118\n1038\n713\n120",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Dev\n1000\n114\n99\n120",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "DailyDialog\n(DD)\nManually\ncompiled\ndata\nsets\nabout"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Test\n1000\n280\n85\n31",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "daily communication. The annotation method used in this"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "#Utter\nTrain\n87170\n9989\n9934\n5810",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "data set\nis Ekman’s emotion type (Ekman 1993), which in-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Dev\n8069\n1109\n1344\n5810",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "cludes six basic emotion tags, including happiness, surprise,"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Test\n7740\n2610\n1328\n1623",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "anger, disgust, fear, and sadness."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "#CLS\n7\n7\n7\n6",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "IEMOCAP\nLike MELD,\nit\nis a multi-modal dataset. The"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Table 1: Statistics of four benchmark datasets.",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "content\nis derived from the lines in the scripts of\nthe two"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "actors, and the emotional tags included are excited, neutral,"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "frustrated, sad, happy, and angry."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "The detailed statistics of\nthe four datasets are shown in"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Table 1, where “#Dial” indicates the number of dialogue in"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "(17)\nPi = Softmax(WsHd-win,i + bs),",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "train/dev/test, “#Utter” represents\nthe number of all utter-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "(18)\nyi = argmax(Pi),",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "ances in dialogue, and “#CLS” denotes the number of cate-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "gories of each dataset."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "1 N\nN(cid:88) i\nC(cid:88) c\n(19)\nyi,c · log ˆyi,c,\nLCE = −",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Metrics"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "=1\n=1",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "For MELD, EmoryNLP and IEMOCAP, we adopt weighted"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "(20)\nL = (1 − α − β)LCE + αLSCL + βLGen,",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "average F1 as the evaluation metrics. In that “neutral” occu-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "where yi,c represents the label of a certain utterance, ˆyi,c in-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "pies the majority in DailyDialog, micro-F1 is employed as"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "dicates the probability distribution of category c output by",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "the evaluation metric for this data set, and we ignore the la-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "the dense layer, α denotes the weight\nfor supervised con-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "bel “neutral” when calculating the results as in the previous"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "trastive loss and β is the weight for loss of response genera-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "works (Zhu et al. 2021; Shen et al. 2021b)."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "tion.",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Results and Analysis"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Experimental Settings",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Main Results"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "This section will elaborate on the datasets, baseline models,",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Table 2 and 3 record the results of comparing CoG-BART"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "experimental conditions, and parameter settings adopt in the",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "with the baseline models on four datasets."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "experiment.",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Among the pre-train-based models and their variants, the"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "selected baseline models are BERT (Devlin et al. 2019),"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Experimental Setup",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "RoBERTa (Liu et al. 2019), HiTrans (Li et al. 2020), Di-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "The code framework and initial weight of BART come from",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "alogXL (Shen et al. 2021a) and XLNet (Yang et al. 2019). In"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Huggingface’s Transformers\n(Wolf et al. 2020). The opti-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "MELD (Poria et al. 2019), CoG-BART has an approximate"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "mizer applied for model\ntraining is AdamW with a linear-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "absolute 1.24% improvement over the previous state-of-the-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "scheduled warm-up strategy. The parameters adjusted in this",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "art BART-large (Lewis et al. 2020)."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "experiment include batch size, learning rate, warm-up ratio,",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "For graph-based models, KET (Zhong, Wang, and Miao"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "α, and β. We conducted a hyperparameter search for model",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "2019), RGAT (Ishiwatari et al. 2020), DialogGCN (Ghosal"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "training through the reserved validation set. The results on",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "et al. 2019), DialogCRN (Hu, Wei, and Huai 2021), COS-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "the test set come from the best checkpoint\nin the validation",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "MIC (Ghosal et al. 2020), and DAG-ERC (Shen et al. 2021b)"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "set, and we average the scores from ﬁve different\nrandom",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "are listed."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "seeds. All experiments are performed on GeForce RTX 3090",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Compared to the graph-based model, CoG-BART im-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "GPU.",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "proves 0.53 points over COSMIC (Ghosal et al. 2020). It\nis"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "worth noting that RoBERTa-large is used as the feature ex-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Datasets",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "tractor in COSMIC, while CoG-BART only adopts BART-"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "This section will introduce four benchmark datasets: MELD",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "large as the backbone structure to obtain competitive results,"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "(Poria et al. 2019), EmoryNLP (Zahiri and Choi 2018), Dai-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "indicating that adequate knowledge transfer of pre-trained"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "lyDialog (Li et al. 2017), and IEMOCAP (Busso et al. 2008)",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "models which effectively model\nthe dependencies between"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "for comparison with the baseline models.",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "contexts can also yield promising results in MELD."
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "We can observe from the results in EmoryNLP (Zahiri and"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "MELD\nThis dataset comes from the dialogue content of",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "Choi 2018) that the graph-based model using the pre-trained"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "the characters in the American drama Friends. MELD orig-",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "model as the feature extractor works better overall\nthan the"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "inally contained multi-modal data, but we used only the text",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "model applying only the pre-trained model as the backbone"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "data for the experiments.",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": ""
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "network. Meanwhile, CoG-BART still achieves results with"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "EmoryNLP\n(ENLP)\nThis\ndataset\nalso\ncomes\nfrom",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "signiﬁcant\nimprovement. Also,\nthe graph-based model can"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "Friends, and the difference from MELD is the annotation",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "obtain higher F1 overall on IEMOCAP (Busso et al. 2008)"
+        },
+        {
+          "Dataset\nDD\nMELD\nENLP\nIEMOCAP": "of utterance’s emotional\nlabel category. The emotional\ntags",
+          "contained in this dataset are: joyful, neutral, powerful, mad,": "compared to the pre-trained based models. The reason is that"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Dataset": "Model",
+          "MELD": "Weighted",
+          "EmoryNLP": "Micro-F1",
+          "IEMOCAP": "Micro-F1",
+          "DailyDialog": "Weighted"
+        },
+        {
+          "Dataset": "",
+          "MELD": "-Avg-F1",
+          "EmoryNLP": "",
+          "IEMOCAP": "",
+          "DailyDialog": "-F1-neural"
+        },
+        {
+          "Dataset": "BERT",
+          "MELD": "62.28",
+          "EmoryNLP": "41.11",
+          "IEMOCAP": "-",
+          "DailyDialog": "53.41"
+        },
+        {
+          "Dataset": "RoBERTa",
+          "MELD": "62.51",
+          "EmoryNLP": "40.81",
+          "IEMOCAP": "-",
+          "DailyDialog": "52.84"
+        },
+        {
+          "Dataset": "HiTrans",
+          "MELD": "61.94",
+          "EmoryNLP": "-",
+          "IEMOCAP": "-",
+          "DailyDialog": "-"
+        },
+        {
+          "Dataset": "DialogXL",
+          "MELD": "62.41",
+          "EmoryNLP": "-",
+          "IEMOCAP": "-",
+          "DailyDialog": "-"
+        },
+        {
+          "Dataset": "XLNet",
+          "MELD": "61.65",
+          "EmoryNLP": "-",
+          "IEMOCAP": "-",
+          "DailyDialog": "-"
+        },
+        {
+          "Dataset": "BART-large",
+          "MELD": "63.57",
+          "EmoryNLP": "38.93",
+          "IEMOCAP": "56.67",
+          "DailyDialog": "54.83"
+        },
+        {
+          "Dataset": "CoG-BART 64.81 (±0.19) 65.95 (±0.44) 39.04 (±0.10) 42.58 (±0.94) 66.18 (±0.45) 66.71 (±0.49) 56.09 (±0.01) 56.29 (±0.17)",
+          "MELD": "",
+          "EmoryNLP": "",
+          "IEMOCAP": "",
+          "DailyDialog": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "The Potency of Supervised Contrastive Learning": "To conduct\na qualitative"
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": "supervised contrastive\nlearning, we utilize\nt-"
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": "SNE (Hinton and Roweis 2002) to visualize the distribution"
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": "of high-dimensional hidden states obtained by the model"
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": "trained with supervised contrastive loss. By controlling dif-"
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": ""
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": "the ratio of supervised contrastive loss is"
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": ""
+        },
+        {
+          "The Potency of Supervised Contrastive Learning": "controlled to 0% and 80%, respectively, to obtain the hidden"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "loss\nis not exploited,\nthat\nis, when the cross-entropy loss"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "function is completely adopted,\nthe overlap rate of samples"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "between different\nlabels is particularly high, especially for"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "some samples with similar emotions, which increase the dif-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "ﬁculty of\nlearning the decision boundaries. As the propor-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "tion of supervised contrastive loss increases,\nit can be dis-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "tinctly observed that\nthe degree of coupling between differ-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "ent classes is gradually enlarged, and the same classes begin"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "to cohesive. It is worth mentioning that although the distance"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "within the class has been reduced, the uniformity (Wang and"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "Isola 2020) between samples has been well maintained,\nin-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "dicating that the information has been well preserved and no"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "representation collapse has occurred."
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": ""
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "Quantitative Analysis of SCL\nThe\neffects of different"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "proportions\nof\nsupervised\ncontrastive\nlearning\non CoG-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "BART are illustrated in Table 4, where the weighted average"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "F1 of CoG-BART with different proportions of SCL loss is"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "recorded. Different α have a large impact on the outcomes,"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "e.g., there exists a 2.8 points difference in F1 values between"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "α equals 0.4 and 0.8 for\nIEMOCAP,\nreﬂecting the signiﬁ-"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "cant positive effect of supervised contrastive learning for this"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "dataset. Meanwhile, different datasets have different values"
+        },
+        {
+          "As illustrated in Figure 3, when the supervised contrastive": "of α in obtaining the relatively best gain effect. For instance,"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "Dataset\nMELD\nEmoryNLP\nIEMOCAP\nDailyDialog"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "Model\nWeighted\nWeighted\nWeighted\nMicro"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "-Avg-F1\n-Avg-F1\n-Avg-F1\n-F1-neutral"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "KET\n58.18\n34.39\n59.56\n53.37"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "RGAT\n60.91\n34.42\n65.22\n54.31"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "RGAT+RoBERTa\n62.80\n37.89\n66.36\n59.02"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "DialogGCN\n58.10\n-\n64.18\n-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "DialogCRN\n58.39\n-\n66.20\n-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "COSMIC\n64.28\n37.10\n63.05\n56.16"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "68.03\n59.33\nDAG-ERC\n63.65\n39.02"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "CoG-BART\n64.81 (±0.19) 39.04 (±0.10) 66.18 (±0.45) 56.29 (±0.17)"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "Table 3: Comparison with graph-based models."
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "neural\nneural"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "surprise\nsurprise\nfear\nfear"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "sadness\nsadness"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "joy\njoy"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "disgust\ndisgust"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "anger\nanger"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "Figure 3: The t-SNE visualization results of the model out-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "put when α is 0 and 0.8, respectively."
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "the number of utterances contained in one context of IEMO-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "CAP is much larger\nthan the other\nthree datasets, so pre-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "trained models are usually incapable of handling excessively"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "long contexts. However, graph network models can better"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "model\ncontext dependencies.\nIn comparison, CoG-BART"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": ""
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "also achieves results similar\nto those of graph-based mod-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "els, demonstrating the capability of CoG-BART to model"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "the context-dependence."
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "The micro-F1 values of CoG-BART in DailyDialog are"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "lower compared to the results of some graph neural network"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "models. Still, it can achieve similar results to some pre-train-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "based models such as BERT (Devlin et al. 2019), RoBERTa"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "(Liu et al. 2019) and DialogXL (Shen et al. 2021a). There-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "fore,\nthe graph-based model may have the advantage over"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "pre-train-based models by more adequately modeling con-"
+        },
+        {
+          "Table 2: The overall results of CoG-BART with pre-train-based baseline models on four datasets.": "text dependencies on this dataset."
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 5: Ablation study to evaluate the impact of different IEMOCAP. By analyzing this dataset, we found that it in-",
+      "data": [
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "Dataset\nMELD\nIEMOCAP"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "Methods\nWeight-Avg-F1"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "CoG-BART\n64.81\n66.18"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-Gen\n64.26 (↓0.55)\n64.74 (↓1.44)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-SCL loss\n64.28 (↓0.53)\n64.23 (↓1.95)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-Speaker\n64.14 (↓0.67)\n55.41 (↓10.77)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-Gen, SCL loss\n63.57 (↓1.24)\n62.90 (↓3.28)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-SCL loss, Speaker\n63.72 (↓1.09)\n54.83 (↓11.35)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-Gen, Speaker\n64.02 (↓0.79)\n54.95 (↓11.23)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "-Dialog-Trans\n64.40 (↓0.41)\n64.19 (↓1.99)"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "Table 5: Ablation study to evaluate the impact of different"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "components on the overall performance of\nthe model on"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "MELD and EmoryNLP"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "CoG-BART performs best when α = 0.2 in MELD, while"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "achieving the best result when α = 0.4 in IEMOCAP."
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "Effect of Response Generation"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "Response generation has a facilitating effect on modeling"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "context dependence to some extent. As the two cases in Fig-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "ure 4 illustrate,\nif only the current utterance itself\nis con-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "sidered,\nthe expression may cause the model\nto misjudge"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "the sentiment of the current utterance, while generating re-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "sponses leads the model to pay more attention to contextual"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "information,\nthus making correct predictions which consis-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "tent with the scenario. As for the impact of different weights"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "of response generation loss, Table 4 illustrates that when ﬁx-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "ing α and adjusting β,\nthere is also a slight\nimpact on the"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "model’s overall performance."
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "Ablation Analysis"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": ""
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "To investigate the impacts of individual modules and com-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "binations of several components on the overall effect of the"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "model, this section conducts an ablation study on three mod-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "ules in CoG-BART. As illustrated in Table 5,\nthe selected"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "datasets are MELD and IEMOCAP, where “-” indicates the"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "removal of the single method or several methods, “Gen” de-"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "notes the auxiliary task of response generation, “SCL loss”"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "means supervised contrastive loss, and “Speaker” indicates"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "the splicing of speaker label before utterance."
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "From the results of MELD,\nremoving any of\nthe three"
+        },
+        {
+          "Figure 4: Case studies show that response generation enables the model to correctly predict the emotion based on context.": "modules makes the overall performance worse, while dis-"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "bukh, A. 2019. DialogueGCN: A Graph Convolutional Neu-"
+        },
+        {
+          "Acknowledgments": "We are very grateful\nto the reviewers for their diligent and",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "ral Network for Emotion Recognition in Conversation.\nIn"
+        },
+        {
+          "Acknowledgments": "rigorous attitude towards our work and their valuable sug-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Proceedings of\nthe 2019 Conference on Empirical Meth-"
+        },
+        {
+          "Acknowledgments": "gestions for improvement during the whole review process.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "ods in Natural Language Processing and the 9th Interna-"
+        },
+        {
+          "Acknowledgments": "This work was supported by the National Key Research and",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "tional Joint Conference on Natural Language Processing"
+        },
+        {
+          "Acknowledgments": "Development Program of China (No. 2020AAA0108702)",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "(EMNLP-IJCNLP), 154–164. Hong Kong, China: Associa-"
+        },
+        {
+          "Acknowledgments": "and the National Natural Science Foundation of China (NO.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "tion for Computational Linguistics."
+        },
+        {
+          "Acknowledgments": "62022027).",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Gunel, B.; Du,\nJ.; Conneau, A.;\nand Stoyanov, V. 2021."
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Supervised Contrastive Learning for Pre-trained Language"
+        },
+        {
+          "Acknowledgments": "References",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Model Fine-tuning.\nIn 9th International Conference on"
+        },
+        {
+          "Acknowledgments": "Bosselut, A.; Rashkin, H.; Sap, M.; Malaviya, C.; Celikyil-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Learning Representations,\nICLR 2021, Virtual Event, Aus-"
+        },
+        {
+          "Acknowledgments": "maz, A.; and Choi, Y. 2019. COMET: Commonsense Trans-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "tria, May 3-7, 2021. OpenReview.net."
+        },
+        {
+          "Acknowledgments": "formers for Automatic Knowledge Graph Construction.\nIn",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Hinton, G. E.; and Roweis, S. T. 2002. Stochastic Neighbor"
+        },
+        {
+          "Acknowledgments": "Korhonen, A.; Traum, D. R.; and M`arquez, L., eds., Pro-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Embedding.\nIn Becker, S.; Thrun, S.; and Obermayer, K.,"
+        },
+        {
+          "Acknowledgments": "ceedings of the 57th Conference of the Association for Com-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "in Neural\nInformation Processing Systems\neds., Advances"
+        },
+        {
+          "Acknowledgments": "putational Linguistics, ACL 2019, Florence, Italy, July 28-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "15 [Neural Information Processing Systems, NIPS 2002, De-"
+        },
+        {
+          "Acknowledgments": "August 2, 2019, Volume 1: Long Papers, 4762–4779. Asso-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "cember 9-14, 2002, Vancouver, British Columbia, Canada],"
+        },
+        {
+          "Acknowledgments": "ciation for Computational Linguistics.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "833–840. MIT Press."
+        },
+        {
+          "Acknowledgments": "Busso, C.; Bulut, M.; Lee, C.-C.; Kazemzadeh, A.; Mower,",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Hu, D.; Wei, L.; and Huai, X. 2021. DialogueCRN: Contex-"
+        },
+        {
+          "Acknowledgments": "E.; Kim, S.; Chang,\nJ. N.; Lee, S.; and Narayanan, S. S.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "tual Reasoning Networks for Emotion Recognition in Con-"
+        },
+        {
+          "Acknowledgments": "2008. IEMOCAP: Interactive emotional dyadic motion cap-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "versations. In Zong, C.; Xia, F.; Li, W.; and Navigli, R., eds.,"
+        },
+        {
+          "Acknowledgments": "ture database.\nLanguage resources and evaluation, 42(4):",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Proceedings of\nthe 59th Annual Meeting of\nthe Association"
+        },
+        {
+          "Acknowledgments": "335–359.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "for Computational Linguistics and the 11th International"
+        },
+        {
+          "Acknowledgments": "Chen, D.; Lin, Y.; Li, W.; Li, P.; Zhou,\nJ.;\nand Sun, X.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Joint Conference on Natural Language Processing, ACL/I-"
+        },
+        {
+          "Acknowledgments": "2020a. Measuring and Relieving the Over-Smoothing Prob-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "JCNLP 2021, (Volume 1: Long Papers), Virtual Event, Au-"
+        },
+        {
+          "Acknowledgments": "lem for Graph Neural Networks from the Topological View.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "gust 1-6, 2021, 7042–7052. Association for Computational"
+        },
+        {
+          "Acknowledgments": "In The Thirty-Fourth AAAI Conference on Artiﬁcial Intelli-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Linguistics."
+        },
+        {
+          "Acknowledgments": "gence, AAAI 2020, The Thirty-Second Innovative Applica-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Ide, T.; and Kawahara, D. 2021. Multi-Task Learning of"
+        },
+        {
+          "Acknowledgments": "tions of Artiﬁcial\nIntelligence Conference,\nIAAI 2020, The",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Generation and Classiﬁcation for Emotion-Aware Dialogue"
+        },
+        {
+          "Acknowledgments": "Tenth AAAI Symposium on Educational Advances in Artiﬁ-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Response Generation.\nIn Durmus, E.; Gupta, V.; Liu, N.;"
+        },
+        {
+          "Acknowledgments": "cial Intelligence, EAAI 2020, New York, NY, USA, February",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "the 2021 Con-\nPeng, N.; and Su, Y., eds., Proceedings of"
+        },
+        {
+          "Acknowledgments": "7-12, 2020, 3438–3445. AAAI Press.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "ference of\nthe North American Chapter of\nthe Association"
+        },
+        {
+          "Acknowledgments": "Chen, T.; Kornblith, S.; Norouzi, M.;\nand Hinton, G. E.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "for Computational Linguistics: Student Research Workshop,"
+        },
+        {
+          "Acknowledgments": "2020b. A Simple Framework for Contrastive Learning of",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "NAACL-HLT 2021, Online, June 6-11, 2021, 119–125. As-"
+        },
+        {
+          "Acknowledgments": "Visual Representations.\nIn Proceedings of the 37th Interna-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "sociation for Computational Linguistics."
+        },
+        {
+          "Acknowledgments": "tional Conference on Machine Learning, ICML 2020, 13-18",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Ishiwatari, T.; Yasuda, Y.; Miyazaki, T.; and Goto, J. 2020."
+        },
+        {
+          "Acknowledgments": "July 2020, Virtual Event, volume 119 of Proceedings of Ma-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Relation-aware Graph Attention Networks with Relational"
+        },
+        {
+          "Acknowledgments": "chine Learning Research, 1597–1607. PMLR.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Position Encodings for Emotion Recognition in Conversa-"
+        },
+        {
+          "Acknowledgments": "Devlin, J.; Chang, M.-W.; Lee, K.; and Toutanova, K. 2019.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "tions.\nIn Webber, B.; Cohn, T.; He, Y.; and Liu, Y., eds.,"
+        },
+        {
+          "Acknowledgments": "BERT: Pre-training of Deep Bidirectional Transformers for",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Proceedings of\nthe 2020 Conference on Empirical Meth-"
+        },
+        {
+          "Acknowledgments": "Language Understanding.\nIn Proceedings of the 2019 Con-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "ods in Natural Language Processing, EMNLP 2020, Online,"
+        },
+        {
+          "Acknowledgments": "ference of\nthe North American Chapter of\nthe Association",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "November 16-20, 2020, 7360–7370. Association for Com-"
+        },
+        {
+          "Acknowledgments": "for Computational Linguistics: Human Language Technolo-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "putational Linguistics."
+        },
+        {
+          "Acknowledgments": "gies, Volume 1 (Long and Short Papers), 4171–4186. Min-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Khosla,\nP.;\nTeterwak,\nP.; Wang,\nC.;\nSarna, A.;\nTian,"
+        },
+        {
+          "Acknowledgments": "neapolis, Minnesota: Association for Computational Lin-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Y\n.;\nIsola, P.; Maschinot, A.; Liu, C.;\nand Krishnan, D."
+        },
+        {
+          "Acknowledgments": "guistics.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "arXiv\npreprint\n2020.\nSupervised\ncontrastive\nlearning."
+        },
+        {
+          "Acknowledgments": "Ekman, P. 1993. Facial expression and emotion. American",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "arXiv:2004.11362."
+        },
+        {
+          "Acknowledgments": "psychologist, 48(4): 384.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": ""
+        },
+        {
+          "Acknowledgments": "",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Kim, T.; Yoo, K. M.; and Lee, S. 2021.\nSelf-Guided Con-"
+        },
+        {
+          "Acknowledgments": "Gao, T.; Yao, X.;\nand Chen, D.\n2021.\nSimCSE: Sim-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "trastive Learning for BERT Sentence Representations.\nIn"
+        },
+        {
+          "Acknowledgments": "ple Contrastive Learning of Sentence Embeddings. CoRR,",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Zong, C.; Xia, F.; Li, W.; and Navigli, R., eds., Proceedings"
+        },
+        {
+          "Acknowledgments": "abs/2104.08821.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "of\nthe 59th Annual Meeting of\nthe Association for Compu-"
+        },
+        {
+          "Acknowledgments": "Ghosal, D.; Majumder, N.; Gelbukh, A.; Mihalcea, R.; and",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "tational Linguistics and the 11th International Joint Confer-"
+        },
+        {
+          "Acknowledgments": "Poria, S. 2020.\nCOSMIC: COmmonSense knowledge for",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "ence on Natural Language Processing, ACL/IJCNLP 2021,"
+        },
+        {
+          "Acknowledgments": "the\neMotion Identiﬁcation in Conversations.\nIn Findings of",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "(Volume 1: Long Papers), Virtual Event, August 1-6, 2021,"
+        },
+        {
+          "Acknowledgments": "Association for Computational Linguistics: EMNLP 2020,",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "2528–2540. Association for Computational Linguistics."
+        },
+        {
+          "Acknowledgments": "2470–2481. Online: Association for Computational Linguis-",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "Lewis, M.; Liu, Y.; Goyal, N.; Ghazvininejad, M.; Mo-"
+        },
+        {
+          "Acknowledgments": "tics.",
+          "Ghosal, D.; Majumder, N.; Poria, S.; Chhaya, N.; and Gel-": "hamed, A.; Levy, O.; Stoyanov, V.;\nand Zettlemoyer, L."
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "for Natural Language Generation, Translation, and Compre-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "L.; Gomez, A. N.; Kaiser, L.; and Polosukhin, I. 2017. At-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "the 58th Annual Meeting of\nthe\nhension.\nIn Proceedings of",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "tention is All you Need.\nIn Guyon,\nI.; von Luxburg, U.;"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Association for Computational Linguistics, 7871–7880. On-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Bengio, S.; Wallach, H. M.; Fergus, R.; Vishwanathan, S."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "line: Association for Computational Linguistics.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Informa-\nV\n. N.; and Garnett, R., eds., Advances in Neural"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "tion Processing Systems 30: Annual Conference on Neural"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Li, J.; Ji, D.; Li, F.; Zhang, M.; and Liu, Y. 2020. HiTrans: A",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Information Processing Systems 2017, December 4-9, 2017,"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Transformer-Based Context- and Speaker-Sensitive Model",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Long Beach, CA, USA, 5998–6008."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "for Emotion Detection in Conversations.\nIn Proceedings of",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "the 28th International Conference on Computational Lin-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Wang, T.; and Isola, P. 2020.\nUnderstanding Contrastive"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "guistics, 4190–4200. Barcelona, Spain (Online):\nInterna-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Representation Learning through Alignment and Uniformity"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "tional Committee on Computational Linguistics.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "the 37th Interna-\non the Hypersphere.\nIn Proceedings of"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "tional Conference on Machine Learning, ICML 2020, 13-18"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Li, Y.; Su, H.; Shen, X.; Li, W.; Cao, Z.;\nand Niu, S.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "July 2020, Virtual Event, volume 119 of Proceedings of Ma-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "2017. DailyDialog: A Manually Labelled Multi-turn Dia-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "chine Learning Research, 9929–9939. PMLR."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "the Eighth International\nlogue Dataset.\nIn Proceedings of",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Joint Conference on Natural Language Processing (Volume",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Wolf, T.; Debut, L.; Sanh, V.; Chaumond, J.; Delangue, C.;"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "1: Long Papers), 986–995. Taipei, Taiwan: Asian Federation",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Moi, A.; Cistac, P.; Rault, T.; Louf, R.; Funtowicz, M.; Davi-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "of Natural Language Processing.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "son, J.; Shleifer, S.; von Platen, P.; Ma, C.; Jernite, Y.; Plu, J.;"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Xu, C.; Scao, T. L.; Gugger, S.; Drame, M.; Lhoest, Q.; and"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Lin, T.; Wang, Y.; Liu, X.; and Qiu, X. 2021. A Survey of",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Rush, A. M. 2020.\nTransformers: State-of-the-Art Natural"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Transformers. arXiv preprint arXiv:2106.04554.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "the 2020 Confer-\nLanguage Processing.\nIn Proceedings of"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Liu, Y.; Ott, M.; Goyal, N.; Du,\nJ.;\nJoshi, M.; Chen, D.;",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "ence on Empirical Methods in Natural Language Process-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Levy, O.; Lewis, M.; Zettlemoyer, L.;\nand Stoyanov, V.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "ing: System Demonstrations, 38–45. Online: Association for"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "2019. RoBERTa: A Robustly Optimized BERT Pretraining",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Computational Linguistics."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Approach. CoRR, abs/1907.11692.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Yan, Y.; Li, R.; Wang, S.; Zhang, F.; Wu, W.;\nand Xu,"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Poria, S.; Hazarika, D.; Majumder, N.; Naik, G.; Cambria,",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "W. 2021.\nConSERT: A Contrastive Framework for Self-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "E.; and Mihalcea, R. 2019. MELD: A Multimodal Multi-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Supervised Sentence Representation Transfer.\nIn Zong, C.;"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Party Dataset\nfor Emotion Recognition in Conversations.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Xia, F.; Li, W.; and Navigli, R., eds., Proceedings of the 59th"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "the 57th Annual Meeting of\nthe Asso-\nIn Proceedings of",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Annual Meeting of\nthe Association for Computational Lin-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "ciation for Computational Linguistics, 527–536. Florence,",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "guistics and the 11th International Joint Conference on Nat-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Italy: Association for Computational Linguistics.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "ural Language Processing, ACL/IJCNLP 2021, (Volume 1:"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Qiu, X.; Sun, T.; Xu, Y.; Shao, Y.; Dai, N.; and Huang, X.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Long Papers), Virtual Event, August 1-6, 2021, 5065–5075."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "2020.\nPre-trained Models\nfor Natural Language Process-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Association for Computational Linguistics."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "ing: A Survey.\nSCIENCE CHINA Technological Sciences,",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Yang, Z.; Dai, Z.; Yang, Y.; Carbonell, J. G.; Salakhutdinov,"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "63(10): 1872–1897.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "R.; and Le, Q. V. 2019.\nXLNet: Generalized Autoregres-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Shen, W.; Chen, J.; Quan, X.; and Xie, Z. 2021a. DialogXL:",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "sive Pretraining for Language Understanding.\nIn Wallach,"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "All-in-One XLNet\nfor Multi-Party Conversation Emotion",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "H. M.; Larochelle, H.; Beygelzimer, A.; d’Alch´e-Buc, F.;"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Recognition.\nIn Thirty-Fifth AAAI Conference on Artiﬁcial",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Fox, E. B.; and Garnett, R., eds., Advances in Neural Infor-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Intelligence, AAAI 2021, Thirty-Third Conference on Inno-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "mation Processing Systems 32: Annual Conference on Neu-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "vative Applications of Artiﬁcial Intelligence, IAAI 2021, The",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "ral\nInformation Processing Systems 2019, NeurIPS 2019,"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Eleventh Symposium on Educational Advances in Artiﬁcial",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "December 8-14, 2019, Vancouver, BC, Canada, 5754–5764."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Intelligence, EAAI 2021, Virtual Event, February 2-9, 2021,",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Zahiri, S. M.; and Choi, J. D. 2018. Emotion Detection on"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "13789–13797. AAAI Press.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "TV Show Transcripts with Sequence-Based Convolutional"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Shen, W.; Wu, S.; Yang, Y.; and Quan, X. 2021b. Directed",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "the The Thirty-\nNeural Networks.\nIn The Workshops of"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Acyclic Graph Network for Conversational Emotion Recog-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Second AAAI Conference on Artiﬁcial Intelligence, New Or-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "nition.\nIn Zong, C.; Xia, F.; Li, W.; and Navigli, R., eds.,",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "leans, Louisiana, USA, February 2-7, 2018, volume WS-18"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Proceedings of\nthe 59th Annual Meeting of\nthe Association",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "of AAAI Workshops, 44–52. AAAI Press."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "for Computational Linguistics and the 11th International",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Zhong, P.; Wang, D.;\nand Miao, C. 2019.\nKnowledge-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Joint Conference on Natural Language Processing, ACL/I-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Enriched Transformer\nfor Emotion Detection\nin Textual"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "JCNLP 2021, (Volume 1: Long Papers), Virtual Event, Au-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Conversations. CoRR, abs/1909.10681."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "gust 1-6, 2021, 1551–1560. Association for Computational",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Zhu, L.; Pergola, G.; Gui, L.; Zhou, D.; and He, Y. 2021."
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Linguistics.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": ""
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Topic-Driven and Knowledge-Aware Transformer\nfor Dia-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "Sheng, D.; Wang, D.; Shen, Y.; Zheng, H.;\nand Liu, H.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "logue Emotion Detection.\nIn Zong, C.; Xia, F.; Li, W.; and"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "2020. Summarize before Aggregate: A Global-to-local Het-",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Navigli, R., eds., Proceedings of the 59th Annual Meeting of"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "erogeneous Graph Inference Network for Conversational",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "the Association for Computational Linguistics and the 11th"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "the 28th Inter-\nEmotion Recognition.\nIn Proceedings of",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "International Joint Conference on Natural Language Pro-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "national Conference on Computational Linguistics, 4153–",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "cessing, ACL/IJCNLP 2021, (Volume 1: Long Papers), Vir-"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "4163. Barcelona, Spain (Online):\nInternational Committee",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "tual Event, August 1-6, 2021, 1571–1582. Association for"
+        },
+        {
+          "2020. BART: Denoising Sequence-to-Sequence Pre-training": "on Computational Linguistics.",
+          "Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,": "Computational Linguistics."
+        }
+      ],
+      "page": 9
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "COMET: Commonsense Transformers for Automatic Knowledge Graph Construction",
+      "authors": [
+        "A Bosselut",
+        "H Rashkin",
+        "M Sap",
+        "C Malaviya",
+        "A Celikyilmaz",
+        "Y Choi"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Conference of the Association for Computational Linguistics, ACL 2019"
+    },
+    {
+      "citation_id": "2",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "3",
+      "title": "Measuring and Relieving the Over-Smoothing Problem for Graph Neural Networks from the Topological View",
+      "authors": [
+        "D Chen",
+        "Y Lin",
+        "W Li",
+        "P Li",
+        "J Zhou",
+        "X Sun"
+      ],
+      "year": "2020",
+      "venue": "The Thirty-Fourth AAAI Conference on Artificial Intelligence, AAAI 2020, The Thirty-Second Innovative Applications of Artificial Intelligence Conference, IAAI 2020, The Tenth AAAI Symposium on Educational Advances in Artificial Intelligence"
+    },
+    {
+      "citation_id": "4",
+      "title": "A Simple Framework for Contrastive Learning of Visual Representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 37th International Conference on Machine Learning, ICML 2020"
+    },
+    {
+      "citation_id": "5",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies"
+    },
+    {
+      "citation_id": "6",
+      "title": "Facial expression and emotion",
+      "authors": [
+        "P Ekman"
+      ],
+      "year": "1993",
+      "venue": "American psychologist"
+    },
+    {
+      "citation_id": "7",
+      "title": "SimCSE: Simple Contrastive Learning of Sentence Embeddings",
+      "authors": [
+        "T Gao",
+        "X Yao",
+        "D Chen"
+      ],
+      "year": "2021",
+      "venue": "SimCSE: Simple Contrastive Learning of Sentence Embeddings"
+    },
+    {
+      "citation_id": "8",
+      "title": "COSMIC: COmmonSense knowledge for eMotion Identification in Conversations",
+      "authors": [
+        "D Ghosal",
+        "N Majumder",
+        "A Gelbukh",
+        "R Mihalcea",
+        "S Poria"
+      ],
+      "year": "2020",
+      "venue": "Findings of the Association for Computational Linguistics: EMNLP 2020"
+    },
+    {
+      "citation_id": "9",
+      "title": "DialogueGCN: A Graph Convolutional Neural Network for Emotion Recognition in Conversation",
+      "authors": [
+        "D Ghosal",
+        "N Majumder",
+        "S Poria",
+        "N Chhaya",
+        "A Gelbukh"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)"
+    },
+    {
+      "citation_id": "10",
+      "title": "Supervised Contrastive Learning for Pre-trained Language Model Fine-tuning",
+      "authors": [
+        "B Gunel",
+        "J Du",
+        "A Conneau",
+        "V Stoyanov"
+      ],
+      "year": "2021",
+      "venue": "9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria"
+    },
+    {
+      "citation_id": "11",
+      "title": "Stochastic Neighbor Embedding",
+      "authors": [
+        "G Hinton",
+        "S Roweis"
+      ],
+      "year": "2002",
+      "venue": "Advances in Neural Information Processing Systems 15 [Neural Information Processing Systems, NIPS 2002, December 9-14"
+    },
+    {
+      "citation_id": "12",
+      "title": "DialogueCRN: Contextual Reasoning Networks for Emotion Recognition in Conversations",
+      "authors": [
+        "D Hu",
+        "L Wei",
+        "X Huai"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing, ACL/I-JCNLP 2021"
+    },
+    {
+      "citation_id": "13",
+      "title": "Multi-Task Learning of Generation and Classification for Emotion-Aware Dialogue Response Generation",
+      "authors": [
+        "T Ide",
+        "D Kawahara",
+        "E Durmus",
+        "V Gupta",
+        "N Liu",
+        "Peng"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Student Research Workshop, NAACL-HLT 2021"
+    },
+    {
+      "citation_id": "14",
+      "title": "Relation-aware Graph Attention Networks with Relational Position Encodings for Emotion Recognition in Conversations",
+      "authors": [
+        "T Ishiwatari",
+        "Y Yasuda",
+        "T Miyazaki",
+        "J Goto"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Supervised contrastive learning",
+      "authors": [
+        "P Khosla",
+        "P Teterwak",
+        "C Wang",
+        "A Sarna",
+        "Y Tian",
+        "P Isola",
+        "A Maschinot",
+        "C Liu",
+        "D Krishnan"
+      ],
+      "year": "2020",
+      "venue": "Supervised contrastive learning",
+      "arxiv": "arXiv:2004.11362"
+    },
+    {
+      "citation_id": "16",
+      "title": "Self-Guided Contrastive Learning for BERT Sentence Representations",
+      "authors": [
+        "T Kim",
+        "K Yoo",
+        "S Lee"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing, ACL/IJCNLP 2021"
+    },
+    {
+      "citation_id": "17",
+      "title": "BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension",
+      "authors": [
+        "M Lewis",
+        "Y Liu",
+        "N Goyal",
+        "M Ghazvininejad",
+        "A Mohamed",
+        "O Levy",
+        "V Stoyanov",
+        "L Zettlemoyer"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "18",
+      "title": "HiTrans: A Transformer-Based Context-and Speaker-Sensitive Model for Emotion Detection in Conversations",
+      "authors": [
+        "J Li",
+        "D Ji",
+        "F Li",
+        "M Zhang",
+        "Y Liu"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th International Conference on Computational Linguistics"
+    },
+    {
+      "citation_id": "19",
+      "title": "DailyDialog: A Manually Labelled Multi-turn Dialogue Dataset",
+      "authors": [
+        "Y Li",
+        "H Su",
+        "X Shen",
+        "W Li",
+        "Z Cao",
+        "S Niu"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the Eighth International Joint Conference on Natural Language Processing"
+    },
+    {
+      "citation_id": "20",
+      "title": "A Survey of Transformers",
+      "authors": [
+        "T Lin",
+        "Y Wang",
+        "X Liu",
+        "X Qiu"
+      ],
+      "year": "2021",
+      "venue": "A Survey of Transformers",
+      "arxiv": "arXiv:2106.04554"
+    },
+    {
+      "citation_id": "21",
+      "title": "RoBERTa: A Robustly Optimized BERT Pretraining Approach",
+      "authors": [
+        "Y Liu",
+        "M Ott",
+        "N Goyal",
+        "J Du",
+        "M Joshi",
+        "D Chen",
+        "O Levy",
+        "M Lewis",
+        "L Zettlemoyer",
+        "V Stoyanov"
+      ],
+      "year": "2019",
+      "venue": "RoBERTa: A Robustly Optimized BERT Pretraining Approach"
+    },
+    {
+      "citation_id": "22",
+      "title": "MELD: A Multimodal Multi-Party Dataset for Emotion Recognition in Conversations",
+      "authors": [
+        "S Poria",
+        "D Hazarika",
+        "N Majumder",
+        "G Naik",
+        "E Cambria",
+        "R Mihalcea"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "23",
+      "title": "Pre-trained Models for Natural Language Processing: A Survey",
+      "authors": [
+        "X Qiu",
+        "T Sun",
+        "Y Xu",
+        "Y Shao",
+        "N Dai",
+        "X Huang"
+      ],
+      "year": "2020",
+      "venue": "SCIENCE CHINA Technological Sciences"
+    },
+    {
+      "citation_id": "24",
+      "title": "2021a. DialogXL: All-in-One XLNet for Multi-Party Conversation Emotion Recognition",
+      "authors": [
+        "W Shen",
+        "J Chen",
+        "X Quan",
+        "Z Xie"
+      ],
+      "year": "2021",
+      "venue": "Thirty-Fifth AAAI Conference on Artificial Intelligence, AAAI 2021, Thirty-Third Conference on Innovative Applications of Artificial Intelligence, IAAI 2021, The Eleventh Symposium on Educational Advances in Artificial Intelligence, EAAI 2021, Virtual Event"
+    },
+    {
+      "citation_id": "25",
+      "title": "Directed Acyclic Graph Network for Conversational Emotion Recognition",
+      "authors": [
+        "W Shen",
+        "S Wu",
+        "Y Yang",
+        "X Quan"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing, ACL/I-JCNLP 2021"
+    },
+    {
+      "citation_id": "26",
+      "title": "Summarize before Aggregate: A Global-to-local Heterogeneous Graph Inference Network for Conversational Emotion Recognition",
+      "authors": [
+        "D Sheng",
+        "D Wang",
+        "Y Shen",
+        "H Zheng",
+        "H Liu"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th International Conference on Computational Linguistics"
+    },
+    {
+      "citation_id": "27",
+      "title": "International Committee on Computational Linguistics",
+      "authors": [
+        "Spain Barcelona"
+      ],
+      "venue": "International Committee on Computational Linguistics"
+    },
+    {
+      "citation_id": "28",
+      "title": "Attention is All you Need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "L Kaiser",
+        "I Polosukhin",
+        "I Guyon",
+        "U Von Luxburg",
+        "S Bengio",
+        "H Wallach",
+        "R Fergus",
+        "S Vishwanathan"
+      ],
+      "year": "2017",
+      "venue": "Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "29",
+      "title": "Understanding Contrastive Representation Learning through Alignment and Uniformity on the Hypersphere",
+      "authors": [
+        "T Wang",
+        "P Isola"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 37th International Conference on Machine Learning, ICML 2020"
+    },
+    {
+      "citation_id": "30",
+      "title": "Transformers: State-of-the-Art Natural Language Processing",
+      "authors": [
+        "T Wolf",
+        "L Debut",
+        "V Sanh",
+        "J Chaumond",
+        "C Delangue",
+        "A Moi",
+        "P Cistac",
+        "T Rault",
+        "R Louf",
+        "M Funtowicz",
+        "J Davison",
+        "S Shleifer",
+        "P Von Platen",
+        "C Ma",
+        "Y Jernite",
+        "J Plu",
+        "C Xu",
+        "T Scao",
+        "S Gugger",
+        "M Drame",
+        "Q Lhoest",
+        "A Rush"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations"
+    },
+    {
+      "citation_id": "31",
+      "title": "ConSERT: A Contrastive Framework for Self-Supervised Sentence Representation Transfer",
+      "authors": [
+        "Y Yan",
+        "R Li",
+        "S Wang",
+        "F Zhang",
+        "W Wu",
+        "W Xu"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing, ACL/IJCNLP 2021"
+    },
+    {
+      "citation_id": "32",
+      "title": "XLNet: Generalized Autoregressive Pretraining for Language Understanding",
+      "authors": [
+        "Z Yang",
+        "Z Dai",
+        "Y Yang",
+        "J Carbonell",
+        "R Salakhutdinov",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "33",
+      "title": "Emotion Detection on TV Show Transcripts with Sequence-Based Convolutional Neural Networks",
+      "authors": [
+        "S Zahiri",
+        "J Choi"
+      ],
+      "year": "2018",
+      "venue": "The Workshops of the The Thirty-Second AAAI Conference on Artificial Intelligence, New Orleans"
+    },
+    {
+      "citation_id": "34",
+      "title": "Knowledge-Enriched Transformer for Emotion Detection in Textual Conversations",
+      "authors": [
+        "P Zhong",
+        "D Wang",
+        "C Miao"
+      ],
+      "year": "2019",
+      "venue": "Knowledge-Enriched Transformer for Emotion Detection in Textual Conversations"
+    },
+    {
+      "citation_id": "35",
+      "title": "Topic-Driven and Knowledge-Aware Transformer for Dialogue Emotion Detection",
+      "authors": [
+        "L Zhu",
+        "G Pergola",
+        "L Gui",
+        "D Zhou",
+        "Y He"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing, ACL/IJCNLP 2021"
+    }
+  ]
+}

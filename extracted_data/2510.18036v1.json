@@ -1,0 +1,887 @@
+{
+  "paper_id": "2510.18036v1",
+  "title": "Transformer Redesign For Late Fusion Of Audio-Text Features On Ultra-Low-Power Edge Hardware",
+  "published": "2025-10-20T19:18:22Z",
+  "authors": [
+    "Stavros Mitsis",
+    "Ermos Hadjikyriakos",
+    "Humaid Ibrahim",
+    "Savvas Neofytou",
+    "Shashwat Raman",
+    "James Myles",
+    "Eiman Kanjo"
+  ],
+  "keywords": [
+    "ermos.hadjikyriakos24",
+    "humaid.ibrahim24",
+    "savvas.neofytou24",
+    "shashwat.raman24",
+    "james.myles24",
+    "component",
+    "formatting",
+    "style",
+    "styling",
+    "insert"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Deploying emotion recognition systems in realworld environments where devices must be small, low-power, and private remains a significant challenge. This is especially relevant for applications such as tension monitoring, conflict de-escalation, and responsive wearables, where cloud-based solutions are impractical. Multimodal emotion recognition has advanced through deep learning, but most systems remain unsuitable for deployment on ultra-constrained edge devices. Prior work typically relies on powerful hardware, lacks realtime performance, or uses unimodal input. This paper addresses that gap by presenting a hardware-aware emotion recognition system that combines acoustic and linguistic features using a late-fusion architecture optimised for Edge TPU. The design integrates a quantised transformer-based acoustic model with frozen keyword embeddings from a DSResNet-SE network, enabling real-time inference within a 1.8 MB memory budget and 21-23 ms latency. The pipeline ensures spectrogram alignment between training and deployment using MicroFrontend and MLTK. Evaluation on re-recorded, segmented IEMOCAP samples captured through the Coral Dev Board Micro microphone shows a 6.3% macro F1 improvement over unimodal baselines. This work demonstrates that accurate, real-time multimodal emotion inference is achievable on microcontroller-class edge platforms through task-specific fusion and hardware-guided model design.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Recent advancements in speech and language processing have notably enhanced our capability to analyze human communication; however, applying these technologies to detect critical social issues, such as conflict and abusive behavior, remains challenging due to significant computational demands. High-performing machine learning models typically necessitate substantial processing resources, restricting their deployment primarily to cloud-based infrastructures or expensive hardware. Consequently, economically disadvantaged communities, who could most benefit from timely intervention and protective technologies, often lack access to these critical tools  [1] . † These authors contributed equally to this work.\n\nMotivated by leveraging artificial intelligence (AI) for social good, particularly in domestic violence detection through conversational analysis, this research prioritises the development of lightweight AI architectures optimized for resource-constrained microcontroller units (MCUs). Deploying efficient models directly on affordable edge devices democratizes AI, making advanced analytical tools broadly accessible regardless of economic status, thereby reducing dependency on costly computational infrastructure  [2] .\n\nPrivacy preservation represents another crucial research driver. Conventional high-performance AI solutions rely predominantly on centralized cloud computing, necessitating the external transmission and processing of personal data, thereby exacerbating privacy and security concerns. In contrast, deploying models locally on MCUs ensures users maintain full control over sensitive data, significantly enhancing privacy and security  [3] ,  [4] .\n\nInitially, the project aimed to directly detect domestic violence within conversational speech. Due to the scarcity of sufficiently large and specifically annotated violent interaction datasets, the research scope pivoted strategically toward general emotion classification. This approach leveraged established emotional speech datasets while adhering to core technical objectives: lightweight architecture, modular design, and real-time inference on low-power devices. Critically, the modularity of the proposed system combining keyword detection with comprehensive spectrogram acoustic analysis facilitates future adaptation to violence detection tasks pending dataset availability.\n\nIntegrating targeted keyword detection and detailed spectrogram analysis, the developed multi-level fusion model effectively captures both semantic content and paralinguistic nuances. This dual-modality framework markedly enhances sensitivity to subtle emotional expressions and potential linguistic indicators of abuse. Furthermore, the final system implementation employs model quantisation and architectural compression, enabling efficient real-time inference of emotions (negative emotions) on low-cost, resource-limited MCUs.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ii. Background And Related Work A. Keyword Detection In Speech Processing",
+      "text": "Keyword spotting (KWS) is the task of detecting predefined keywords or phrases from continuous speech, often in real-time and under resource constraints. It is a core component of many voice-activated systems, such as wakeword detection in virtual assistants like Apple's \"Hey Siri\" or Google's \"OK Google\"  [5] ,  [6] . KWS has long been recognized as a critical task in speech processing  [7] -  [9] , and has evolved significantly from early statistical techniques to modern neural network-based approaches. Traditional systems often relied on Hidden Markov Models (HMMs) and Gaussian Mixture Models (GMMs), but have since transitioned to more powerful and efficient end-to-end deep learning models that better capture spectral and temporal features of speech. Early deep learning-based approaches used fully connected Deep Neural Networks (DNNs), which were later surpassed by convolutional and recurrent architectures for improved accuracy and efficiency on streaming audio  [10] ,  [11] .\n\nDepthwise separable convolutional neural networks (DS-CNNs) like MobileNet  [12] , factorise standard convolutions into lightweight depthwise and pointwise operations, reducing parameter count and compute. Zhang et al. demonstrated that such DS-CNNs outperform similarly sized DNNs by roughly 10% in accuracy on Google's Speech Commands benchmark  [10] . Temporal convolutional networks (TCNs) and compact ResNet-based variants similarly exploit convolutional bottlenecks and residual connections for low-latency inference on-device  [11] ,  [13] .\n\nChannel-wise attention via Squeeze-and-Excitation (SE) blocks further refines feature representations with minimal overhead. SE-enhanced CNNs have repeatedly shown small but consistent gains in KWS accuracy: for example, a depthwise separable ResNet augmented with SE modules outperformed baseline CNNs at comparable model sizes  [14] ,  [15] . More recently, broadcasted residual networks (BC-ResNet) architectures replace most 2D filters with 1D time-domain convolutions and \"broadcast\" outputs across frequency bands, achieving state-of-the-art accuracy (over 98% on 35 commands) with fewer operations  [16] .",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Sentiment Analysis Using Audio",
+      "text": "Emotion recognition from speech and text has been widely studied using both unimodal and multimodal approaches, with the IEMOCAP dataset emerging as a popular benchmark.\n\nIn unimodal speech emotion recognition (SER), early systems relied heavily on handcrafted features such as pitch, energy, and Mel-Frequency Cepstral Coefficients (MFCCs). However, recent methods have shifted toward deep learning architectures. CNNs and long short-term memory (LSTM) networks have proven effective in capturing both spectral and temporal features from speech spectrograms  [17] ,  [18] . More recently, self-supervised learning models like wav2vec 2.0 have achieved remarkable performance by leveraging large pretraining corpora and fine-tuning on smaller emotionlabeled datasets  [19] ,  [20] . Capsule networks (CapsNets) have also gained traction by preserving spatial relationships within spectrograms, enhancing feature representation  [21] .\n\nMultimodal systems, which integrate both acoustic and linguistic modalities, have shown further improvements in emotion classification. Late fusion approaches combining scores from BERT-based text classifiers and CNN or ResNet-based speech models allow leveraging complementary strengths of each modality  [22] . Similarly, featurelevel fusion using embeddings from wav2vec 2.0 and Transformers has yielded strong results  [20] . Multi-task learning (MTL) has also proven effective, where models simultaneously perform speech-to-text and emotion classification tasks, leading to better generalisation and shared feature representations  [23] .",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Datasets",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Iemocap Dataset",
+      "text": "The IEMOCAP dataset is a multimodal corpus developed by the University of Southern California  [24] . It consists of 12 hours of richly annotated audiovisual recordings, capturing speech audio, video streams, facial motion capture data, and textual transcriptions. This dataset is structured into five distinct recording sessions, each involving a pair of professional actors (totalling 10 unique speakers-five males and five females). These sessions consist of both scripted dialogues and improvised conversations, intentionally designed to elicit and cover a diverse range of emotional expressions.\n\nEach dialogue segment within IEMOCAP is annotated by expert evaluators, ensuring label reliability. Annotations include categorical labels such as anger, happiness, sadness, frustration, excitement, and neutral. Audio recordings within IEMOCAP are provided in stereo format, with each channel capturing one speaker separately, thus facilitating targeted speaker-specific emotion analysis.\n\nVarious state-of-the-art emotion recognition approaches have been evaluated using IEMOCAP, achieving noteworthy performance metrics  [25]    [26] . For example, certain methodologies have reported weighted accuracies surpassing 75 percent for categorical emotion classification tasks, underscoring the dataset's efficacy and significance in driving forward research in emotional computing and machine learning applications.\n\nFor training and validation purposes, under conditions that reflect the actual audio quality of the microcontroller, one session from the original dataset was re-recorded using the microcontroller's microphone. This approach ensured the development of a test and validation dataset with identical microphone characteristics to those of the target hardware.\n\nTo guarantee consistency and reproducibility, the following experimental setup was employed. A custom stand was designed and 3D printed to securely hold the microcontroller in a fixed position throughout the recording process. Audio playback was delivered via a 2020 MacBook Pro, with the microcontroller positioned equidistantly from the laptop's stereo speakers, at an approximate distance of 15 cm from each speaker.\n\nThe microcontroller was programmed with custom C++ firmware to enable real-time audio streaming to a Linuxbased laboratory workstation. A Python script on the workstation captured the audio stream and saved it in .wav format. Following the recording, the audio was compressed and converted to .mp3 format for storage and further processing. The recording session lasted a total of 2 hours, 17 minutes, and 38 seconds at a sampling rate of 16 kHz. The resulting audio file was subsequently segmented into individual clips that correspond precisely to those in the original dataset.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Librispeech Dataset",
+      "text": "A dataset of spoken keywords and non-keyword audio was curated from open-source corpora. The primary source for the keywords was the LibriSpeech corpus  [27] , which contains roughly 1000 hours of read English speech from audiobooks sampled at 16 kHz. From LibriSpeech, utterances of our target keywords that are common in IEMOCAP dataset were extracted. The start and end timings of the words are extracted using the Montreal Forced Aligner  [28] , similarly to Bittar et al.  [29] . Using the provided alignments, the audio was segmented so each clip contains a single keyword.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Musan Dataset",
+      "text": "To increase noise robustness, the MUSAN corpus  [30]  was incorporated into the datasets. The noise examples consist of recordings such as construction noises, crowd chatter, music, and more. These partitions were mixed with LibriSpeech and IEMOCAP utterances to emulate real-world acoustic conditions, a strategy shown to reduce over-fitting and falsealarm rates in noisy environments  [31] .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Microcontroller",
+      "text": "The Coral Micro DevBoard was selected due to its compact footprint (65×30), minimal RAM capacity (64 MB), and dual-core ARM Cortex CPU combined with a dedicated Tensor Processing Unit (TPU) for accelerated ondevice machine learning (ML) inference. As such the Coral Micro DevBoard is particularly suitable for deployment in resource-constrained environments.  [32]  A. Software Ecosystem: Coral Micro Repository Google's Coral Micro repository  [33] , developed in C++, provides a comprehensive software stack including the FreeRTOS operating system  [34] , essential libraries, device drivers, memory management utilities, and a customoptimized TensorFlow Lite Micro (TFLM) framework for resource-constrained machine learning inference.\n\nKey libraries within the repository include: Kiss FFT, a lightweight Fast Fourier Transform (FFT) library for spectral analysis; TF-Lite MicroFrontend, an advanced audio feature extraction pipeline incorporating Kaiser windowing, FFT, log-energy compression, Per-Channel Energy Normalization (PCAN) auto-gain, and noise reduction; AudioDriver, a dedicated C++ interface for the onboard Pulse-Density Modulation (PDM) microphone; and edgetpu_compiler, which converts TensorFlow Lite Micro models into a TPU-compatible format to enable efficient on-device inference acceleration.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Mel-Spectrograms Generation",
+      "text": "Time-frequency representations such as Melspectrograms are widely used in audio processing. A Mel-spectrogram is created by applying a short-time Fourier transform to the waveform, mapping the resulting linear-frequency bins onto the Mel scale, and logarithmically compressing the band energies. These 2D representations serve as the primary input to the keyword and emotion classification models in this study and are also standard in other domains, including environmental sound tagging, keyword spotting, and speech-to-text systems such as OpenAI's Whisper  [35] .",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "C. Spectrogram Alignment: Training -Inference",
+      "text": "To ensure consistency between spectrogram creation libraries during training (Python/ Librosa) and on-device inference (Coral Micro's MicroFrontend), an alignment process was required due to functional and argument discrepancies between the two libraries. While Librosa offers extensive configurability and feature extraction capabilities, MicroFrontend on Coral Micro provides a fixed, resource-efficient pipeline, including predefined windowing, padding modes, and log-energy compression using lookup tables and bit shifts. Resolving these differences was critical to maintain identical feature representations during both training and inference.\n\nInitial attempts to modify MicroFrontend or port LibrosaCpp to the microcontroller were unsuccessful due to cascading runtime failures, memory overflows, and excessive computational delays that rendered real-time inference infeasible. To overcome these limitations, the Silicon Labs Machine Learning Toolkit (MLTK), a Python wrapper providing full access to MicroFrontend's internal configuration, was adopted. MLTK enabled seamless alignment of spectrogram generation across both environments.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "D. Final Configuration And Empirical Validation",
+      "text": "End-to-end consistency was validated by generating a 30second, 16 kHz .wav file containing sequential tonal bursts. The audio was replayed twice using an iPhone 16 Pro Max positioned 10cm from the Coral Micro's microphone. In the first pass, the device saved the recorded audio for offline spectrogram generation via MLTK; in the second pass, the audio was processed in real time by MicroFrontend, producing a spectrogram output. Accounting for minor ambient noise variations, the comparison confirms alignment between training and inference pipelines (Figure  1 ).\n\nThe final settings for both the MLTK and MicroFrontend, and for all experiments performed in the study were: sample rate 16 kHz; 25 ms window with 10 ms hop; 32 Mel channels spanning 80-7,600 Hz; noise reduction enabled (smoothing bits = 10, even = 0.025, odd = 0.06, min-signal = 0.05); log-scale shift = 6. As an additional adaptation, the audio initially loaded into the training pipeline is kept in 16-bit integer (INT16) format, the exact raw PCM output produced by the Coral Micro's PDM microphone. This is to ensure that the downstream feature extractor sees identical amplitude dynamics and quantization behaviour both on and outside the Coral Micro environment.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "V. Multi-Modal Emotion Classification Architecture",
+      "text": "The emotion classification architecture (Figure  2 ) is composed of two main components: a textual feature extractor, which contains a lightweight keyword spotting (KWS) model, and a ViT-based  [36]  audio feature extractor model. Rather than being used directly for classification, these models act as rich feature extractors, each producing a modality-specific embedding. The two embeddings are processed by the classification head to produce a final emotion classification. This late-fusion design enables the system to perform robust multi-modal inference while maintaining low latency and power consumption. ReLU6 activation functions are used throughout the model in order to maximise postquantization performance  [37] , and dropout is applied to aid generalisation.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Fig. 2: System Architecture",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Vit-Based Audio Feature Extractor",
+      "text": "In order to capture both long-and short-range dependencies between frames in the spectrogram, a light-weight ViT encoder  [36]  is deployed. Specifically, after transposing the spectrogram, a CNN reduces the temporal dimension, significantly reducing the number of parameters required by the attention modules in the transformer blocks.\n\nThe CNN consists of 4 blocks, denoted SpecConv, each containing a strided 2 × 1 convolution to condense information from nearby time-steps, and a 3 × 3 convolution with padding 1, which preserves spatial dimensions. A fully-connected layer is applied row-wise to the output of the CNN, projecting tokens to dimension d model .\n\nSinusoidal positional encodings are injected to the outputs of the CNN, before tokens are propagated through a sequence of 4 transformer-based encoder blocks  [38] . These blocks contain a self-attention mechanism, a position-wise feed-forward neural network, layer-normalisation and residual connections. Finally, global average pooling is applied across the sequence dimension to produce an encoding of length d model , which is received by the classification head.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Textual Feature Extractor",
+      "text": "The primary component of the textual feature extractor is a lightweight KWS model, described in Section V-D, which is trained separately and kept frozen whilst training the emotion classification model. Spectrograms are clipped to match the input size of the KWS model, which produces an embedding that captures linguistic features within the spectrogram. Specifically, activations from the penultimate layer of the KWS model are extracted, resulting in a 256dimensional embedding. A block consisting of two fullyconnected layers, interleaved with dropout, ReLU6 activation functions and a residual connection, is applied to extract information from the embedding and convert its size to d model , before it is passed to the classification head.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Classification Head",
+      "text": "The classification head receives the acoustic and audio embeddings corresponding to the outputs of the audio and textual feature extractors and concatenates them into a single vector. Finally, a fully-connected layer and Softmax is applied, converting logits to a probability distribution over the five emotion categories. The keyword spotting model, named DSResNet-SE, is a compact CNN designed based on ResNet and Squeeze-and-Excitation (SE) architectures, heavily inspired by Xu et al.  [14] . Building upon the depthwise separable convolutional ResNet blocks, it combines them with SE blocks to act as a lightweight attention mechanism. Newer blocks such as broadcasted ResNets (BC-ResBlock)  [16]  were omitted as they depend on operations (e.g. SubSpectralNorm) absent from the Edge TPU's supported list  [39] ,  [40] .",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "D. Keyword Spotting Model Architecture",
+      "text": "With an initial 32-filter convolution, the model uses repeated depthwise-separable convolutional blocks, each comprising a depthwise convolution, pointwise 1 × 1 convolution, batch normalisation, and a ReLU6 activation for quantization efficiency  [37] . The pointwise 1x1 convolution greatly reduces the parameter count compared with a standard 2D convolution without harming audio performance  [10] . Chen et al. found that residual design stabilises training of deeper networks and boosts KWS accuracy by improving gradient flow and encouraging feature reuse  [41] .\n\nAfter each residual block, SE blocks were applied  [15] , using global average pooling to squeeze each channel to a scalar and a small gating network to reweigh them, effectively serving as a lightweight attention mechanism. Softmax was applied to generate class-probability vectors for each sub-window. The feature embeddings for the emotion classification model were generated from the pooled output of the last SE block. These architectural choices keep the network lightweight under resource constrained environments.\n\nIn the literature, KWS models typically take in a 1second input spectrogram  [14] ,  [16] ,  [31] . However, as the acoustic encoder model uses 5-second inputs, and due to the",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Vi. Experimental Methodology",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "A. Kws Model 1) Dataset Preprocessing",
+      "text": "A list of target words were collected from the IEMOCAP transcripts. Stop words and words outside the English vocabulary were removed (e.g. country abbreviations). The top 100 words per emotion were extracted and filtered leading to a list of 58 target keywords. Using the alignments generated by Montreal Forced Aligner, one-second clips were extracted. Keywords with fewer than 2,000 instances were dropped, and those exceeding 20,000 were downsampled, resulting in a final list of 49 keywords.\n\nTo enhance robustness, each 1s keyword segment underwent a multi-stage augmentation pipeline following Tang et al.  [42] : a uniform ±100 ms temporal shift; an 80% chance of adding MUSAN noise at a random 0-15 dB SNR; a 30% chance of pitch-shifting by ±1-2 semitones; and convolutional reverb using room-impulse responses recorded with the target device's microphone. After conversion to 32bin Mel-spectrograms, SpecAugment  [43]  was applied with two time masks (20 frames) and two frequency masks (7 bins).\n\nTo model out-of-vocabulary and noise conditions  [44] , two classes were added: UNKNOWN (LibriSpeech clips without target keywords) and NEGATIVE (10,000 1-second MUSAN noise/ambient clips  [30] ). This expanded the set from 49 to 51 classes. From an initial ∼471K one-second clips, each class was downsampled to 20K examples to reduce imbalance, yielding ∼440K clips and ∼88K 5-second spectrograms for training and evaluation.\n\n2",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": ") Training Procedure",
+      "text": "The DSResNet-SE model was compared with the depthwise-separable CNN (DS-CNN) model  [10]  and the Temporal Efficient neural network TENet by Li et al.  [13]  to evaluate the proposed model's effectiveness. The DS-CNN model is made up of depthwise-separable convolutions for parameter efficiency. The TENet model is built around inverted bottleneck blocks that are made up of depthwise convolutions with a residual connection. Its main function is to perform convolutions along the time axis. To keep comparisons fair, the model parameters were kept within similar ranges. The proposed DSResNet-SE model has 218K trainable parameters, and comprises four stages of ResDS+SE layers interleaved with pooling, and ends with a global average pool and 51-way softmax (Table  II ).\n\nAll models were trained in TensorFlow on an a 80%/10%/10% stratified split of the ∼ 88K five-second segments. ∼ 71K for training, ∼ 8K for validation, and ∼ 9K for final testing. The stratified split preserved the distribution of all 51 classes. To estimate variability, the training was repeated for three independent trials with distinct random seeds, and metrics are reported as the mean ± standard deviation over these runs.  Adam optimiser with an initial learning rate of 2 × 10 -3 and batch size of 64 was used. Class imbalance was addressed by weighting each example inversely to its class frequency. An adaptive learning-rate scheduler monitored validation loss and halved the learning rate after three stagnant epochs. Early stopping on validation loss (patience = 5) halted training well before the 100-epoch limit that was set. All per-epoch loss and accuracy values were logged via CSVLogger. To evaluate robustness on truly unseen data, the best model from each trial was also tested (without fine-tuning or any type of 'cheating') on the out-of-domain IEMOCAP corpus, providing an end-to-end measure of realworld efficacy.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "3) Evaluation",
+      "text": "In Table  III , DSResNet-SE consistently outperforms the other models. The Word Error Rate (WER) measures the fraction of words incorrectly recognised, it is computed as WER = S+D+I N , where S=substitutions, D=deletions, I=insertions, and N =total words in the ground truth. Substitutions are when the prediction includes an incorrect word, deletions are when words are omitted (nothing was predicted), and insertions are extra words not present in the ground truth (extra prediction). Two new metrics are introduced for further analysis: the False Alarm Rate (FAR), which details the proportion of negative events that the model flags as positive, and the Miss Rate (MR) which denotes the proportion of positive events that the model fails to detect.  On LibriSpeech, DSResNet-SE outperforms both baselines, achieving 89.74% accuracy with an F1 score of 0.8972, a word-error rate of 10.26%, and keeping falsealarm and miss rates to just 1.17% and 1.36%, respectively. By contrast, DS-CNN-while still attractive for on-device use-drops to 67.30% accuracy (F1 = 0.6719), with a 32.70% WER, 2.17% false-alarm rate, and 4.63% miss rate. TeNet lags behind both convolutional models, at only 57.30% accuracy (F1 = 0.5687), a 42.70% WER, and miss/false-alarm rates above 3%.\n\nAfter training, the models are evaluated on the IEMOCAP dataset, which was not used at all in the training process. This is to assess true out-of-distribution performance and to quantify how well the KWS models generalise beyond the controlled keywords they were trained on. Unlike the clean, read-speech segments in LibriSpeech, IEMOCAP contains both scripted and fully improvised emotional dialogues.\n\nIn the scripted IEMOCAP sessions (Table  IV ), DSResNet-SE achieved the best balance with an F1 of 0.8322 (precision 0.9307, recall 0.7553), corresponding to WER 28.13%, FAR 6.93%, and MR 24.47%. DS-CNN, despite very high precision (0.9421), suffered from low recall (0.3337), yielding an F1 of 0.4899 and WER 67.28%, while TeNet's near-zero recall (0.0808) gave it an F1 of only 0.1466.\n\nAcross the improvised sessions, all models declined in performance but retained their relative order: DSResNet-SE remained strongest, DS-CNN's F1 fell to 0.2764 (precision 0.7577, recall 0.1750), and TeNet performed at chance. When pooling both scripted and improvised data, DSResNet-SE kept the lead with F1 0.6476 (precision 0.8017, recall 0.5669), WER 48.35%, FAR 18.89%, MR 43.31%; DS-CNN held an F1 of 0.3368 (precision 0.8099, recall 0.2199); and TeNet remained unsuitable (F1 0.0843, recall 0.0463, WER 95.39%).  Comparing DSResNet-SE's performance to the Lib-riSpeech results, it can be seen that the F1 score remained similar, decreasing from 0.8972 to 0.8322. This indicates that the enhancements and augmentations made to the training data were sufficient to help the model generalise to unseen data, with a small residual domain mismatch. LibriSpeech's clean audiobook recordings lack the spontaneous, conversational dynamics present in the improvised sessions, which explains the drop in performance on the improvised dataset.     [45]  was done. The preprocessing strategy was designed to optimize computational efficiency ensuring optimal performance on resource-constrained MCU hardware.\n\nEach audio file from the IEMOCAP dataset was segmented into 5-second chunks with a 1-second overlap. This approach provides a balance between temporal resolution and computational load, facilitating real-time inference on embedded systems. Overlapping windows help capture transitional emotional cues and increase the dataset's size, which is beneficial for training deep learning models  [46] .\n\nThe IEMOCAP recordings feature two channels per session, corresponding to male and female speakers. To enhance the model's ability to generalize across different speaker genders, each audio chunk was duplicated, isolating the male channel in one copy and the female channel in the other. Although the non-target speaker's voice remains faintly audible, this approach increases data diversity and encourages the model to focus on the dominant speaker's emotional cues. This method aligns with findings that gender-specific features can improve SER performance  [47] .\n\nFor classification, only five emotion categories were retained: neutral, happy, sad, angry, and excited. All other emotion classes were discarded. Additionally, the happy and excited classes were merged into a single class, as is common practice in the SER literature  [21] ,  [23] . This simplification not only helps to address class imbalance and improve model robustness but also aligns our evaluation with other stateof-the-art benchmarks that use the same five-class setting on the IEMOCAP dataset  [22] . Also, rather than using categorical labels, soft-labels were created by determining the fraction of the annotations each emotion received in the clip. This choice addressed the ambiguity in labelling when multiple emotions were present, or when the assessment of independent annotators was inconsistent.\n\nTo enable the model to recognize the absence of speech or neutral background conditions, a 'none' class was introduced, similar to the KWS model's 'UNKNOWN' class. This class comprises of background noise samples taken from the MUSAN dataset, representing various ambient environments. Segments from the IEMOCAP dataset where only the non-target speaker is active were also taken, resulting in low-amplitude speech. This strategy trains the model to distinguish between active speech and silence or background noise, enhancing its real-world applicability. Incorporating non-speech segments is a common practice to improve the robustness of SER systems in practical scenarios  [48] .\n\nFor model evaluation, Session 1 of the IEMOCAP dataset was designated as the validation set, while Sessions 2 through 5 served as the training set. This session-based split ensures speaker independence between training and validation data, providing a robust assessment of the model's generalization capabilities. To assess the model's performance in real-world conditions, the entirety of Session 1 was recorded using the Coral Dev Board Micro's onboard microphone. As these recordings were mono (one channel), the audio was segmented into 5-second chunks and the segments containing overlapping speech from both speakers were excluded. This real-world validation set guided hyperparameter tuning and final model selection, ensuring alignment with deployment scenarios. Moreover, backgroundnoise clips recorded directly on the microcontroller were distributed evenly across the sessions. Evaluating models on data captured from the target deployment environment is crucial for assessing real-time performance and robustness  [49] .\n\n2) Training Procedure Models were trained for 125 epochs using the Adam optimiser with initial learning rate 1 × 10 -4 and batch size 32. These hyperparameters were optimised independently by iterating over a selection of possible values. For each training run, the model configuration with the highest macroaveraged F1-score on the microcontroller validation set was selected. Several methods were applied to reduce overfitting, specifically L2-regularisation with weight decay 1 × 10 -5 , dropout at a rate of 0.1 and the use of the cosine decay learning rate scheduler, which reduced the learning rate by a factor of 2 over the course of training.\n\nA weighted cross-entropy loss was used, which assigned additional importance to under-represented categories. Additionally, samples recorded on the microcontroller were weighted by a factor of 1.1, encouraging models to perform better on the microcontroller. Prior to spectrogram creation, several augmentations were applied to the waveforms, similarly to those described in section VI-A1. The methods applied were as follows: Gaussian noise addition with σ = 5 × 10 -3  [50] , the inclusion of randomly sampled background noise from the MUSAN dataset  [30]  and convolving waveforms with room impulse response clips  [51] . Upon spectrogram creation, SpecAugment  [43]  was applied, using frequency masks up to 4 bins wide and time masks of at most 50 frames. The augmentations occurred with probabilities 0.15, 0.2, 0.1, 0.2 and 0.2 respectively -values which were obtained by sequential tuning; gradually increasing each parameter until no improvement in performance was observed.\n\n3",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": ") Ablation Study",
+      "text": "To evaluate the contribution of each component to the model's performance, an ablation study was conducted. The primary goal was to understand the effect of augmentations, recorded MCU validation samples in training, and fusion with the keyword spotting model (KWS). Each experiment builds on the previous and introduces one change at a time to isolate its effect.\n\nIn Experiment 1, the model was trained without any of our proposed waveform or spectrogram augmentations and without integrating the keyword-spotting (KWS) branch; this established a reference point for baseline performance on MCU-recorded validation data. Building on that, Experiment 2 incorporated all augmentation strategies (Gaussian noise, MUSAN background, RIR convolution, and SpecAugment) while still omitting the KWS module, demonstrating how data augmentation alone boosts generalisation. To test whether the micro validation set (that was recorded on the MCU) would give a performance boost or not, they were added in training. In Experiment 3, a subset of the recorded microcontroller validation clips was removed from validation and kept away to evaluate the model performance on the remaining validation set. Then in Experiment 4, that same subset was added into the training to quantify the gains from including representative MCU audio during training. Next, Experiment 5 added the keyword-spotting network via an early-fusion architecture. KWS model's output embeddings were given to the acoustic branch as an input to the encoder to measure its contribution. Finally, Experiment 6 employed late fusion, by concatenating KWS embeddings with the embeddings of the encoder before the classifier head; this configuration achieved the highest Micro Validation F1, indicating that decoupling the two tasks and merging their output embeddings produces the most robust performance on the MCU validation set. The results in terms of best achieved Micro F1-score for each configuration are reported in Table  VI",
+      "page_start": 9,
+      "page_end": 10
+    },
+    {
+      "section_name": "4) Evaluation",
+      "text": "To comprehensively assess both classification effectiveness and edge deployment viability, the following metrics were evaluated for our best-performing configuration (Experiment 6: Late-fusion Model). This setup achieved a best micro validation F1 of 0.6107 with an accuracy of 0.6438, and a best validation F1 of 0.5256 with an accuracy of 0.4913.    In the next stage of the workflow, the Coral Micro's Edge TPU is utilized. This purpose-built, low-power device delivers up to 4 TOPS (trillions of operations per second) while consuming under 0.5 W per TOPS  [52] . Only 8-bit integer operations are supported on the Edge TPU, requiring all weights and activations to be quantized in advance (done via TensorFlow Lite's post-training quantization). A limited list of operations are supported, which has driven architectural adaptations such as the adoption of ReLU6 activations and depthwise-separable layers. Any unsupported layers or data types must be rewritten or approximated using TPU-compatible equivalents.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "A. Impact On Models And Data Pre-Quantization",
+      "text": "The Edge TPU is limited to processing unbatched inputs and supports only one-, two-, or three-dimensional tensors. When a tensor exceeds three dimensions, only its three innermost dimensions may have sizes greater than one  [39] . These restrictions led the KWS model to consume the entire 5-second spectrogram in a single pass, emitting one label per second, rather than batching five 1-second spectrograms. In the emotion classification model, to constrain the O(N 2 ) complexity of attention on a 32 × 498 Mel-spectrogram (transposed into a sequence of 498 tokens), a CNN reduces the temporal dimension from 498 to 32 frames, to preserve local temporal features, before the transformer.\n\nAs the TPU's on-chip SRAM can cache only about 8 MB of model parameters (after reserving space for the inference engine), compiled models must stay below this limit to be fully resident and accelerated on the Edge TPU, which was achieved by the model as seen in Table  VII . The dimensionality of the feed-forward blocks in the emotion classification model was kept constant rather than expanding by a factor of four, as in standard transformer architectures  [38] , to meet the Edge TPU's memory and compute budgets. Not to mention, the spectral resolution of the Mel-spectrograms were halved, decreasing the channel count was from 64 to 32, to conform to the TPU's 8 MB on-chip memory limit.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B. Deployment Overview And Considerations",
+      "text": "The TensorFlow→TFLite→Edge TPU deployment flow is shown in Figure  7 . TensorFlow models are first converted to TFLite format and quantized to INT8 precision  [39] . The TFLite graph is partitioned during compiler time: supported subgraphs are merged into an edgetpu-custom-op, while unsupported operations remain on the CPU (Fig.  7b ). Because TPU fallbacks still execute on-device under TFLM-which supports a subset of TFLite operations-any unsupported operation both degrades performance and risks runtime failure. Strict requirements apply: all tensor shapes must be static, parameters constant, and tensors limited to three dimensions. Compiler/runtime version compatibility is also critical for correct on-device execution  [39] .\n\nOn the Coral Micro, an additional constraint applies: operations that fall back to CPU execution must also be compatible with TFLM, which supports a narrower set of operations than TFLite. As a result, unsupported operations degrade inference performance and may cause runtime incompatibilities. Thus, it is critical that all operations are executed entirely on the Edge TPU. Lastly, it is important to distinguish between the TPU compiler and runtime. The compiler is an offline tool that converts TFLite models into Edge-TPU models, while the runtime operates on-device, ensuring delegated operations are executed. Runtime and Compiler version compatibility is essential for correct ondevice execution  [39] .",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "C. Edge Tpu Deployment Challenges",
+      "text": "Initial model compilation failed because, unlike the compiler, the TFLM runtime lacked certain operation definitions such as SquaredDifference. Updating the runtime to support missing operations was deemed infeasible due to extensive library-level incompatibilities. Fixing a small issue in the massive Coral Micro repository triggers a domino effect of errors across thousands of interdependent files. Debugging it would require deep hardware and low-level systems expertise well outside the scope of the team members' skillsets and knowledge. Ultimately, missing operators were either manually reimplemented using supported primitives, such as SUB and SQUARED, or abandoned entirely.\n\nInference on the target model yielded identical outputs for all inputs. Deploying YAMNet confirmed the audio pipeline was correct, so the issue was traced to model shapes: fullyconnected layers and multi-head attention were fed 2D/3D tensors unsupported by the Edge TPU. To bypass the size restrictions, a 1×1 convolution was implemented to conform to the TPU's 1D-3D tensor limitation  [39] . A single head attention block was maintained as multi-head attention over 3D tensors was not supported. Model capacity was recovered by enlarging the CNN front end and stacking additional transformer layers, taking advantage of the memory savings from using a single head.  When deployed, on the Coral Micro indicated an inference latency of 21-23 ms, a maximum TPU temperature of 32.5 °C, and a constant power draw of 2.5 W (5 V at 0.5 A) while executing the quantized model. On a typical 500 mAh battery pack, the microcontroller can constantly perform inference for approximately 44 minutes. In practice, continuous inference would be unsustainable. Ideally, a lightweight sound-detection front end would trigger the full model only when relevant audio is present, substantially extending battery life. This can be achieved by utilising the Coral Micro's Dual-Cortex processor. The slower processor can be used to perform sound detection, and the faster processor reserved for the main system.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Viii. Conclusion And Future Work",
+      "text": "A modular and efficient audio-text analysis system was developed to enable real-time emotion recognition on low-power edge devices. A lightweight KWS architecture (DSResNet-SE) was proposed, incorporating residual connections, depthwise-separable convolutions, and SE blocks to balance model performance and computational efficiency. The KWS model was evaluated on both in-distribution (LibriSpeech) and out-of-distribution (IEMOCAP) datasets, where it demonstrated competitive accuracy and robustness compared to existing compact baselines. A late-fusion strategy was employed to integrate acoustic and linguistic features, further enhancing emotion-recognition performance. The final model was successfully quantized and deployed on the Coral Dev Board Micro, enabling continuous inference while maintaining user privacy.\n\nDespite the system's strong generalisation performance on re-recorded samples, robustness to varied environmental conditions and speaker diversity remains an area for improvement. Broader datasets and cross-domain evaluation could help address this. Future work will focus on three main areas. First, on-device personalisation techniques such as continual learning will be explored to improve adaptation to individual users. Second, integration of a lightweight sounddetection trigger will be implemented to activate inference only when relevant audio is detected, thereby extending battery life. Finally, a wearable prototype will be developed to validate portability and functionality in real-world scenarios. Through these enhancements, the framework is expected to provide a foundation for scalable, ethical, and privacypreserving audio intelligence at the edge.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Comparison of mel-spectrograms: (a) generated on",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: System Architecture",
+      "page": 4
+    },
+    {
+      "caption": "Figure 4: DSResNet-SE model architecture, with a magnified",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: Squeeze and Excitation (SE) block architecture",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: Training loss and accuracy of the DSResNet-SE",
+      "page": 7
+    },
+    {
+      "caption": "Figure 6: shows the confusion matrix of the best performing",
+      "page": 9
+    },
+    {
+      "caption": "Figure 6: Confusion Matrix on the validation set",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: TensorFlow models are first converted to",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: Pipeline for the quantization and deployment of a TensorFlow model to the Edge TPU.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 8: illustrates a flowchart of the final pipeline de-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 8: Flowchart illustrating the algorithm deployed on the MCU.",
+      "page": 11
+    }
+  ],
+  "tables": [],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Using artificial intelligence to detect risk of family violence: Protocol for a systematic review and meta-analysis",
+      "authors": [
+        "K De Boer",
+        "J Mackelprang",
+        "M Nedeljkovic",
+        "D Meyer",
+        "R Iyer"
+      ],
+      "year": "2024",
+      "venue": "JMIR Research Protocols"
+    },
+    {
+      "citation_id": "2",
+      "title": "Emotions beyond words: Non-speech audio emotion recognition with edge computing",
+      "authors": [
+        "I Malik",
+        "S Latif",
+        "S Manzoor",
+        "M Usama",
+        "J Qadir",
+        "R Jurdak"
+      ],
+      "year": "2023",
+      "venue": "Emotions beyond words: Non-speech audio emotion recognition with edge computing",
+      "arxiv": "arXiv:2305.00725"
+    },
+    {
+      "citation_id": "3",
+      "title": "Privacy enhanced speech emotion communication using deep learning aided edge computing",
+      "authors": [
+        "H Ali",
+        "F Hassan",
+        "S Latif",
+        "H Manzoor",
+        "J Qadir"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE International Conference on Communications Workshops (ICC Workshops)"
+    },
+    {
+      "citation_id": "4",
+      "title": "Privacy-preserving speech emotion recognition through semi-supervised federated learning",
+      "authors": [
+        "V Tsouvalas",
+        "T Ozcelebi",
+        "N Meratnia"
+      ],
+      "year": "2022",
+      "venue": "Privacy-preserving speech emotion recognition through semi-supervised federated learning",
+      "arxiv": "arXiv:2202.02611"
+    },
+    {
+      "citation_id": "5",
+      "title": "Hey siri: An on-device dnn-powered voice trigger for apple's personal assistant",
+      "authors": [
+        "Apple Inc"
+      ],
+      "year": "2017",
+      "venue": "Hey siri: An on-device dnn-powered voice trigger for apple's personal assistant"
+    },
+    {
+      "citation_id": "6",
+      "title": "Keyword spotting for google assistant using contextual speech recognition",
+      "authors": [
+        "A Michaely",
+        "X Zhang",
+        "G Simko",
+        "C Parada",
+        "P Aleksic"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE Automatic Speech Recognition and Understanding Workshop"
+    },
+    {
+      "citation_id": "7",
+      "title": "A hidden markov model based keyword recognition system",
+      "authors": [
+        "R Rose",
+        "D Paul"
+      ],
+      "year": "1990",
+      "venue": "International Conference on Acoustics, Speech, and Signal Processing"
+    },
+    {
+      "citation_id": "8",
+      "title": "Automatic recognition of keywords in unconstrained speech using hidden markov models",
+      "authors": [
+        "J Wilpon",
+        "L Rabiner",
+        "C.-H Lee",
+        "E Goldman"
+      ],
+      "year": "1990",
+      "venue": "IEEE Transactions on Acoustics, Speech, and Signal Processing"
+    },
+    {
+      "citation_id": "9",
+      "title": "Continuous hidden markov modeling for speaker-independent word spotting",
+      "authors": [
+        "J Rohlicek",
+        "W Russell",
+        "S Roukos",
+        "H Gish"
+      ],
+      "year": "1989",
+      "venue": "International Conference on Acoustics, Speech, and Signal Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Hello edge: Keyword spotting on microcontrollers",
+      "authors": [
+        "Y Zhang",
+        "N Suda",
+        "L Lai",
+        "V Chandra"
+      ],
+      "year": "2018",
+      "venue": "Hello edge: Keyword spotting on microcontrollers"
+    },
+    {
+      "citation_id": "11",
+      "title": "Temporal convolution for real-time keyword spotting on mobile devices",
+      "authors": [
+        "S Choi",
+        "S Seo",
+        "B Shin",
+        "H Byun",
+        "M Kersner",
+        "B Kim",
+        "D Kim",
+        "S Ha"
+      ],
+      "year": "2019",
+      "venue": "Temporal convolution for real-time keyword spotting on mobile devices"
+    },
+    {
+      "citation_id": "12",
+      "title": "Mobilenets: Efficient convolutional neural networks for mobile vision applications",
+      "authors": [
+        "A Howard",
+        "M Zhu",
+        "B Chen",
+        "D Kalenichenko",
+        "W Wang",
+        "T Weyand",
+        "M Andreetto",
+        "H Adam"
+      ],
+      "year": "2017",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "13",
+      "title": "Small-footprint keyword spotting with multi-scale temporal convolution",
+      "authors": [
+        "X Li",
+        "X Wei",
+        "X Qin"
+      ],
+      "year": "2020",
+      "venue": "Small-footprint keyword spotting with multi-scale temporal convolution"
+    },
+    {
+      "citation_id": "14",
+      "title": "Depthwise separable convolutional resnet with squeeze-and-excitation blocks for small-footprint keyword spotting",
+      "authors": [
+        "M Xu",
+        "X Zhang"
+      ],
+      "year": "2004",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "15",
+      "title": "Squeeze-andexcitation networks",
+      "authors": [
+        "J Hu",
+        "L Shen",
+        "S Albanie",
+        "G Sun",
+        "E Wu"
+      ],
+      "year": "2019",
+      "venue": "Squeeze-andexcitation networks"
+    },
+    {
+      "citation_id": "16",
+      "title": "Broadcasted residual learning for efficient keyword spotting",
+      "authors": [
+        "B Kim",
+        "S Chang",
+        "J Lee",
+        "D Sung"
+      ],
+      "year": "2023",
+      "venue": "Broadcasted residual learning for efficient keyword spotting"
+    },
+    {
+      "citation_id": "17",
+      "title": "Speech emotion recognition based on convolutional neural network",
+      "authors": [
+        "H Yang",
+        "Y Zou",
+        "X Yang",
+        "C Wang"
+      ],
+      "year": "2018",
+      "venue": "2018 International Conference on Artificial Intelligence and Big Data (ICAIBD)"
+    },
+    {
+      "citation_id": "18",
+      "title": "Efficient emotion recognition from speech using deep learning on spectrograms",
+      "authors": [
+        "A Satt",
+        "S Rozenberg",
+        "R Hoory"
+      ],
+      "year": "2017",
+      "venue": "Efficient emotion recognition from speech using deep learning on spectrograms"
+    },
+    {
+      "citation_id": "19",
+      "title": "Speech emotion recognition using self-supervised features",
+      "authors": [
+        "E Morais",
+        "R Hoory",
+        "W Zhu",
+        "I Gat",
+        "M Damasceno",
+        "H Aronowitz"
+      ],
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "20",
+      "title": "Multimodal emotion recognition with high-level speech and text features",
+      "authors": [
+        "M Makiuchi",
+        "K Uto",
+        "K Shinoda"
+      ],
+      "venue": "IEEE Automatic Speech Recognition and Understanding Workshop"
+    },
+    {
+      "citation_id": "21",
+      "title": "Speech emotion recognition using capsule networks",
+      "authors": [
+        "X Wu",
+        "S Liu",
+        "Y Cao"
+      ],
+      "year": "2019",
+      "venue": "IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Multimodal emotion recognition using transfer learning from speaker recognition and bert-based models",
+      "authors": [
+        "S Padi",
+        "S Sadjadi",
+        "D Manocha",
+        "R Sriram"
+      ],
+      "year": "2022",
+      "venue": "Multimodal emotion recognition using transfer learning from speaker recognition and bert-based models"
+    },
+    {
+      "citation_id": "23",
+      "title": "Speech emotion recognition with multi-task learning",
+      "authors": [
+        "X Cai",
+        "J Yuan",
+        "R Zheng",
+        "L Huang",
+        "K Church"
+      ],
+      "year": "2021",
+      "venue": "Speech emotion recognition with multi-task learning"
+    },
+    {
+      "citation_id": "24",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Proceedings of the Sixth International Conference on Language Resources and Evaluation (LREC)"
+    },
+    {
+      "citation_id": "25",
+      "title": "Dawn of the transformer era in speech emotion recognition: Closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "26",
+      "title": "Speech emotion recognition with multiscale area attention and data augmentation",
+      "authors": [
+        "M Xu",
+        "F Zhang",
+        "X Cui",
+        "W Zhang"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "27",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "28",
+      "title": "Montreal forced aligner: Trainable text-speech alignment using kaldi",
+      "authors": [
+        "M Mcauliffe",
+        "M Socolof",
+        "S Mihuc",
+        "M Wagner",
+        "M Sonderegger"
+      ],
+      "year": "2017",
+      "venue": "Montreal forced aligner: Trainable text-speech alignment using kaldi"
+    },
+    {
+      "citation_id": "29",
+      "title": "Improving vision-inspired keyword spotting using dynamic module skipping in streaming conformer encoder",
+      "authors": [
+        "A Bittar",
+        "P Dixon",
+        "M Samragh",
+        "K Nishu",
+        "D Naik"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024 -2024 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP48485.2024.10447485"
+    },
+    {
+      "citation_id": "30",
+      "title": "Musan: A music, speech, and noise corpus",
+      "authors": [
+        "D Snyder",
+        "G Chen",
+        "D Povey"
+      ],
+      "year": "2015",
+      "venue": "Musan: A music, speech, and noise corpus"
+    },
+    {
+      "citation_id": "31",
+      "title": "Robust keyword spotting for noisy environments by leveraging speech enhancement and speech presence probability",
+      "authors": [
+        "C Yang",
+        "Y Saidutta",
+        "R Srinivasa",
+        "C.-H Lee",
+        "Y Shen",
+        "H Jin"
+      ],
+      "venue": "Robust keyword spotting for noisy environments by leveraging speech enhancement and speech presence probability"
+    },
+    {
+      "citation_id": "32",
+      "title": "Coral dev board micro datasheet",
+      "authors": [
+        "Coral Google",
+        "Team"
+      ],
+      "year": "2025",
+      "venue": "Coral dev board micro datasheet"
+    },
+    {
+      "citation_id": "33",
+      "title": "Google Coral github repository",
+      "year": "2025",
+      "venue": "Google Coral github repository"
+    },
+    {
+      "citation_id": "34",
+      "title": "Rtos fundamentals -freertos documentation",
+      "authors": [
+        "Freertos"
+      ],
+      "year": "2025",
+      "venue": "Rtos fundamentals -freertos documentation"
+    },
+    {
+      "citation_id": "35",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "T Xu",
+        "G Brockman",
+        "C Mcleavey",
+        "I Sutskever"
+      ],
+      "year": "2022",
+      "venue": "Robust speech recognition via large-scale weak supervision"
+    },
+    {
+      "citation_id": "36",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "A Dosovitskiy",
+        "L Beyer",
+        "A Kolesnikov",
+        "D Weissenborn",
+        "X Zhai",
+        "T Unterthiner",
+        "M Dehghani",
+        "M Minderer",
+        "G Heigold",
+        "S Gelly",
+        "J Uszkoreit",
+        "N Houlsby"
+      ],
+      "year": "2020",
+      "venue": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "arxiv": "arXiv:2010.11929"
+    },
+    {
+      "citation_id": "37",
+      "title": "Convolutional deep belief networks on cifar-10",
+      "authors": [
+        "A Krizhevsky"
+      ],
+      "year": "2010",
+      "venue": "Convolutional deep belief networks on cifar-10"
+    },
+    {
+      "citation_id": "38",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "L Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "39",
+      "title": "Tensorflow models on the edge tpu: Supported operations",
+      "authors": [
+        "Coral Google",
+        "Team"
+      ],
+      "year": "2025",
+      "venue": "Tensorflow models on the edge tpu: Supported operations"
+    },
+    {
+      "citation_id": "40",
+      "title": "An evaluation of edge TPU accelerators for convolutional neural networks",
+      "authors": [
+        "A Yazdanbakhsh",
+        "K Seshadri",
+        "B Akin",
+        "J Laudon",
+        "R Narayanaswami"
+      ],
+      "year": "2021",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "41",
+      "title": "Smallfootprint keyword spotting with graph convolutional network",
+      "authors": [
+        "X Chen",
+        "S Yin",
+        "D Song",
+        "P Ouyang",
+        "L Liu",
+        "S Wei"
+      ],
+      "year": "2019",
+      "venue": "Smallfootprint keyword spotting with graph convolutional network"
+    },
+    {
+      "citation_id": "42",
+      "title": "Deep residual learning for small-footprint keyword spotting",
+      "authors": [
+        "R Tang",
+        "J Lin"
+      ],
+      "year": "2017",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "43",
+      "title": "Specaugment: A simple augmentation method for automatic speech recognition",
+      "authors": [
+        "D Park",
+        "W Chan",
+        "Y Zhang",
+        "C.-C Chiu",
+        "B Zoph",
+        "E Cubuk",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Specaugment: A simple augmentation method for automatic speech recognition"
+    },
+    {
+      "citation_id": "44",
+      "title": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "authors": [
+        "P Warden"
+      ],
+      "year": "2018",
+      "venue": "Speech commands: A dataset for limited-vocabulary speech recognition"
+    },
+    {
+      "citation_id": "45",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Iemocap: Interactive emotional dyadic motion capture database"
+    },
+    {
+      "citation_id": "46",
+      "title": "Speech emotion recognition from raw audio using deep learning",
+      "authors": [
+        "G Trigeorgis",
+        "M Nicolaou",
+        "S Zafeiriou",
+        "B Schuller"
+      ],
+      "year": "2018",
+      "venue": "Speech emotion recognition from raw audio using deep learning",
+      "arxiv": "arXiv:1805.01576"
+    },
+    {
+      "citation_id": "47",
+      "title": "A deep learning method using gender-specific features for speech emotion recognition",
+      "authors": [
+        "X Zhang",
+        "W Fu",
+        "M Liang"
+      ],
+      "year": "2023",
+      "venue": "Sensors"
+    },
+    {
+      "citation_id": "48",
+      "title": "Evaluating the impact of voice activity detection on speech emotion recognition",
+      "authors": [
+        "B Schuller",
+        "A Batliner",
+        "S Steidl",
+        "D Seppi"
+      ],
+      "year": "2022",
+      "venue": "Frontiers in Computer Science"
+    },
+    {
+      "citation_id": "49",
+      "title": "Real-time speech emotion recognition based on syllable-level feature extraction",
+      "authors": [
+        "A Rehman",
+        "Z.-T Liu",
+        "M Wu",
+        "W.-H Cao",
+        "C.-S Jiang"
+      ],
+      "year": "2022",
+      "venue": "Real-time speech emotion recognition based on syllable-level feature extraction",
+      "arxiv": "arXiv:2204.11382"
+    },
+    {
+      "citation_id": "50",
+      "title": "A comparison on data augmentation methods based on deep learning for audio classification",
+      "authors": [
+        "S Wei",
+        "S Zou",
+        "F Liao",
+        "W Lang"
+      ],
+      "year": "2020",
+      "venue": "Journal of Physics: Conference Series",
+      "doi": "10.1088/1742-6596/1453/1/012085"
+    },
+    {
+      "citation_id": "51",
+      "title": "Audio data augmentation",
+      "authors": [
+        "M Hira"
+      ],
+      "year": "2025",
+      "venue": "Audio data augmentation"
+    },
+    {
+      "citation_id": "52",
+      "title": "Edge TPU performance benchmarks",
+      "authors": [
+        "Google Coral"
+      ],
+      "year": "2020",
+      "venue": "Edge TPU performance benchmarks"
+    }
+  ]
+}

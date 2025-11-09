@@ -1,0 +1,2150 @@
+{
+  "paper_id": "2406.12317v1",
+  "title": "Finding Task-Specific Subnetworks In Multi-Task Spoken Language Understanding Model",
+  "published": "2024-06-18T06:39:41Z",
+  "authors": [
+    "Hayato Futami",
+    "Siddhant Arora",
+    "Yosuke Kashiwagi",
+    "Emiru Tsunoo",
+    "Shinji Watanabe"
+  ],
+  "keywords": [
+    "spoken language understanding",
+    "speech recognition",
+    "network pruning",
+    "continual learning"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Recently, multi-task spoken language understanding (SLU) models have emerged, designed to address various speech processing tasks. However, these models often rely on a large number of parameters. Also, they often encounter difficulties in adapting to new data for a specific task without experiencing catastrophic forgetting of previously trained tasks. In this study, we propose finding task-specific subnetworks within a multi-task SLU model via neural network pruning. In addition to model compression, we expect that the forgetting of previously trained tasks can be mitigated by updating only a taskspecific subnetwork. We conduct experiments on top of the state-of-the-art multi-task SLU model \"UniverSLU\", trained for several tasks such as emotion recognition (ER), intent classification (IC), and automatic speech recognition (ASR). We show that pruned models were successful in adapting to additional ASR or IC data with minimal performance degradation on previously trained tasks.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Many recent studies on language and speech processing have been advancing toward unified models that can solve a wide range of tasks. Large Language Models (LLMs)  [1]  are epitomes of those. LLMs have the ability to perform various natural language processing (NLP) tasks, instructed by prompts that describe the task. In the field of speech processing, SpeechPrompt  [2, 3]  has proposed prompt tuning on Generative Spoken Language Model (GSLM)  [4]  to perform a wide variety of spoken language understanding (SLU) tasks. SLU, which we focus on in this study, covers understanding semantics, paralinguistics, and content from speech 1 . We include a few representative SLU tasks in this study, such as intent classification (IC), emotion recognition (ER), and automatic speech recognition (ASR). Recently, UniverSLU has been proposed as a universal spoken language understanding (SLU) model, which fine-tunes Whisper  [6]  by extending Whisper-style task specifier to various SLU tasks  [5] . UniverSLU has shown superior performances compared to the state-of-the-art task-specific models and prior unified models. More recently, several studies have been working on extending LLMs to process audio input, performing some SLU tasks  [7, 8, 9] .\n\nAlthough such unified multi-task models are promising in performance and usability, they often suffer from large model sizes. Another problem is that when new data for a specific task become available, additional training on the task can lead to 1 We use the term SLU in a broader sense, following  [2, 3, 5]  neutral alarm_set \"start alarm\"\n\n(speech) SER IC ASR (task specifier)\n\nFigure  1 : Illustration of task-specific subnetworks in multi-task SLU model. To solve SER task, only subnetwork represented as green pathways is activated.\n\ncatastrophic forgetting  [10]  of other tasks trained before. This is addressed by continual learning, which has been getting attention in ASR  [11, 12, 13, 14, 15]  and SLU  [16, 17] . Continual learning is especially in demand for large-scale speech foundation models, as they require high retraining cost  [18] . To solve the above two issues, we propose a network pruning method to find task-specific subnetworks in a multitask SLU model. Pruning has been applied to ASR and SLU to reduce memory footprint and speedup in inference  [19, 20, 21, 22] . A recent study on multi-lingual ASR  [23]  has succeeded in finding language-specific subnetworks via Lottery Ticket Hypothesis  [24]  -based pruning. In this study, we extend it to multi-task SLU, where pruning is applied to identify taskspecific subnetworks defined as pathways on the model. During training and inference of a task, only a subnetwork for the task is activated, as shown in Figure  1 . While pruning reduces parameter counts, we also expect better continual learning via network pruning, not investigated in  [23] . During training, only parameters in the task-specific subnetwork are updated while others remain unchanged, which works to mitigate catastrophic forgetting of other tasks.\n\nIn this study, we focus on finding task-specific subnetworks in UniverSLU  [5] . We have trained the model for ER on IEMO-CAP corpus  [25] , IC on SLURP  [26] , and ASR on LibriSpeech  [27] . We found that pruned models achieved better performances on ER and IC with much smaller parameter counts. We also explore continual learning on additional ASR or IC data. We observed that, for pruned models, the performances of tasks not currently trained were less deteriorated. We further observed that the method was effective for UniverSLU trained on more tasks including named entity recognition (NER), and speech command recognition (SCR), and IC on other datasets, which also offers insight into how similarity between tasks lead to overlap between task-specific subnetworks. Network pruning is a technique for removing unnecessary parameters from neural networks, which can reduce model size and computation costs. Structured pruning remove parameters in groups, while unstructured pruning remove them individually  [28] . This study focuses on unstructured pruning, where it is less effective to achieve computational efficiency in modern libraries and hardware. However, both often share the same insights, and these insights can be applied to each other, as indicated in previous studies  [19, 24] . The Lottery Ticket Hypothesis (LTH) study  [24]  has demonstrated the existence of sparse subnetworks (called \"winning tickets\") that match or even surpass the performance of the original dense networks. There are several recent studies on pruning in speech processing  [19, 20, 21, 22, 23] . In  [20] , LTH for ASR has been investigated. Pruning of self-supervised learning (SSL) based models have been investigated in  [19]  and  [21] . Some other studies focus on obtaining multiple subnetworks of different properties within a single model  [22, 23] . Omni-sparsity DNN  [22]  trains subnetworks of different sparsity. In  [23] , language-specific subnetworks in a multi-lingual ASR model are considered. Unlike these studies, our study focuses on a multi-task SLU model and looks for subnetworks for different SLU tasks. Moreover, our study represents the first investigation into the benefits of continual learning via pruning in SLU.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Continual Learning",
+      "text": "Continual learning, or lifelong learning, aims to learn new data while preventing catastrophic forgetting of previously learned knowledge. Continual learning methods can be categorized into three: regularization-based, replay-based, and architecturebased methods. Regularization-based methods introduce an additional regularization term  [29, 30] , which has also been investigated in ASR  [11]  and SLU  [16, 17] . Replay-based methods replay examples from previous data  [31] , including studies for ASR  [12] . Architecture-based methods spare isolated parameters for new task. This can be done by updating only a part of the entire parameters  [13, 14, 15] . Especially in  [32]  and  [33] , network pruning is applied sequentially for image recognition tasks, where parameters not used in preceding tasks are allocated for the current task. In contrast, parameter sharing between tasks can exist in our study. This is more parameter efficient and flexible, where each subnetwork can be designed with any sparsity.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Finding Task-Specific Subnetworks",
+      "text": "In this study, we propose finding task-specific subnetworks in a multi-task SLU model. We aim to identify individual pathways for each SLU task on a single dense network of shared parameters, which we call multi-task pruning. On the other hand, obtaining individual sparse models for SLU tasks is called single-task pruning. Multi-task pruning allows us to switch tasks by switching only pathways, which is parameter efficient and preferable for deployment. To realize this, we adapt a pruning method originally proposed for multi-lingual ASR  [23]  to multi-task SLU.\n\nLet f (X, st; θ) denote a multi-task SLU network with input speech X, prompt of task specifier st, and parameters θ. Task specifier is defined for each task t ∈ T and instruct the network which task to solve, where T denotes a set of SLU tasks.  end for 8: until The loop repeated R times For pruning, we reformulate f (X, st; θ) as f (X, st; m ⊙ θ), where m ∈ {0, 1} |θ| denotes a pruning mask. We assume taskspecific pruning, where m is task-specific denoted as mt for task t. Our multi-task pruning consists of two steps: (1) identifying pruning mask mt and (2) updating parameters θ using mt.\n\nIn the first step we identify the task-specific pruning mask, as summarized in Algorithm 1. First, we randomly select a task t at the beginning of the loop (Line 3). Then, we train the network on batches from dataset of task t denoted as Dt for N1 iterations (Line 5). After training, pruning is done by setting the pruned position of mt to 0 (Line 7). In this study, we apply global pruning, where the parameters with the top p% smallest magnitude across all the layers are pruned. After pruning, the parameters are reset to θ0 based on LTH  [24]  (Line 8). We assume iterative pruning, where pruning is repeatedly applied Q times, leading to subnetworks of 1 -(1 -p) Q % sparsity.\n\nConsequently, we update the parameters based on the identified mask mt, as in Algorithm 2. Model parameters θ are shared across tasks, which corresponds to multi-task training. Note that each task has its own subnetwork using mt denoted as mt ⊙ θ, so the parameters at subnetwork level are different between tasks. We randomly select task t (Line 3) and train the network on Dt (Line 5). The training is done for N2 iterations, where we set a small value (N1 ≫ N2) for the model not to be biased toward the lately trained tasks. In single-task pruning for comparison, Algorithm 2 is performed independently for each task by employing θt.\n\nOur multi-task pruning not only brings model compression but also has the ability of continual learning, which has not been investigated in  [23] . We assume the case that, when the new data of task tc become available, we additionally train the model only on the task tc data. As continual learning in this study, we aim to improve the performance of task tc, without degrading the performances of other tasks t ̸ = tc. For the pruned models, we update only a portion of parameters of a task-specific subnetwork {θj|mt c ,j = 1} for continual learning. Other parameters {θj|mt c ,j = 0} remain unchanged, some of which is used in a subnetwork for previously trained tasks t ̸ = tc. This can play an important role in retaining the knowledge of such tasks. Fi-   nally, our pruning provides some interpretability, by examining the identified structures of task-specifics subnetworks and their overlap across tasks.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Experimental Evaluations",
+      "text": "We conducted experiments using UniverSLU  [5]  as the multitask SLU model, obtained by fine-tuning Whisper  [6]  on SLU tasks. We used Whisper medium of around 760M parameters as the pre-trained model. Our initial investigation is based on three datasets: IEMOCAP  [25] , SLURP  [26] , and LibriSpeech  [27] , which will be extended to 7 tasks in Section 4.2. IEMOCAP was used for ER, which consists of 12 hours of speech, and 4 emotion classes (neutral, happy, sad, and angry) were used in this study. SLURP was used for IC, which consists of 58 hours of real and 43.5 hours of synthetic speech with 69 intent classes. We left the synthetic subset for continual learning. For ASR, we used LibriSpeech the 100h subset in training and test-other set in evaluation. The training of UniverSLU was done on the mix-ture of the above three datasets, where IEMOCAP was upsampled by 10 times to account for data imbalance. Following the UniverSLU paper  [5] , we specified which language, task, and dataset to solve by using Whisper-style prompts such as \"<EN> <IC> <SLURP>\". We conducted the experiments using the ESPnet toolkit  [34, 35]  and followed its data pre-processing. First, we trained a dense UniverSLU model for the three SLU tasks. Then, we applied network pruning to find taskspecific subnetworks in the dense model as in Algorithm 1 and 2. Algorithm 1 iteratively prunes the network by p = 20% for Q = 2 or 5 times, resulting in approximately 36% and 67% sparsity. We set pruning interval step N1 equivalent to 3 epochs (average N1 = 1300), where the learning rate was set to 2.0 × 10 -4 with 2500 warmup steps. Global pruning was applied to all the layers of both the Whisper encoder and decoder, except for positional embeddings. Algorithm 2 updates model parameters, switching tasks by average N2 = 50 iterations and repeating R = 200 times. The learning rate was set to 1.0 × 10 -5 with 1500 warmup steps.\n\nTable  1  shows the performances of dense and pruned models with different methods. \"Param(%)\" denotes what percentage of parameters of the dense model remains, or are not zero. We note what percentages are needed to perform a single task (denoted as \"One\") and all three tasks (denoted as \"All\"). We compared multi-task and single-task pruning described in Section 3. Multi-task pruning leads to different pathways mt within a single model θ, while single-task pruning leads to different models (θt with mt). To perform a single task, the parameter usage is the same. To perform all the tasks, for multi-task pruning, the parameter usage is guaranteed not to exceed 100% and was 71.0% for the 36% pruned model, due to shared parameters across tasks. However, for single-task pruning, the parameter usage was 64.1 × 3 (tasks) = 193%, which is not parameter efficient. The issue becomes more significant as the number of tasks increases, as seen in Section 4.2. We also compared these two task-specific pruning with task-agnostic pruning, where pruning is done without distinction of tasks, leading to a single pruned model for all the tasks. In terms of the task performances in Table  1 , we found that the accuracy of ER and IC was even improved via pruning. However, we observed performance degradation on ASR, especially for 67% pruning. This would be because ASR is a sequence generation task that requires more parameters than classification tasks ER and IC. We also observed that multi-task pruning achieved competitive performances against single-task pruning, in a parameter efficient way. In case of task-agnostic pruning, all the performances lagged behind those of task-specific pruning. We observed the difference was statistically significant (p < 0.001) for IC and ASR, using the Matched Pair test.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Continual Learning",
+      "text": "We also investigate how our models work in continual learning settings, assuming the case that new training data for a specific task becomes available. We compared training from the dense UniverSLU model and the multi-task pruned models. We also compared them with updating only the linear layers of encoders in the dense model, which is known as a simple yet effective continual learning method for ASR  [13] . We conducted two experiments, using LibriSpeech 360h (ASR) or SLURP synthetic set (IC) as new data. In SLURP experiments, as it is difficult to train the model only on the synthetic speech, we trained them on the mixture of real and synthetic SLURP.\n\nFigure  2a  shows the results of the LibriSpeech experiments. As training went on, the ASR performance got improved for all the models, due to additional ASR training data. On the other hand, the ER and IC performances largely deteriorated for the dense model (noted as green lines), known as catastrophic forgetting. The model sometimes outputted ASR results (transcripts), even when it is prompted to perform ER or IC. The problem was mitigated by updating only its encoder (noted as blue lines). For pruned models (noted as yellow and red lines), the performance degradation on ER and IC was smaller compared to the dense model and prior continual learning method. Since only the parameters of the ASR-specific subnetwork are updated during the training, we hypothesize that the remaining parameters can retain the knowledge of other tasks, thus mitigating the issue of catastrophic forgetting. Remarkably, the 36% pruned model even demonstrated an improvement on ER, despite ER not being trained in the continual learning stage. This showcases that shared parameters have the potential to extract features beneficial across tasks.\n\nFigure  2b  shows the results of the SLURP experiments. The IC performance was improved by additional data, and the 36% pruned model performed better than the dense model. Similar to LibriSpeech, the performances of ER and ASR were kept better for pruned models, compared to the dense model and prior continual learning method of updating only encoders.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Extending Tasks From 3 To 7",
+      "text": "We add IC on Fluent SC (FSC)  [36] , IC on SNIPS  [37] , named entity recognition (NER) on SLURP  [26] , and speech command recognition (SCR) on Google Speech Commands  [38]  to the training of UniverSLU. SNIPS and FSC consist of 1.6K and 30K utterances with 6 and 24 intent classes, respectively. SLURP also has annotations for NER of 55 classes. NER is done by predicting entity tags and corresponding lexical fillers alternately, like \"<entity:date> <FILL> tomorrow <SEP> ...\", similar to  [35] . It is evaluated on the SLU-F1 metric introduced in  [26] . Google Speech Commands (v0.02) contains 36K utterances for 12 different commands. We regard IC on different datasets as different tasks, as intent labels are different, which results in 7 tasks.\n\nTable  2  shows the performance of the 7-task UniverSLU. Similar to Table  1 , pruning was able to reduce the parameter counts with small performance losses or improvements on some tasks, except for ASR. Also, multi-task pruning was parameter efficient to solve multiple tasks and achieved consistently better performances than single-task pruning except for the ASR task.\n\nFinally, Figure  3  analyzes the difference in pruning masks between tasks. We calculated the parameter overlap ratio between subnetworks for task i and j, following  [23] , as: Overlap(mi, mj) = |m i =1∩m j =1| |m i =1∪m j =1| . ASR and NER are sequence generation tasks, while others are classification tasks. This can be the reason why ASR and NER have less overlap with others. Among classification tasks, the overlap ratios are relatively high, where the overlap between IC-SNIPS and SCR is the highest. NER performs generation of entity tags along with lexical fillers, which can make its subnetwork also different from ASR.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "We have investigated network pruning to obtain task-specific subnetworks within a multi-task SLU model. We conducted experimental evaluations based on UniverSLU model that covers ER, IC, and ASR. We found that subnetworks achieved better performances on ER and IC than the dense network, even with 67% sparsity. In addition to model compression, our approach also has continual learning capabilities. We also found that, with additional ASR training, the ASR performance can be improved without largely degrading the previously trained ER and IC performances. As future work, we plan to extend this study by incorporating structured pruning, as discussed in Section 2.1.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Illustration of task-specific subnetworks in multi-task",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: While pruning reduces",
+      "page": 1
+    },
+    {
+      "caption": "Figure 2: Continual learning on (a) LibriSpeech ASR and (b) SLURP IC. We additionally trained models on LibriSpeech 360h or",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: a shows the results of the LibriSpeech experiments.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: b shows the results of the SLURP experiments. The",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Parameter overlap ratio between tasks.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: analyzes the difference in pruning masks",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Hayato.Futami@sony.com": "IC\nASR\nSER"
+        },
+        {
+          "Hayato.Futami@sony.com": "“start alarm”\nneutral\nalarm_set"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "(task specifier)"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "(speech)"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "Illustration of task-specific subnetworks in multi-task\nFigure 1:"
+        },
+        {
+          "Hayato.Futami@sony.com": "SLU model. To solve SER task, only subnetwork represented as"
+        },
+        {
+          "Hayato.Futami@sony.com": "green pathways is activated."
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "catastrophic forgetting [10] of other tasks trained before. This"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "is addressed by continual\nlearning, which has been getting at-"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "tention in ASR [11, 12, 13, 14, 15] and SLU [16, 17]. Continual"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "learning is especially in demand for large-scale speech founda-"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "tion models, as they require high retraining cost [18]."
+        },
+        {
+          "Hayato.Futami@sony.com": "To\nsolve\nthe\nabove\ntwo\nissues, we\npropose\na\nnetwork"
+        },
+        {
+          "Hayato.Futami@sony.com": ""
+        },
+        {
+          "Hayato.Futami@sony.com": "pruning method to find task-specific subnetworks\nin a multi-"
+        },
+        {
+          "Hayato.Futami@sony.com": "task SLU model.\nPruning\nhas\nbeen\napplied\nto ASR and"
+        },
+        {
+          "Hayato.Futami@sony.com": "SLU to reduce memory footprint\nand speedup in inference"
+        },
+        {
+          "Hayato.Futami@sony.com": "[19, 20, 21, 22]. A recent study on multi-lingual ASR [23] has"
+        },
+        {
+          "Hayato.Futami@sony.com": "succeeded in finding language-specific subnetworks via Lottery"
+        },
+        {
+          "Hayato.Futami@sony.com": "Ticket Hypothesis [24] -based pruning. In this study, we extend"
+        },
+        {
+          "Hayato.Futami@sony.com": "it to multi-task SLU, where pruning is applied to identify task-"
+        },
+        {
+          "Hayato.Futami@sony.com": "specific subnetworks defined as pathways on the model. Dur-"
+        },
+        {
+          "Hayato.Futami@sony.com": "ing training and inference of a task, only a subnetwork for the"
+        },
+        {
+          "Hayato.Futami@sony.com": "task is activated, as shown in Figure 1. While pruning reduces"
+        },
+        {
+          "Hayato.Futami@sony.com": "parameter counts, we also expect better continual\nlearning via"
+        },
+        {
+          "Hayato.Futami@sony.com": "network pruning, not investigated in [23]. During training, only"
+        },
+        {
+          "Hayato.Futami@sony.com": "parameters in the task-specific subnetwork are updated while"
+        },
+        {
+          "Hayato.Futami@sony.com": "others remain unchanged, which works to mitigate catastrophic"
+        },
+        {
+          "Hayato.Futami@sony.com": "forgetting of other tasks."
+        },
+        {
+          "Hayato.Futami@sony.com": "In this study, we focus on finding task-specific subnetworks"
+        },
+        {
+          "Hayato.Futami@sony.com": "in UniverSLU [5]. We have trained the model for ER on IEMO-"
+        },
+        {
+          "Hayato.Futami@sony.com": "CAP corpus [25], IC on SLURP [26], and ASR on LibriSpeech"
+        },
+        {
+          "Hayato.Futami@sony.com": "[27]. We\nfound that pruned models\nachieved better perfor-"
+        },
+        {
+          "Hayato.Futami@sony.com": "mances on ER and IC with much smaller parameter counts."
+        },
+        {
+          "Hayato.Futami@sony.com": "We also explore continual\nlearning on additional ASR or\nIC"
+        },
+        {
+          "Hayato.Futami@sony.com": "data. We observed that,\nfor pruned models,\nthe performances"
+        },
+        {
+          "Hayato.Futami@sony.com": "of tasks not currently trained were less deteriorated. We further"
+        },
+        {
+          "Hayato.Futami@sony.com": "observed that\nthe method was effective for UniverSLU trained"
+        },
+        {
+          "Hayato.Futami@sony.com": "on more tasks including named entity recognition (NER), and"
+        },
+        {
+          "Hayato.Futami@sony.com": "speech command recognition (SCR), and IC on other datasets,"
+        },
+        {
+          "Hayato.Futami@sony.com": "which also offers insight into how similarity between tasks lead"
+        },
+        {
+          "Hayato.Futami@sony.com": "to overlap between task-specific subnetworks."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2. Related work": "2.1. Network pruning",
+          "Algorithm 1 Identify pruning mask": "1:\nInitialize f (X, st; mt ⊙ θ) with θ ← θ0, mt ← {1}|θ|."
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "2:\nrepeat"
+        },
+        {
+          "2. Related work": "Network pruning is a technique for removing unnecessary pa-",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "3:\nfor t ∈ T do"
+        },
+        {
+          "2. Related work": "rameters from neural networks, which can reduce model size",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "4:\nrepeat"
+        },
+        {
+          "2. Related work": "and computation costs. Structured pruning remove parameters",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "5:\nUpdate θ ← TrainNetwork(f (X, st; mt⊙θ), Dt)"
+        },
+        {
+          "2. Related work": "in groups, while unstructured pruning remove them individu-",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "6:\nuntil The loop repeated N1 times"
+        },
+        {
+          "2. Related work": "ally [28].\nThis study focuses on unstructured pruning, where",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "7:\nUpdate mt ← Prune(θ, mt, p)"
+        },
+        {
+          "2. Related work": "it\nis less effective to achieve computational efficiency in mod-",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "8:\nReset θ ← θ0."
+        },
+        {
+          "2. Related work": "ern libraries and hardware. However, both often share the same",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "9:\nend for"
+        },
+        {
+          "2. Related work": "insights, and these insights can be applied to each other, as in-",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "10: until The loop repeated Q times"
+        },
+        {
+          "2. Related work": "dicated in previous studies [19, 24].\nThe Lottery Ticket Hy-",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "pothesis\n(LTH)\nstudy [24] has demonstrated the existence of",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "Algorithm 2 Update parameters"
+        },
+        {
+          "2. Related work": "sparse\nsubnetworks\n(called “winning tickets”)\nthat match or",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "even surpass the performance of\nthe original dense networks.",
+          "Algorithm 1 Identify pruning mask": "1:\nInitialize f (X, st; mt ⊙ θ) with θ ← θ0, mt from Algo.1."
+        },
+        {
+          "2. Related work": "There are several recent studies on pruning in speech processing",
+          "Algorithm 1 Identify pruning mask": "2:\nrepeat"
+        },
+        {
+          "2. Related work": "[19, 20, 21, 22, 23]. In [20], LTH for ASR has been investigated.",
+          "Algorithm 1 Identify pruning mask": "3:\nfor t ∈ T do"
+        },
+        {
+          "2. Related work": "Pruning of self-supervised learning (SSL) based models have",
+          "Algorithm 1 Identify pruning mask": "4:\nrepeat"
+        },
+        {
+          "2. Related work": "been investigated in [19] and [21]. Some other studies focus on",
+          "Algorithm 1 Identify pruning mask": "5:\nUpdate θ ← TrainNetwork(f (X, st; mt⊙θ), Dt)"
+        },
+        {
+          "2. Related work": "obtaining multiple subnetworks of different properties within a",
+          "Algorithm 1 Identify pruning mask": "6:\nuntil The loop repeated N2 times"
+        },
+        {
+          "2. Related work": "single model [22, 23]. Omni-sparsity DNN [22] trains subnet-",
+          "Algorithm 1 Identify pruning mask": "7:\nend for"
+        },
+        {
+          "2. Related work": "works of different sparsity.\nIn [23],\nlanguage-specific subnet-",
+          "Algorithm 1 Identify pruning mask": "8: until The loop repeated R times"
+        },
+        {
+          "2. Related work": "works\nin a multi-lingual ASR model are considered.\nUnlike",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "these studies, our study focuses on a multi-task SLU model and",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "For pruning, we reformulate f (X, st; θ) as f (X, st; m ⊙ θ),"
+        },
+        {
+          "2. Related work": "looks for subnetworks for different SLU tasks. Moreover, our",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "where m ∈ {0, 1}|θ| denotes a pruning mask. We assume task-"
+        },
+        {
+          "2. Related work": "study represents the first\ninvestigation into the benefits of con-",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "for\nspecific pruning, where m is task-specific denoted as mt"
+        },
+        {
+          "2. Related work": "tinual learning via pruning in SLU.",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "task t. Our multi-task pruning consists of two steps:\n(1) iden-"
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "tifying pruning mask mt and (2) updating parameters θ using"
+        },
+        {
+          "2. Related work": "2.2. Continual learning",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "mt."
+        },
+        {
+          "2. Related work": "Continual learning, or lifelong learning, aims to learn new data",
+          "Algorithm 1 Identify pruning mask": "In the first step we identify the task-specific pruning mask,"
+        },
+        {
+          "2. Related work": "while preventing catastrophic forgetting of previously learned",
+          "Algorithm 1 Identify pruning mask": "as summarized in Algorithm 1. First, we randomly select a task"
+        },
+        {
+          "2. Related work": "knowledge.\nContinual\nlearning methods\ncan be\ncategorized",
+          "Algorithm 1 Identify pruning mask": "t at\nthe beginning of the loop (Line 3). Then, we train the net-"
+        },
+        {
+          "2. Related work": "into three: regularization-based, replay-based, and architecture-",
+          "Algorithm 1 Identify pruning mask": "work on batches from dataset of\ntask t denoted as Dt\nfor N1"
+        },
+        {
+          "2. Related work": "based methods. Regularization-based methods introduce an ad-",
+          "Algorithm 1 Identify pruning mask": "iterations (Line 5). After\ntraining, pruning is done by setting"
+        },
+        {
+          "2. Related work": "ditional regularization term [29, 30], which has also been inves-",
+          "Algorithm 1 Identify pruning mask": "the pruned position of mt to 0 (Line 7). In this study, we apply"
+        },
+        {
+          "2. Related work": "tigated in ASR [11] and SLU [16, 17]. Replay-based methods",
+          "Algorithm 1 Identify pruning mask": "global pruning, where the parameters with the top p% smallest"
+        },
+        {
+          "2. Related work": "replay examples from previous data [31],\nincluding studies for",
+          "Algorithm 1 Identify pruning mask": "magnitude across all\nthe layers are pruned. After pruning,\nthe"
+        },
+        {
+          "2. Related work": "ASR [12]. Architecture-based methods spare isolated param-",
+          "Algorithm 1 Identify pruning mask": "parameters are reset\nto θ0 based on LTH [24] (Line 8). We as-"
+        },
+        {
+          "2. Related work": "eters for new task. This can be done by updating only a part",
+          "Algorithm 1 Identify pruning mask": "sume iterative pruning, where pruning is repeatedly applied Q"
+        },
+        {
+          "2. Related work": "of\nthe entire parameters [13, 14, 15].\nEspecially in [32] and",
+          "Algorithm 1 Identify pruning mask": "times, leading to subnetworks of 1 − (1 − p)Q% sparsity."
+        },
+        {
+          "2. Related work": "[33], network pruning is applied sequentially for image recog-",
+          "Algorithm 1 Identify pruning mask": "Consequently, we update the parameters based on the iden-"
+        },
+        {
+          "2. Related work": "nition tasks, where parameters not used in preceding tasks are",
+          "Algorithm 1 Identify pruning mask": "in Algorithm 2. Model parameters θ are\ntified mask mt, as"
+        },
+        {
+          "2. Related work": "allocated for\nthe current\ntask.\nIn contrast, parameter sharing",
+          "Algorithm 1 Identify pruning mask": "shared across tasks, which corresponds to multi-task training."
+        },
+        {
+          "2. Related work": "between tasks can exist\nin our study. This is more parameter",
+          "Algorithm 1 Identify pruning mask": "Note that each task has its own subnetwork using mt denoted"
+        },
+        {
+          "2. Related work": "efficient and flexible, where each subnetwork can be designed",
+          "Algorithm 1 Identify pruning mask": "as mt ⊙ θ, so the parameters at subnetwork level are different"
+        },
+        {
+          "2. Related work": "with any sparsity.",
+          "Algorithm 1 Identify pruning mask": "between tasks. We randomly select task t (Line 3) and train the"
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "network on Dt (Line 5). The training is done for N2 iterations,"
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "where we set a small value (N1 ≫ N2) for the model not to be"
+        },
+        {
+          "2. Related work": "3. Finding task-specific subnetworks",
+          "Algorithm 1 Identify pruning mask": ""
+        },
+        {
+          "2. Related work": "",
+          "Algorithm 1 Identify pruning mask": "biased toward the lately trained tasks. In single-task pruning for"
+        },
+        {
+          "2. Related work": "In this study, we propose finding task-specific subnetworks in",
+          "Algorithm 1 Identify pruning mask": "comparison, Algorithm 2 is performed independently for each"
+        },
+        {
+          "2. Related work": "a multi-task SLU model. We aim to identify individual path-",
+          "Algorithm 1 Identify pruning mask": "task by employing θt."
+        },
+        {
+          "2. Related work": "ways for each SLU task on a single dense network of shared",
+          "Algorithm 1 Identify pruning mask": "Our multi-task pruning not only brings model compression"
+        },
+        {
+          "2. Related work": "parameters, which we call multi-task pruning.\nOn the other",
+          "Algorithm 1 Identify pruning mask": "but also has the ability of continual learning, which has not been"
+        },
+        {
+          "2. Related work": "hand, obtaining individual sparse models for SLU tasks is called",
+          "Algorithm 1 Identify pruning mask": "investigated in [23]. We assume the case that, when the new"
+        },
+        {
+          "2. Related work": "single-task pruning. Multi-task pruning allows us\nto switch",
+          "Algorithm 1 Identify pruning mask": "data of task tc become available, we additionally train the model"
+        },
+        {
+          "2. Related work": "tasks by switching only pathways, which is parameter efficient",
+          "Algorithm 1 Identify pruning mask": "only on the task tc data. As continual learning in this study, we"
+        },
+        {
+          "2. Related work": "and preferable for deployment. To realize this, we adapt a prun-",
+          "Algorithm 1 Identify pruning mask": "aim to improve the performance of task tc, without degrading"
+        },
+        {
+          "2. Related work": "ing method originally proposed for multi-lingual ASR [23]\nto",
+          "Algorithm 1 Identify pruning mask": "the performances of other tasks t ̸= tc. For the pruned models,"
+        },
+        {
+          "2. Related work": "multi-task SLU.",
+          "Algorithm 1 Identify pruning mask": "we update only a portion of parameters of a task-specific subnet-"
+        },
+        {
+          "2. Related work": "Let f (X, st; θ) denote a multi-task SLU network with in-",
+          "Algorithm 1 Identify pruning mask": "work {θj|mtc,j = 1} for continual learning. Other parameters"
+        },
+        {
+          "2. Related work": "put speech X, prompt of\ntask specifier st, and parameters θ.",
+          "Algorithm 1 Identify pruning mask": "{θj|mtc,j = 0} remain unchanged, some of which is used in a"
+        },
+        {
+          "2. Related work": "Task specifier is defined for each task t ∈ T and instruct the net-",
+          "Algorithm 1 Identify pruning mask": "subnetwork for previously trained tasks t\n̸= tc. This can play"
+        },
+        {
+          "2. Related work": "work which task to solve, where T denotes a set of SLU tasks.",
+          "Algorithm 1 Identify pruning mask": "an important role in retaining the knowledge of such tasks. Fi-"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table 1: , we found that the accuracy of",
+      "data": [
+        {
+          "ER (previous task)": "Acc(cid:313)",
+          "IC (previous task)": "Acc(cid:313)"
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": "10\n10"
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": "84.8\n84.8"
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": "56789\n56789\n81.4\n81.4"
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": "77.4\n77.4"
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": ""
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": "015"
+        },
+        {
+          "ER (previous task)": "",
+          "IC (previous task)": "015"
+        },
+        {
+          "ER (previous task)": "0\n1\n5",
+          "IC (previous task)": "0\n1\n5"
+        },
+        {
+          "ER (previous task)": "0\n1\n5",
+          "IC (previous task)": "0\n1\n5"
+        },
+        {
+          "ER (previous task)": "Epoch\nEpoch",
+          "IC (previous task)": "Epoch\nEpoch"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: , we found that the accuracy of",
+      "data": [
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "UniverSLU dense"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "+Task-specific pruning (36 %)"
+        },
+        {
+          "means single subnetwork for all task.": "Multi-task"
+        },
+        {
+          "means single subnetwork for all task.": "Single-task"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "+Task-agnostic"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "+Task-specific pruning (67 %)"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "Multi-task"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "Single-task"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": "+Task-agnostic"
+        },
+        {
+          "means single subnetwork for all task.": ""
+        },
+        {
+          "means single subnetwork for all task.": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: , we found that the accuracy of",
+      "data": [
+        {
+          "015\n70\n50": "015\n70\n50\nonly encoder [13])"
+        },
+        {
+          "015\n70\n50": "only encoder [13])"
+        },
+        {
+          "015\n70\n50": "0\n1\n5\n0\n1\n5\n0\n1\n5"
+        },
+        {
+          "015\n70\n50": "0\n1\n5\n0\n1\n5\n0\n1\n5"
+        },
+        {
+          "015\n70\n50": "Epoch\nEpoch\nEpoch"
+        },
+        {
+          "015\n70\n50": "Epoch\nEpoch\nEpoch"
+        },
+        {
+          "015\n70\n50": "(b) SLURP IC"
+        },
+        {
+          "015\n70\n50": "learning on (a) LibriSpeech ASR and (b) SLURP IC. We additionally trained models on LibriSpeech 360h or\nFigure 2: Continual"
+        },
+        {
+          "015\n70\n50": "SLURP real+synthetic data."
+        },
+        {
+          "015\n70\n50": "Table 1: Performances of dense and pruned models. Param(%)"
+        },
+        {
+          "015\n70\n50": "ture of the above three datasets, where IEMOCAP was upsam-"
+        },
+        {
+          "015\n70\n50": "indicates percentage of nonzero parameters to perform single"
+        },
+        {
+          "015\n70\n50": "pled by 10 times to account for data imbalance. Following the"
+        },
+        {
+          "015\n70\n50": "task (One) or all tasks (All). Multi-task pruning (our proposal)"
+        },
+        {
+          "015\n70\n50": "UniverSLU paper [5], we specified which language,\ntask, and"
+        },
+        {
+          "015\n70\n50": "leads to different subnetworks in shared model, while single-"
+        },
+        {
+          "015\n70\n50": "dataset to solve by using Whisper-style prompts such as “<EN>"
+        },
+        {
+          "015\n70\n50": "task pruning leads to different models. Task-agnostic pruning"
+        },
+        {
+          "015\n70\n50": "<IC> <SLURP>”. We conducted the experiments using the"
+        },
+        {
+          "015\n70\n50": "means single subnetwork for all task."
+        },
+        {
+          "015\n70\n50": "ESPnet toolkit [34, 35] and followed its data pre-processing."
+        },
+        {
+          "015\n70\n50": "First, we trained a dense UniverSLU model\nfor\nthe three"
+        },
+        {
+          "015\n70\n50": "Param(%)\nER\nIC\nASR"
+        },
+        {
+          "015\n70\n50": "SLU tasks.\nThen, we applied network pruning to find task-"
+        },
+        {
+          "015\n70\n50": "One / All\nAcc↑\nAcc↑\nWER↓"
+        },
+        {
+          "015\n70\n50": "specific subnetworks in the dense model as in Algorithm 1 and"
+        },
+        {
+          "015\n70\n50": "74.1\n81.6\n5.9\nUniverSLU dense\n100 /100"
+        },
+        {
+          "015\n70\n50": "2. Algorithm 1 iteratively prunes the network by p = 20%"
+        },
+        {
+          "015\n70\n50": "+Task-specific pruning (36 %)\nfor Q = 2 or 5 times,\nresulting in approximately 36% and"
+        },
+        {
+          "015\n70\n50": "75.9\n86.6\n6.5\nMulti-task\n64.1/ 71.0\nto\n67% sparsity. We set pruning interval step N1 equivalent"
+        },
+        {
+          "015\n70\n50": "3 epochs (average N1 = 1300), where the learning rate was set\n77.0\n86.7\n6.4\nSingle-task\n64.1/192.3"
+        },
+        {
+          "015\n70\n50": "to 2.0 × 10−4 with 2500 warmup steps. Global pruning was"
+        },
+        {
+          "015\n70\n50": "74.2\n84.7\n6.9\n+Task-agnostic\n64.1/ 64.1"
+        },
+        {
+          "015\n70\n50": "applied to all\nthe layers of both the Whisper encoder and de-"
+        },
+        {
+          "015\n70\n50": "+Task-specific pruning (67 %)"
+        },
+        {
+          "015\n70\n50": "coder, except for positional embeddings. Algorithm 2 updates"
+        },
+        {
+          "015\n70\n50": "75.1\n85.3\n8.0\nMulti-task\n32.9/ 39.8"
+        },
+        {
+          "015\n70\n50": "model parameters, switching tasks by average N2 = 50 itera-"
+        },
+        {
+          "015\n70\n50": "75.5\n85.2\n7.9\nSingle-task\n32.9/ 98.6"
+        },
+        {
+          "015\n70\n50": "tions and repeating R = 200 times. The learning rate was set"
+        },
+        {
+          "015\n70\n50": "74.3\n84.3\n8.3\n+Task-agnostic\n32.9/ 32.9"
+        },
+        {
+          "015\n70\n50": "to 1.0 × 10−5 with 1500 warmup steps."
+        },
+        {
+          "015\n70\n50": "Table 1 shows the performances of dense and pruned mod-"
+        },
+        {
+          "015\n70\n50": "els with different methods. “Param(%)” denotes what percent-\nnally, our pruning provides some interpretability, by examining"
+        },
+        {
+          "015\n70\n50": "age of parameters of the dense model remains, or are not zero.\nthe identified structures of task-specifics subnetworks and their"
+        },
+        {
+          "015\n70\n50": "We note what percentages are needed to perform a single task\noverlap across tasks."
+        },
+        {
+          "015\n70\n50": "(denoted as “One”) and all\nthree tasks (denoted as “All”). We"
+        },
+        {
+          "015\n70\n50": "compared multi-task and single-task pruning described in Sec-"
+        },
+        {
+          "015\n70\n50": "4. Experimental evaluations"
+        },
+        {
+          "015\n70\n50": "tion 3. Multi-task pruning leads to different pathways mt within"
+        },
+        {
+          "015\n70\n50": "We conducted experiments using UniverSLU [5] as the multi-\na single model θ, while single-task pruning leads to different"
+        },
+        {
+          "015\n70\n50": "task SLU model, obtained by fine-tuning Whisper [6] on SLU\nTo perform a single task,\nthe parame-\nmodels (θt with mt)."
+        },
+        {
+          "015\n70\n50": "tasks. We used Whisper medium of around 760M parameters as\nter usage is the same. To perform all\nthe tasks,\nfor multi-task"
+        },
+        {
+          "015\n70\n50": "the pre-trained model. Our initial investigation is based on three\npruning, the parameter usage is guaranteed not to exceed 100%"
+        },
+        {
+          "015\n70\n50": "datasets:\nIEMOCAP [25], SLURP [26], and LibriSpeech [27],\nand was 71.0% for\nthe 36% pruned model, due to shared pa-"
+        },
+        {
+          "015\n70\n50": "rameters across\ntasks.\nHowever,\nfor\nsingle-task pruning,\nthe\nwhich will be extended to 7 tasks in Section 4.2.\nIEMOCAP"
+        },
+        {
+          "015\n70\n50": "parameter usage was 64.1 × 3 (tasks) = 193%, which is not\nwas used for ER, which consists of 12 hours of speech, and 4"
+        },
+        {
+          "015\n70\n50": "parameter efficient. The issue becomes more significant as the\nemotion classes (neutral, happy, sad, and angry) were used in"
+        },
+        {
+          "015\n70\n50": "number of tasks increases, as seen in Section 4.2. We also com-\nthis study. SLURP was used for IC, which consists of 58 hours"
+        },
+        {
+          "015\n70\n50": "pared these two task-specific pruning with task-agnostic prun-\nof real and 43.5 hours of synthetic speech with 69 intent classes."
+        },
+        {
+          "015\n70\n50": "ing, where pruning is done without distinction of\ntasks,\nlead-\nWe left the synthetic subset for continual learning. For ASR, we"
+        },
+        {
+          "015\n70\n50": "ing to a single pruned model for all\nthe tasks.\nIn terms of the\nused LibriSpeech the 100h subset\nin training and test-other set"
+        },
+        {
+          "015\n70\n50": "task performances in Table 1, we found that\nthe accuracy of\nin evaluation. The training of UniverSLU was done on the mix-"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 2: shows the performance of the 7-task UniverSLU.",
+      "data": [
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "76.4\n84.7\n+Multi-task pruning\n32.9 / 43.7",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "8.1\n99.8\n94.1\n68.4\n98.8"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "74.7\n83.9\n+Single-task pruning\n32.9 / 230.3",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "8.0\n99.7\n92.0\n68.0\n98.7"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "ER and IC was even improved via pruning. However, we ob-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "served performance degradation on ASR, especially for 67%",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "pruning.\nThis would be because ASR is a sequence genera-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "tion task that requires more parameters than classification tasks",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "ER and IC. We also observed that multi-task pruning achieved",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "competitive performances against single-task pruning,\nin a pa-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "rameter efficient way.\nIn case of task-agnostic pruning, all\nthe",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "performances lagged behind those of task-specific pruning. We",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "observed the difference was statistically significant (p < 0.001)",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "for IC and ASR, using the Matched Pair test.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "4.1. Continual learning",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "We also investigate how our models work in continual learning",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "settings, assuming the case that new training data for a specific",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "Figure 3: Parameter overlap ratio between tasks."
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "task becomes available. We compared training from the dense",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "UniverSLU model and the multi-task pruned models. We also",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "of 1.6K and 30K utterances with 6 and 24 intent\nclasses,"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "compared them with updating only the linear layers of encoders",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "respectively.\nSLURP also\nhas\nannotations\nfor NER of 55"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "in the dense model, which is known as a simple yet effective",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "classes.\nNER is done by predicting entity tags\nand corre-"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "continual learning method for ASR [13]. We conducted two ex-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "sponding lexical fillers\nalternately,\nlike\n“<entity:date>"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "periments, using LibriSpeech 360h (ASR) or SLURP synthetic",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "<FILL> tomorrow <SEP> ...”,\nsimilar\nto [35].\nIt\nis eval-"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "set (IC) as new data. In SLURP experiments, as it is difficult to",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "uated on the SLU-F1 metric introduced in [26]. Google Speech"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "train the model only on the synthetic speech, we trained them",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "Commands\n(v0.02) contains 36K utterances\nfor 12 different"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "on the mixture of real and synthetic SLURP.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "commands. We\nregard IC on different datasets\nas different"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "Figure 2a shows the results of the LibriSpeech experiments.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "tasks, as intent labels are different, which results in 7 tasks."
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "As training went on,\nthe ASR performance got\nimproved for",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "Table 2 shows the performance of\nthe 7-task UniverSLU."
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "all\nthe models, due to additional ASR training data.\nOn the",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "Similar\nto Table 1, pruning was able to reduce the parameter"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "other hand, the ER and IC performances largely deteriorated for",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "counts with small performance losses or improvements on some"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "the dense model (noted as green lines), known as catastrophic",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "tasks, except for ASR. Also, multi-task pruning was parameter"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "forgetting. The model sometimes outputted ASR results (tran-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "efficient to solve multiple tasks and achieved consistently better"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "scripts), even when it\nis prompted to perform ER or\nIC. The",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "performances than single-task pruning except for the ASR task."
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "problem was mitigated by updating only its encoder (noted as",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "Finally, Figure 3 analyzes the difference in pruning masks"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "blue lines). For pruned models (noted as yellow and red lines),",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "between\ntasks.\nWe\ncalculated\nthe\nparameter\noverlap\nratio"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "the performance degradation on ER and IC was smaller com-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "i\nbetween\nsubnetworks\nfor\ntask\nand\nj,\nfollowing\n[23],\nas:"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "pared to the dense model and prior continual\nlearning method.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "Overlap(mi, mj) = |mi=1∩mj =1|"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "|mi=1∪mj =1| . ASR and NER are se-"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "Since only the parameters of the ASR-specific subnetwork are",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "quence generation tasks, while others are classification tasks."
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "updated during the training, we hypothesize that the remaining",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "This can be the reason why ASR and NER have less overlap"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "parameters can retain the knowledge of other\ntasks,\nthus mit-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "with others. Among classification tasks,\nthe overlap ratios are"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "igating the issue of catastrophic forgetting.\nRemarkably,\nthe",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "relatively high, where the overlap between IC-SNIPS and SCR"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "36% pruned model even demonstrated an improvement on ER,",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "is the highest. NER performs generation of entity tags along"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "despite ER not being trained in the continual\nlearning stage.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "with lexical fillers, which can make its subnetwork also differ-"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "This showcases that shared parameters have the potential to ex-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "ent from ASR."
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "tract features beneficial across tasks.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "Figure 2b shows the results of the SLURP experiments. The",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "5. Conclusions"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "IC performance was improved by additional data, and the 36%",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "pruned model performed better than the dense model. Similar",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "We have investigated network pruning to obtain task-specific"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "to LibriSpeech, the performances of ER and ASR were kept bet-",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "subnetworks within a multi-task SLU model. We conducted ex-"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "ter for pruned models, compared to the dense model and prior",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "perimental evaluations based on UniverSLU model\nthat covers"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "continual learning method of updating only encoders.",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "ER, IC, and ASR. We found that subnetworks achieved better"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "performances on ER and IC than the dense network, even with"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "67% sparsity.\nIn addition to model compression, our approach"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "4.2. Extending tasks from 3 to 7",
+          "5.9\n99.8\n93.1\n69.4\n98.6": ""
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "also has continual\nlearning capabilities. We also found that,"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "We\nadd\nIC on Fluent SC (FSC)\n[36],\nIC on SNIPS [37],",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "with additional ASR training, the ASR performance can be im-"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "named entity recognition (NER) on SLURP [26], and speech",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "proved without largely degrading the previously trained ER and"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "command recognition (SCR) on Google Speech Commands",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "IC performances. As future work, we plan to extend this study"
+        },
+        {
+          "75.7\n85.1\nUniverSLU dense\n100 / 100": "[38]\nto the\ntraining of UniverSLU. SNIPS and FSC consist",
+          "5.9\n99.8\n93.1\n69.4\n98.6": "by incorporating structured pruning, as discussed in Section 2.1."
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "pruning of self-supervised pre-trained models for speech recogni-"
+        },
+        {
+          "6. References": "[1] A. Radford,\nJ. Wu,\nR. Child,\nD.\nLuan,\nD. Amodei,\nand",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "tion and understanding,” in ICASSP, 2023."
+        },
+        {
+          "6. References": "I. Sutskever, “Language models are unsupervised multitask learn-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "ers,” 2019.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[22] H. Yang, Y. Shangguan, D. Wang, M. Li, P. Chuang, X. Zhang,"
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "G. Venkatesh, O. Kalinli, and V. Chandra, “Omni-Sparsity DNN:"
+        },
+        {
+          "6. References": "[2] K.-W. Chang, W.-C. Tseng, S.-W. Li, and H. yi Lee, “An Explo-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "fast sparsity optimization for on-device streaming E2E ASR via"
+        },
+        {
+          "6. References": "ration of Prompt Tuning on Generative Spoken Language Model",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "supernet,” in ICASSP, 2022."
+        },
+        {
+          "6. References": "for Speech Processing Tasks,” in Interspeech, 2022.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[23] M. Yang, A. Tjandra, C. Liu, D. Zhang, D. Le, and O. Kalinli,"
+        },
+        {
+          "6. References": "[3] K.-W. Chang, Y.-K. Wang, H. Shen, I.\nthing Kang, W.-C. Tseng,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "“Learning ASR pathways: A sparse multilingual asr model,” in"
+        },
+        {
+          "6. References": "S.-W. Li, and H. yi Lee, “SpeechPrompt v2: Prompt\ntuning for",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "ICASSP, 2023."
+        },
+        {
+          "6. References": "speech classification tasks,” ArXiv, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[24]\nJ. Frankle and M. Carbin, “The lottery ticket hypothesis: Finding"
+        },
+        {
+          "6. References": "[4] K. Lakhotia, E. Kharitonov, W.-N. Hsu, Y. Adi, A. Polyak,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "sparse, trainable neural networks,” in ICLR, 2019."
+        },
+        {
+          "6. References": "B. Bolte, T.-A. Nguyen, J. Copet, A. Baevski, A. Mohamed, and",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "E. Dupoux, “On generative spoken language modeling from raw",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[25] C. Busso, M. Bulut, C. Lee, A. Kazemzadeh, E. Mower, S. Kim,"
+        },
+        {
+          "6. References": "the Association for Computational Lin-\naudio,” Transactions of",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "J. N. Chang, S. Lee, and S. S. Narayanan, “IEMOCAP: interactive"
+        },
+        {
+          "6. References": "guistics, 2021.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "emotional dyadic motion capture database,” Lang. Resour. Evalu-"
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "ation, 2008."
+        },
+        {
+          "6. References": "[5]\nS. Arora, H. Futami, J. weon Jung, Y. Peng, R. Sharma, Y. Kashi-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "wagi, E. Tsunoo, and S. Watanabe, “UniverSLU: Universal spo-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[26]\nE. Bastianelli, A. Vanzo, P. Swietojanski, and V. Rieser, “SLURP:"
+        },
+        {
+          "6. References": "ken\nlanguage\nunderstanding\nfor\ndiverse\nclassification\nand\nse-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "a spoken language understanding resource package,” in EMNLP,"
+        },
+        {
+          "6. References": "quence generation tasks with a single network,” ArXiv, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "2020."
+        },
+        {
+          "6. References": "[6] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[27] V. Panayotov, G. Chen, D. Povey,\nand S. Khudanpur,\n“Lib-"
+        },
+        {
+          "6. References": "I. Sutskever, “Robust speech recognition via large-scale weak su-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "rispeech:\nan asr corpus based on public domain audio books,”"
+        },
+        {
+          "6. References": "pervision,” ArXiv, 2022.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "in ICASSP, 2015."
+        },
+        {
+          "6. References": "[7]\nJ. Wang, Z. Du, Q. Chen, Y. Chu, Z. Gao, Z. Li, K. Hu, X. Zhou,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[28] D. W. Blalock, J. J. G. Ortiz, J. Frankle, and J. V. Guttag, “What"
+        },
+        {
+          "6. References": "J. Xu, Z. Ma, W. Wang, S. Zheng, C. Zhou, Z. Yan, and S. Zhang,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "is the state of neural network pruning?” CoRR, 2020."
+        },
+        {
+          "6. References": "“LauraGPT: Listen, attend, understand, and regenerate audio with",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[29]\nZ. Li and D. Hoiem,\n“Learning without\nforgetting,”\nin ECCV,"
+        },
+        {
+          "6. References": "gpt,” ArXiv, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "2016."
+        },
+        {
+          "6. References": "[8] C. Tang, W. Yu, G. Sun, X. Chen, T. Tan, W. Li, L. Lu, Z. Ma,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[30]\nJ. Kirkpatrick, R. Pascanu, N. C. Rabinowitz, J. Veness, G. Des-"
+        },
+        {
+          "6. References": "and C. Zhang, “SALMONN: Towards generic hearing abilities",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "jardins, A. A. Rusu, K. Milan, J. Quan, T. Ramalho, A. Grabska-"
+        },
+        {
+          "6. References": "for large language models,” ArXiv, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "Barwinska, D. Hassabis, C. Clopath, D. Kumaran, and R. Hadsell,"
+        },
+        {
+          "6. References": "[9] Y. Gong, A. H. Liu, H. Luo, L. Karlinsky, and J. R. Glass, “Joint",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "“Overcoming catastrophic forgetting in neural networks,” CoRR,"
+        },
+        {
+          "6. References": "audio and speech understanding,” ASRU, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "2016."
+        },
+        {
+          "6. References": "[10]\nI. J. Goodfellow, M. Mirza, X. Da, A. C. Courville, and Y. Bengio,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[31] D. Lopez-Paz and M. A. Ranzato, “Gradient episodic memory for"
+        },
+        {
+          "6. References": "“An empirical\ninvestigation of catastrophic forgeting in gradient-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "continual learning,” in NeurIPS, 2017."
+        },
+        {
+          "6. References": "based neural networks,” in ICLR, 2014.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[32] A. Mallya and S. Lazebnik, “PackNet: adding multiple tasks to a"
+        },
+        {
+          "6. References": "[11] H.-J. Chang, H. yi Lee, and L.-S. Lee, “Towards lifelong learning",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "single network by iterative pruning,” in CVPR, 2018."
+        },
+        {
+          "6. References": "of end-to-end ASR,” in Interspeech, 2021.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[33]\nS. Golkar, M. Kagan, and K. Cho, “Continual learning via neural"
+        },
+        {
+          "6. References": "[12] M. Yang, I. Lane, and S. Watanabe, “Online continual learning of",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "pruning,” in NeurIPS, 2019."
+        },
+        {
+          "6. References": "end-to-end speech recognition models,” in Interspeech, 2022.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[34]\nS. Watanabe, T. Hori, S. Karita, T. Hayashi, J. Nishitoba, Y. Unno,"
+        },
+        {
+          "6. References": "[13] Y.\nTakashima,\nS. Horiguchi,\nS. Watanabe,\nP. Garc´ıa,\nand",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "N. Enrique Yalta Soplin,\nJ. Heymann, M. Wiesner, N. Chen,"
+        },
+        {
+          "6. References": "Y\n. Kawaguchi, “Updating only encoders prevents catastrophic for-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "A. Renduchintala,\nand T. Ochiai,\n“ESPnet:\nEnd-to-end speech"
+        },
+        {
+          "6. References": "getting of end-to-end asr models,” in Interspeech, 2022.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "processing toolkit,” in Interspeech, 2018."
+        },
+        {
+          "6. References": "[14] A. Diwan, C.\nfeng Yeh, W.-N. Hsu,\nP. Tomasello, E. Choi,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[35]\nS. Arora, S. Dalmia, P. Denisov, X. Chang, Y. Ueda, Y. Peng,"
+        },
+        {
+          "6. References": "D. F. Harwath,\nand A.\nrahman Mohamed,\n“Continual\nlearning",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "Y\n. Zhang, S. Kumar, K. Ganesan, B. Yan, N. Thang Vu, A. W."
+        },
+        {
+          "6. References": "for on-device speech recognition using disentangled conformers,”",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "Black, and S. Watanabe, “ESPnet-SLU: Advancing spoken lan-"
+        },
+        {
+          "6. References": "ICASSP, 2022.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "guage understanding through ESPnet,” in ICASSP, 2022."
+        },
+        {
+          "6. References": "[15]\nS. V. Eeckt and H. Van Hamme, “Using adapters\nto overcome",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[36]\nL. Lugosch, M. Ravanelli, P. Ignoto, V. S. Tomar, and Y. Bengio,"
+        },
+        {
+          "6. References": "catastrophic forgetting in end-to-end automatic speech recogni-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "“Speech Model Pre-Training for End-to-End Spoken Language"
+        },
+        {
+          "6. References": "tion,” in ICASSP, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "Understanding,” in Interspeech, 2019."
+        },
+        {
+          "6. References": "[16] U. Cappellazzo, M. Yang, D. Falavigna, and A. Brutti, “Sequence-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[37] A. Saade, A. Coucke, A. Caulier, J. Dureau, A. Ball, T. Bluche,"
+        },
+        {
+          "6. References": "level knowledge distillation for class-incremental end-to-end spo-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "D. Leroy, C. Doumouro, T. Gisselbrecht, F. Caltagirone, T. Lavril,"
+        },
+        {
+          "6. References": "ken language understanding,” in Interspeech, 2023.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "and M. Primet, “Spoken language understanding on the edge,”"
+        },
+        {
+          "6. References": "",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "EMC2-NIPS, 2018."
+        },
+        {
+          "6. References": "[17] M. Yang, X. Li, U. Cappellazzo, S. Watanabe, and B. Raj, “Eval-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "uating and improving continual\nlearning in spoken language un-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "[38]\nP. Warden, “Speech commands: A dataset for limited-vocabulary"
+        },
+        {
+          "6. References": "derstanding,” CoRR, 2024.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": "speech recognition,” CoRR, 2018."
+        },
+        {
+          "6. References": "[18]\nT. Wu, L. Luo, Y.-F. Li,\nS. Pan, T.-T. Vu,\nand G. Haffari,",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "“Continual\nlearning\nfor\nlarge\nlanguage models:\nA survey,”",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "ArXiv,\nvol.\nabs/2402.01364,\n2024.\n[Online]. Available:\nhttps:",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "//api.semanticscholar.org/CorpusID:267406164",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "[19] C.-I.\nJ. Lai, Y. Zhang, A. H. Liu, S. Chang, Y.-L. Liao, Y.-S.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "Chuang, K. Qian, S. Khurana, D. Cox,\nand J. Glass,\n“PARP:",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "Prune,\nadjust and re-prune for\nself-supervised speech recogni-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "tion,” in NeurIPS, 2021.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "[20]\nS. Ding, T. Chen, and Z. Wang, “Audio lottery: Speech recog-",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "nition made ultra-lightweight, noise-robust, and transferable,” in",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        },
+        {
+          "6. References": "ICLR, 2022.",
+          "[21] Y. Peng, K. Kim, F. Wu, P. Sridhar, and S. Watanabe, “Structured": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "Language models are unsupervised multitask learners",
+      "authors": [
+        "A Radford",
+        "J Wu",
+        "R Child",
+        "D Luan",
+        "D Amodei",
+        "I Sutskever"
+      ],
+      "year": "2019",
+      "venue": "Language models are unsupervised multitask learners"
+    },
+    {
+      "citation_id": "3",
+      "title": "An Exploration of Prompt Tuning on Generative Spoken Language Model for Speech Processing Tasks",
+      "authors": [
+        "K.-W Chang",
+        "W.-C Tseng",
+        "S.-W Li",
+        "H Yi Lee"
+      ],
+      "year": "2022",
+      "venue": "An Exploration of Prompt Tuning on Generative Spoken Language Model for Speech Processing Tasks"
+    },
+    {
+      "citation_id": "4",
+      "title": "SpeechPrompt v2: Prompt tuning for speech classification tasks",
+      "authors": [
+        "K.-W Chang",
+        "Y.-K Wang",
+        "H Shen",
+        "I Kang",
+        "W.-C Tseng",
+        "S.-W Li",
+        "H Yi Lee"
+      ],
+      "year": "2023",
+      "venue": "SpeechPrompt v2: Prompt tuning for speech classification tasks"
+    },
+    {
+      "citation_id": "5",
+      "title": "On generative spoken language modeling from raw audio",
+      "authors": [
+        "K Lakhotia",
+        "E Kharitonov",
+        "W.-N Hsu",
+        "Y Adi",
+        "A Polyak",
+        "B Bolte",
+        "T.-A Nguyen",
+        "J Copet",
+        "A Baevski",
+        "A Mohamed",
+        "E Dupoux"
+      ],
+      "year": "2021",
+      "venue": "Transactions of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "6",
+      "title": "UniverSLU: Universal spoken language understanding for diverse classification and sequence generation tasks with a single network",
+      "authors": [
+        "S Arora",
+        "H Futami",
+        "J Jung",
+        "Y Peng",
+        "R Sharma",
+        "Y Kashiwagi",
+        "E Tsunoo",
+        "S Watanabe"
+      ],
+      "year": "2023",
+      "venue": "UniverSLU: Universal spoken language understanding for diverse classification and sequence generation tasks with a single network"
+    },
+    {
+      "citation_id": "7",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "T Xu",
+        "G Brockman",
+        "C Mcleavey",
+        "I Sutskever"
+      ],
+      "year": "2022",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "8",
+      "title": "LauraGPT: Listen, attend, understand, and regenerate audio with gpt",
+      "authors": [
+        "J Wang",
+        "Z Du",
+        "Q Chen",
+        "Y Chu",
+        "Z Gao",
+        "Z Li",
+        "K Hu",
+        "X Zhou",
+        "J Xu",
+        "Z Ma",
+        "W Wang",
+        "S Zheng",
+        "C Zhou",
+        "Z Yan",
+        "S Zhang"
+      ],
+      "year": "2023",
+      "venue": "LauraGPT: Listen, attend, understand, and regenerate audio with gpt"
+    },
+    {
+      "citation_id": "9",
+      "title": "SALMONN: Towards generic hearing abilities for large language models",
+      "authors": [
+        "C Tang",
+        "W Yu",
+        "G Sun",
+        "X Chen",
+        "T Tan",
+        "W Li",
+        "L Lu",
+        "Z Ma",
+        "C Zhang"
+      ],
+      "year": "2023",
+      "venue": "SALMONN: Towards generic hearing abilities for large language models"
+    },
+    {
+      "citation_id": "10",
+      "title": "Joint audio and speech understanding",
+      "authors": [
+        "Y Gong",
+        "A Liu",
+        "H Luo",
+        "L Karlinsky",
+        "J Glass"
+      ],
+      "year": "2023",
+      "venue": "Joint audio and speech understanding"
+    },
+    {
+      "citation_id": "11",
+      "title": "An empirical investigation of catastrophic forgeting in gradientbased neural networks",
+      "authors": [
+        "I Goodfellow",
+        "M Mirza",
+        "X Da",
+        "A Courville",
+        "Y Bengio"
+      ],
+      "year": "2014",
+      "venue": "An empirical investigation of catastrophic forgeting in gradientbased neural networks"
+    },
+    {
+      "citation_id": "12",
+      "title": "Towards lifelong learning of end-to-end ASR",
+      "authors": [
+        "H.-J Chang",
+        "H Yi Lee",
+        "L.-S Lee"
+      ],
+      "year": "2021",
+      "venue": "Towards lifelong learning of end-to-end ASR"
+    },
+    {
+      "citation_id": "13",
+      "title": "Online continual learning of end-to-end speech recognition models",
+      "authors": [
+        "M Yang",
+        "I Lane",
+        "S Watanabe"
+      ],
+      "year": "2022",
+      "venue": "Online continual learning of end-to-end speech recognition models"
+    },
+    {
+      "citation_id": "14",
+      "title": "Updating only encoders prevents catastrophic forgetting of end-to-end asr models",
+      "authors": [
+        "Y Takashima",
+        "S Horiguchi",
+        "S Watanabe",
+        "P García",
+        "Y Kawaguchi"
+      ],
+      "year": "2022",
+      "venue": "Updating only encoders prevents catastrophic forgetting of end-to-end asr models"
+    },
+    {
+      "citation_id": "15",
+      "title": "Continual learning for on-device speech recognition using disentangled conformers",
+      "authors": [
+        "A Diwan",
+        "C Yeh",
+        "W.-N Hsu",
+        "P Tomasello",
+        "E Choi",
+        "D Harwath",
+        "A Rahman Mohamed"
+      ],
+      "year": "2022",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "16",
+      "title": "Using adapters to overcome catastrophic forgetting in end-to-end automatic speech recognition",
+      "authors": [
+        "S Eeckt",
+        "H Van Hamme"
+      ],
+      "year": "2023",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "17",
+      "title": "Sequencelevel knowledge distillation for class-incremental end-to-end spoken language understanding",
+      "authors": [
+        "U Cappellazzo",
+        "M Yang",
+        "D Falavigna",
+        "A Brutti"
+      ],
+      "year": "2023",
+      "venue": "Sequencelevel knowledge distillation for class-incremental end-to-end spoken language understanding"
+    },
+    {
+      "citation_id": "18",
+      "title": "Evaluating and improving continual learning in spoken language understanding",
+      "authors": [
+        "M Yang",
+        "X Li",
+        "U Cappellazzo",
+        "S Watanabe",
+        "B Raj"
+      ],
+      "year": "2024",
+      "venue": "Evaluating and improving continual learning in spoken language understanding"
+    },
+    {
+      "citation_id": "19",
+      "title": "Continual learning for large language models: A survey",
+      "authors": [
+        "T Wu",
+        "L Luo",
+        "Y.-F Li",
+        "S Pan",
+        "T.-T Vu",
+        "G Haffari"
+      ],
+      "year": "2024",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "20",
+      "title": "PARP: Prune, adjust and re-prune for self-supervised speech recognition",
+      "authors": [
+        "C.-I Lai",
+        "Y Zhang",
+        "A Liu",
+        "S Chang",
+        "Y.-L Liao",
+        "Y.-S Chuang",
+        "K Qian",
+        "S Khurana",
+        "D Cox",
+        "J Glass"
+      ],
+      "year": "2021",
+      "venue": "PARP: Prune, adjust and re-prune for self-supervised speech recognition"
+    },
+    {
+      "citation_id": "21",
+      "title": "Audio lottery: Speech recognition made ultra-lightweight, noise-robust, and transferable",
+      "authors": [
+        "S Ding",
+        "T Chen",
+        "Z Wang"
+      ],
+      "year": "2022",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "22",
+      "title": "Structured pruning of self-supervised pre-trained models for speech recognition and understanding",
+      "authors": [
+        "Y Peng",
+        "K Kim",
+        "F Wu",
+        "P Sridhar",
+        "S Watanabe"
+      ],
+      "year": "2023",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "23",
+      "title": "Omni-Sparsity DNN: fast sparsity optimization for on-device streaming E2E ASR via supernet",
+      "authors": [
+        "H Yang",
+        "Y Shangguan",
+        "D Wang",
+        "M Li",
+        "P Chuang",
+        "X Zhang",
+        "G Venkatesh",
+        "O Kalinli",
+        "V Chandra"
+      ],
+      "year": "2022",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "24",
+      "title": "Learning ASR pathways: A sparse multilingual asr model",
+      "authors": [
+        "M Yang",
+        "A Tjandra",
+        "C Liu",
+        "D Zhang",
+        "D Le",
+        "O Kalinli"
+      ],
+      "year": "2023",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "25",
+      "title": "The lottery ticket hypothesis: Finding sparse, trainable neural networks",
+      "authors": [
+        "J Frankle",
+        "M Carbin"
+      ],
+      "year": "2019",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "26",
+      "title": "IEMOCAP: interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Lang. Resour. Evaluation"
+    },
+    {
+      "citation_id": "27",
+      "title": "SLURP: a spoken language understanding resource package",
+      "authors": [
+        "E Bastianelli",
+        "A Vanzo",
+        "P Swietojanski",
+        "V Rieser"
+      ],
+      "year": "2020",
+      "venue": "EMNLP"
+    },
+    {
+      "citation_id": "28",
+      "title": "Librispeech: an asr corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "29",
+      "title": "What is the state of neural network pruning?",
+      "authors": [
+        "D Blalock",
+        "J Ortiz",
+        "J Frankle",
+        "J Guttag"
+      ],
+      "year": "2020",
+      "venue": "What is the state of neural network pruning?"
+    },
+    {
+      "citation_id": "30",
+      "title": "Learning without forgetting",
+      "authors": [
+        "Z Li",
+        "D Hoiem"
+      ],
+      "year": "2016",
+      "venue": "ECCV"
+    },
+    {
+      "citation_id": "31",
+      "title": "Overcoming catastrophic forgetting in neural networks",
+      "authors": [
+        "J Kirkpatrick",
+        "R Pascanu",
+        "N Rabinowitz",
+        "J Veness",
+        "G Desjardins",
+        "A Rusu",
+        "K Milan",
+        "J Quan",
+        "T Ramalho",
+        "A Grabska-Barwinska",
+        "D Hassabis",
+        "C Clopath",
+        "D Kumaran",
+        "R Hadsell"
+      ],
+      "year": "2016",
+      "venue": "Overcoming catastrophic forgetting in neural networks"
+    },
+    {
+      "citation_id": "32",
+      "title": "Gradient episodic memory for continual learning",
+      "authors": [
+        "D Lopez-Paz",
+        "M Ranzato"
+      ],
+      "year": "2017",
+      "venue": "Gradient episodic memory for continual learning"
+    },
+    {
+      "citation_id": "33",
+      "title": "PackNet: adding multiple tasks to a single network by iterative pruning",
+      "authors": [
+        "A Mallya",
+        "S Lazebnik"
+      ],
+      "year": "2018",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "34",
+      "title": "Continual learning via neural pruning",
+      "authors": [
+        "S Golkar",
+        "M Kagan",
+        "K Cho"
+      ],
+      "year": "2019",
+      "venue": "Continual learning via neural pruning"
+    },
+    {
+      "citation_id": "35",
+      "title": "ESPnet: End-to-end speech processing toolkit",
+      "authors": [
+        "S Watanabe",
+        "T Hori",
+        "S Karita",
+        "T Hayashi",
+        "J Nishitoba",
+        "Y Unno",
+        "N Yalta Soplin",
+        "J Heymann",
+        "M Wiesner",
+        "N Chen",
+        "A Renduchintala",
+        "T Ochiai"
+      ],
+      "year": "2018",
+      "venue": "ESPnet: End-to-end speech processing toolkit"
+    },
+    {
+      "citation_id": "36",
+      "title": "ESPnet-SLU: Advancing spoken language understanding through ESPnet",
+      "authors": [
+        "S Arora",
+        "S Dalmia",
+        "P Denisov",
+        "X Chang",
+        "Y Ueda",
+        "Y Peng",
+        "Y Zhang",
+        "S Kumar",
+        "K Ganesan",
+        "B Yan",
+        "N Vu",
+        "A Black",
+        "S Watanabe"
+      ],
+      "year": "2022",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "37",
+      "title": "Speech Model Pre-Training for End-to-End Spoken Language Understanding",
+      "authors": [
+        "L Lugosch",
+        "M Ravanelli",
+        "P Ignoto",
+        "V Tomar",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Speech Model Pre-Training for End-to-End Spoken Language Understanding"
+    },
+    {
+      "citation_id": "38",
+      "title": "",
+      "authors": [
+        "A Saade",
+        "A Coucke",
+        "A Caulier",
+        "J Dureau",
+        "A Ball",
+        "T Bluche",
+        "D Leroy",
+        "C Doumouro",
+        "T Gisselbrecht",
+        "F Caltagirone",
+        "T Lavril",
+        "M Primet"
+      ],
+      "year": "2018",
+      "venue": ""
+    },
+    {
+      "citation_id": "39",
+      "title": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "authors": [
+        "P Warden"
+      ],
+      "year": "2018",
+      "venue": "Speech commands: A dataset for limited-vocabulary speech recognition"
+    }
+  ]
+}

@@ -1,0 +1,1170 @@
+{
+  "paper_id": "2408.09035v1",
+  "title": "Multi Teacher Privileged Knowledge Distillation For Multimodal Expression Recognition",
+  "published": "2024-08-16T22:11:01Z",
+  "authors": [
+    "Muhammad Haseeb Aslam",
+    "Marco Pedersoli",
+    "Alessandro Lameiras Koerich",
+    "Eric Granger"
+  ],
+  "keywords": [
+    "Multimodal Expression Recognition",
+    "Multi-Teacher Knowledge Distillation",
+    "Privileged Knowledge Distillation",
+    "Dimensional Emotion Recognition",
+    "Pain Estimation"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Human emotion is a complex phenomenon conveyed and perceived through facial expressions, vocal tones, body language, and physiological signals. Multimodal emotion recognition systems can perform well because they can learn complementary and redundant semantic information from diverse sensors. In real-world scenarios, only a subset of the modalities employed for training may be available at test time. Learning privileged information allows a model to exploit data from additional modalities that are only available during training. State-of-the-art methods for privileged knowledge distillation (PKD) have been proposed to distill information from a teacher model (that combines different prevalent and privileged modalities) to a student model (without access to privileged modalities). However, such PKD methods utilize point-to-point matching and do not explicitly capture the relational information in the multimodal space. Recently, methods have been proposed to capture and distill the structural information and outperform point-to-point PKD methods. However, PKD methods based on structural similarity are primarily confined to learning from a single joint teacher representation, which limits their robustness, accuracy, and ability to learn from diverse multimodal sources. In this paper, a multi-teacher PKD (MT-PKDOT) method with self-distillation is introduced to align diverse teacher representations before distilling them to the student. MT-PKDOT employs a structural similarity KD mechanism based on a regularized optimal transport (OT) for distillation. An additional constraint is added to the loss function to explicitly align the centroids in the student space. The proposed MT-PKDOT method was validated on two challenging affective computing tasks: valence/arousal prediction on the Affwild2 and pain estimation on the Biovid Database. Results indicate that our proposed method can outperform SOTA PKD methods. It improves the visual-only baseline on Biovid data by 5.5%. On the Affwild2 dataset, the proposed method improves 3% and 5% over the visual-only baseline for valence and arousal respectively. Allowing the student to learn from multiple diverse sources is shown to increase the accuracy and implicitly avoids negative transfer to the student model. The code is made publicly available at: https://github.com/haseebaslam95/MT-PKDOT",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "E MOTION recognition (ER) in the wild presents unique challenges in the form of environment variability and domain shift due to demographic diversity, pose variations, and partially or completely missing modalities. This has led to a growing interest in multimodal ER (MER) systems aimed at mimicking the process of human-like recognition of emotions  [1] . MER systems typically outperform their unimodal counterparts due to their ability to capture the redundancy and complementarity information across multiple modalities Fig.  1 : A comparison of PKD methods. (a) The point-topoint based PKD  [2]  is the vanilla PKD where each point in the student space is matched to the corresponding point in the teacher space. (b) The structural KD-based PKDOT method  [3]  captures the relational information and distills it to the student. (c) In contrast, the proposed MT-PKDOT method creates a multi-teacher pool by aligning the backbone teachers with the joint representation through self-distillation and selecting the most confident teacher. A centroid loss is also introduced as an additional constraint to explicitly minimize the ℓ 2 distance between the centroids of the teacher and student representations.\n\n[4],  [5] . Beyond the additional cost for the capture and fusion of multiple modalities, MER can provide improved accuracy in controlled lab environments because all modalities are available at both train and test times. However, in real-world scenarios, some modalities are difficult or expensive to capture. To overcome this, methods like joint cross-attention  [6]  have been proposed to dynamically assess and weigh the importance of modalities. Even those methods are ineffective where some modalities are entirely missing.\n\nMER systems employ various modalities including facial, audio, textual, and physiological. Some of these modalities are easier to capture in the wild but signals like electroencephalogram (EEG)  [7]  electrocardiogram (ECG) and electromyography (EMG)  [8]  are more laborious to be acquired in the wild. These physiological signals, in some cases, are more informative than other signals. For instance, the physiological signals have been shown to outperform the visual modality, in tasks like pain estimation  [9] . However, in practical contexts, the physiological signals are not always available. Since such systems restrict the subject's mobility and require specialized equipment, most methods will typically rely on prevalent modalities (available at both design time and after deployment), leading to a lower level of system performance. Using this additional information (i.e., privileged modalities) that is only available at the training time may however be leveraged to enhance system performance at test time.\n\nRecently, the learning using privileged information (LUPI) paradigm has been introduced for affective computing  [2] ,  [3] ,  [10] . Privileged information (PI) in machine learning (ML) is the information available to the model only at training time but not at inference time  [11] . For multimodal systems, PI is often the privileged modality that is only available at the train time. LUPI methods have been shown to increase performance for multimodal systems using only the prevalent modalities (available during train and inference)  [10] ,  [2] ,  [3] ,  [12] ,  [13] . These methods traditionally follow a studentteacher framework for knowledge transfer. An MER model trained with all modalities serves as the teacher network which is comprised of multiple backbones, one specialized per prevalent and privileged modality, and a fusion module to combine their feature representations. The student is typically a similar model without the PI and its corresponding modules  [2] .\n\nInitial studies transferred the PI using the vanilla knowledge distillation (KD) methods, using KL divergence between the softened logits in the teacher and student network  [10] . Researchers have also explored the idea of transferring this knowledge in the feature space using cosine similarity  [2]  or MSE  [10] . All these methods use point-to-point matching, as shown in Fig.  1(a) , to distill the knowledge and are, therefore, unable to capture the local structure formed in the teacher space. Local structure refers to a more fine-grained knowledge representation, where the distance of each sample from all the other samples in the training batch is calculated. This structural information is formed in the teacher space through the interaction between the prevalent and privileged modality and should be captured to mimic the performance in the student space  [3]  as shown in Fig.  1(b) .\n\nZhu et al.  [14]  explored the concept of distilling knowledge from an ensemble of multiple diverse teachers to a single student. The authors investigated the case where multiple teachers with the same backbone architecture trained on the same dataset and used the same algorithm. The only differentiating element was the random seed initialization. The student was trained jointly using the soft labels learnt by the ensemble as well as the original hard labels. The authors conclude that combining diverse teacher models each trained using a different random seed introduces improves student accuracy. Inspired by this work, we explore the idea of multi-teacher KD. In our case, diversity is defined by different modality-specific data and backbone architectureseach teacher backbone is trained with different modality and fused to form the joint multimodal representation. This fused representation is then aligned with the backbones to provide a diverse multi-teacher pool.\n\nThe main contribution of this paper is a multi-teacher privileged KD with optimal transport (MT-PKDOT) method, enabling the student to learn from diverse multimodal sources, thereby enhancing robustness and accuracy, and mitigating negative transfer. Other important contributions are (i) a new loss function that introduces an additional constraint, explicitly forcing the centroids to be aligned simultaneously with the structural similarity-based KD; (ii) a detailed set of experiments performed on two challenging affective computing task problems -arousal-valance prediction on the Affwild2 and pain estimation on the Biovid heat pain database. Results obtained with a diverse pool of teacher architectures and various modalities show that the proposed MT-PKDOT method is model and modality-agnostic, and can outperform state-ofthe-art single-teacher privileged KD methods.\n\nThis paper extends our previous work  [3] , where we introduced a PKD method with optimal transport (PKDOT) method using a single fused teacher for additional supervision. PKDOT introduced a structural KD mechanism to capture and distill the structural dark knowledge. The cosine similarity matrix was used to retain information about the pairwise relationships between all batch samples. An encoder-decoder transformation network (T-Net) was trained during the teacher training stage. Entropy-regularized OT was used to distill the structural dark knowledge. In contrast, this paper extends the single-teacher architecture to a multi-teacher setting. The multiple teachers, i.e., modality-specific teachers and fused teachers, are aligned using self-distillation and modalityspecific adapters. The modality adapters are implemented with an encoder-decoder network aimed to project the backbone representations and the joint representation in a common subspace. After the alignment of the modality-specific teachers, the teacher with the minimum error rate is selected. Additionally, the existing PKDOT method  [3]  only relies on the structural similarity loss for the knowledge transfer. In addition to the structural similarity loss employed with PKDOT, the MT-PKDOT calculates the centroids from the selected anchors and minimizes the ℓ 2 distance to explicitly align the samples. A centroid represents the geometric mean in the teacher and student space. Explicitly aligning these centroids makes the distillation process more controlled as this constraint helps in stabilizing the learning process by reducing the variance in the student model's parameter updates. The centroid acts as an anchor which reduces oscillations making the distillation process more stable and also helps in faster convergence. Fig.  1(b ) and (c) compare the PKDOT and MT-PKDOT method.\n\nThe remainder of this paper is structured as follows. Section II provides an analysis of state-of-the-art literature related to multimodal MER and PKD. Section III describes the proposed MT-PKDOT method and its key components. Then, Section IV provides details on the experimental methodology used for validation (i.e., datasets, evaluation criteria, baselines, and implementation details). Experimental results are presented and analyzed in Section V.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Related Work",
+      "text": "",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Multimodal Emotion Recognition:",
+      "text": "MER seeks to model and understand human emotions by leveraging different input sources like speech, vocal intonations, physiology, text, and facial cues. The seminal work in multimodal deep learning was proposed by Ngiam et al.  [15] , in which both audio and visual modalities were separately encoded. For the fusion, the latent vectors of both modalities were concatenated to form the joint representation. A bimodal deep autoencoder was formed to reconstruct both modalities using separate decoders.\n\nIn the ER, a recurrent network-based fusion technique was proposed by Tzirakis et al.  [16] , in which the audio features were extracted using a 1D convolutional neural network (CNN), and the visual modality was processed using a ResNet-50 model. The two feature vectors were concatenated and fed to a 2-layer LSTM model to jointly fuse and model temporal dependencies. A joint cross-attention mechanism was proposed by Rajasekhar et al.  [6]  for overcoming the noisy/missing modality problem, where some modalities are highly unreliable. Separate backbones were trained for both modalities. For the audio modality, discrete Fourier transform (DFT) was applied to the audio signal to obtain spectrograms, which were fed to a ResNet-18. For the visual modality, a 3D CNN was used to extract spatiotemporal features. A joint cross-attention model was used to fuse the two feature vectors. Attention weights were multiplied with the raw features to get the cross-attended features. These cross-attended features overcome the noisy modality problem by dynamically assigning weights.\n\nPain analysis is another important application in affective computing, with various publicly available datasets. These datasets include induced pain through heat  [17] , shoulder pain  [18] , pain estimation in animals  [19]  and children  [20]    [20] . Numerous approaches have been proposed for the task of pain detection and estimation. Werner et al.  [21]  developed a pain-specific feature set called facial activity descriptors. A subject-independent deep learning approach was proposed by Dragomir et al.  [22] , in which the concept of residual learning was used for pain estimation from facial images. A dataefficient image-based transformer architecture was proposed by Morabit et al.  [23] . A recurrent net was proposed by Zhi et al.  [24] , where an LSTM model with sparsity was used to overcome the problem of vanishing gradient. A physiological signal-based approach was proposed by Phan et al.  [8]  in which ECG and electrodermal activity (EDA) signals were processed using an attention-based method. The LSTM model was used to capture the multi-level context information. For the final prediction, the two modalities were fused at the decision level. Another EDA-based approach was proposed by Lu et al.  [25] . Multi-scale EDA signal windows were fed to a residual squeeze and excitation-based CNN. The output of which was combined and fed to a transformer model. Specifically for pain estimation, the physiological signal-based approaches have been shown to outperform the facial imagebased approaches. Several multimodal methods have also been proposed to leverage the multiple sources of information. Zhu et al.  [26] , Kachele et al.  [27] , and Werner et al.  [28]  have proposed methods to combine visual and physiological modalities.\n\nThe higher performance and robustness of the multimodal systems come at a cost, usually in terms of time and computational complexity. To minimize the computational complexity, methods like attention bottleneck in transformers  [29]  have been proposed. However, these methods still fall short in cases where some modalities are entirely missing. On the other hand, the proposed method aims to enhance test-time performance without relying too much on missing or absent modalities.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Knowledge Distillation And Optimal Transport:",
+      "text": "Hinton et al.  [30]  proposed the seminal work in KD for model compression in a teacher-student setting. The lightweight student model is trained with additional supervision from the accurate yet cumbersome teacher model. The temperature in the teacher's softmax is increased to get less confident yet more informative predictions. This is termed as 'dark knowledge'. These softened predictions are more informative than the one-hot encoding. Romero et al.  [31]  proposed hint learning, essentially distilling from the model's hidden layer instead of softened logits. Since then, several works for feature-based KD have been proposed  [32] ,  [33] . Vanilla KD methods only consider individual samples and solely rely on matching the output activations between teacher and student. A relational KD method was introduced by Park et al.  [34]  in which the authors argued that the student model's performance can be significantly improved by distilling the relational knowledge among samples. Inspired from this work, the proposed method also captures the relational information that is formed in the teacher space due to the introduction of the privileged modality.\n\nOptimal Transport (OT) is a well-established mathematical framework for calculating the optimal cost of transforming one probability distribution into another  [35] . OT has seen a rise in ML applications, especially in cases where matching distributions are vital. Other methods for distribution matching, including KL divergence and maximum mean discrepancy, suffer theoretical drawbacks  [36] . KL divergence falls short in cases where two distributions do not overlap, resulting in infinity  [37] . On the other hand, due to its sensitivity to outliers and sample size, MMD does not precisely capture the distance between distributions  [38] . Although an expensive solution, OT provides a stable metric for matching distributions. Cuturi et al.  [39]  proposed regularized OT to overcome the computational limitations of OT. Since then, many works have used OT of various applications, including neural architecture search  [40] , domain adaptation  [41] , model compression  [37] , and, pedestrian detection  [42] . To the best of our knowledge, this is the first use of OT in a multi-teacher privileged KD setting in the context of expression recognition.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "C. Multi-Teacher And Privileged Knowledge Distillation:",
+      "text": "Several multi-teacher KD methods have also been proposed in the literature. Shome et al.  [43]  proposed a multi-teacher speech ER system. Linguistic and prosodic teachers were first trained separately. Speech student was then trained with additional supervision from frozen prosodic and linguistic teachers. Knowledge was transferred at both logit and feature levels. Sarkar et al.  [44]  introduced a cross-modal KD method for video representation learning. Masked reconstruction, domain alignment, and cross-modal KD steps were performed to enhance the overall performance in video action classification and sound classification. Ma et al.  [45]  proposed a method based on self-distillation for ER in conversation, a transformer model was used to learn inter-and intra-modal interactions. A hierarchical gating mechanism was used to dynamically weigh modalities. Soft and hard labels were used to distill knowledge from the multimodal model to each modality. Long et al.  [46]  also proposed a diversified branch fusion for self-KD to effectively utilize the knowledge from the shallow layers via branching. Introducing diverse knowledge from different branches enhances the performance of CNN-based methods.\n\nThe quality and availability of the modalities are a concern in the multimodal ML paradigm. Visual, audio, and, textual modalities can be partially missing due to occlusion, userinitiated muting, and/or transmission/recording errors, etc. For RGB-D data, RGB data is readily available at both train time and deployment, but depth modality is not always available. Similarly for affective computing, physiological signals like EDA, EMG and ECG may only be available at training time but completely missing at deployment. LUPI paradigm can be used to leverage this information at train time only. The concept of PI in ML was proposed by Vapnik and Vashist  [11] , where additional information, available to the model at training time only, was used to learn more discriminative information, outperforming the traditional ML paradigm of using the same information at training and testing. Many applications, like action recognition  [47]  and person re-identification  [48] , have since utilized the concept of LUPI to improve performance or increase robustness. An online action detection privileged KD mechanism was proposed by Zhao et al.  [49] , where the PI was the future frames from the video, which were only available to the model during train time. However, in real-life deployment, only historical frames are available. To minimize the studentteacher gap, KL-divergence was used to only update partially hidden features in the student model.\n\nAs the focus in affective computing shifts to more in-thewild scenarios, privileged KD methods have become more popular due to their ability to perform well in extreme cases of completely missing modalities at test time. Existing methods primarily use PI as an additional modality to train a superior multimodal teacher, which is then used to distill the information to a student model that does not have access to the privileged modality. A point-to-point matching-based method was proposed by Aslam et al.  [2] . Cosine loss was added to the task loss for the knowledge transfer between the multimodal teacher and the student model. To mitigate the negative transfer from the teacher method, adaptive weighting among the task and KD was used. Makantasis et al.  [10]  proposed a privileged KD method for two tasks; the categorical expression recognition problem used the KL divergence loss, whereas the arousal-valence prediction model was trained using the MSE loss function. Liu et al.  [50]  also proposed a privileged-KDbased method in the physiological signals domain, where a GSR-based student model was trained with additional supervision from the teacher model that was trained using EEG and GSR. The KD loss used was the KL divergence. Although these methods improve the performance of the student model, they lack any defined mechanism to capture the relational knowledge in the multimodal teacher space. Capturing the local structures formed in the teacher network space by the introduction of privileged modalities should be distilled to the student network to enhance performance. Furthermore, all of aforementioned PKD methods are confined to learning from a single joint teacher which drastically limits their robustness and the ability to learn from multiple diverse sources.\n\nIn contrast, our proposed method performs self-distillation using the joint multimodal feature space to the modalityspecific feature representations. Our goal is to align the teacher representations and effectively create a diverse multi-teacher pool for the students to learn from.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iii. Proposed Approach",
+      "text": "The MT-PKDOT method relies on the diversity among teacher models to enhance the performance of the student network. In the teacher space, the modality-specific features are aligned with the fused feature vector using modality adapters. The aligned teachers then serve as the additional supervision for the student. At student training, the most confident teacher is selected based on the task performance metric. Further, structural similarity matrices calculation and anchor selection are done similarly to PKDOT  [3] . For the distillation, in addition to the OT loss, a constraint to minimize the centroid loss is also added to simultaneously align the centroid and distill the structural information. Fig.  2  shows the proposed different modules of the proposed MT-PKDOT method. The remaining subsection presents additional details on the key components of this framework.\n\nA. Teacher Alignment using Self Distillation and Selection:\n\nwhere F 𝐴 1 , F 𝐴 2 , . . . , F 𝐴 𝑛 represent the feature vectors from the first to the 𝑛-th backbone, and F 𝐵 represents privileged modality feature vector. The joint representation from the fusion network is represented as F Joint . To add diversity to the teacher space, modalityspecific representations are also included in the teacher pool. However, the backbone and the joint representations are in separate spaces. To project them in a single space and align them while maintaining diversity, the joint representation and the modality-specific backbone representations are aligned using modality adapters. A modality adapter is an encoder-decoderbased network that takes in the modality-specific features and tries to reconstruct the joint representation, effectively aligning Fig.  2 : Illustration of the proposed MT-PKDOT method to train the student model. In the multi-teacher pool, the representation of 𝑛 modality-specific teachers is aligned using self-distillation. Following the selection of the most-confident teacher for the batch, the relational knowledge is captured using cosine similarity matrices. For similarity structure knowledge transfer, entropy-regularized OT is used to match the teacher and student distributions. A centroid loss is also used as an additional constraint to explicitly minimize the distance between the teacher and student. the backbone representations with the joint representation. We use the cosine loss function:\n\nwhere F 𝑖 is the feature representation of the 𝑖-th backbone.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Relational Knowledge Capture:",
+      "text": "Let Θ be a matrix of dimension 𝑏 × 𝑚 obtained from the teacher network, where 𝑏 is the batch size and 𝑚 is the dimension of the feature vector, and Θ ⊤ be its transpose of dimension 𝑚 × 𝑏, and Φ be a matrix of dimension 𝑏 × 𝑚 obtained from the student network, and Φ ⊤ be its transpose of dimension 𝑚 × 𝑏.\n\nwhere 𝐶 Θ (𝐶 Φ ) is a matrix of size 𝑏 × 𝑏 and each element 𝐶 𝑖 𝑗 represents the dot product of the 𝑖 𝑡 ℎ row of Θ (Φ) and the 𝑗 𝑡 ℎ column of Θ ⊤ (Φ ⊤ ) and can be denoted as:\n\nTo ensure that the similarity matrices are not heavily influenced by the magnitude, we normalize 𝐶 Θ and 𝐶 Φ as:\n\nwhere 𝑁 Θ (𝑁 Φ ) denotes the normalization vector of size 𝑏 × 1, computed by calculating the ℓ 2 -norm for each row. 𝑁 Θ (𝑁 Φ ) allows us to normalize the values so that the length of the vectors does not dominate the cosine similarity measure. 𝑁 ⊤ Θ (𝑁 ⊤ Φ ) is also calculated using Eq. (  4 ), with the exception that it is of dimension 1 × 𝑏.\n\n𝑆 Θ and 𝑆 Φ are the final similarity matrices of teacher and student networks respectively and are obtained by elementwise division of 𝐶 Θ with the dot product of 𝑁 Θ and 𝑁 ⊤ Θ and 𝐶 Φ by the dot product of 𝑁 Φ and 𝑁 ⊤ Φ as follows:",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "C. Entropy Regularized Optimal Transport:",
+      "text": "After the teacher (𝑆 𝜃 ) and student (𝑆 𝜙 ) cosine similarity matrices are obtained for a given batch. Top-k most dissimilar samples are selected in the teacher space and a new similarity matrix of dimension 𝑏 × 𝑘 is developed, where K represents the number of anchors. The same indexes are also selected in the student similarity matrix. The structural dark knowledge is distilled from the teacher to the student using entropyregularized OT, defined by:\n\nAlgorithm 1 Teacher Alignment with Self Distillation Compute cosine loss:\n\n6:\n\nUpdate representations using gradient descent:\n\n8:\n\nwhere 𝑆 Θ𝑖 and 𝑆 Φ𝑖 refer to each row in the teacher and student similarity matrices, respectively, semantically representing the local structures, 𝜇 and 𝜈 are the marginal distributions. O and 𝑑𝜋 represent the cost matrix and the transport plan, respectively. 𝜖 > 0 is a coefficient and 𝐻 (𝜋) is the entropic regularization defined as:\n\nL OT is an approximation of the Wasserstein distance between the teacher and student similarity matrices. Minimizing L OT effectively transfers the relational information to the student. The task loss (L Task ), either the concordance correlation coefficient (CCC) for regression or the categorical crossentropy for classification, is calculated with the ground truth (𝑦) according to:\n\nwhere 𝜌 is the Pearson correlation coefficient, 𝜎 𝑥 , and 𝜎 𝑦 , are the standard deviations of predicted and ground truth values.\n\n𝜎 2 shows the variance and 𝜇 is the mean value. 𝑁 represents the number of samples and 𝐶 the number of classes. 𝑦 𝑖, 𝑗 are the ground truth values and 𝑝 ′ 𝑖, 𝑗 are the predicted values.\n\nD. Multi-Teacher Knowledge Distillation: a) Centroid Alignment : After the anchor selection in the teacher and student space, in addition to transferring the structural information, we also calculate the centroid in the teacher and student space. This enables us to explicitly minimize the ℓ 2 distance between the two representations instead of implicitly relying on the structural knowledge transfer module to minimize this distance:\n\nb) Teacher Selection : This module selects the most confident frozen teacher in each batch, the one with the least task loss, and distills only from that. The student network is then trained using:  (10)  where, L Task , L OT , and L Cen are the task, OT, and centroid loss respectively, and 𝛼, 𝛽 and 𝛾 are the weight coefficients. c) Mitigation of Negative Transfer. : The proposed method implicitly mitigates the negative transfer. In the teacher selection phase, the proposed method selects the most confident teacher based on the loss calculated from each aligned teacher representation separately. If the loss value from the aligned backbone teacher network is greater than the existing joint teacher loss, the model will resort back to learning from the joint teacher. Compute task losses per teacher:\n\nTeacher selection: Compute similarity matrices: Compute OT loss:\n\n12:\n\nL OT = OptimalTransport(S 𝜃 , S 𝜙 )\n\n13:\n\nCompute Centroids:\n\nCompute Centroid loss:\n\n17:\n\nCompute student task loss:\n\n19:\n\nCompute total loss:\n\nUpdate student weights:\n\n23: pain' and PA1-PA4 refers to increasing pain intensities. The Biovid part A has a total of 87 subjects, with each subject having 100 videos, corresponding to 20 videos per class, which results in a total of 8700 videos. 20 subjects did not exhibit any noticeable response to the pain stimulus, so some studies report results for the remaining 67 subjects. For the validation of the proposed method, we report results on the entire dataset of 87 subjects. In addition to the modalities available in part A, part B of the dataset has facial EMG as well and is recorded for a total number of 86 subjects, corresponding to 8600 videos. The Biovid dataset does not come with predefined training, validation, or test splits, so many studies have validated their methods using cross-validation. Following that, we also validate the proposed method using 5-fold crossvalidation. The performance metric used is accuracy.\n\n2) Affwild2 is among one of the most comprehensive datasets for in-the-wild ER  [52] . The dataset consists of a total of 564 videos with variable lengths. The dataset comes with annotations for three main affective computing tasks, i.e., the action unit detection problem, categorical expression recognition, and the continuous arousal/valence prediction problem. For the validation of the proposed method, the arousal/valence prediction set of the Affwild2 dataset is used. Affwild2 contains videos that are highly diverse in terms of gender, age, ethnicity, and capture conditions, etc. This makes Affwild2 a challenging dataset in terms of generalization. The dataset comes with a pre-defined split for the training, validation, and test subsets with 351, 71, and 152 videos, respectively. The performance metric used for evaluation is CCC. The test annotations for the dataset are not publicly available for running the ABAW Challenge. Consequently, many studies report their results on the validation set.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "B. Implementation Details",
+      "text": "1) Biovid Dataset: Teacher For the Biovid (B) dataset, the EMG signals are first converted in spectrograms of dimension 67×127. The physiological feature extraction is done using a ResNet-18 model with the output feature vector of 512d. For the visual modality, an R3D model is used for feature extraction. The visual backbone takes facial frames of size 112×112 as input and jointly models the spatiotemporal dependencies in the visual modality. For the fusion of the two modalities, a transformer-based fusion model is used (Fig.  3c )  [51] . The visual backbone is optimized using the Adam optimizer with a batch is of 64 and the learning rate of 10 -3 . The two backbone feature vectors are fed to two separate transformer encoders and then to the multimodal transformer. The Query vector is generated from one modality, and the Key and Value vectors are obtained from another modality. The cross-modal transformer outputs the cross-attended features, which are then gated using learnable weights. For the final predictions, the gated cross-attended features are passed to fully connected layers. The fusion module uses the Adam optimizer and a learning rate of 10 -4 with a batch size of 64.\n\nFor the Biovid (A) dataset, the proposed method is evaluated with a relatively simpler feature concatenation-based fusion approach. (Fig.  3a ). The visual backbone is the same as Part B. For the physiological modality, EDA signals are fed to a 1D CNN for feature extraction. The output feature vectors of both backbones are concatenated and fed to an MLP for final classification. The fusion module is optimized using Adam optimizer with a batch size of 64 and learning rate of 10 -4 Modality Adapters: The modality adapters are an encoderdecoder based networks that are used for self-distillation, knowledge from the joint representation is distilled to earlier layers. The modality adapters take in the modality-specific feature representations and align them with the joint feature representation. The network is optimized during the teacher training step using the Adam optimizer and with the learning rate of 10 -3 . Student: In the student training step, since the physiological modality is the privileged modality, and the model does not have access to the physiological input source, the backbone is dropped altogether. The visual backbone and multimodal transformer model in the student network are the same as the teacher. In order to hallucinate the privileged modality, T-Net is added. The student is also optimized using Adam optimizer with 128 batch size and a learning rate of 10 -4 .\n\n2) Affwild2 Dataset: Teacher: For the visual modality, a 3D CNN is used for spatiotemporal modeling. The model takes in cropped and aligned facial images of size 112×112. The model is trained with a batch size of 8 and a learning rate of 10 -3 . For the audio modality, the extracted audio is divided into multiple short segments corresponding to 256 frames in the visual modality. DFT is applied on the audio segments to obtain the spectrograms of resolution 64×107. A  ResNet-18, trained from scratch, takes in these spectrograms for the extraction of audio features. The batch size of 8 is used for the audio modality as well, and the network is optimized using a learning rate of 10 -3 . The two modalities are fused using the joint cross-attention model (Fig.  3b )  [53] .\n\nThe output feature vectors of the two backbone networks are concatenated and fed to the cross-attention module. The fusion module is optimized using the Adam optimizer with a learning rate of 10 -3 . The batch size for the fusion module is set to 64. Modality Adapters: are trained during the fusion training step so the batch size is kept the same as the fusion module. The learning rate is set to 10 -3 , and the network is optimized using the Adam optimizer. Student: For the Affwild2 dataset as well, the student network follows roughly the same implementation method as the teacher network. Since the privileged modality is not available to the student, the audio backbone is dropped, and the T-Net is added. To hallucinate the privileged modality features for the student network, the prevalent modality features are fed to the frozen T-Net. The batch size is set to 128 for the student model. Adam optimizer with a learning rate of 5 -3 is used for the student training.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "V. Results And Discussion",
+      "text": "",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "A. Comparison With The State-Of-The-Art",
+      "text": "The proposed method is validated on a variety of fusion architectures and modalities from two different datasets. Further, we also distill in different settings like 'Stronger Enhancing Weaker (SEW)' and 'Weaker Enhancing Stronger (WES). For a more comprehensive analysis, we distill not only the visual modality but also the physiological modality. Table  I  summarizes the information on the datasets, the modalities used, the distillation setting, and the target student modality.\n\nWe compare the proposed method with SOTA-privileged DL methods in Table  II . The proposed method outperforms the SOTA PKD methods. MT-PKDOT significantly outperforms the cosine similarity, MSE, and KL-based point-to-point KD methods. PKDOT also improves over the optimal transportbased structural KD. Such an improvement is because the proposed MT-PKDOT method is primarily focused on the corner cases where the multimodal teacher lapses. Since there is still a significant error rate in the upper-bound (multimodal teacher), the student might also learn negatively from cases  The multimodal teacher, having access to both modalities, achieves 0.67 valence and 0.59 arousal, which serves as the upper bound. The proposed method is able to improve over the lower bound by 3% percent for valence and 5% for arousal. It can also be observed that the proposed method improves 1% over the PKDOT  [3]  for valence but maintains the same performance for arousal. This shows that in cases where the teacher alignment is insufficient, the MT-PKDOT can resort back to learning from the multimodal teacher only and maintain performance. This can be attributed to the in-the-wild nature of the Affwild2 dataset, where certain modalities are missing completely, or both the audio and visual modalities are unreliable. There is a significant error rate in the multimodal teacher, which makes the alignment and distillation an even more challenging problem.\n\nTable  IV  shows the comparison of the proposed method with visual-only SOTA for the Biovid (A) dataset. The lower bound is the visual-only R3D model. The upper bound is the visual +    The proposed method is also compared with the SOTA on Biovid (B) in Table  V . The proposed method improves 5.5% over the visual-only baseline. The visual-only baseline is 74.10%, after distillation, the proposed method achieves 79.63% just by using the visual modality at test time. MT-PKDOT also improves over the structural similarity-based PKD  [3] , showing that the diversity in the teacher module does help improve the performance in the student model.\n\nIt is pertinent to mention here that the aim of this work is not to outperform the SOTA on a particular task. There may be other methods in the literature that are tailored to the task and achieve higher performance in either multimodal or unimodal settings through extensive pertaining and taskspecific architecture. The primary goal of this work is to show that with the same backbones, the proposed method is able to improve over the lower bound. More specifically, the introduction of teacher alignment and centroid loss improves performance over the structural similarity-based PKD  [3] .\n\nTo see the effectiveness of the proposed MT-PKDOT method, we also plot and compare the similarity matrices of the teacher and student models. Fig.  4  shows the evolution of the student similarity matrix over training epochs. Fig.  5 : Visualization of the teacher representations before (left) and after (right) alignment on the Biovid (B) dataset Fig.  5  shows the 3D t-SNE plot for the three teacher representations before and after alignment on the Biovid (B) dataset. Before the teachers are aligned with self-distillation, the representations are well-separated discrete clusters because the backbones are also pretrained, which allows the separation of the two classes. After alignment, the three teacher representations are pushed together. The samples belonging to the same class from different teacher networks overlap, showing the alignment of teacher networks while maintaining class separability. Another interesting observation is that the alignment process also increases the discriminating ability of the backbones. This phenomenon is also observed in Fig.  6 , which shows that the backbone representations also have high discriminatory ability in some instances.\n\nFig.  6  shows the distribution of each teacher model selected per batch. This shows that the multimodal teacher model is not always the most accurate teacher, and the MT-PKDOT method selects the aligned visual teacher and the physiological teacher for 14% and 3% on average across 5 folds. The proposed method can improve over the single-teacher architecture  [3]  Fig.  6 : Distribution of teacher selection on the Biovid (B) dataset.\n\nbecause there was no mechanism for the mitigation of negative transfer, and the student was learning from all instances even where the multimodal teacher was not the most accurate.\n\nB. Ablations 1) Batch Size and Anchor Selection: Batch size is a particularly crucial hyperparameter in the proposed method since it determines the number of samples that are included in the similarity matrix. Since relational information between the samples in a batch is calculated, the number of samples included at each optimization step can have a substantial effect on the performance. We run the proposed method with different batch sizes. Fig.  7  shows the evolution of the results with respect to increasing batch sizes and anchors. The best results for Biovid (B) are achieved using batch size 128 and 30 anchors. 2) Centroid Loss: One of this paper's contributions is explicitly aligning the centroids of the two representations by introducing an additional constraint to the loss function. We run the proposed method with and without the centroid loss to see its effectiveness. As shown in Tab. VI The student model trained with centroid loss achieves 79.68%, whereas the student model trained without the centroid loss achieves 79.03%. This shows the effectiveness of this additional regularization through the alignment of centroids in the teacher and student spaces.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "C. Distillation To Physiological Modality:",
+      "text": "To further analyze the effectiveness of the proposed method, we also distill to physiological modality. The student model is the same as the physio backbone in the multimodal teacher. The T-Net is trained in reverse to hallucinate the visual modality features. The upper bound is the multimodal teacher model with 81.30%, and the lower bound is the physio-only model, achieving 63.85% on the Biovid (B) dataset. After distillation, the MT-PKDOT student is able to improve 2.2% over the physio-only baseline. Table  VII  shows the performance of the proposed MT-PKDOT method on the physiological modality.  This paper presents a novel multi-teacher privileged knowledge distillation method based on optimal transport that distills the structural information from the aligned teacher representations. Experiments show that the alignment of diverse modality-specific teachers with MT-PKDOT can enhance student performance. The proposed method is validated on two main MER problems: the valence/arousal estimation regression problem on the Affwild2 dataset and the pain classification on the Biovid (A and B) dataset. To exhibit the generalization ability of our proposed MT-PKDOT method, we use a variety of modalities and combine them using three different fusion architectures to obtain the joint representations. The proposed method can outperform the visual-only baseline as well as SOTA PKD methods for all three teacher architectures, showing that the proposed method is modalityagnostic and model-agnostic. Further, we distill in both SEW and WES settings. The MT-PKDOT method performs better in the WES settings because the stronger modality is still available to the student model.\n\nA limitation of this work is that the modality alignment does not incorporate any explicit criterion to gauge diversity. This would align modality-specific representations with the joint representation to a reasonable extent. In the future, we intend to develop methods that can employ more modalities in the teacher and student space. More sophisticated attention-based methods can also be applied in the teacher alignment step to achieve better alignment.",
+      "page_start": 10,
+      "page_end": 11
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: A comparison of PKD methods. (a) The point-to-",
+      "page": 1
+    },
+    {
+      "caption": "Figure 1: (a), to distill the knowledge and are, therefore,",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: (b) and (c) compare the PKDOT and MT-PKDOT method.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Illustration of the proposed MT-PKDOT method to train the student model. In the multi-teacher pool, the representation",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: Illustration of the various fusion architectures employed to obtain the fused representation in the teacher space: (a)",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: c) [51]. The",
+      "page": 7
+    },
+    {
+      "caption": "Figure 3: a). The visual backbone is the same as Part",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Evolution of the student similarity matrix over training epochs. (a) shows the similarity matrix of the pretrained",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: shows the evolution of",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: Visualization of the teacher representations before (left)",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: shows the 3D t-SNE plot for the three teacher",
+      "page": 9
+    },
+    {
+      "caption": "Figure 6: shows the distribution of each teacher model selected",
+      "page": 9
+    },
+    {
+      "caption": "Figure 6: Distribution of teacher selection on the Biovid (B)",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: shows the evolution of the results",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: Evolution of accuracy w.r.t increasing batch size and",
+      "page": 10
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Method": "Aslam et al.\n[2]\nCosine Similarity\n(IEEE CVPRw ’23)",
+          "Performance\nBiovid (B)\nAffwild2": "V: 0.37\n75.40\nA: 0.53"
+        },
+        {
+          "Method": "Makantasis et al.\n[10]\nMSE\n(IEEE TAC ’23)",
+          "Performance\nBiovid (B)\nAffwild2": "V: 0.39\nN/A\nA: 0.53"
+        },
+        {
+          "Method": "Makantasis et al.\n[10]\nKL\n(IEEE TAC ’23)",
+          "Performance\nBiovid (B)\nAffwild2": "75.80\nN/A"
+        },
+        {
+          "Method": "PKDOT [3]\nOptimal Transport\n(IEEE FG ’24)\nStructural KD",
+          "Performance\nBiovid (B)\nAffwild2": "V: 0.43\n78.76\nA: 0.56"
+        },
+        {
+          "Method": "Multi-Teacher\nMT-PKDOT (Ours)\nStructural KD",
+          "Performance\nBiovid (B)\nAffwild2": "V: 0.44\n79.68\nA: 0.56"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Dataset": "Affwild2",
+          "Modalities": "Visual",
+          "Property": "-Strong\n-Prevalent",
+          "Fusion": "Joint Cross\nAttention",
+          "Distilled to": "Visual\n(WES)"
+        },
+        {
+          "Dataset": "",
+          "Modalities": "Audio",
+          "Property": "-Weak\n-Privileged",
+          "Fusion": "",
+          "Distilled to": ""
+        },
+        {
+          "Dataset": "Biovid\n(A)",
+          "Modalities": "Visual",
+          "Property": "-Weak\n-Prevalent",
+          "Fusion": "Feature\nConcatenation",
+          "Distilled to": "Visual\n(SEW)"
+        },
+        {
+          "Dataset": "",
+          "Modalities": "EDA",
+          "Property": "-Strong\n-Privileged",
+          "Fusion": "",
+          "Distilled to": ""
+        },
+        {
+          "Dataset": "Biovid\n(B)",
+          "Modalities": "Visual",
+          "Property": "-Strong\n-Prevalent",
+          "Fusion": "Multimodal\nTransformer",
+          "Distilled to": "- Visual\n(WES)\n- EMG (SEW)"
+        },
+        {
+          "Dataset": "",
+          "Modalities": "EMG",
+          "Property": "-Weak\n-Privileged",
+          "Fusion": "",
+          "Distilled to": ""
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Method": "Baseline [54] CVPRw’20",
+          "Visual Network": "ResNet-50",
+          "Valence": "0.31",
+          "Arousal": "0.17"
+        },
+        {
+          "Method": "Zhang et al.\n[55] CVPRw’20",
+          "Visual Network": "SENet-50",
+          "Valence": "0.28",
+          "Arousal": "0.34"
+        },
+        {
+          "Method": "He et al.\n[56] CVPRw’21",
+          "Visual Network": "MobileNet",
+          "Valence": "0.28",
+          "Arousal": "0.44"
+        },
+        {
+          "Method": "Nguyen et al.\n[57] CVPRw’22",
+          "Visual Network": "RegNet + GRU",
+          "Valence": "0.43",
+          "Arousal": "0.57"
+        },
+        {
+          "Method": "Geesung et al.\n[58] CVPRw’21",
+          "Visual Network": "ResNeXt + SENet",
+          "Valence": "0.51",
+          "Arousal": "0.48"
+        },
+        {
+          "Method": "IEEE FG’24\nAslam et al.\n[3]",
+          "Visual Network": "I3D",
+          "Valence": "0.43",
+          "Arousal": "0.56"
+        },
+        {
+          "Method": "Visual only (Lower bound)",
+          "Visual Network": "I3D",
+          "Valence": "0.41",
+          "Arousal": "0.51"
+        },
+        {
+          "Method": "MT-PKDOT - Student\n(Ours)",
+          "Visual Network": "",
+          "Valence": "0.44",
+          "Arousal": "0.56"
+        },
+        {
+          "Method": "Multimodal\n(Visual + Audio)\n(Upper bound)",
+          "Visual Network": "",
+          "Valence": "0.67",
+          "Arousal": "0.59"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Method": "",
+          "Visual Network": "",
+          "Accuracy": "BL1 vs. PA4"
+        },
+        {
+          "Method": "ITAIC’19\nZhi et al.\n[24]",
+          "Visual Network": "Sparse LSTM",
+          "Accuracy": "61.70"
+        },
+        {
+          "Method": "ISIVC’22\nMorabit et al.\n[23]",
+          "Visual Network": "ViT",
+          "Accuracy": "72.11"
+        },
+        {
+          "Method": "Werner et al.\n[59] ACIIW’17",
+          "Visual Network": "FAD + RF",
+          "Accuracy": "72.40"
+        },
+        {
+          "Method": "Patania et al.\n[60] SIGAPP’22",
+          "Visual Network": "GNN",
+          "Accuracy": "73.20"
+        },
+        {
+          "Method": "Gkikas et al.\n[61] EMBC’23",
+          "Visual Network": "ViT",
+          "Accuracy": "73.28"
+        },
+        {
+          "Method": "Dragomir et al.\n[62] EHB’20",
+          "Visual Network": "ResNet-18",
+          "Accuracy": "NR"
+        },
+        {
+          "Method": "IEEE FG ’24\nAslam et al.\n[3]",
+          "Visual Network": "R3D",
+          "Accuracy": "74.55"
+        },
+        {
+          "Method": "Visual only (Lower bound)",
+          "Visual Network": "R3D",
+          "Accuracy": "72.10"
+        },
+        {
+          "Method": "MT-PKDOT - Student\n(ours)",
+          "Visual Network": "",
+          "Accuracy": "75.20"
+        },
+        {
+          "Method": "Multimodal\n(Visual + EDA)\n(Upper bound)",
+          "Visual Network": "",
+          "Accuracy": "83.50"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Method": "IWMCS’15\nKachele et al.\n[27]",
+          "Visual Network": "Handcrafted + RF",
+          "Accuracy": "72.70"
+        },
+        {
+          "Method": "IEEE FG ’24\nAslam et al.\n[3]",
+          "Visual Network": "Handcrafted + RF",
+          "Accuracy": "78.70"
+        },
+        {
+          "Method": "Visual Only (Lower bound)",
+          "Visual Network": "R3D",
+          "Accuracy": "74.10"
+        },
+        {
+          "Method": "MT-PKDOT - Student\n(Ours)",
+          "Visual Network": "",
+          "Accuracy": "79.68"
+        },
+        {
+          "Method": "Multimodal\n(Visual + EMG)\n(Upper bound)",
+          "Visual Network": "",
+          "Accuracy": "81.30"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Method": "IEEE FG ’24\nAslam et al.\n[3]",
+          "Network": "ResNet-18",
+          "Accuracy": "65.70"
+        },
+        {
+          "Method": "Physio Only (Lower bound)",
+          "Network": "ResNet-18",
+          "Accuracy": "63.85"
+        },
+        {
+          "Method": "MT-PKDOT - Student\n(Ours)",
+          "Network": "",
+          "Accuracy": "66.10"
+        },
+        {
+          "Method": "Multimodal\n(Visual + EMG)\n(Upper bound)",
+          "Network": "",
+          "Accuracy": "81.30"
+        }
+      ],
+      "page": 10
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Noise-tolerant audio-visual online person verification using an attention-based neural network fusion",
+      "authors": [
+        "S Shon",
+        "T.-H Oh",
+        "J Glass"
+      ],
+      "year": "2018",
+      "venue": "ICASSP 2019 -2019 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "2",
+      "title": "Privileged knowledge distillation for dimensional emotion recognition in the wild",
+      "authors": [
+        "M Aslam",
+        "M Osama Zeeshan",
+        "M Pedersoli",
+        "A Koerich",
+        "S Bacon",
+        "E Granger"
+      ],
+      "year": "2023",
+      "venue": "2023 IEEE/CVF CVPR Workshops (CVPRW)"
+    },
+    {
+      "citation_id": "3",
+      "title": "Distilling privileged multimodal information for expression recognition using optimal transport",
+      "authors": [
+        "M Aslam",
+        "M Zeeshan",
+        "S Belharbi",
+        "M Pedersoli",
+        "A Koerich",
+        "S Bacon",
+        "E Granger"
+      ],
+      "year": "2024",
+      "venue": "Distilling privileged multimodal information for expression recognition using optimal transport"
+    },
+    {
+      "citation_id": "4",
+      "title": "Tensor fusion network for multimodal sentiment analysis",
+      "authors": [
+        "A Zadeh",
+        "M Chen",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2017",
+      "venue": "Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "5",
+      "title": "Audio-visual fusion for emotion recognition in the valence-arousal space using joint cross-attention",
+      "authors": [
+        "R Praveen",
+        "E Granger",
+        "P Cardinal"
+      ],
+      "year": "2022",
+      "venue": "IEEE TBIOM"
+    },
+    {
+      "citation_id": "6",
+      "title": "A joint cross-attention model for audio-visual fusion in dimensional emotion recognition",
+      "authors": [
+        "R Praveen",
+        "W De Melo",
+        "N Ullah",
+        "H Aslam",
+        "O Zeeshan",
+        "T Denorme",
+        "M Pedersoli",
+        "A Koerich",
+        "S Bacon",
+        "P Cardinal",
+        "E Granger"
+      ],
+      "year": "2022",
+      "venue": "2022 IEEE/CVF CVPR Workshops (CVPRW)"
+    },
+    {
+      "citation_id": "7",
+      "title": "Classification of eeg signals for prediction of epileptic seizures",
+      "authors": [
+        "M Aslam",
+        "S Usman",
+        "S Khalid",
+        "A Anwar",
+        "R Alroobaea",
+        "S Hussain",
+        "J Almotiri",
+        "S Ullah",
+        "A Yasin"
+      ],
+      "year": "2022",
+      "venue": "Applied Sciences"
+    },
+    {
+      "citation_id": "8",
+      "title": "Pain recognition with physiological signals using multi-level context information",
+      "authors": [
+        "K Phan",
+        "N Iyortsuun",
+        "S Pant",
+        "H.-J Yang",
+        "S.-H Kim"
+      ],
+      "year": "2023",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "9",
+      "title": "Multi-modal data fusion for pain intensity assessment and classification",
+      "authors": [
+        "P Thiam",
+        "F Schwenker"
+      ],
+      "year": "2017",
+      "venue": "2017 Seventh International Conference on Image Processing Theory, Tools and Applications"
+    },
+    {
+      "citation_id": "10",
+      "title": "From the lab to the wild: Affect modeling via privileged information",
+      "authors": [
+        "K Makantasis",
+        "K Pinitas",
+        "A Liapis",
+        "G Yannakakis"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "11",
+      "title": "A new learning paradigm: Learning using privileged information",
+      "authors": [
+        "V Vapnik",
+        "A Vashist"
+      ],
+      "year": "2009",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "12",
+      "title": "Learning with privileged information via adversarial discriminative modality distillation",
+      "authors": [
+        "N Garcia",
+        "P Morerio",
+        "V Murino"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "13",
+      "title": "Learning an augmented rgb representation with cross-modal knowledge distillation for action detection",
+      "authors": [
+        "R Dai",
+        "S Das",
+        "F Bremond"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    },
+    {
+      "citation_id": "14",
+      "title": "Towards understanding ensemble, knowledge distillation and self-distillation in deep learning",
+      "authors": [
+        "Z Allen-Zhu",
+        "Y Li"
+      ],
+      "year": "2023",
+      "venue": "Towards understanding ensemble, knowledge distillation and self-distillation in deep learning"
+    },
+    {
+      "citation_id": "15",
+      "title": "Multimodal deep learning",
+      "authors": [
+        "J Ngiam",
+        "A Khosla",
+        "M Kim",
+        "J Nam",
+        "H Lee",
+        "A Ng"
+      ],
+      "year": "2011",
+      "venue": "Proceedings of the 28th International Conference on International Conference on Machine Learning, ser. ICML'11"
+    },
+    {
+      "citation_id": "16",
+      "title": "End-to-end multimodal emotion recognition using deep neural networks",
+      "authors": [
+        "P Tzirakis",
+        "G Trigeorgis",
+        "M Nicolaou",
+        "B Schuller",
+        "S Zafeiriou"
+      ],
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "17",
+      "title": "The biovid heat pain database data for the advancement and systematic validation of an automated pain recognition system",
+      "authors": [
+        "S Walter",
+        "S Gruss",
+        "H Ehleiter"
+      ],
+      "year": "2013",
+      "venue": "IEEE CYBCO"
+    },
+    {
+      "citation_id": "18",
+      "title": "The biovid heat pain database data for the advancement and systematic validation of an automated pain recognition system",
+      "authors": [
+        "S Walter",
+        "S Gruss",
+        "H Ehleiter",
+        "J Tan",
+        "H Traue",
+        "P Werner",
+        "A Al-Hamadi",
+        "S Crawcour",
+        "A Andrade",
+        "G Moreira Da Silva"
+      ],
+      "year": "2013",
+      "venue": "2013 IEEE International Conference on Cybernetics"
+    },
+    {
+      "citation_id": "19",
+      "title": "Explainable automated pain recognition in cats",
+      "authors": [
+        "M Feighelstein"
+      ],
+      "year": "2023",
+      "venue": "Scientific reports"
+    },
+    {
+      "citation_id": "20",
+      "title": "A review of automated pain assessment in infants: Features, classification tasks, and databases",
+      "authors": [
+        "G Zamzmi",
+        "R Kasturi",
+        "D Goldgof",
+        "R Zhi",
+        "T Ashmeade",
+        "Y Sun"
+      ],
+      "year": "2017",
+      "venue": "IEEE Reviews in Biomedical Engineering"
+    },
+    {
+      "citation_id": "21",
+      "title": "Automatic pain assessment with facial activity descriptors",
+      "authors": [
+        "P Werner",
+        "A Al-Hamadi",
+        "K Limbrecht-Ecklundt",
+        "S Walter",
+        "S Gruss",
+        "H Traue"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Automatic subject independent pain intensity estimation using a deep learning approach",
+      "authors": [
+        "M.-C Dragomir",
+        "C Florea",
+        "V Pupezescu"
+      ],
+      "year": "2020",
+      "venue": "2020 International Conference on e-Health and Bioengineering (EHB)"
+    },
+    {
+      "citation_id": "23",
+      "title": "Pain detection from facial expressions based on transformers and distillation",
+      "authors": [
+        "S Morabit",
+        "A Rivenq"
+      ],
+      "year": "2022",
+      "venue": "2022 11th International Symposium on Signal, Image, Video and Communications (ISIVC)"
+    },
+    {
+      "citation_id": "24",
+      "title": "Dynamic facial expression feature learning based on sparse rnn",
+      "authors": [
+        "R Zhi",
+        "M Wan"
+      ],
+      "year": "2019",
+      "venue": "2019 IEEE 8th Joint International Information Technology and Artificial Intelligence Conference (ITAIC)"
+    },
+    {
+      "citation_id": "25",
+      "title": "Transformer encoder with multiscale deep learning for pain classification using physiological signals",
+      "authors": [
+        "Z Lu",
+        "B Ozek",
+        "S Kamarthi"
+      ],
+      "year": "2023",
+      "venue": "Transformer encoder with multiscale deep learning for pain classification using physiological signals",
+      "arxiv": "arXiv:2303.06845"
+    },
+    {
+      "citation_id": "26",
+      "title": "Multimodal-based stream integrated neural networks for pain assessment",
+      "authors": [
+        "R Zhi",
+        "C Zhou",
+        "J Yu",
+        "T Li",
+        "G Zamzmi"
+      ],
+      "year": "2021",
+      "venue": "IEICE Trans. Inf. Syst"
+    },
+    {
+      "citation_id": "27",
+      "title": "Bio-visual fusion for person-independent recognition of pain intensity",
+      "authors": [
+        "M Kächele",
+        "P Werner",
+        "A Al-Hamadi",
+        "G Palm",
+        "S Walter",
+        "F Schwenker"
+      ],
+      "year": "2015",
+      "venue": "International Workshop on Multiple Classifier Systems"
+    },
+    {
+      "citation_id": "28",
+      "title": "Automatic pain recognition from video and biomedical signals",
+      "authors": [
+        "P Werner",
+        "A Al-Hamadi",
+        "R Niese",
+        "S Walter",
+        "S Gruss",
+        "H Traue"
+      ],
+      "year": "2014",
+      "venue": "2014 22nd International Conference on Pattern Recognition"
+    },
+    {
+      "citation_id": "29",
+      "title": "Attention bottlenecks for multimodal fusion",
+      "authors": [
+        "A Nagrani",
+        "S Yang",
+        "A Arnab",
+        "A Jansen",
+        "C Schmid",
+        "C Sun"
+      ],
+      "year": "2021",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "30",
+      "title": "Distilling the knowledge in a neural network",
+      "authors": [
+        "G Hinton",
+        "O Vinyals",
+        "J Dean"
+      ],
+      "year": "2015",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "31",
+      "title": "Fitnets: Hints for thin deep nets",
+      "authors": [
+        "A Romero",
+        "N Ballas",
+        "S Kahou",
+        "A Chassang",
+        "C Gatta",
+        "Y Bengio"
+      ],
+      "year": "2014",
+      "venue": "CoRR"
+    },
+    {
+      "citation_id": "32",
+      "title": "Paraphrasing complex network: Network compression via factor transfer",
+      "authors": [
+        "J Kim",
+        "S Park",
+        "N Kwak"
+      ],
+      "year": "2018",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "33",
+      "title": "A comprehensive overhaul of feature distillation",
+      "authors": [
+        "B Heo",
+        "J Kim",
+        "S Yun",
+        "H Park",
+        "N Kwak",
+        "J Choi"
+      ],
+      "year": "2019",
+      "venue": "2019 IEEE/CVF International Conference on Computer Vision (ICCV)"
+    },
+    {
+      "citation_id": "34",
+      "title": "Relational knowledge distillation",
+      "authors": [
+        "W Park",
+        "D Kim",
+        "Y Lu",
+        "M Cho"
+      ],
+      "year": "2019",
+      "venue": "IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "35",
+      "title": "Optimal transport: Old and new",
+      "authors": [
+        "C Villani"
+      ],
+      "year": "2008",
+      "venue": "Optimal transport: Old and new"
+    },
+    {
+      "citation_id": "36",
+      "title": "Interpolating between optimal transport and mmd using sinkhorn divergences",
+      "authors": [
+        "J Feydy",
+        "T Séjourné",
+        "F.-X Vialard",
+        "S -I. Amari",
+        "A Trouve",
+        "G Peyré"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 22"
+    },
+    {
+      "citation_id": "37",
+      "title": "Model compression using optimal transport",
+      "authors": [
+        "S Lohit",
+        "M Jones"
+      ],
+      "year": "2022",
+      "venue": "2022 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)"
+    },
+    {
+      "citation_id": "38",
+      "title": "A kernel two-sample test",
+      "authors": [
+        "A Gretton",
+        "K Borgwardt",
+        "M Rasch",
+        "B Schölkopf",
+        "A Smola"
+      ],
+      "year": "2012",
+      "venue": "J. Mach. Learn. Res"
+    },
+    {
+      "citation_id": "39",
+      "title": "Sinkhorn distances: Lightspeed computation of optimal transport",
+      "authors": [
+        "M Cuturi"
+      ],
+      "year": "2013",
+      "venue": "Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "40",
+      "title": "Hotnas: Hierarchical optimal transport for neural architecture search",
+      "authors": [
+        "J Yang",
+        "Y Liu",
+        "H Xu"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF CVPR"
+    },
+    {
+      "citation_id": "41",
+      "title": "Mot: Masked optimal transport for partial domain adaptation",
+      "authors": [
+        "Y.-W Luo",
+        "C.-X Ren"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF CVPR"
+    },
+    {
+      "citation_id": "42",
+      "title": "Optimal proposal learning for deployable end-to-end pedestrian detection",
+      "authors": [
+        "X Song",
+        "B Chen",
+        "P Li",
+        "J.-Y He",
+        "B Wang",
+        "Y Geng",
+        "X Xie",
+        "H Zhang"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF CVPR"
+    },
+    {
+      "citation_id": "43",
+      "title": "Speech emotion recognition with distilled prosodic and linguistic affect representations",
+      "authors": [
+        "D Shome",
+        "A Etemad"
+      ],
+      "year": "2024",
+      "venue": "Speech emotion recognition with distilled prosodic and linguistic affect representations"
+    },
+    {
+      "citation_id": "44",
+      "title": "Xkd: Cross-modal knowledge distillation with domain alignment for video representation learning",
+      "authors": [
+        "P Sarkar",
+        "A Etemad"
+      ],
+      "year": "2023",
+      "venue": "Xkd: Cross-modal knowledge distillation with domain alignment for video representation learning"
+    },
+    {
+      "citation_id": "45",
+      "title": "A transformerbased model with self-distillation for multimodal emotion recognition in conversations",
+      "authors": [
+        "H Ma",
+        "J Wang",
+        "H Lin",
+        "B Zhang",
+        "Y Zhang",
+        "B Xu"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Multimedia"
+    },
+    {
+      "citation_id": "46",
+      "title": "Diversified branch fusion for self-knowledge distillation",
+      "authors": [
+        "Z Long",
+        "F Ma",
+        "B Sun",
+        "M Tan",
+        "S Li"
+      ],
+      "year": "2023",
+      "venue": "Information Fusion"
+    },
+    {
+      "citation_id": "47",
+      "title": "Person re-identification with metric learning using privileged information",
+      "authors": [
+        "X Yang",
+        "M Wang",
+        "D Tao"
+      ],
+      "year": "2018",
+      "venue": "IEEE Transactions on Image Processing"
+    },
+    {
+      "citation_id": "48",
+      "title": "Learning and refining of privileged informationbased rnns for action recognition from depth sequences",
+      "authors": [
+        "Z Shi",
+        "T.-K Kim"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "49",
+      "title": "Progressive privileged knowledge distillation for online action detection",
+      "authors": [
+        "P Zhao",
+        "L Xie",
+        "J Wang",
+        "Y Zhang",
+        "Q Tian"
+      ],
+      "venue": "Pattern Recognition"
+    },
+    {
+      "citation_id": "50",
+      "title": "Emotionkd: A cross-modal knowledge distillation framework for emotion recognition based on physiological signals",
+      "authors": [
+        "Y Liu",
+        "Z Jia",
+        "H Wang"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 31st ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "51",
+      "title": "Joint multimodal transformer for emotion recognition in the wild",
+      "authors": [
+        "P Waligora",
+        "H Aslam",
+        "O Zeeshan",
+        "S Belharbi",
+        "A Koerich",
+        "M Pedersoli",
+        "S Bacon",
+        "E Granger"
+      ],
+      "year": "2024",
+      "venue": "Joint multimodal transformer for emotion recognition in the wild"
+    },
+    {
+      "citation_id": "52",
+      "title": "Deep affect prediction in-thewild: Aff-wild database and challenge, deep architectures, and beyond",
+      "authors": [
+        "D Kollias",
+        "P Tzirakis",
+        "M Nicolaou",
+        "A Papaioannou",
+        "G Zhao",
+        "B Schuller",
+        "I Kotsia",
+        "S Zafeiriou"
+      ],
+      "year": "2018",
+      "venue": "International Journal of Computer Vision"
+    },
+    {
+      "citation_id": "53",
+      "title": "Audio-visual fusion for emotion recognition in the valence-arousal space using joint crossattention",
+      "authors": [
+        "R Praveen",
+        "P Cardinal",
+        "E Granger"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Biometrics, Behavior, and Identity Science"
+    },
+    {
+      "citation_id": "54",
+      "title": "Abaw: Valence-arousal estimation, expression recognition, action unit detection and; multi-task learning challenges",
+      "authors": [
+        "D Kollias"
+      ],
+      "year": "2022",
+      "venue": "2022 IEEE/CVF CVPR Workshops"
+    },
+    {
+      "citation_id": "55",
+      "title": "Facial affect recognition in the wild using multitask learning convolutional network",
+      "authors": [
+        "Z Zhang",
+        "J Gu"
+      ],
+      "year": "2020",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "56",
+      "title": "Feature pyramid network for multi-task affective analysis",
+      "authors": [
+        "R He",
+        "Z Xing",
+        "W Tan",
+        "B Yan"
+      ],
+      "year": "2021",
+      "venue": "ArXiv"
+    },
+    {
+      "citation_id": "57",
+      "title": "An ensemble approach for facial behavior analysis in-the-wild video",
+      "authors": [
+        "H.-H Nguyen",
+        "V.-T Huynh",
+        "S.-H Kim"
+      ],
+      "year": "2022",
+      "venue": "2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)"
+    },
+    {
+      "citation_id": "58",
+      "title": "Causal affect prediction model using a past facial image sequence",
+      "authors": [
+        "G Oh",
+        "E Jeong",
+        "S Lim"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)"
+    },
+    {
+      "citation_id": "59",
+      "title": "Automatic pain assessment with facial activity descriptors",
+      "authors": [
+        "P Werner",
+        "A Al-Hamadi",
+        "K Limbrecht-Ecklundt",
+        "S Walter",
+        "S Gruss",
+        "H Traue"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "60",
+      "title": "Deep graph neural network for video-based facial pain expression assessment",
+      "authors": [
+        "S Patania",
+        "G Boccignone",
+        "S Buršić",
+        "A D'amelio",
+        "R Lanzarotti"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 37th ACM/SIGAPP Symposium on Applied Computing"
+    },
+    {
+      "citation_id": "61",
+      "title": "A full transformer-based framework for automatic pain estimation using videos",
+      "authors": [
+        "S Gkikas",
+        "M Tsiknakis"
+      ],
+      "venue": "A full transformer-based framework for automatic pain estimation using videos"
+    },
+    {
+      "citation_id": "62",
+      "title": "Automatic subject independent pain intensity estimation using a deep learning approach",
+      "authors": [
+        "M.-C Dragomir",
+        "C Florea",
+        "V Pupezescu"
+      ],
+      "venue": "2020 International Conference on e-Health and Bioengineering"
+    }
+  ]
+}

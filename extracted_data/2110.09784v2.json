@@ -1,0 +1,703 @@
+{
+  "paper_id": "2110.09784v2",
+  "title": "Ssast: Self-Supervised Audio Spectrogram Transformer",
+  "published": "2021-10-19T07:58:28Z",
+  "authors": [
+    "Yuan Gong",
+    "Cheng-I Jeff Lai",
+    "Yu-An Chung",
+    "James Glass"
+  ],
+  "keywords": [
+    "spotting",
+    "emotion recognition",
+    "with an average improvement of 60.9%",
+    "it is the first patch-based selfsupervised learning framework in the audio and speech domain"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Recently, neural networks based purely on self-attention, such as the Vision Transformer (ViT), have been shown to outperform deep learning models constructed with convolutional neural networks (CNNs) on various vision tasks, thus extending the success of Transformers, which were originally developed for language processing, to the vision domain. A recent study  (Gong, Chung, and Glass 2021)  showed that a similar methodology can also be applied to the audio domain. Specifically, the Audio Spectrogram Transformer (AST) achieves state-of-the-art results on various audio classification benchmarks. However, pure Transformer models tend to require more training data compared to CNNs, and the success of the AST relies on supervised pretraining that requires a large amount of labeled data and a complex training pipeline, thus limiting the practical usage of AST. This paper focuses on audio and speech classification, and aims to reduce the need for large amounts of labeled data for the AST by leveraging self-supervised learning using unlabeled data. Specifically, we propose to pretrain the AST model with joint discriminative and generative masked spectrogram patch modeling (MSPM) using unlabeled audio from AudioSet and Librispeech. We evaluate our pretrained models on both audio and speech classification tasks including audio event classification, keyword spotting, emotion recognition, and speaker identification. The proposed self-supervised framework significantly boosts AST performance on all tasks, with an average improvement of 60.9%, leading to similar or even better results than a supervised pretrained AST. To the best of our knowledge, it is the first patch-based selfsupervised learning framework in the audio and speech domain, and also the first self-supervised learning framework for AST. Code at https://github.com/YuanGongND/ssast.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Pure self-attention based deep learning architectures, such as the Vision Transformer  (Dosovitskiy et al. 2021 ) and its variants (e.g., DeiT  (Touvron et al. 2020 ), T2T-ViT  (Yuan et al. 2021) ) have been shown to outperform CNN models  (LeCun and Bengio 1995)  of similar size on various vision tasks. Such models differ from CNN models or CNN-attention hybrid models in that they do not contain non-degenerated convolutions  (Chen, Xie, and He 2021)  and thus have less inductive bias such as spatial locality or translation equivariance, and are more data-driven. In the audio and speech domain, the recently proposed Audio Spectrogram Transformer (AST)  (Gong, Chung, and Glass 2021)  and the Keyword Transformer  (Berg, O'Connor, and Cruz 2021 ) also achieve new state-of-the-art performance on audio scene classification and keyword spotting. Despite the strong performance, a critical issue of such pure self-attention based models is they tend to require more training data than CNNs  (Dosovitskiy et al. 2021) . For example, the ViT outperforms CNNs only when the training data volume is larger than about 100 million samples. AST also does not perform well when it is trained from scratch, and the success of AST strongly relies on supervised pretraining. Since labeled speech and audio data is limited, AST uses cross-modal pretraining with ImageNet data  (Deng et al. 2009 ). However, in practice, supervised pretraining on ImageNet data is complex  (He et al. 2019 ) and expensive, and also constrains the vision and audio models to have a similar architecture and use the same patch size and shape. Further, the validity and transferability of such cross-modal pretraining for a specific audio or speech task are unclear.\n\nWhile annotating audio and speech data is expensive, we can easily get web-scale unlabeled audio and speech data from radio or YouTube. This motivates us to explore Self-Supervised AST (SSAST) that leverages unlabeled data to alleviate the data requirement problem. In this paper, we present a novel joint discriminative and generative Masked Spectrogram Patch Modeling (MSPM) based self-supervised learning (SSL) framework that can significantly improve AST performance with limited labeled data. Previous self-supervised learning methods such as wav2vec  (Schneider et al. 2019)  or autoregressive predictive coding (APC)  (Chung et al. 2019 ) use an objective that predicts future or masked temporal spectrogram frames, thus potentially learning only the temporal structure of the spectrogram. In contrast, the objective of MSPM is to predict a specific frequency band in a specific time range (i.e., a \"spectrogram patch\") given the neighboring band and time information, which allows the model to learn both the temporal and frequency structure. The spectrogram patch can be an arbitrary shape and size, e.g., it can be a conventional time frame or a square patch.\n\nIn addition, most previous SSL research considers either only speech or only audio events, but in this work, we show that the SSL model can be generalized to both speech and audio tasks. Specifically, we pretrain our model using both Librispeech and AudioSet, and evaluate the model on a variety of speech and audio tasks including audio event classification, keyword spotting, speaker identification, and speech emotion recognition. Our experiments demonstrate the effectiveness of the proposed MSPM framework: a model pretrained with MSPM can significantly outperform fromscratch models for all 6 benchmarks we evaluated with an average improvement of 60.9%, and the performance can even match or outperform supervised pretrained models. The contributions of this work are two-fold: 1. We propose MSPM, a novel patch-based joint discriminative and generative self-supervised learning framework. With MSPM pretraining, our SSAST model matches or outperforms previous supervised pretrained AST. To the best of our knowledge, MSPM is the first patch-based self-supervised learning framework in the audio and speech domains, and SSAST is the first selfsupervised pure self-attention based audio classification model. Further, we conduct extensive experiments to thoroughly investigate the design choices and quantify the performance impact of each factor. 2. We show that pretraining with both speech and audio datasets noticeably improves the models' generalization ability, and leads to better performance than pretraining with dataset from a single domain. As a consequence, our SSAST model performs well on both speech and audio downstream tasks. Previous work typically only uses datasets in a single domain for pretraining.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Self-Supervised Audio Spectrogram Transformer",
+      "text": "In this section, we first review the AST architecture and then discuss the proposed joint discriminative and generative masked spectrogram patch prediction (MSPM) selfsupervised learning framework, and the design details.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ast Model Architecture",
+      "text": "As shown in Figure  1 , we intentionally follow as close as possible to the original AST architecture to make a fair performance comparison. First, the input audio waveform of t seconds is converted into a sequence of 128-dimensional log Mel filterbank (fbank) features computed with a 25ms Hanning window every 10ms. This results in a 128 × 100t spectrogram as input to the AST. We then split the spectrogram into a sequence of 16 × 16 patches. We flatten each 16 × 16 patch to a 1D 768-dimensional patch embedding with a linear projection layer. We refer to this linear projection layer as the patch embedding layer and the output as patch embedding E. Since the Transformer architecture does not capture the input order information and the patch sequence is also not in temporal order, we add a trainable positional embedding (also of size 768) P to each patch embedding to allow the model to capture the spatial structure of the 2D audio spectrogram. The resulting sequence is then input to the Transformer. A Transformer consists of several encoder and",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Transformer Encoder",
+      "text": "Linear Projection decoder layers. Since the AST is designed for classification tasks, we only use the encoder of the Transformer that has an embedding dimension of 768, 12 layers, and 12 heads, which are the same as those in original AST  (Gong, Chung, and Glass 2021) . We refer to the output of the Transformer encoder as patch representation O. During fine-tuning and inference, we apply a mean pooling over the sequence of patch representation {O} to get the audio clip level representation, and then use a linear head for classification.\n\nWhile we aim to follow the architecture of the original AST, we made two modifications for self-supervised learning. First, in the original AST, a [CLS] token is appended to the beginning of the input sequence of the Transformer encoder, and the output representation of the [CLS] token is used as the audio clip level representation. In this work, we apply mean pooling over all patch representation {O} as the audio clip level representation. This is because the original AST uses supervised pretraining and the supervision is applied on the [CLS] token, thus the output representation of the [CLS] learns to summarize the entire sequence during pretraining and can be used as audio clip level representation. In contrast, for our self-supervised pretraining framework, supervision is applied to each individual patch representation, and the mean of all patch representations is a better summary of the audio clip. Second, in the original AST, spectrogram patches are split with overlap, and the overlap was shown to improve model performance. In this work, we split the patch without overlap during pretraining to not allow the model to use overlapped edges as a shortcut for the task prediction instead of learning a meaningful representation. In the fine-tuning and inference steps, we split the patch with an overlap of 6 in the same fashion as the original AST.\n\nWhile we pretrain the model using fixed-length audio data (10 seconds), AST supports variable length input by simply interpolating or truncating the positional embedding to the downstream task audio length.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Joint Discriminative And Generative Masked Spectrogram Patch Modeling",
+      "text": "In this section, we introduce the proposed self-supervised pretraining framework. We first show our masking strategy and then discuss the pretext task (i.e., the self-supervised learning task in the pretraining stage) in detail.  for i ∈ I do 16:",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Masked Patch Sampling",
+      "text": "update M to minimize L return M model to learn both the temporal and frequency structure of the data. In addition, as shown in Figure  2 , we use a cluster factor C to control how masked patches cluster. Specifically, we first randomly select a patch, and then mask the square centered at the patch with a side length of C, e.g., if C = 3, we mask a cluster of 9 patches that has a total size of 48×48. The model is forced to learn more global spectrogram structure with a larger C, and more local structure with a smaller C. To make the model learn both local and global structure, we use random C ∼ [3, 5] during pretraining. We show the details in Algorithm 1 line 1-5. Note that while we mainly focus on using 16×16 patches in this paper, MSPM actually supports patches of arbitrary size and shape.\n\nJoint Discriminative and Generative Masked Spectrogram Patch Modeling As opposed to prior work that either used discriminative (e.g., wav2vec) or generative training objectives (e.g., APC), in this work, we propose to use a joint discriminative and generative objective for pretraining.\n\nAs shown in Algorithm 1, each input spectrogram X is split into 512 patches x converted to corresponding patch embeddings E (line 8-9). We then randomly generate a set I of N masked patch position indexes as previously described (line 10-11). For each patch that needs to be masked, we replace its patch embedding with a learnable mask embedding E mask (line 12). We add positional embeddings to the patch embeddings and input them to the Transformer encoder (line 13). For each masked patch x i , we get the corresponding Transformer encoder output O i . We then input O i to a classification head and a reconstruction head and get output c i and r i , respectively (line 16-17). Both the classification and reconstruction heads are two-layer MLPs that map O i (768) to the same dimension as x i (256). We expect r i to be close to x i , and the model can match correct (x i , c i ) pairs. Therefore, we use the InfoNCE loss  (Oord, Li, and Vinyals 2018)  L d for the discriminative objective and mean square error (MSE) loss L g for the generative objective:\n\n)\n\n(1)\n\nWhere N is the number of masked patches. We then sum up L d and L g with a weight λ. In this work, we set λ = 10.\n\nFinally, we update the weights of the AST model M to minimize L with the optimizer (line 19-20). Note that for the discriminative task, the negative samples are sampled from the same spectrogram, i.e., the model aims to pick the correct patch for each masked position from all patches being masked. On one hand, this increases the difficulty of the pretext task to avoid the model learning trivial things such as recording environment for prediction; on the other hand, this also avoids building a memory bank of patches from different spectrograms and makes the algorithm less computationally intensive and less affected by the mini-batch size.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Experiments",
+      "text": "",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Pretraining Datasets",
+      "text": "In contrast to previous efforts that only use either speech dataset (e.g., in APC, wav2vec) or audio event dataset  (Saeed, Grangier, and Zeghidour 2021; Niizumi et al. 2021) , in this work, we propose to use both speech and audio event datasets for pretraining to explore if the pretrained model can generalized to both speech and audio classification tasks. For both datasets, we only use the audio data and abandon the labels for self-supervised pretraining.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Audioset-2M",
+      "text": "We use the AudioSet full training set (AudioSet-2M)  (Gemmeke et al. 2017)  as our audio pretraining dataset. AudioSet is a multi-label audio event classification dataset that contains 2 million 10-second audio clips excised from YouTube videos with 527 sound classes including human sounds, animal sounds, sounds of things, music, natural sounds, environment sounds etc. It is worth mentioning that while about half of AudioSet-2M audio clips contain speech, speech might only appear in a small part of each clip as most AudioSet clips contain more than one We pretrain three AST models with a fixed number of 100, 250, and 400 masked patches, respectively, and evaluate their classification and reconstruction performance with various masked patch numbers from 50 to 500 on the validation set. While the AST model is pretrained with a fixed number of masked patches, we find it can perform well with a different number of masked patches in inference. As expected, the performance of the model drops with the increase of the number of masked patches, e.g., the AST models achieve over 80% accuracy when the evaluation masked patch number is 50, but only around 35% when the evaluation masked patch number is 400. This indicates the pretext tasks are neither trivial nor impossible. sound. Therefore, AudioSet potentially does not have good coverage of speech and might not be sufficient to pretrain a good model for downstream speech tasks.\n\nLibrispeech In order to improve the coverage of speech data, we further use the Librispeech  (Panayotov et al. 2015)  960-hour training set as our speech pretraining dataset. Librispeech contains public domain audio books data in English, read by over 1,000 speakers, and is commonly used to train and evaluate speech recognition systems.\n\nFor both AudioSet and Librispeech data, we cut or pad each waveform to 10sec. We use 1,953k AudioSet samples and 281k Librispeech samples, and a total of 2,234k samples. We mix and shuffle the two datasets during pretraining.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Performance Of Pretext Tasks",
+      "text": "For pretraining the AST, we use a batch size of 24, an initial learning rate of 1e-4, and cut the learning rate into half if the pretext task performance on the validation set stops improving for 8k iterations. We optimize the network using the Adam optimizer  (Kingma and Ba 2015) . We train the model for up to 800k iterations (∼8.5 epochs). We tested different numbers of masked patches of 100, 250, and 400. We pretrain SSAST on 4× NVIDIA GTX Titan X or GTX Titan X Pascal GPUs, the pretraining takes about 10 days.\n\nWe show the masked spectrogram patch modeling performance in Figure  3 . While the AST model is pretrained with a fixed number of masked patches, we find it can perform well with a different number of masked patches during inference. As expected, the performance of the model drops with the increase of the number of masked patches, e.g., the AST models achieve over 80% accuracy when the evaluation masked patch number is 50, but only around 35% when the evaluation masked patch number is 400, indicating the pretext tasks are neither trivial nor impossible. In general, the model pretrained with more masked patches performs better on the pretext tasks.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Downstream Tasks And Datasets",
+      "text": "We evaluate the pretrained model on 6 commonly used audio and speech benchmarks. We use the same three benchmarks (AudioSet-20K, ESC-50, and Speech Commands V2) that the original AST has been tested on and use exactly the same setting intentionally to make a fair comparison. To further evaluate the model performance on downstream speech tasks and compare with previous self-supervised models that focus on speech, we test the pretrained AST on three additional benchmark Speech Commands V1, VoxCeleb 1, and IEMOCAP for keyword spotting, speaker identification, and emotion recognition, respectively. We report mean Average Precision (mAP) for the AudioSet-20K task and accuracy for all other tasks.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Audioset-20K (As)",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Iemocap (Er)",
+      "text": "We use the IEMOCAP dataset  (Busso et al. 2008 ) that contains about 12 hours of emotional speech for the speech based emotion recognition task.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Downstream Fine-Tuning Details",
+      "text": "To make a fair comparison with previous work, for the AudioSet-20K, ESC-50, and Speech Commands V2 experiments, we train and evaluate the model using the exact same training and evaluation settings with the original AST. Specifically, we use mixup training  (Tokozume, Ushiku, and Harada 2018) , SpecAugment  (Park et al. 2019) , an initial learning rate of 5e-5, 1e-4, and 2.5e-4 and train the model with 25, 50, and 30 epochs for AudioSet-20K, ESC-50, Speech Commands V2, respectively.\n\nFor the three benchmarks Speech Commands V1, Vox-Celeb1, and IEMOCAP that the original AST has not been tested on, we use the standard SUPERB  (Yang et al. 2021)  training and testing framework. Specifically, we search the learning rate from 1e-5 to 1e-3 for out SSAST model and all baseline models and train the model for up to 20k and 40k iterations for Speech Commands V1 and VocCeleb1, respectively. We use a fixed learning rate of 1e-4 and max iteration of 10k for IEMOCAP. Please refer to the AST and SUPERB papers for more details. For all downstream experiments, we use the end-to-end fine-tuning setting, i.e., we do not freeze any layer of the pretrained AST.\n\nFor supervised pretrained models, we use the output of [CLS] token as the audio clip representation because supervision is given to the output of [CLS] in pretraining while we use mean pooling for self-supervised models as supervision is given to individual token in pretraining, keeping pretraining and fine-tuning consistent can slightly improve the performance and make the comparison fairer.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Performance On Downstream Tasks",
+      "text": "We compare the following models in our experiments: As shown in Table  1 , we evaluate the above-mentioned 7 models on 6 benchmarks. Key findings include: First, the proposed self-supervised training framework can significantly boost the performance of AST with an average improvement of 60.9%, e.g., SSAST achieves 0.310 mAP on the AudioSet-20K while AST-Scratch only achieves 0.148 mAP. As shown in Figure  4 , the proposed self-supervised framework helps AST train faster and better. Further, the  improvement is consistent over all audio and speech benchmarks, demonstrating the proposed self-supervised training framework is effective and generalizable. Second, AudioSet-2M supervised pretraining is quite strong for audio event classification tasks (AS and ESC) that are in the same domain with AudioSet, but performs poorly on speech tasks, showing the limitation of supervised pretraining. Surprisingly, cross-domain supervised ImageNet pretraining with knowledge distillation performs quite well on all tasks, and still achieves the best performance on the AudioSet-20K task. Third, even when compared with strong supervised baselines, the proposed SSAST models still get the best results on all benchmarks except AS, showing the proposed self-supervised model potentially can be used as a powerful generic audio classifier.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Performance Impact Of Pretraining Settings",
+      "text": "We set the AST pretrained with 400 masked patches, joint discriminative and generative objectives, on both AudioSet-2M and Librispeech as the base model. We then change one factor at a time to observe the performance impact.   2 , upper section, we find masking 100 patches is too simple a task, and leads to the worst performance for all downstream tasks. Masking 400 patches leads to better performance on audio event classification tasks, while masking 250 patches leads to better performance on speech tasks, but the overall performance is similar.  2 , middle section, we find that a discriminative objective leads to better performance than the generative objective for all tasks, but joint discriminative and generative objective always achieves the best performance, indicating that the discriminative and generative objectives are complementary.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Impact Of Pretext Tasks As Shown In Table",
+      "text": "",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Impact Of Pretraining Data",
+      "text": "We pretrain the AST model using 1) AudioSet-20K, 2) AudioSet-2M only, 3) Librispeech only, and 4) both AudioSet-2M and Librispeech, and compare the performance of the pretrained models on the downstream tasks. As shown in Table  2 , bottom section, we have the following key findings: First, increasing the pretraining data volume improves the performance of downstream tasks, e.g., AudioSet-2M pretrained model always outperforms AudioSet-20K pretrained model, but the proposed self-supervised framework can still noticeably improve the AST model with limited pretraining data, e.g., when pretrained and fine-tuned on the same AudioSet-20K data, the proposed SSAST model achieves 0.257 mAP, and significantly outperforms the AST-Scratch model. Second, with the same AudioSet-2M pretraining data, the proposed self-supervised framework leads to similar or even better results compared with the supervised pretraining method, particularly for the speech tasks, showing that the proposed selfsupervised framework is more generalizable. Third, as ex-Figure  5 : Performance correlation between pretraining tasks and downstream tasks (upper: audio classification tasks, lower: speech tasks). We save the checkpoint models at iteration 20, 40, 80, 200, 400, and 600 during pretraining, then fine-tune and evaluate these checkpoint models on the downstream tasks. For better visualization, we normalize the performance of each task in the range [0, 1]. We observe that the model pretrained with more iterations generally performs better on downstream tasks, which further confirms that the pretraining pretext tasks can benefit all downstream tasks. pected, a model pretrained with AudioSet-2M is better for audio classification and a model pretrained with Librispeech is better for speech tasks, but training with both sets always leads to the best results, showing that it is beneficial to combine pretraining datasets in audio and speech domains.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Performance Correlation Between Pretraining And Downstream Tasks",
+      "text": "We save the checkpoint models at iteration 20, 40, 80, 200, 400, and 600 during pretraining, then fine-tune and evaluate these checkpoint models on the downstream tasks. We observe the performance of pretraining tasks and downstream tasks are highly correlated, i.e., the model pretrained with more iterations generally performs better on downstream tasks, which further confirms that the pretraining pretext tasks benefit all downstream tasks.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Performance Impact Of Ast Model Size",
+      "text": "In all previous experiments, we use the original AST  (Gong, Chung, and Glass 2021)  architecture to make a direct performance comparison. We refer to this model as the base AST model. In this section, we further test the following AST architectures to study the impact of model size. For each model architecture, we compare the performance of the from-scratch model and the self-supervised pretrained SSAST model (pretrained with 400 masked patches) and show the results in Table  3 . Key findings are as follows:\n\nFirst, the MSPM self-supervised pretraining consistently enhances the performance of all three model architectures, showing that MSPM is model size agnostic. Small models that are unlikely to be over-parameterized also get performance improvement with MSPM pretraining.\n\nSecond, when trained from scratch, the larger AST model does not always get the best performance, e.g., the small AST model outperforms the base AST model on AS, KS1, and KS2 tasks. This is as expected since larger models are harder to train with limited data. However, we find that with MSPM self-supervised pretraining, larger AST models always perform better, demonstrating that MSPM can unlock the potential of models with higher capacity. This also suggests that further scaling up the base AST model can potentially achieve even better performance.\n\nWe also observe that using a larger learning rate for the last linear layer during fine-tuning improves the performance for tiny and small SSAST models on the AS task, e.g., for small SSAST model, using a learning rate of 5e-3 for the last linear layer and 5e-5 for all other layers leads to an mAP of 0.308 while using a learning rate of 5e-5 for the entire model leads to an mAP of only 0.272. Nevertheless, we find this trick is only useful for tiny and small selfsupervised pretrained models for some downstream tasks, it does not improve the performance of from-scratch models.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Comparing Patch-Based And Frame-Based Ast",
+      "text": "In all previous experiments, we follow the original AST  (Gong, Chung, and Glass 2021)  to split the audio spectrogram into 16 × 16 square patches. In  (Gong, Chung, and Glass 2021) , it was found that splitting the spectrogram into frame-like rectangle patches in the temporal order leads to better performance when the model is trained from scratch. However, ImageNet supervised pretrained model performs significantly better than the from-scratch model, which also constrains the original AST to use square patches. In contrast, our proposed MSPM self-supervised pretraining supports any patch size and shape including a conventional frame. As discussed in Section 2, heuristically, square patch based pretraining could capture correlation in frequency bands in addition to time frames, which is potentially useful when the input has a complex frequency structure (e.g., natural sounds). For clarity, we refer to the AST model that uses square patches and frame-like rectangle patches as patchbased AST model and frame-based AST model, respectively. In this section, we compare patch-based and framebased AST models in both from-scratch setting and selfsupervised pretraining setting. Specifically, the two models have exactly the same architecture except the patch splitting layer, for the patch-based AST model, we use 16 × 16 patches as described in Section 2; for the frame-based AST model, instead of splitting the spectrogram into 16 × 16 patches, we split the spectrogram into 128 × 2 patches in the temporal order (128 is the number of frequency bins of the spectrogram). Patches are split without overlap during pretraining and are split with an overlap of 1 on the time dimension during fine-tuning. This makes a fair comparison as the area of the patch is the same and the number of patches after splitting is similar. In the pretraining setting, both models are pretrained using the method described in Section 2. The only pretraining setting difference is that we do not cluster the masked frames for frame-based AST because this would lower the pretext and downstream task performance, instead, we just random sample the masked frame for frame-based AST pretraining. We test models pretrained with 250 and 400 masked patches (frames) and show the results in Table  4 . Key findings are as follows:\n\nFirst, when trained from scratch, frame-based AST always performs better than patch-based AST (except ER), which is consistent with the finding in  (Gong, Chung, and Glass 2021)  and as expected because 1-D temporal structure is easier to learn than 2-D temporal-frequency structure. Second, after MSPM self-supervised pretraining, framebased AST still outperforms patch-based AST on speech tasks (KS1, KS2, SID, and ER) but the advantage becomes much smaller. Patch-based AST performs better on audio tasks (AS and ESC). MSPM significantly improves the performance of both patch-based and frame-based AST, but the improvement is noticeably larger for patch-based AST (except ER), which verifies our hypothesis that square patch based pretraining can be more effective, particularly for data that has a complex frequency structure such as natural sounds. Our experiment also demonstrates that MPSM is patch shape agnostic, it also works well with framebased AST and makes frame-based SSAST a strong model for speech tasks. In contrast, previous ImageNet pretraining only supports square patches. Comparing with APC and wav2vec 1.0 We first compare SSAST models with autoregressive predictive coding (APC)  (Chung et al. 2019) , a generative pretraining framework, and wav2vec 1.0  (Schneider et al. 2019 ), a discriminative pretraining framework. We evaluate APC and wav2vec 1.0 in both fine-tuned and frozen settings and report the best result. As shown in Table  5 , SSAST models match or outperform APC and wav2vec 1.0 on all three benchmarks.\n\nComparing with wav2vec 2.0 and HuBERT We then compare SSAST models with the state-of-the-art wav2vec 2.0  (Baevski et al. 2020)  and HuBERT  (Hsu et al. 2021)  models. Specifically, we compare the base model that is pretrained on Librispeech 960 dataset. Due to the complexity of finding optimal hyperparameters and the large computation cost for fine-tuning these two models, we only report the results in the frozen setting. As shown in Table  5 , frozen wav2vec and HuBERT can already match or outperform fine-tuned SSAST for speech tasks. Nevertheless, it is worth noting that although wav2vec 2.0 and HuBERT perform better, they are pre-trained with 64/32 GPUs and hence have larger batch sizes than our SSAST that is trained with 4 GPUs. The computational resource difference could greatly impact the performance, e.g., for HuBERT, using 8 GPUs leads to 40% WER while 32 GPUs leads to below 20% WER. With more computational resources and larger batch size, SSAST potentially can achieve better results.\n\n4 Related Work Self-Supervised Learning In the vision domain, selfsupervised Vision Transformer has been studied in  (Caron et al. 2021; Chen, Xie, and He 2021; Atito, Awais, and Kittler 2021) . In addition, patch based self-supervised framework has been extensively studied in the vision domain, e.g., in  (Noroozi and Favaro 2016; Trinh, Luong, and Le 2019; Bao, Dong, and Wei 2021) . However, to the best of our knowledge, the self-supervised Audio Spectrogram Transformer and patch based self-supervised learning framework has not been studied in the audio and speech domain. Previous self-supervised learning frameworks in the speech domain are mainly based on CNN, RNN, or CNN-Transformer hybrid models with the pretext task of predicting past, current, or future frames  (Chung et al. 2019; Oord, Li, and Vinyals 2018; Liu et al. 2020; Schneider et al. 2019) . In contrast, the proposed MSPM framework allows the model to learn both the temporal and frequency structure of the spectrogram. Further, most previous research only focuses on learning either a speech or audio representation, only a few efforts  (Saeed, Grangier, and Zeghidour 2021; Niizumi et al. 2021 ) studied learning a general audio and speech representation. However, both efforts pretrain the model with only AudioSet. In contrast, we explore pretraining the AST model with both AudioSet and Librispeech. Finally, we pretrain the model with joint discriminative and generative objectives, which is also novel in the audio and speech domain and only has been explored in  (Pascual et al. 2019; Jiang et al. 2020; Ravanelli et al. 2020) .",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "This paper aims to reduce the need for large amounts of labeled data for the AST self-attention based audio and speech classification model by leveraging self-supervised learning.\n\nWe propose MSPM, a novel patch-based joint discriminative and generative pretraining framework. In order to make the pretrained model generalize to both audio and speech tasks, we pretrain AST using both AudioSet and Librispeech, and evaluate on six downstream benchmarks including audio event classification, keyword spotting, speaker identification, and emotion recognition.\n\nWith extensive experiments, we observe the following key findings. First, the proposed MSPM self-supervised pretraining framework significantly improves the performance of AST for all downstream tasks with an average improvement of 60.9%. Our SSAST model can match or even outperform previous supervised pretrained models and shows better generalization capability, indicating that the proposed MSPM can replace supervised pretraining that requires a large amount of labeled data. Second, we find that pretraining the model with both generative and discriminative objectives leads to a better performance than using a single objective, similarly, pretraining the model on both speech and audio datasets leads to better performance than using data from a single domain. Third, the flexibility of MSPM on patch shape allows us to explore frame-based AST. We find that frame-based AST always outperforms patch-based AST in the from-scratch setting, but patch-based pretraining leads to a larger improvement from the random-initialized models. After MSPM pretraining, the patch-based AST wins on the audio tasks while the frame-based AST wins on the speech tasks. We plan to investigate the reason for this difference in our future work. Finally, we find MSPM allows us to scale up the AST model, with MSPM pretraining, larger AST always performs better. In contrast, in the from-scratch setting, scaling up the model may cause a performance drop. Nevertheless, the current version of SSAST is pretrained with a small batch size due to computational resource limitations. In the future, we plan to further investigate the scaling law of AST.",
+      "page_start": 9,
+      "page_end": 10
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: , we intentionally follow as close as",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: The proposed self-supervised AST. The 2D au-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Illustration of the proposed patch-level masking",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: , we use a cluster",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Prediction accuracy (upper) and reconstruction",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: While the AST model is pretrained with",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: , the proposed self-supervised",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: Comparing learning curves of AST trained from",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: Performance correlation between pretraining tasks",
+      "page": 7
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: , we evaluate the above-mentioned",
+      "page": 5
+    },
+    {
+      "caption": "Table 1: Comparison of self-supervised AST with baseline",
+      "page": 6
+    },
+    {
+      "caption": "Table 2: Ablation study on the impact of number of masked",
+      "page": 6
+    },
+    {
+      "caption": "Table 2: , upper section, we ﬁnd masking 100 patches is too",
+      "page": 6
+    },
+    {
+      "caption": "Table 2: , bottom sec-",
+      "page": 6
+    },
+    {
+      "caption": "Table 3: Comparison of AST model of different sizes (∗use",
+      "page": 7
+    },
+    {
+      "caption": "Table 3: Key ﬁndings are as follows:",
+      "page": 7
+    },
+    {
+      "caption": "Table 4: Key ﬁndings are as follows:",
+      "page": 8
+    },
+    {
+      "caption": "Table 4: Comparison of frame and patch based AST models.",
+      "page": 8
+    },
+    {
+      "caption": "Table 5: Comparison of SSAST and existing speech self-",
+      "page": 8
+    },
+    {
+      "caption": "Table 5: , SSAST models match or out-",
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Sit: Self-supervised vision transformer",
+      "authors": [
+        "S Atito",
+        "M Awais",
+        "J Kittler"
+      ],
+      "year": "2021",
+      "venue": "Sit: Self-supervised vision transformer",
+      "arxiv": "arXiv:2104.03602"
+    },
+    {
+      "citation_id": "2",
+      "title": "wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "3",
+      "title": "BEiT: BERT Pre-Training of Image Transformers",
+      "authors": [
+        "H Bao",
+        "L Dong",
+        "F Wei"
+      ],
+      "year": "2021",
+      "venue": "BEiT: BERT Pre-Training of Image Transformers",
+      "arxiv": "arXiv:2106.08254"
+    },
+    {
+      "citation_id": "4",
+      "title": "Keyword Transformer: A Self-Attention Model for Keyword Spotting",
+      "authors": [
+        "A Berg",
+        "M O'connor",
+        "M Cruz"
+      ],
+      "year": "2021",
+      "venue": "Keyword Transformer: A Self-Attention Model for Keyword Spotting"
+    },
+    {
+      "citation_id": "5",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "6",
+      "title": "Emerging properties in self-supervised vision transformers",
+      "authors": [
+        "M Caron",
+        "H Touvron",
+        "I Misra",
+        "H Jégou",
+        "J Mairal",
+        "P Bojanowski",
+        "A Joulin"
+      ],
+      "year": "2021",
+      "venue": "Emerging properties in self-supervised vision transformers",
+      "arxiv": "arXiv:2104.14294"
+    },
+    {
+      "citation_id": "7",
+      "title": "An empirical study of training self-supervised vision transformers",
+      "authors": [
+        "X Chen",
+        "S Xie",
+        "K He"
+      ],
+      "year": "2021",
+      "venue": "An empirical study of training self-supervised vision transformers",
+      "arxiv": "arXiv:2104.02057"
+    },
+    {
+      "citation_id": "8",
+      "title": "An unsupervised autoregressive model for speech representation learning",
+      "authors": [
+        "Y.-A Chung",
+        "W.-N Hsu",
+        "H Tang",
+        "J Glass"
+      ],
+      "year": "2019",
+      "venue": "An unsupervised autoregressive model for speech representation learning"
+    },
+    {
+      "citation_id": "9",
+      "title": "ImageNet: A large-scale hierarchical image database",
+      "authors": [
+        "J Deng",
+        "W Dong",
+        "R Socher",
+        "L.-J Li",
+        "K Li",
+        "L Fei-Fei"
+      ],
+      "year": "2009",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "10",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale",
+      "authors": [
+        "A Dosovitskiy",
+        "L Beyer",
+        "A Kolesnikov",
+        "D Weissenborn",
+        "X Zhai",
+        "T Unterthiner",
+        "M Dehghani",
+        "M Minderer",
+        "G Heigold",
+        "S Gelly",
+        "J Uszkoreit",
+        "N Houlsby"
+      ],
+      "year": "2021",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "11",
+      "title": "Audio Set: An ontology and human-labeled dataset for audio events",
+      "authors": [
+        "J Gemmeke",
+        "D Ellis",
+        "D Freedman",
+        "A Jansen",
+        "W Lawrence",
+        "R Moore",
+        "M Plakal",
+        "M Ritter"
+      ],
+      "year": "2017",
+      "venue": "Audio Set: An ontology and human-labeled dataset for audio events"
+    },
+    {
+      "citation_id": "12",
+      "title": "AST: Audio Spectrogram Transformer",
+      "authors": [
+        "Y Gong",
+        "Y.-A Chung",
+        "J Glass"
+      ],
+      "year": "2021",
+      "venue": "AST: Audio Spectrogram Transformer"
+    },
+    {
+      "citation_id": "13",
+      "title": "Bag of tricks for image classification with convolutional neural networks",
+      "authors": [
+        "T He",
+        "Z Zhang",
+        "H Zhang",
+        "Z Zhang",
+        "J Xie",
+        "M Li"
+      ],
+      "year": "2019",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "14",
+      "title": "HuBERT: How much can a bad teacher benefit ASR pre-training?",
+      "authors": [
+        "W.-N Hsu",
+        "Y.-H Tsai",
+        "B Bolte",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Speech SIMCLR: Combining Contrastive and Reconstruction Objective for Self-supervised Speech Representation Learning",
+      "authors": [
+        "D Jiang",
+        "W Li",
+        "M Cao",
+        "R Zhang",
+        "W Zou",
+        "K Han",
+        "X Li"
+      ],
+      "year": "2020",
+      "venue": "Speech SIMCLR: Combining Contrastive and Reconstruction Objective for Self-supervised Speech Representation Learning",
+      "arxiv": "arXiv:2010.13991"
+    },
+    {
+      "citation_id": "16",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "Adam: A method for stochastic optimization"
+    },
+    {
+      "citation_id": "17",
+      "title": "Convolutional networks for images, speech, and time series. The Handbook of Brain Theory and Neural Networks",
+      "authors": [
+        "Y Lecun",
+        "Y Bengio"
+      ],
+      "year": "1995",
+      "venue": "Convolutional networks for images, speech, and time series. The Handbook of Brain Theory and Neural Networks"
+    },
+    {
+      "citation_id": "18",
+      "title": "Mockingjay: Unsupervised speech representation learning with deep bidirectional transformer encoders",
+      "authors": [
+        "A Liu",
+        "S.-W Yang",
+        "P.-H Chi",
+        "P.-C Hsu",
+        "H Lee",
+        "W Xie",
+        "A Zisserman"
+      ],
+      "year": "2020",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "19",
+      "title": "BYOL for Audio: Self-Supervised Learning for General-Purpose Audio Representation",
+      "authors": [
+        "D Niizumi",
+        "D Takeuchi",
+        "Y Ohishi",
+        "N Harada",
+        "K Kashino"
+      ],
+      "year": "2021",
+      "venue": "BYOL for Audio: Self-Supervised Learning for General-Purpose Audio Representation",
+      "arxiv": "arXiv:2103.06695"
+    },
+    {
+      "citation_id": "20",
+      "title": "Unsupervised learning of visual representations by solving jigsaw puzzles",
+      "authors": [
+        "M Noroozi",
+        "P Favaro"
+      ],
+      "year": "2016",
+      "venue": "ECCV"
+    },
+    {
+      "citation_id": "21",
+      "title": "Representation learning with contrastive predictive coding",
+      "authors": [
+        "A Oord",
+        "Y Li",
+        "O Vinyals"
+      ],
+      "year": "2018",
+      "venue": "Representation learning with contrastive predictive coding",
+      "arxiv": "arXiv:1807.03748"
+    },
+    {
+      "citation_id": "22",
+      "title": "Librispeech: an asr corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Librispeech: an asr corpus based on public domain audio books"
+    },
+    {
+      "citation_id": "23",
+      "title": "SpecAugment: A simple data augmentation method for automatic speech recognition",
+      "authors": [
+        "D Park",
+        "W Chan",
+        "Y Zhang",
+        "C.-C Chiu",
+        "B Zoph",
+        "E Cubuk",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "SpecAugment: A simple data augmentation method for automatic speech recognition"
+    },
+    {
+      "citation_id": "24",
+      "title": "Learning problem-agnostic speech representations from multiple self-supervised tasks",
+      "authors": [
+        "S Pascual",
+        "M Ravanelli",
+        "J Serra",
+        "A Bonafonte",
+        "Y Bengio"
+      ],
+      "year": "2019",
+      "venue": "Learning problem-agnostic speech representations from multiple self-supervised tasks",
+      "arxiv": "arXiv:1904.03416"
+    },
+    {
+      "citation_id": "25",
+      "title": "ESC: Dataset for environmental sound classification",
+      "authors": [
+        "K Piczak"
+      ],
+      "year": "2015",
+      "venue": "ESC: Dataset for environmental sound classification"
+    },
+    {
+      "citation_id": "26",
+      "title": "Multitask self-supervised learning for robust speech recognition",
+      "authors": [
+        "M Ravanelli",
+        "J Zhong",
+        "S Pascual",
+        "P Swietojanski",
+        "J Monteiro",
+        "J Trmal",
+        "Y Bengio"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "27",
+      "title": "Contrastive learning of general-purpose audio representations",
+      "authors": [
+        "A Saeed",
+        "D Grangier",
+        "N Zeghidour"
+      ],
+      "year": "2021",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "28",
+      "title": "wav2vec: Unsupervised pre-training for speech recognition",
+      "authors": [
+        "S Schneider",
+        "A Baevski",
+        "R Collobert",
+        "M Auli"
+      ],
+      "year": "2019",
+      "venue": "wav2vec: Unsupervised pre-training for speech recognition",
+      "arxiv": "arXiv:1904.05862"
+    },
+    {
+      "citation_id": "29",
+      "title": "Learning from between-class examples for deep sound recognition",
+      "authors": [
+        "Y Tokozume",
+        "Y Ushiku",
+        "T Harada"
+      ],
+      "year": "2018",
+      "venue": "ICLR"
+    },
+    {
+      "citation_id": "30",
+      "title": "Training data-efficient image transformers & distillation through attention",
+      "authors": [
+        "H Touvron",
+        "M Cord",
+        "M Douze",
+        "F Massa",
+        "A Sablayrolles",
+        "H Jégou"
+      ],
+      "year": "2020",
+      "venue": "Training data-efficient image transformers & distillation through attention",
+      "arxiv": "arXiv:2012.12877"
+    },
+    {
+      "citation_id": "31",
+      "title": "Selfie: Selfsupervised pretraining for image embedding",
+      "authors": [
+        "T Trinh",
+        "M.-T Luong",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Selfie: Selfsupervised pretraining for image embedding",
+      "arxiv": "arXiv:1906.02940"
+    },
+    {
+      "citation_id": "32",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "L Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "NIPS. Warden, P. 2018. Speech commands: A dataset for limited-vocabulary speech recognition",
+      "arxiv": "arXiv:1804.03209"
+    },
+    {
+      "citation_id": "33",
+      "title": "SUPERB: Speech processing Universal PERformance Benchmark",
+      "authors": [
+        "S.-W Yang",
+        "P.-H Chi",
+        "Y.-S Chuang",
+        "C.-I Lai",
+        "K Lakhotia",
+        "Y Lin",
+        "A Liu",
+        "J Shi",
+        "X Chang",
+        "G.-T Lin"
+      ],
+      "year": "2021",
+      "venue": "SUPERB: Speech processing Universal PERformance Benchmark",
+      "arxiv": "arXiv:2105.01051"
+    },
+    {
+      "citation_id": "34",
+      "title": "Tokens-to-token vit: Training vision transformers from scratch on imagenet",
+      "authors": [
+        "L Yuan",
+        "Y Chen",
+        "T Wang",
+        "W Yu",
+        "Y Shi",
+        "Z Jiang",
+        "F Tay",
+        "J Feng",
+        "S Yan"
+      ],
+      "year": "2021",
+      "venue": "Tokens-to-token vit: Training vision transformers from scratch on imagenet",
+      "arxiv": "arXiv:2101.11986"
+    }
+  ]
+}

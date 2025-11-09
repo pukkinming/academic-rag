@@ -1,0 +1,1757 @@
+{
+  "paper_id": "2410.03312v1",
+  "title": "Context And System Fusion In Post-Asr Emotion Recognition With Large Language Models",
+  "published": "2024-10-04T10:50:18Z",
+  "authors": [
+    "Pavel Stepachev",
+    "Pinzhen Chen",
+    "Barry Haddow"
+  ],
+  "keywords": [
+    "Speech Emotion Recognition",
+    "Large Language Models",
+    "Context Modelling"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Large language models (LLMs) have started to play a vital role in modelling speech and text. To explore the best use of context and multiple systems' outputs for post-ASR speech emotion prediction, we study LLM prompting on a recent task named GenSEC. Our techniques include ASR transcript ranking, variable conversation context, and system output fusion. We show that the conversation context has diminishing returns and the metric used to select the transcript for prediction is crucial. Finally, our best submission surpasses the provided baseline by 20% in absolute accuracy.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "With significant recent developments in large language models (LLMs), they appear to be a powerful tool for various tasks including speech and text problems  [1, 2] . Naturally, researchers have recently adopted them in speech emotion recognition (SER)  [3] . The growing popularity of LLMs can be attributed to their capability as a general-purpose approach and their ready-to-use attribute. However, their performance remains modest in challenging conditions-e.g. the GPT-3.5 baseline at the GenSEC Task 3 merely sits at 55.18% accuracy  [4] . While (re-)training an LLM for a certain task is prohibitive in many scenarios, we take this opportunity further to understand the optimal use of LLMs in this task by exploring LLM prompting in post-ASR SER.\n\nGenSEC Task 3 1 provides various ASR systems' outcomes of conversations and participants are required to predict the speaker's emotion associated with certain utterances. From a machine learning perspective, it is straightforward to train a model especially to combine text and speech modalities  [5] [6] [7] [8] [9] [10] . Yet, we put forward the motivation to prompt a general-purpose LLM which is training-free: to prevent an algorithm from overfitting to unwanted data bias-e.g. choice of words by a speaker that is spuriously correlated with their 1 Website: sites.google.com/view/gensec-challenge/home Task: github.com/YuanGongND/llm speech emotion challenge emotion-which improves performance on a test set but not in a universal setting. Formally, our approach explores suitable prompting strategies to perform speech emotion prediction from ASR outputs without speech signals. Most efforts are centred on creating a practical context for prompting. The contributions of this work are:\n\n• Methodologically, we 1) select and rank ASR outputs as LLM input using multiple metrics and 2) exploit and fuse the conversation history and multiple ASR system outputs. These approaches balance the trade-off between performance and cost of querying LLMs.\n\n• Performance-wise, we observe a huge leap from the provided baseline. Our final submission records an SER accuracy of 75.1% surpassing the baseline by 20%. Given our training-free paradigm, we expect it to be more generalizable to other settings.\n\n• To aid reproducibility, we make our code public. 2",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Data And Evaluation",
+      "text": "The task  [4]  adopts IEMOCAP consisting of 5 sessions of scripted and improvised dialogues, all conducted in a controlled lab environment  [11] . In terms of constructing LLM prompting context, since the objective is to evaluate and improve SER performance in a realistic setting, we avoid using ground truth transcripts or emotion labels. We note that we use information from the dataset regarding each person's sex (female or male). Whilst many SER papers use 5 sessions for cross-validation, we follow a 10-session setup in this challenge's baseline configu- 2 Our implementation: github.com/rggdmonk/GenSEC-Task-3 arXiv:2410.03312v1 [cs.CL] 4 Oct 2024 ration. The final system evaluation and team ranking adopts four-class unweighted accuracy.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Context Selection Methodology",
+      "text": "Conversation context and multiple ASR outputs are available in the GenSec dataset for emotion classification, so our investigation centres around forming a suitable context for prompting. Our first study is on picking a suitable ASR output for prompting, where we explore ranking the ASR outputs using string-based metrics (Sec 3.1) and using handcrafted naive heuristics for selection (Sec 3.2). The second direction is the use of conversation history represented by a variable size of context from ASR (Sec 3.3) as well as an examination of the feasibility of combining multiple ASR outputs (Sec 3.4).",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ranking",
+      "text": "A gold speech transcript is never available in practical scenarios. To select the most suitable transcript for emotion prediction, we perform ASR system output ranking based on intertranscript aggregated metric scores, where each transcript is evaluated against all other outputs treated as references  [13] .\n\nWith n transcripts and a metric function metric(), the aggregated score for each transcript k is computed as:\n\nAll system outputs are then sorted by their aggregated scores. This can be viewed as simplified minimum Bayes risk decoding  [14]  with a uniform probability to pick a \"consensus\" ASR candidate. Concerning metric() implementation, we explore an array of string measures: chrF and chrF++ from the sacreBLEU package 3  with default configurations  [15] [16] [17] ; word error rate (WER), match error rate (MER), word information lost (WIL), and word information preserved (WIP)  [18]  from the JiWER package.  4",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Naive Selection Heuristics",
+      "text": "We then propose simple heuristics for ASR candidate selection via various criteria:\n\n• longest selects the output with the highest character count, often containing the most content. • shortest selects the output with the lowest character count, having the least hallucination/verbosity. • most punc selects the output with the highest punctuation count, likely the most structured and expressive. • least punc selects the output with the least punctuation count, indicating simplicity/brevity. • random selects a random output for each utterance, giving a baseline with variety in ASR systems.\n\nBelow is a transcript of a conversation between a male and a female:  To enhance the robustness of these approaches, we also trial four composite metrics by matching (longest, shortest) with (most punc, least punc) where length is the primary constraint. Technically, spaces are ignored during character counting and the punctuation list is pre-defined as !?.,;:-$%&.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "The Use Of Conversation Context",
+      "text": "Moving on from ASR output to previous conversation history, we conduct a set of experiments with varying context window (CW) sizes, to assess its impact on emotion prediction accuracy. Longer context provides information on the dialogue, yet the texts come from ASR systems instead of ground truths, bringing in accumulated noise. In addition, we designed an LLM prompt template to simulate a natural real-life scenario as shown in Figure  1 .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Asr Output Fusion",
+      "text": "Finally, we examine the feasibility of using multiple ASR outputs simultaneously since different systems could capture different nuances in the original speech and also make different error patterns that might be used to alleviate each other. For instance, we observe that whisper-large tends to generate longer \"hallucinations\" than whisper-tiny potentially due to an overly strong internal language model. In our experiments, we fix the rough input length to LLM calls by varying a combination of (CW, N)-where CW is the context size, N is the number of ASR outputs, and their sum remains constant. To facilitate the inclusion of multiple ASR outputs, the study uses an updated prompt in Figure  2 .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Experiments And Results",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Setup",
+      "text": "In our exploration of LLM prompting for speech emotion recognition, we use OpenAI models through the API. We  tried two models gpt-4o and gpt-3.5-turbo. 5 The system message remained unchanged: \"You are a helpful assistant.\" All reported experimental results are on the training set; final test predictions are scored by the task organizers.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Results",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Comparison Between Gpt Models",
+      "text": "We performed an initial experiment on gpt-3.5-turbo and gpt-4o with varying context sizes. Table  1     1 . Comparison between gpt-3.5-turbo and gpt-4o at various context sizes. The selection metric is longest and most punc and the evaluation metric is unweighted accuracy. 5 Specifically, gpt-4o-2024-05-13 and gpt-3.5-turbo-0125 with tempera-ture=1, max tokens=250, seed=42.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Effects Of The Conversation Context",
+      "text": "Referring back to Table  1 , both models demonstrate increasing accuracy as the context expands, with the most significant improvements occurring at smaller window sizes (0 to 4). However, improvement diminishes as the context window size continues to increase. Figure  3  illustrates the impact of ranking metrics on unweighted accuracy as the context size increases. Among these, chrF and chrF++ consistently show the highest numbers, particularly as the context window size grows beyond 8. MER follows closely behind but slightly underperforms compared to chrF and chrF++. On the other hand, WER consistently lags, showing a significant gap in accuracy, especially at larger CW sizes. WIP and WIL show moderate performance, with WIP slightly outperforming WIL.\n\nFigure  4  shows the same for naive heuristics. The metrics associated with the longest text and punctuation generally yield the highest accuracy, with significant improvements as the CW size increases. Specifically, the longest and least punc, longest and most punc, longest, and most punc metrics cluster at the top, indicating superior performance. The least punc metric starts lower but nearly catches up at larger CW sizes. In contrast, the random selection shows moderate improvement but remains below the top-performing metrics. The shortest and shortest and most punc metrics exhibit the lowest performance, with a relatively flat increase in accuracy, suggesting a limited benefit from increasing CW size.\n\nIn both figures, increasing the context window generally leads to higher accuracy, though the degree of improvement varies depending on the selection metric. Metrics that prioritize longer text segments and punctuation factors tend to perform better, underscoring the importance of these elements in achieving higher accuracy in this challenge.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Asr Output Ranking",
+      "text": "Table  2  compares selection metrics using a fixed context window and the same model. Out of the ranking metrics, chrF++ stands out as one of the top performers, demonstrating high accuracy. The chrF, MER, WIL, and WIP metrics also show relatively high accuracy, although slightly lower than chrF++. In contrast, WER shows notably poor performance with lower accuracy. For naive heuristics, the least punc method achieves the highest overall accuracy. The most punc and longest and most punc heuristics also perform well, with each showing high accuracy. On the other hand, the shortest and most punc and shortest metrics yield the lowest accuracy, indicating poorer performance. In summary, punctuation-related metrics tend to deliver better accuracy, with least punc emerging as the leading method.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Asr-Context Fusion",
+      "text": "To explore the best use of the prompting context, we evaluate various combinations of context window sizes and the ASR candidates. The results, as detailed in the Table  3 , show that the highest unweighted accuracy for the longest and most punc strategy is achieved with a CW of 29 and 3 candidates. The highest accuracy is obtained with a CW of 27 and 5 candidates for the least punc strategy. These findings suggest that the model performs better with a larger context window and more candidates, particularly when the context has minimal punctuation.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Final Results",
+      "text": "Based on findings from the training data, we chose five configurations to run on the test split. These are then evaluated by the authors of GenSec  [4] ; we have no access to test set references. Table  4  outlines our official results-they all surpass the provided baseline by a large margin of 20% absolute accuracy. Finally, a comprehensive breakdown of all experiments can be found in Appendix A Table  5 .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we explore LLM prompting for speech emotion prediction which is training-free. Our methods include ASR candidate selection and context fusion that does not rely on audio signals or ground truth transcripts. Evaluations on the IEMOCAP dataset, as re-split by the organizers, demonstrate that our approach achieves a strong result of 75.1%, outperforming the baseline by 20% accuracy. Notably, our methods, being training-free, mitigate the risk of overfitting to speakerspecific or ASR system-specific biases.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Acknowledgments",
+      "text": "We thank the GenSec authors for their assistance.",
+      "page_start": 5,
+      "page_end": 5
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Prompt template with context size 2 with the last ut-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: 3.4. ASR output fusion",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: 4. EXPERIMENTS AND RESULTS",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Prompt template with a context size 4 as well as 5",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Performance of ranking metrics with various context",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: illustrates the impact of ranking metrics on un-",
+      "page": 3
+    },
+    {
+      "caption": "Figure 4: shows the same for naive heuristics.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 4: Performance of naive heuristics metrics with various",
+      "page": 4
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "School of Informatics, University of Edinburgh": "{pavel.stepachev,pinzhen.chen,bhaddow}@ed.ac.uk"
+        },
+        {
+          "School of Informatics, University of Edinburgh": "ABSTRACT"
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": "the conversation context has diminishing"
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": "the transcript\nfor pre-"
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": "Index Terms— Speech Emotion Recognition, Large Lan-"
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": "INTRODUCTION"
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        },
+        {
+          "School of Informatics, University of Edinburgh": ""
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "four-class unweighted accuracy."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "3. CONTEXT SELECTION METHODOLOGY"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "Conversation context and multiple ASR outputs are available"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "in the GenSec dataset for emotion classification, so our inves-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "tigation centres around forming a suitable context for prompt-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "ing. Our first study is on picking a suitable ASR output for"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "prompting, where we explore ranking the ASR outputs using"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "string-based metrics\n(Sec 3.1) and using handcrafted naive"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "heuristics for selection (Sec 3.2). The second direction is the"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "use of conversation history represented by a variable size of"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "context from ASR (Sec 3.3) as well as an examination of the"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "feasibility of combining multiple ASR outputs (Sec 3.4)."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "3.1. Ranking"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "A gold speech transcript is never available in practical scenar-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "ios. To select the most suitable transcript for emotion predic-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "tion, we perform ASR system output ranking based on inter-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "transcript aggregated metric scores, where each transcript\nis"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "evaluated against all other outputs treated as references [13]."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "With n transcripts and a metric function metric(),\nthe aggre-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "gated score for each transcript k is computed as:"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "n−1"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "(cid:88) i\n(1)\nscorek =\nmetric(transcriptk, transcripti), i ̸= k"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "=0"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "All system outputs are then sorted by their aggregated scores."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "This can be viewed as\nsimplified minimum Bayes\nrisk de-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "coding [14] with a uniform probability to pick a “consensus”"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "ASR candidate. Concerning metric() implementation, we ex-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "plore an array of\nstring measures:\nchrF and chrF++ from"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "the sacreBLEU package3 with default configurations [15–17];"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "word error rate (WER), match error rate (MER), word infor-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "mation lost\n(WIL), and word information preserved (WIP)"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "[18] from the JiWER package.4"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "3.2. Naive selection heuristics"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "We then propose simple heuristics for ASR candidate selec-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "tion via various criteria:"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "• longest selects the output with the highest character"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "count, often containing the most content."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "• shortest selects the output with the lowest character"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "count, having the least hallucination/verbosity."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "• most punc selects the output with the highest punctu-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "ation count, likely the most structured and expressive."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "• least punc selects the output with the least punctu-"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "ation count, indicating simplicity/brevity."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "• random selects a random output\nfor each utterance,"
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": "giving a baseline with variety in ASR systems."
+        },
+        {
+          "ration. The final system evaluation and team ranking adopts": ""
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table 1: Comparison between gpt-3.5-turbo and",
+      "data": [
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "generally\nyield\nthe\nhighest",
+          "longest\ntext\nand": "accuracy, with",
+          "punctuation": "significant\nim-"
+        },
+        {
+          "metrics\nassociated with\nthe": "provements\nas\nthe CW size",
+          "longest\ntext\nand": "increases.",
+          "punctuation": "Specifically,\nthe"
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "longest and least punc, longest and most punc,",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "longest, and most punc metrics cluster at",
+          "punctuation": "the top,\nindi-"
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "cating superior performance. The least punc metric starts",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "lower but nearly catches up at",
+          "longest\ntext\nand": "larger CW sizes.",
+          "punctuation": "In contrast,"
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "the random selection shows moderate improvement but re-",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "mains below the top-performing metrics.",
+          "longest\ntext\nand": "",
+          "punctuation": "The shortest"
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "",
+          "punctuation": ""
+        },
+        {
+          "metrics\nassociated with\nthe": "",
+          "longest\ntext\nand": "and shortest and most punc metrics exhibit",
+          "punctuation": "the low-"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 1: Comparison between gpt-3.5-turbo and",
+      "data": [
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Person B (male): {selected candidate}"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Person A (female): {selected candidate}"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Person B (male): {selected candidate}"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Person A (female): {selected candidate}"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "I am not a native English speaker and I did not hear\nthe\nlast ut-"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "terance from Person B (male) very clearly.\nIt could be one of\nthe"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "following:"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "{random unique asr output}, or"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "{random unique asr output}, or"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "{selected candidate}, or"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "{random unique asr output}, or"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "{random unique asr output}."
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "It\nis\nnow very\nimportant\nfor me\nto\nunderstand\nthe\nemotion\nof"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Person B (male)\nfrom your choice.\nCould you identify the emotion"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "expressed in the last utterance (anger, happiness, sadness, or neutral)?"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Please provide a brief explanation for your choice.\nSelect a single"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "emotion and enclose it\nin square brackets,\nlike this:\n[emotion].\nThe"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "emotion can only be anger, happiness, sadness, or neutral."
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "Fig. 2.\nPrompt\ntemplate with a context size 4 as well as 5"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "ASR outputs as a means of fusion."
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "tried two models gpt-4o and gpt-3.5-turbo.5 The sys-"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "tem message remained unchanged: “You are a helpful assis-"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "tant.” All reported experimental results are on the training set;"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "final test predictions are scored by the task organizers."
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "4.2. Results"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "4.2.1. Comparison between GPT models"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "We performed an initial experiment on gpt-3.5-turbo"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "and gpt-4o with varying context sizes. Table 1 summarizes"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "the results\nshowing that gpt-4o consistently outperforms"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "gpt-3.5-turbo in accuracy across all scenarios. Our fur-"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "ther experiments all use gpt-4o."
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "gpt-3.5-turbo\ngpt-4o\nCW"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "0\n0.386\n0.449"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "2\n0.414\n0.510"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "4\n0.437\n0.545"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "8\n0.439\n0.555"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "16\n0.472\n0.575"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "32\n0.475\n0.574"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "gpt-3.5-turbo\nTable\n1.\nComparison\nbetween\nand"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "gpt-4o at various context\nsizes.\nThe selection metric is"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "longest and most punc and the evaluation metric is un-"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "weighted accuracy."
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": ""
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "5Specifically, gpt-4o-2024-05-13 and gpt-3.5-turbo-0125 with tempera-"
+        },
+        {
+          "Below is a transcript of a conversation between a male and a female:": "ture=1, max tokens=250, seed=42."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 3: Performance of context-ASR system fusion with",
+      "data": [
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "most punc"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.514"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.486"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.543"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.506"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.560"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.565"
+        },
+        {
+          "longest and": "0.546"
+        },
+        {
+          "longest and": ""
+        },
+        {
+          "longest and": "0.594"
+        },
+        {
+          "longest and": "0.581"
+        },
+        {
+          "longest and": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 3: Performance of context-ASR system fusion with",
+      "data": [
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "Acc"
+        },
+        {
+          "N denotes the number of ASR candidates.": "0.551"
+        },
+        {
+          "N denotes the number of ASR candidates.": "0.751"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "0.744"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "0.742"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "0.725"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "0.724"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "The official"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "gpt-3.5-turbo; our submissions use gpt-4o."
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "emerging as the leading method."
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        },
+        {
+          "N denotes the number of ASR candidates.": "4.2.4. ASR-context fusion"
+        },
+        {
+          "N denotes the number of ASR candidates.": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "“Multi-modal attention for speech emotion recognition,”"
+        },
+        {
+          "5. CONCLUSION": "In this paper, we explore LLM prompting for speech emotion",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "in Interspeech, 2020."
+        },
+        {
+          "5. CONCLUSION": "prediction which is training-free. Our methods include ASR",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[8] Yuanchao Li, Peter Bell, and Catherine Lai,\n“Fusing"
+        },
+        {
+          "5. CONCLUSION": "candidate selection and context\nfusion that does not\nrely on",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "ASR outputs in joint training for speech emotion recog-"
+        },
+        {
+          "5. CONCLUSION": "audio signals or ground truth transcripts. Evaluations on the",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "nition,” in ICASSP, 2022."
+        },
+        {
+          "5. CONCLUSION": "IEMOCAP dataset, as re-split by the organizers, demonstrate",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "that our approach achieves a strong result of 75.1%, outper-",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[9] Taesik Gong, Josh Belanich, Krishna Somandepalli, Ar-"
+        },
+        {
+          "5. CONCLUSION": "forming the baseline by 20% accuracy. Notably, our methods,",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "sha Nagrani, Brian Eoff, and Brendan Jou,\n“LanSER:"
+        },
+        {
+          "5. CONCLUSION": "being training-free, mitigate the risk of overfitting to speaker-",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Language-Model Supported Speech Emotion Recogni-"
+        },
+        {
+          "5. CONCLUSION": "specific or ASR system-specific biases.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "tion,” in Interspeech, 2023."
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[10] Yuanchao Li, Pinzhen Chen, Peter Bell, and Catherine"
+        },
+        {
+          "5. CONCLUSION": "6. ACKNOWLEDGMENTS",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Lai,\n“Crossmodal ASR error correction with discrete"
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "speech units,” in SLT, 2024."
+        },
+        {
+          "5. CONCLUSION": "We thank the GenSec authors for their assistance. This work",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "was funded by UK Research and Innovation (UKRI) under",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[11] Carlos Busso, Murtaza Bulut,\nChi-Chun Lee, Abe"
+        },
+        {
+          "5. CONCLUSION": "the UK government’s Horizon Europe\nfunding\nguarantee",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Kazemzadeh, Emily Mower, Samuel Kim, Jeannette N."
+        },
+        {
+          "5. CONCLUSION": "[grant numbers 10052546 and 10039436]. The authors would",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Chang,\nSungbok Lee,\nand Shrikanth S. Narayanan,"
+        },
+        {
+          "5. CONCLUSION": "like to thank EDINA and the Information Services Group at",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "“IEMOCAP:\ninteractive emotional dyadic motion cap-"
+        },
+        {
+          "5. CONCLUSION": "the University of Edinburgh for generously providing OpenAI",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "ture database,”\nLanguage Resources and Evaluation,"
+        },
+        {
+          "5. CONCLUSION": "credits that supported this research.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "2008."
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[12] Yuanchao Li, Peter Bell, and Catherine Lai,\n“Speech"
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "emotion recognition with asr transcripts: A comprehen-"
+        },
+        {
+          "5. CONCLUSION": "References",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "sive study on word error rate and fusion techniques,” in"
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "SLT, 2024."
+        },
+        {
+          "5. CONCLUSION": "[1] Tom Brown et\nal.,\n“Language models\nare\nfew-shot",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "learners,” in NeurIPS, 2020.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[13] Nikolay Bogoychev and Pinzhen Chen, “The highs and"
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "lows of simple lexical domain adaptation approaches for"
+        },
+        {
+          "5. CONCLUSION": "[2] Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "the Sec-\nneural machine translation,”\nin Proceedings of"
+        },
+        {
+          "5. CONCLUSION": "man, Christine McLeavey, and Ilya Sutskever,\n“Robust",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "ond Workshop on Insights from Negative Results in NLP,"
+        },
+        {
+          "5. CONCLUSION": "speech recognition via large-scale weak supervision,” in",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "2021."
+        },
+        {
+          "5. CONCLUSION": "ICML, 2023.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[14] Shankar Kumar and William Byrne, “Minimum Bayes-"
+        },
+        {
+          "5. CONCLUSION": "[3] Tiantian Feng and Shrikanth Narayanan,\n“Foundation",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "risk decoding for\nstatistical machine translation,”\nin"
+        },
+        {
+          "5. CONCLUSION": "model assisted automatic speech emotion recognition:",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "NAACL, 2004."
+        },
+        {
+          "5. CONCLUSION": "Transcribing, annotating, and augmenting,” in ICASSP,",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[15] Matt Post, “A call for clarity in reporting BLEU scores,”"
+        },
+        {
+          "5. CONCLUSION": "2024.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "the Third Conference on Machine\nin Proceedings of"
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Translation: Research Papers, 2018."
+        },
+        {
+          "5. CONCLUSION": "[4] Chao-Han Huck Yang, Taejin Park, Yuan Gong, Yuan-",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "chao Li, Zhehuai Chen, Yen-Ting Lin, Chen Chen,",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[16] Maja Popovi´c,\n“chrF: character n-gram F-score for au-"
+        },
+        {
+          "5. CONCLUSION": "˙",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "Yuchen Hu, Kunal Dhawan, Piotr\nZelasko, et al., “Large",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "the Tenth\ntomatic MT evaluation,”\nin Proceedings of"
+        },
+        {
+          "5. CONCLUSION": "language model based generative error correction: A",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Workshop on Statistical Machine Translation, 2015."
+        },
+        {
+          "5. CONCLUSION": "challenge and baselines for speech recognition, speaker",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "tagging, and emotion recognition,” in SLT, 2024.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[17] Maja Popovi´c,\n“chrF++: words helping character n-"
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "the Second Conference on\ngrams,”\nin Proceedings of"
+        },
+        {
+          "5. CONCLUSION": "[5] Saurabh Sahu, Vikramjit Mitra, Nadee Seneviratne, and",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Machine Translation, 2017."
+        },
+        {
+          "5. CONCLUSION": "Carol Y Espy-Wilson, “Multi-modal learning for speech",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "[18] Andrew Cameron Morris, Viktoria Maier,\nand\nPhil"
+        },
+        {
+          "5. CONCLUSION": "emotion recognition: An analysis and comparison of asr",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "Green,\n“From WER and RIL to MER and WIL:\nim-"
+        },
+        {
+          "5. CONCLUSION": "outputs with ground truth transcription.,” in Interspeech,",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "proved evaluation measures for connected speech recog-"
+        },
+        {
+          "5. CONCLUSION": "2019.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": "nition,” in Interspeech, 2004."
+        },
+        {
+          "5. CONCLUSION": "[6]\nJilt Sebastian and Piero Pierucci,\n“Fusion Techniques",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "for Utterance-Level Emotion Recognition Combining",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        },
+        {
+          "5. CONCLUSION": "Speech and Transcripts,” in Interspeech, 2019.",
+          "[7] Zexu Pan, Zhaojie Luo, Jichen Yang, and Haizhou Li,": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 5: A list of all results on the training set. The evaluation metric is unweighted accuracy with two-sided bias-",
+      "data": [
+        {
+          "A. APPENDIX": "CW"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "64"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "64"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "4"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "64"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "2"
+        },
+        {
+          "A. APPENDIX": "4"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "2"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "4"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "64"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "2"
+        },
+        {
+          "A. APPENDIX": "4"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "2"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "4"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "0"
+        },
+        {
+          "A. APPENDIX": "2"
+        },
+        {
+          "A. APPENDIX": "4"
+        },
+        {
+          "A. APPENDIX": ""
+        },
+        {
+          "A. APPENDIX": "8"
+        },
+        {
+          "A. APPENDIX": "16"
+        },
+        {
+          "A. APPENDIX": "32"
+        },
+        {
+          "A. APPENDIX": "3"
+        }
+      ],
+      "page": 6
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Language models are few-shot learners",
+      "authors": [
+        "Tom Brown"
+      ],
+      "year": "2020",
+      "venue": "Language models are few-shot learners"
+    },
+    {
+      "citation_id": "2",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Tao Xu",
+        "Greg Brockman",
+        "Christine Mcleavey",
+        "Ilya Sutskever"
+      ],
+      "year": "2023",
+      "venue": "ICML"
+    },
+    {
+      "citation_id": "3",
+      "title": "Foundation model assisted automatic speech emotion recognition: Transcribing, annotating, and augmenting",
+      "authors": [
+        "Tiantian Feng",
+        "Shrikanth Narayanan"
+      ],
+      "year": "2024",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "4",
+      "title": "Large language model based generative error correction: A challenge and baselines for speech recognition, speaker tagging, and emotion recognition",
+      "authors": [
+        "Chao-Han Huck",
+        "Taejin Yang",
+        "Yuan Park",
+        "Yuanchao Gong",
+        "Zhehuai Li",
+        "Yen-Ting Chen",
+        "Chen Lin",
+        "Yuchen Chen",
+        "Kunal Hu",
+        "Piotr Dhawan",
+        "Żelasko"
+      ],
+      "year": "2024",
+      "venue": "SLT"
+    },
+    {
+      "citation_id": "5",
+      "title": "Multi-modal learning for speech emotion recognition: An analysis and comparison of asr outputs with ground truth transcription",
+      "authors": [
+        "Saurabh Sahu",
+        "Vikramjit Mitra",
+        "Nadee Seneviratne",
+        "Carol Espy-Wilson"
+      ],
+      "year": "2019",
+      "venue": "Multi-modal learning for speech emotion recognition: An analysis and comparison of asr outputs with ground truth transcription"
+    },
+    {
+      "citation_id": "6",
+      "title": "Fusion Techniques for Utterance-Level Emotion Recognition Combining Speech and Transcripts",
+      "authors": [
+        "Jilt Sebastian",
+        "Piero Pierucci"
+      ],
+      "year": "2019",
+      "venue": "Fusion Techniques for Utterance-Level Emotion Recognition Combining Speech and Transcripts"
+    },
+    {
+      "citation_id": "7",
+      "title": "Multi-modal attention for speech emotion recognition",
+      "authors": [
+        "Zexu Pan",
+        "Zhaojie Luo",
+        "Jichen Yang",
+        "Haizhou Li"
+      ],
+      "year": "2020",
+      "venue": "Multi-modal attention for speech emotion recognition"
+    },
+    {
+      "citation_id": "8",
+      "title": "Fusing ASR outputs in joint training for speech emotion recognition",
+      "authors": [
+        "Yuanchao Li",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "year": "2022",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "9",
+      "title": "LanSER: Language-Model Supported Speech Emotion Recognition",
+      "authors": [
+        "Taesik Gong",
+        "Josh Belanich",
+        "Krishna Somandepalli",
+        "Arsha Nagrani",
+        "Brian Eoff",
+        "Brendan Jou"
+      ],
+      "year": "2023",
+      "venue": "LanSER: Language-Model Supported Speech Emotion Recognition"
+    },
+    {
+      "citation_id": "10",
+      "title": "Crossmodal ASR error correction with discrete speech units",
+      "authors": [
+        "Yuanchao Li",
+        "Pinzhen Chen",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "year": "2024",
+      "venue": "SLT"
+    },
+    {
+      "citation_id": "11",
+      "title": "IEMOCAP: interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth Narayanan"
+      ],
+      "year": "2008",
+      "venue": "IEMOCAP: interactive emotional dyadic motion capture database"
+    },
+    {
+      "citation_id": "12",
+      "title": "Speech emotion recognition with asr transcripts: A comprehensive study on word error rate and fusion techniques",
+      "authors": [
+        "Yuanchao Li",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "year": "2024",
+      "venue": "Speech emotion recognition with asr transcripts: A comprehensive study on word error rate and fusion techniques"
+    },
+    {
+      "citation_id": "13",
+      "title": "The highs and lows of simple lexical domain adaptation approaches for neural machine translation",
+      "authors": [
+        "Nikolay Bogoychev",
+        "Pinzhen Chen"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the Second Workshop on Insights from Negative Results in NLP"
+    },
+    {
+      "citation_id": "14",
+      "title": "Minimum Bayesrisk decoding for statistical machine translation",
+      "authors": [
+        "Shankar Kumar",
+        "William Byrne"
+      ],
+      "year": "2004",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "15",
+      "title": "A call for clarity in reporting BLEU scores",
+      "authors": [
+        "Matt Post"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the Third Conference on Machine Translation: Research Papers"
+    },
+    {
+      "citation_id": "16",
+      "title": "chrF: character n-gram F-score for automatic MT evaluation",
+      "authors": [
+        "Maja Popović"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the Tenth Workshop on Statistical Machine Translation"
+    },
+    {
+      "citation_id": "17",
+      "title": "chrF++: words helping character ngrams",
+      "authors": [
+        "Maja Popović"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the Second Conference on Machine Translation"
+    },
+    {
+      "citation_id": "18",
+      "title": "From WER and RIL to MER and WIL: improved evaluation measures for connected speech recognition",
+      "authors": [
+        "Andrew Cameron",
+        "Viktoria Maier",
+        "Phil Green"
+      ],
+      "year": "2004",
+      "venue": "From WER and RIL to MER and WIL: improved evaluation measures for connected speech recognition"
+    }
+  ]
+}

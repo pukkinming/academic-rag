@@ -1,0 +1,2997 @@
+{
+  "paper_id": "2209.13043v1",
+  "title": "Under Consideration For Publication In Theory And Practice Of Logic Programming",
+  "published": "2022-09-26T21:53:01Z",
+  "authors": [
+    "Fabio Aurelio D'Asaro",
+    "Luca Raggioli",
+    "Salim Malek",
+    "Marco Grazioso",
+    "Silvia Rossi"
+  ],
+  "keywords": [
+    "e-health",
+    "logic programming",
+    "answer set programming",
+    "sensor fusion",
+    "motor rehabilitation"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "We present and discuss a runtime architecture that integrates sensorial data and classifiers with a logicbased decision-making system in the context of an e-Health system for the rehabilitation of children with neuromotor disorders. In this application, children perform a rehabilitation task in the form of games. The main aim of the system is to derive a set of parameters the child's current level of cognitive and behavioral performance (e.g., engagement, attention, task accuracy) from the available sensors and classifiers (e.g., eye trackers, motion sensors, emotion recognition techniques) and take decisions accordingly. These decisions are typically aimed at improving the child's performance by triggering appropriate re-engagement stimuli when their attention is low, by changing the game or making it more difficult when the child is losing interest in the task as it is too easy. Alongside state-of-the-art techniques for emotion recognition and head pose estimation, we use a runtime variant of a probabilistic and epistemic logic programming dialect of the Event Calculus, known as the Epistemic Probabilistic Event Calculus. In particular, the probabilistic component of this symbolic framework allows for a natural interface with the machine learning techniques. We overview the architecture and its components, and show some of its characteristics through a discussion of a running example and experiments. Under consideration for publication in Theory and Practice of Logic Programming (TPLP).",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Introduction",
+      "text": "In this paper, we present and discuss an architecture for integrating and reasoning about sensors in the context of the AVATEA project (Advanced Virtual Adaptive Technologies e-hEAlth). The final goal of the project is to design and implement an integrated system to support the rehabilitation process of children with Development Coordination Disorders (DCDs). The system needs to integrate and control several components, including an adjustable seat, various types of sensors, and an interactive visual interface to perform rehabilitation exercises in the form of games (such games are sometimes called exergames, presented by  Vernadakis et al. (2015) ). One of the main goals of the project is to automatize the therapeutic task, ideally without making it less effective. To this end, we employ a logic-based AI engine that collects data from the environment and decides what strategy may be implemented to make the video game as challenging as possible while keeping the child engaged and attentive. For example, the engine may decide to emit a sound if the visual attention of the user is detected to be low, or increase the video game's difficulty level if the sensors seem to indicate that the child is bored as s/he is performing the task effortlessly.\n\nAlthough this architecture has been specifically designed for the rehabilitation of children with neuro-motor disorders, it can be more generally applied to any task requiring a system to take runtime decisions according to a stream of sensorial data. It mainly consists of four modules communicating with each other (see Figure  1 ). Layers of sensors and classifiers (e.g., a webcam paired with head-pose and emotion recognition algorithms) collect and process information about the current state of the environment and the child undergoing the rehabilitation process. This information is fed to a probabilistic logic programming system, a modified version of the Epistemic Probabilistic Event Calculus (EPEC for short, first introduced by D'  Asaro et al. (2017)  as a non-epistemic framework under the name PEC and extended in  (D'Asaro et al. 2020)  to the epistemic case). To guarantee good performance at runtime, in this work, we present a novel implementation of EPEC, dubbed PEC-RUNTIME, which implements a form of progression  (Lin and Reiter 1997) . PEC-RUNTIME processes the sensor data and takes decisions according to a predefined strategy. Finally, the gaming platform actuates these decisions and communicates the new state of the game to the layer of sensors.\n\nEPEC (and consequently PEC-RUNTIME) is particularly well-suited for this task as its probabilistic nature facilitates the communication with probabilistic machine learning-based classifiers. As it is a symbolic framework, it can also be used to provide accurate humanunderstandable reports of the user activity at the end of each therapeutic session. Typical feedback includes information about attention levels of the child (e.g., \"The user was highly engaged for 36 seconds during the session\"), justification for the decisions taken (e.g., \"Switched to higher difficulty level as the user has been carrying out the exercise correctly for the last 10 seconds\"), as well as a complete report of what happened throughout the therapeutic session (e.g., \"The user was not visible at 15:43:23\", \"Visual stimulus presented at 15:43:24\", etc.) and a series of graphs for accurate tracking of user activity.\n\nThis paper extends  (D'Asaro et al. 2019 ) and is organized as follows. In Section 2, we overview the logical part of our architecture, EPEC, and show some of its features through the discussion of a toy example. In Section 3, we discuss how we adapted the original ASP-based inference mechanism of EPEC in order to work at runtime. In Section 4, we briefly describe the layers of sensors and classifiers. In Section 5, we demonstrate our approach in our use-case and provide a systematic empirical evaluation. In Section 6 we discuss related work, in particular probabilistic  Note that a single sensor may produce data that is then fed into two or more classifiers (e.g. in the case of the webcam). Timestamped output from the classifiers is fed into PEC-RUNTIME, the logical core of the architecture. PEC-RUNTIME processes this information together with some domain independent axioms and outputs its decision to the environment (the game, in this case).\n\nlogic programming languages for reasoning about actions and gamification techniques. Some final remarks about directions for further work conclude the paper in Section 7.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Overview Of The Language",
+      "text": "In this section, we overview a subset of EPEC 1  that is relevant to our application, and show how it can be used to represent a domain. Similarly to other logical languages for reasoning about actions, EPEC models a domain as a collection of fluents and actions. Moreover, EPEC represents time explicitly through instants. Fluents, actions and instants constitute the principal sorts of EPEC. Actions are further sub-divided into agent actions (under the control of the agent being modeled) and environmental actions (performed by the environment). Fluents can take value in a set of values. Domain-specific theories can be designed using EPEC propositions.\n\nAs an illustration, we use the following toy domain (inspired by the AVATEA use-case) as our running example (but you can see e.g.  (Acciaro et al. 2021)  for other use-cases):\n\nScenario 2.1 A child undergoes a simple attention test in which her level of visual attention is measured. The task consists in tracking a moving object on a screen. Therapists agree that when the child is not looking at the object, there is 90% chance this is due to lack of attention, and that when the child is looking at the object there is 100% chance s/he is paying attention to the task. A webcam is used to track her gaze. Readings from the webcam are only partly reliable due to hardware limitations, and are produced every second. These readings are then piped into a specialized classifier which decides whether the child is looking at the object on the screen or not. The classifier also outputs a confidence level for its classification. When the child is not looking at the screen, it may be useful to play a sound in order to re-engage the child. Two seconds after the start of the experiment, the child has been detected to be tracking the object on the screen with confidence levels 0.25 and 0.13. What is the level of attention of the child at instant 2? Should the sound be played at time 2?\".\n\nWe let the set of instants in our timeline be {0, 1, 2}, whose elements can be naturally interpreted as seconds since the start of the experiment.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Syntax Overview",
+      "text": "The only fluent in our example scenario is Attention. It is boolean, i.e., it may take values and\n\nIn the example, we consider the agent to be an automated system that is responsible for triggering a re-engagement strategy when necessary. On the other hand, the child is considered part of the environment. Therefore, the actions are PlaySound and TrackObject, where PlaySound is the agent action of playing a sound and TrackObject is the environmental action which corresponds to the child tracking the object with her eyes. The effects of not tracking the object are defined by the following proposition:\n\nLooking at the object is never considered to be due to chance, therefore we also include the following proposition:\n\nFor what regards action PlaySound under the control of the agent, we want to formalize the conditional plan stating that this action must be performed at instant 2 if the child is believed to be distracted, i.e., if the probability of Attention has fallen below a predefined threshold, say 0.1. This can be written in EPEC as:\n\nWe consider the child to be initially paying full attention to the task. This translates to:\n\ninitially-one-of {({Attention}, 1)} (5)\n\nFinally, the action TrackObject occurs twice at instants 0 and 1 with confidence 0.25 and 0.13 respectively. This translates to the following propositions:\n\nTrackObject occurs-at 0 with-prob 0.25 (6)\n\nTrackObject occurs-at 1 with-prob 0.13 (7)\n\nIn EPEC, Proposition (1) is known as a v-proposition (v for \"value\"), Propositions (2) and (3) are known as c-propositions (c for \"causes\"), Proposition (4) is known as a p-proposition (p for \"performs\"), Proposition (5) is known as an i-proposition (i for \"initially\"), Propositions (6) and (  7 ) are known as o-propositions (o for occurs). Propositions (4), (  6 ) and (  7 ) are known as the narrative part of the domain.\n\nThe set of propositions {(1), . . . , (7)} constitutes what in EPEC is called a domain description and is usually denoted by D (with appropriate subscripts and/or supercripts). The narrative part of a domain is denoted by narr(D). A domain description is given meaning using a bespoke semantics.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Semantics Overview",
+      "text": "The semantics of EPEC enumerates all the possible evolutions (worlds in the terminology of EPEC) of the environment being modeled, starting from the initial state. It then applies a series of standard reasoning about actions principles (e.g. persistence of fluents, closed world assumption for actions) to filter out those evolutions of the environment that do not make intuitive sense with respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that they are meaningful with respect to the given domain description, are assigned a probability value. Some well-behaved worlds for our example domain can be depicted as follows: World W 1 represents a possible evolution of the environment starting from a state in which the child is initially (at instant 0) fully attentive and tracking the object with her eyes. At instant 1, the child is still paying attention to the task, but he/she is no longer tracking the object. At instant 2, the child is distracted and again not tracking the object. The sound is never played. EPEC's semantics assigns a probability of 0.19575 to this world, as this results from the product of 0.25 (due to proposition (6) and TrackObject occurring at 0 in W 1 ), 1 -0.13 (due to proposition (7) and TrackObject not occurring at 1 in W 1 ) and 0.9 (due to proposition 2 and since not tracking the object at instant 1 caused Attention not to hold at instant 2). The intuitive meaning of world W 2 and its probability can be figured similarly. In W 2 the child is always attentive but never tracking the object, the sound is never played, and its probability is 0.006525.\n\nThere are 8 well-behaved worlds with respect to our example domain, and they are such that their probabilities sum up to 1. Formal results about the semantics of EPEC guarantee that this is always the case for any domain description and the corresponding set of well-behaved worlds.\n\nWe now want to address the question \"What is the level of attention of the child at instant 2?\". EPEC first needs to query the domain description about the probability of fluent Attention at instant 2. In EPEC, queries are expressed in the form of an i-formula (i.e., a formula with instants attached). In our case, the query has the form Q 1 = [Attention]@2, but more complicated queries are also possible, e.g. Q 2 = ([¬Attention]@1 ∨ [¬TrackObject]@1) ∧ [Attention]@2. We say that i-formula Q 1 has instant 2 (as this is the only instant appearing in the formula) and that the iformula Q 2 has instants > 0 (as all the instants appearing in the formula are strictly greater than 0). Answering query [Attention]@2 amounts to summing the probabilities of those well-behaved worlds in which the i-formula is true, i.e., such that Attention is true at instant 2. This results in 0.158275, and can also be written D ||= [Attention]@2 holds-with-prob 0.158275 Note that this value falls outside the interval [0, 0.1] in the precondition of Proposition (4).\n\nTherefore, EPEC deduces that the answer to our last question in Scenario 2.1 (\"Should the sound be played at time 2?\") is no. Then, Proposition (4) does not fire and the action PlaySound, under the control of the agent, is not played in any of the well-behaved worlds.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Simulating Epistemic Actions Via C-Propositions And O-Propositions",
+      "text": "The reader may have noticed that our target application domain mainly deals with sensors. In its original formulation  (D'Asaro et al. 2020) , epistemic modeling is reserved to an additional, type of propositions, called s-propositions (s for \"senses\"), of the following form:\n\nfor an action S, a fluent F and some matrix M representing the accuracy of A when sensing F.\n\nGiven their role within EPEC, we would need s-propositions to model sensors in our domain. However, s-propositions add a layer of complexity that in this work we would like to avoid due to the necessity of taking decisions at runtime. In this section, we informally show a possible translation procedure s-propositions into pairs of a c-proposition and an o-proposition. This aims to show that one can \"improperly\" use c-propositions and o-propositions (that are typically used for effectors) as a means to also model epistemic aspects of a domain. Whether a sound and complete translation is available remains however a subject for future work.\n\nTo illustrate, consider a simple domain description in which an agent (imperfectly) tests twice for Flu:\n\ninitially-one-of {({Flu}, 0.7), ({¬Flu}, 0.3)} (10)\n\nTest senses Flu with-accuracies 0.8 0.2 0.4 0.6 (11)\n\nTest performed-at 0 (12)\n\nTest performed-at 1 (13) which means that the Test has the effect of producing knowledge about whether the agent has\n\nFlu with associated confusion matrix 0.8 0.2 0.4 0.6 , where 0.8 is the true positives rate and 0.6 is the true negatives rate. The domain description above entails the following b-proposition (b for \"believes\"):\n\n{( {Test, ((Test, Flu), false)}@0, {Test, ((Test, Flu), false)}@1 , 0.136, 0.206),\n\n( {Test, ((Test, Flu), false)}@0, {Test, ((Test, Flu), true)}@1 , 0.184, 0.609), (  16 )\n\n( {Test, ((Test, Flu), true)}@0, {Test, ((Test, Flu), true)}@1 , 0.496, 0.903)} (  18 )\n\nThis proposition may be interpreted as saying that an agent sitting at instant 2, having tested for Flu twice, is in one of the four following knowledge states:\n\n• The test came up negative twice (as in the case of (  15 )). Given the initial knowledge about the distribution of Flu, this is likely to happen with probability 0.136. In this case, the agent will believe that the probability of [Flu]@0 decreased from the initial value 0.7 to 0.206.\n\n• The test came up negative at instant 0 and positive at instant 1 (as in the case of (  16 )). This is likely to happen with probability 0.184, and in this case the agent will believe that the probability of [Flu]@0 is 0.608.\n\n• The test came up positive at instant 0 and negative at instant 1 (as in the case of (  17 )). This is likely to happen with probability 0.184, and in this case the agent will believe that the probability of [Flu]@0 is 0.608.\n\n• The test came up positive twice (as inthe case of (  18 )). This is likely to happen with probability 0.496, and in this case the agent will believe that the probability of [Flu]@0 is 0.903.\n\nThis syntax shows the epistemic core of EPEC, which allows one to reasoning about past, present and future: for example, note that in (  14 ) we reason about the perspective of an agent at instant 2 who is reasoning about whether it had Flu at instant 0 in the past. This powerful syntax comes at expenses of computational efficiency, and therefore in this work we adopt a number of simplifications due to the fact that we only need to reason about the present. The first of such simplifications is that we drop s-propositions and simulate them via o-propositions and c-propositions, in a way that we now aim to make clearer.\n\nAssume that the agent modeled in the domain description above tests positive twice. Then, we may note that substituting the s-proposition (11) and the two p-propositions (  12 ) and (  13 ) with\n\nTest occurs-at 0 with-prob 0.412 (20)\n\nTest occurs-at 1 with-prob 0.452 (21) yields\n\nwhich matches with the result in (  18 ), and therefore we may say that simulates it. Although a formal characterization of the translation from s-proposition to c-propositions and o-propositions is beyond the scope of this work, note that an s-proposition for a boolean fluent F of the form\n\nis simulated either by a c-proposition\n\nand an o-proposition\n\nif S is performed at I and produces a positive result, or by a c-proposition\n\nand an o-proposition\n\nif S is performed at I and produces a negative result, where p is the probability such that D ||= [F]@I with-prob p in the domain D under consideration. This informally shows that it is possible to meaningfully interpret c-propositions and o-propositions as epistemic actions in place of s-propositions, and justifies their employment to perform sensing.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "A Runtime Adaptation Of Epec",
+      "text": "The subset of EPEC introduced in Section 2 is sufficient to handle domains that require limited epistemic functionalities. For this special class of domains, one can use the non-epistemic framework to approximate the behavior of EPEC and efficiently compute probabilities of queries at runtime, at the expense of the ability to reason about the past. These assumptions are not restrictive for our use-case, as we only need to reason about the present state of the world and possibly react at runtime. In this section, we provide details about an implementation, dubbed PEC-RUNTIME, that exploits these restrictions to provide a fast reasoning system that overcomes the limitations of other implementations of EPEC in terms of computation time. PEC-RUNTIME is publicly available 2 . PEC-RUNTIME is based on PEC-ASP, an Answer Set Programming implementation of the non-epistemic fragment of EPEC that was presented in  (D'Asaro et al. 2017 ) and based on ASP grounder and solver clingo  (Gebser et al. 2014) . PEC-ASP and PEC-RUNTIME share the same syntax and domain-independent part of the implementation. In addition, PEC-RUNTIME exploits clingo's integration with Python to control the grounding and solving process.\n\nOne of the main problems of PEC-ASP is that it is an exact inference mechanism, which needs to enumerate all the well-behaved worlds that satisfy a given query. The number of worlds typically grows exponentially with the size of the narrative. As an illustration, consider the simple domain consisting of one fluent F, one action A, set of instants {0, 1, . . . , N -1} for some N > 0, the i-proposition initially-one-of {(F, 1)} (  28 )\n\nand N o-propositions\n\nA performed-at I with-prob 0.5 (29) one for each I in the set of instants. This simple domain description has well-behaved worlds of the following form:\n\nwhere ±A is either A or its negation ¬A. Clearly, there are 2 N such worlds. Given that F is always true in all of them, PEC-ASP needs to enumerate all 2 N well-behaved worlds even to answer a simple query such as [F]@N -1. A strategy to tackle this problem is to sample a number M 2 N of well-behaved worlds and approximate the probability of the query. This is the approach adopted by PEC-ANGLICAN, a probabilistic programming implementation of PEC 3  . However, this technique also suffers from scalability and precision issues when dealing with large narratives as we describe in Section 5.1, Experiment (a), and is mostly suited for offline tasks.\n\nThe approach we adopt here relies on a form of progression  (Lin and Reiter 1997) . Given a domain description D and an instant I, knowledge about what happened before instant I can be appropriately recompiled and mapped to a new domain description D ≥I that does not include any narrative knowledge about instants < I but agrees with the original domain D on all queries about instants ≥ I. This requires exhaustively querying D about the state of the environment at I, i.e., if F 1 , . . . , F n are all the (boolean) fluents in the language, one must perform queries\n\nwhere ±F i is either F i or its negation ¬F i . These queries must be then recompiled into an appropriate i-proposition.\n\nWe elaborate this procedure using our Scenario 2.1. Consider the domain description D and instant 1. Since this domain has only one fluent, exhaustively querying D at 1 means finding the probabilities P 1 and P 2 such that D ||= [Attention]@1 holds-with-prob P 1 (30)\n\nThese values are P 1 = 0.325 and P 2 = 1 -P 1 = 0.675 (as it can be calculated e.g. by using PEC-ASP) and can be recompiled into the following i-proposition: initially-one-of {({Attention}, 0.325), ({¬Attention}, 0.675)} (32)\n\nThe domain description D ≥1 consists of propositions (32), (1), (  2 ), (3), (  4 ) and (  7 ). Since the idea is that of discarding all knowledge about instants before 1, D ≥1 has corresponding domain language with set of instants {1, 2} (i.e., instant 0 was removed from the language). Domain descriptions D and D ≥I agree on all queries with instants ≥ I: for example, it is possible to show that M D ≥1 ([Attention]@2) = 0.158275, and we have already calculated it is also the case that M D ([Attention]@2) = 0.158275. Since domain description D ≥1 has fewer o-propositions than D, it also has fewer well-behaved worlds (namely 5). In turn this intuitively means that, if a query only contains instants ≥ 1, it is computationally more convenient to query D ≥1 rather than",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "D.",
+      "text": "Repeating the process on D and instant 2 produces the i-proposition initially-one-of {({Attention}, 0.158275), ({¬Attention}, 0.841725)} (  33 )\n\nand the domain description D ≥2 consisting of propositions (  33 ), (  1 ), (  2 ), (  3 ) and (  4 ). This new domain description has only 2 well-behaved worlds. Clearly, M D ≥2 ([Attention]@2) = 0.158275 as this is encoded directly in the i-proposition, and this also equals M D ([Attention]@2) and M D ≥1 ([Attention]@2) as we have already calculated. Note that the domain description D ≥2 trivializes the task of deciding whether Proposition (4) fires or not. In fact, it suffices to check whether its epistemic precondition is satisfied or not by the i-proposition in D ≥I . In this case, the epistemic precondition requires Attention to be in the interval [0, 0.1], which is not the case as it can be immediately seen by looking at the i-proposition (33) and considering that 0.158275 / ∈ [0, 0.1]. As we show below, we can turn this intuition into an efficient procedure for updating a domain description as new events are received and reason about this smaller domain, instead of augmenting it with new propositions and reason about the full augmented domain. The pseudo code of our PEC-RUNTIME procedure is as follows:",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Proof",
+      "text": "",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "See Appendix B 4 Sensors And Classifiers",
+      "text": "In this section, we briefly overview the layers of sensors and classifiers we currently use to detect user activity that is relevant to the rehabilitation task.\n\nAt the present stage, our main source of information is a 2D-webcam placed in front of the children performing the rehabilitation task. The camera stream is mainly responsible for the evaluation of the current pose of head and shoulders of the child, and to estimate his/her emotional response to the interaction. Its output is processed by three modules:\n\nHead Pose Recognition Module: We use the library Head Pose Estimation 4  to detect the facial landmarks (see Figure  2 ). A box containing the face and its surrounding area is selected, resized, and normalized in order to use it as input for the facial-landmarks detector, which is based on a CNN architecture. The facial-landmarks detection step is carried out by a custom Shoulders Alignment Module: We use PoseNet  (Papandreou et al. 2018 ) to extract the skeleton joints coordinates from the camera frames. Then we compare these coordinates to the horizontal plane. We use this estimation to determine whether the child is assuming a correct posture while performing the rehabilitation.\n\nEmotion Recognition Module: This module estimates the emotional response of the child, and outputs a valence  (Rescigno et al. 2020) . This value represents how good -or how bad -the emotion associated with the event or the situation was, and ranges from -1 to +1. To this end we use the AlexNet model  (Krizhevsky et al. 2012 ) trained on the Affectnet Dataset  (Mollahosseini et al. 2017) .\n\nIn future extensions of this work we intend to combine data gathered with additional sensory sources. Specifically, we will employ pillows equipped with pressure sensors, mounted on the seat-back of the chair, to complement the evaluation of the Shoulders Alignment Module and better evaluate whether the child is sitting correctly. We also plan on complementing the Head Pose and Emotion Recognition Modules using an Eye Tracker and EEG respectively.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Examples And Discussion",
+      "text": "In this section we demonstrate our approach by means of examples and experimental results. Note that Experiment (a) was run on a Mid-2010 Apple MacBook Core 2 Duo 2.4 GHz with 8 GB of RAM, while Experiments (b), (c), (d), (e) and (f) were run on an Apple Macbook Pro 2020 M1 with 16 GB of RAM.   1 . Time (in seconds) to execute the query [¬F]@I in the example discussed in Section 5.1. The numbers in bracket in the case of PEC-ANGLICAN refer to the number of sampled wellbehaved worlds used to approximate the result of the query. For every implementation, reported times include grounding and processing of the domain description.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "Scalability",
+      "text": "Experiment (a). To demonstrate that PEC-RUNTIME scales favourably compared with PEC-ASP and PEC-ANGLICAN we tested the three implementations on a simple domain description in which an action repeatedly occurs and causes the probability of a fluent to slowly decay:\n\nwhere the set of instants is {0, 1, . . . , 15}. The probability of ¬F as calculated by the three frameworks is shown in Figure  3 . Table  1  summarizes the performances of PEC-RUNTIME, PEC-ASP and PEC-ANGLICAN.\n\nAs it can be seen from these results, PEC-RUNTIME outperforms both PEC-ASP and PEC-ANGLICAN on all queries. In terms of performance, PEC-ANGLICAN is close to PEC-RUNTIME when only 100 well-behaved worlds are sampled. However, sampling 100 worlds causes precision issues as it is clear from Figure  3 .",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Experiment (B).",
+      "text": "In this experiment we consider the effect of varying the number of actions in the domain description. To isolate the effect of actions from that of other side-effects we consider where I = {1, . . . , 15} and we consider different values of n ranging from 0 to 15. We evaluate the computation time for query [F]@I at all instants. Results are plotted in Figure  4  and confirm the intuition that, at an instant I, computation time scales exponentially with the number of action occurrences at that instant.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Experiment (C).",
+      "text": "To empirically evaluate the effect of the number of fluents in the domain, we performed a similar experiment with domain descriptions of the following forms: Experiment (e). In this experiment we empirically evaluate the effect of initial conditions, and show that computation time scales linearly with their number. To this aim, we consider the following domain description:\n\nwhere I = {1, . . . , 15} and n ranges from 1 to 2 10 , i.e., the maximum number of possible initial conditions with 10 fluents. Note that n is also the number of well-behaved worlds considered by PEC-RUNTIME at each progression step. Results are shown in Figure  6  and confirm the intuitive hypothesis that computational time scales linearly with the number of initial conditions/wellbehaved worlds.\n\nExperiment (f). This experiment aims to study how PEC-RUNTIME behaves in a more realistic domain where every sensor has a fixed probability p of producing a reading at every instant. We consider the following domain descriptions:",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "Effect Of Noise",
+      "text": "One of the characteristics of EPEC (and its dialects) that makes it highly suitable as an interface with machine learning algorithms is that it supports events annotated with probabilities. If a classifier provides a confidence score for its output, it is possible to feed such score into EPEC in the form of a probability. This may be useful to account for possible artifacts and flickering of a given classifier. For instance, consider a classifier C that alternatively produces readings true and false for some characteristic F. This may be represented in EPEC as the following stream of events:\n\nCtrue occurs-at 0 with-prob P true\n\nCfalse occurs-at 1 with-prob P f alse\n\nCtrue occurs-at 2 with-prob P true\n\nCfalse occurs-at 3 with-prob P f alse . . .\n\nCtrue occurs-at 18 with-prob P true\n\nCfalse occurs-at 19 with-prob P f alse\n\nwhere Ctrue (resp. Cfalse) is an event that causes the value of fluent F to be (resp. ⊥), i.e.:\n\nCtrue causes-one-of {({F}, 1)}\n\nCfalse causes-one-of {({¬F}, 1)} and the truth value of f is initially unknown, i.e.:\n\ninitially-one-of {({F}, 0.5), ({¬F}, 0.5)}\n\nWe analyse the behavior of EPEC in different scenarios (corresponding to different values for P true and P f alse ):\n\nScenario (a). The classifier C produces true with high confidence and false with low confidence, e.g. P true = 0.99 and P f alse = 0.01. This domain description entails \"[F]@20 holds-with-prob P\" where P ≈ 0.9899, which makes intuitive sense as the false events have low confidence and are discarded as background noise.\n\nScenario (b). The classifier C produces true and false with a high degree of uncertainty. However, it assigns true a slightly higher degree of confidence, e.g. P true = 0.501 and P f alse = 0.499. This domain description entails \"[F]@20 holds-with-prob P\" where P ≈ 0.653246, which reflects that such a sequence of events does not carry as much information as in Scenario (a), due to the the small difference between P true and P f alse .\n\nScenario (c). The classifier C produces both true and false with low confidence, with P true P f alse . For example, let P true = 0.49 and P f alse = 0.01. This domain description entails \"[F]@20 holds-with-prob P\" where P ≈ 0.979286, which again makes intuitive sense as false readings are again discarded as background noise, with the repeated true readings making the probability of F steadily grow throughout the timeline.\n\nThese scenarios show that EPEC is sensibly more accurate than any logical framework that is not capable of handling probabilities in the presence of noisy sensors. In fact, these frameworks would have to set a threshold, and only accept events with probabilities higher than that threshold. In our example, setting a threshold e.g. of 0.5 would lead to significant errors especially in Scenarios (b) and (c). In Scenario (b), all Cfalse events would be discarded, implying that F is detected to hold true at instant 20 with certainty (compare this to the probability 0.653246 assigned to the same query by EPEC). In Scenario (c), all events would be discarded and it would not be possible neither that F holds at 20 nor that it does not (compare again to the probability 0.979286 assigned by EPEC).",
+      "page_start": 16,
+      "page_end": 17
+    },
+    {
+      "section_name": "An Example From Avatea",
+      "text": "As discussed in Section 4, a layer of classifiers directly injects events into PEC-RUNTIME, which merges them together and decides what action to take according to a predefined conditional plan. We show how PEC-RUNTIME accounts for these classifiers in the following example.\n\nWe use the Head Pose Recognition module to decide whether the child is looking at the screen or not, and therefore this module can trigger an EyesNotFollowingTarget event (and possibly an associated probability). Similarly, the Shoulders Alignment Module triggers a BadPosture event if it detects that the child's shoulders are not correctly aligned. Finally, the Emotion Recognition Module triggers a LowValence event when it thinks the child is experiencing negative valence. On the basis of these events, we aim to evaluate the probabilities of TaskCorrect, i.e., that the child is performing the therapeutic task correctly, and Engagement, i.e., that the child and engaged to the task. Consider the following narrative of events:\n\nEyesNotFollowingTarget occurs-at 0 with-prob 1 which states that a sound must be played by the system whenever the Attention of the child is low, and that the difficulty level must be lowered if the child does not manage to perform it correctly. PEC-RUNTIME works out the probabilities in Figure  8 , and triggers decisions when they fall below the given threshold. In particular, PlaySound is triggered at instant 4, and\n\nLowerDifficultyLevel is triggered at instants 2, 3 and 4. It is worth noting here that thresholds may induce the so-called rubberband effect, where abrupt probability changes (due e.g. to noise) may lead to decisions being taken too frequently. Unfortunately, EPEC (and therefore also PEC-RUNTIME) does not allow to control this effect, therefore we implemented a bespoke semaphore in the underlying Python script that only allows decision to be taken every 20 seconds.\n\nThese decisions are forwarded to the game. At the end of each therapeutic session, this narrative is saved to a file so that it can be used to provide feedback to the therapists and re-consulted if needed. In this scenario, PEC-RUNTIME provides feedback such as \"The child performed the task correctly for a total of 10 instants out of 13 (76.9%). The game difficulty was lowered at instants 2, 3 and 4 as s/he was unable to perform the exercise. His attention was lowest at instant 4.\". A graph similar to that in Figure  8  is also shown to the therapists, so that they can have a quick overview of the session.",
+      "page_start": 18,
+      "page_end": 18
+    },
+    {
+      "section_name": "Related Work",
+      "text": "To our knowledge, our architecture is one of the first that merges gamification strategies for rehabilitation and probabilistic logic programming techniques. In the following, we briefly survey these two fields, and motivate our design choices.",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "Gamification",
+      "text": "Gamification strategies consist in using game-like elements (e.g., points, rewards, performance graphs, etc.) in serious contexts such as ours. These have proven to be extremely successful to engage young children in diagnostic and therapeutic exercises, even before the advent of digital gaming. While games to test cognitive capabilities  (Belpaeme et al. 2012)  do not form a sharply defined class, games designed to test and improve motor skills are usually referred to as exergames. The effects of exergames have been found to be generally positive  (Vernadakis et al. 2015) . Gamification systems are usually effective in engaging young users in playful activities, while adapting the current challenge according to level of user competence. Sessions are typically logged in order to provide detailed feedback to therapists. On the cognitive side, these adaptive systems have been designed to evaluate subjective well-being  (Wu et al. 2019 ) and phonological acquisition  (Origlia et al. 2017 ) among others. Adaptive exergames have been used e.g. in the context of children with spinal impairments  (Mulcahey et al. 2008) , and to test gross motor skills  (Huang et al. 2018) .\n\n(Deep) Machine Learning techniques are not advantageous in the case of exergames if they are used alone, as they must be trained on big amounts of data even when expert knowledge can be (relatively) easily extracted from experts and encoded in symbolic form (e.g., using logic programming), with the further advantage that symbolic knowledge can be used to automatically produce explanations and reports. As a centralized reasoning system, we use probabilistic logic programming techniques instead. These systems are a convenient option as they allow both for the representation of formal constraints needed to implement a clinically effective exercise, and for the statistical modeling of intrinsically noisy data sources.",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "Probabilistic Reasoning About Actions",
+      "text": "Recently, logic-based techniques have been successfully applied to several fields of Artificial Intelligence, including among others event recognition from security cameras  (Skarlatidis et al. 2015; Skarlatidis et al. 2015) , robot location estimation  (Belle and Levesque 2018) , understanding of tenses  (Van Lambalgen and Hamm 2008) , natural language processing  (Nadkarni et al. 2011) , probabilistic diagnosis (Lee and Wang 2018) and intention recogntion  (Acciaro et al. 2021) . Given the importance of Machine Learning and Probability Theory in AI, these frameworks and languages have gradually started employing probabilistic semantics  (Sato 1995)  to incorporate and deal with uncertainty. This has given birth to the field of Probabilistic Logic Programming  (Riguzzi 2018 ), and we are particularly concerned with Probabilistic Reasoning about Action frameworks as they can deal with agents interacting with some (partially known) environment. For example  (Bacchus et al. 1999; Belle and Levesque 2018) , that are based on the Situation Calculus ontology  (Reiter 2001) , can model imperfect sensors and effectors. The Situation Calculus' branching structure makes these frameworks mostly suitable for planning under partial states of information. A recent extension of language C + (  Giunchiglia et al. 2004 ), dubbed pBC +, is presented in  (Lee and Wang 2018) . The authors show how pBC + can be implemented in LP MLN , a probabilistic extension of ASP that can be readily implemented using tools such as LPMLN2ASP  (Lee et al. 2017 ). Unlike our work, which focuses on runtime reasoning, pBC + is mostly suited for probabilistic diagnosis and parameter learning. The two languages MLN-EC  (Skarlatidis et al. 2015)  and ProbEC  (Skarlatidis et al. 2015)  extend the semantics of the Event Calculus  (Kowalski and Sergot 1986; Miller and Shanahan 2002)  ontology, using Markov Logic Networks  (Richardson and Domingos 2006)  and ProbLog  (De Raedt et al. 2007)  to perform event recognition from security cameras. In their proposed case study, the logical part of the architecture receives time-stamped events as inputs and processes them in order to detect complex long-term activities (e.g., infer that two people are fighting from the fact that they have been close to each other and moving abruptly during the last few seconds). Given their semi-probabilistic nature, these frameworks are able to handle uncertainty in the input events (ProbEC) or in the causal rules linking events and fluents (MLN-EC) but they do not deal with any form of epistemic knowledge. On the other hand, EPEC  (D'Asaro et al. 2020 ) has the advantage of being based on the Event Calculus (making it particularly well suited for Event Recognition tasks) and being able to deal with epistemic aspects. Its semantics abstracts from any specific programming language and therefore it lends itself to task-specific optimizations, such as the runtime adaptation presented in this work.",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "Conclusion And Future Work",
+      "text": "To summarize, the contribution of this paper is two-fold:\n\n• It presents an architecture, currently being actively developed and tested, for the rehabilitation of children with Development Coordination Disorders. The suggested approach mixes machine learning, logic-based and gamification techniques.\n\n• It introduces an novel implementation of a state-of-the-art probabilistic logic programming framework (EPEC) that can work at runtime.\n\nThe logical framework plays the role of an interface between the exergame and the machinelearning techniques, and is mainly used for two reasons: (i) guide the exergame according to a predefined strategy that is hard-encoded in the domain description, and (ii) provide humanunderstandable feedback after each therapeutic session, that can be used to log user performance over time.\n\nNonetheless, there is much room for extending the scope and functionalities of our application. As we collect data about the users of our system, we can compare the decisions taken by the system to those that therapists and psychologists would take, and adapt our domain descriptions accordingly. In the future, we would like to do this semi-automatically by learning the probabilities in our domain descriptions from data-streams annotated by experts.\n\nIt is also possible to expand the feedback functionalities of our system. At the moment, feedback includes a series of graphs about the level of engagement of the patient and limited textual reports about his/her performance level (see Section 5.3). However, a full history of what happened throughout each therapeutic session is recorded in an EPEC-readable narrative. Implementing a device to automatically translate these narratives into natural language would greatly enhance the transparency of our system, and constitutes a future step of this work. In fact, \"explanations\" coming from our system are limited to plots such as the one depicted in Figure  8 , that shows what the engagement level of the child is throughout the therapeutic session, and reasons behind decisions are explained in terms of trespassed thresholds. Transforming them into natural language would greatly enhance intelligibility of our system.",
+      "page_start": 20,
+      "page_end": 21
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: ). Layers of sensors and classiﬁers (e.g., a web-",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: The architecture of the AVATEA system. Several classiﬁers are applied to a stream of",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: ). A box containing the face and its surrounding area is selected,",
+      "page": 10
+    },
+    {
+      "caption": "Figure 2: Facial landmarks detected by the Head Pose Recognition module.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 2: In turn, these landmarks are used to",
+      "page": 11
+    },
+    {
+      "caption": "Figure 3: Table 1 summarizes the performances of PEC-RUNTIME, PEC-ASP",
+      "page": 12
+    },
+    {
+      "caption": "Figure 3: Experiment (b). In this experiment we consider the effect of varying the number of actions in",
+      "page": 12
+    },
+    {
+      "caption": "Figure 3: Probability of F as a function of time for the example discussed in Section 5.1, Experi-",
+      "page": 13
+    },
+    {
+      "caption": "Figure 4: Time (in seconds) to query the domain in Section 5.1, Experiments (b) and (c), expressed",
+      "page": 13
+    },
+    {
+      "caption": "Figure 4: and conﬁrm",
+      "page": 13
+    },
+    {
+      "caption": "Figure 4: , and conﬁrm",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: and extend those of Figure 4.",
+      "page": 14
+    },
+    {
+      "caption": "Figure 6: and conﬁrm the intuitive",
+      "page": 14
+    },
+    {
+      "caption": "Figure 5: Contour plot showing time (in seconds) to query the domain in Section 5.1, Experiment",
+      "page": 15
+    },
+    {
+      "caption": "Figure 6: Time (in seconds) to query the domain in Section 5.1, Experiment (e), expressed as a",
+      "page": 15
+    },
+    {
+      "caption": "Figure 7: Time (in seconds) to query the example discussed in Section 5.1, Experiment (f). The",
+      "page": 16
+    },
+    {
+      "caption": "Figure 7: 5.2 Effect of Noise",
+      "page": 16
+    },
+    {
+      "caption": "Figure 8: Engagement and TaskCorrect as a function of time in the example from Section 5.3",
+      "page": 18
+    },
+    {
+      "caption": "Figure 8: , and triggers decisions when",
+      "page": 18
+    },
+    {
+      "caption": "Figure 8: is also shown to the therapists, so that they can have a",
+      "page": 19
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "An Application of a Runtime Epistemic Probabilistic"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Event Calculus to Decision-making in e-Health"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Systems"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "FABIO AURELIO D’ASARO"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Ethos Group,"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "University of Verona, Italy"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "(e-mail: fabioaurelio.dasaro@univr.it)"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "LUCA RAGGIOLI"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Department of Electrical Engineering and Information Technologies,"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "University of Naples Federico II, Italy"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "(e-mail: luca.raggioli@manchester.ac.uk)"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "SALIM MALEK"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Department of Electrical Engineering and Information Technologies,"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "University of Naples Federico II, Italy"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "(e-mail: salim.malek@unibz.it)"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "MARCO GRAZIOSO, SILVIA ROSSI"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Department of Electrical Engineering and Information Technologies,"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "University of Naples Federico II, Italy"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "(e-mail: {marco.grazioso,silrossi}@unina.it)"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "submitted 1 January 2003; revised 1 January 2003; accepted 1 January 2003"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Abstract"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "We present and discuss a runtime architecture that\nintegrates sensorial data and classiﬁers with a logic-"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "based decision-making system in the context of an e-Health system for the rehabilitation of children with"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "neuromotor disorders. In this application, children perform a rehabilitation task in the form of games. The"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "main aim of the system is to derive a set of parameters the child’s current level of cognitive and behavioral"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "performance (e.g., engagement, attention, task accuracy) from the available sensors and classiﬁers (e.g., eye"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "trackers, motion sensors, emotion recognition techniques) and take decisions accordingly. These decisions"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "are typically aimed at\nimproving the child’s performance by triggering appropriate re-engagement stimuli"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "when their attention is low, by changing the game or making it more difﬁcult when the child is losing"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "interest in the task as it is too easy. Alongside state-of-the-art techniques for emotion recognition and head"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "pose estimation, we use a runtime variant of a probabilistic and epistemic logic programming dialect of"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "the Event Calculus, known as the Epistemic Probabilistic Event Calculus.\nIn particular,\nthe probabilistic"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "component of this symbolic framework allows for a natural interface with the machine learning techniques."
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "We overview the architecture and its components, and show some of its characteristics through a discussion"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "of a running example and experiments. Under consideration for publication in Theory and Practice of Logic"
+        },
+        {
+          "Under consideration for publication in Theory and Practice of Logic Programming\n1": "Programming (TPLP)."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n2": "1\nIntroduction"
+        },
+        {
+          "D’Asaro et al.\n2": "In this paper, we present and discuss an architecture for integrating and reasoning about sensors in"
+        },
+        {
+          "D’Asaro et al.\n2": "the context of the AVATEA project (Advanced Virtual Adaptive Technologies e-hEAlth). The ﬁnal"
+        },
+        {
+          "D’Asaro et al.\n2": "goal of the project is to design and implement an integrated system to support the rehabilitation"
+        },
+        {
+          "D’Asaro et al.\n2": "process of children with Development Coordination Disorders (DCDs). The system needs to"
+        },
+        {
+          "D’Asaro et al.\n2": "integrate and control several components, including an adjustable seat, various types of sensors,"
+        },
+        {
+          "D’Asaro et al.\n2": "and an interactive visual interface to perform rehabilitation exercises in the form of games (such"
+        },
+        {
+          "D’Asaro et al.\n2": "games are sometimes called exergames, presented by Vernadakis et al. (2015)). One of the main"
+        },
+        {
+          "D’Asaro et al.\n2": "goals of the project is to automatize the therapeutic task, ideally without making it less effective."
+        },
+        {
+          "D’Asaro et al.\n2": "To this end, we employ a logic-based AI engine that collects data from the environment and"
+        },
+        {
+          "D’Asaro et al.\n2": "decides what strategy may be implemented to make the video game as challenging as possible"
+        },
+        {
+          "D’Asaro et al.\n2": "while keeping the child engaged and attentive. For example,\nthe engine may decide to emit a"
+        },
+        {
+          "D’Asaro et al.\n2": "sound if\nthe visual attention of\nthe user\nis detected to be low, or\nincrease the video game’s"
+        },
+        {
+          "D’Asaro et al.\n2": "difﬁculty level\nif the sensors seem to indicate that\nthe child is bored as s/he is performing the"
+        },
+        {
+          "D’Asaro et al.\n2": "task effortlessly."
+        },
+        {
+          "D’Asaro et al.\n2": "Although this architecture has been speciﬁcally designed for the rehabilitation of children with"
+        },
+        {
+          "D’Asaro et al.\n2": "neuro-motor disorders,\nit can be more generally applied to any task requiring a system to take"
+        },
+        {
+          "D’Asaro et al.\n2": "runtime decisions according to a stream of sensorial data.\nIt mainly consists of\nfour modules"
+        },
+        {
+          "D’Asaro et al.\n2": "communicating with each other\n(see Figure 1). Layers of sensors and classiﬁers (e.g., a web-"
+        },
+        {
+          "D’Asaro et al.\n2": "cam paired with head-pose and emotion recognition algorithms) collect and process information"
+        },
+        {
+          "D’Asaro et al.\n2": "about\nthe current state of the environment and the child undergoing the rehabilitation process."
+        },
+        {
+          "D’Asaro et al.\n2": "This information is fed to a probabilistic logic programming system, a modiﬁed version of the"
+        },
+        {
+          "D’Asaro et al.\n2": "Epistemic Probabilistic Event Calculus (EPEC for short, ﬁrst introduced by D’Asaro et al. (2017)"
+        },
+        {
+          "D’Asaro et al.\n2": "as a non-epistemic framework under the name PEC and extended in (D’Asaro et al. 2020) to the"
+        },
+        {
+          "D’Asaro et al.\n2": "epistemic case). To guarantee good performance at runtime, in this work, we present a novel im-"
+        },
+        {
+          "D’Asaro et al.\n2": "plementation of EPEC, dubbed PEC-RUNTIME, which implements a form of progression (Lin"
+        },
+        {
+          "D’Asaro et al.\n2": "and Reiter 1997). PEC-RUNTIME processes the sensor data and takes decisions according to a"
+        },
+        {
+          "D’Asaro et al.\n2": "predeﬁned strategy. Finally, the gaming platform actuates these decisions and communicates the"
+        },
+        {
+          "D’Asaro et al.\n2": "new state of the game to the layer of sensors."
+        },
+        {
+          "D’Asaro et al.\n2": "EPEC (and consequently PEC-RUNTIME)\nis particularly well-suited for\nthis\ntask as\nits"
+        },
+        {
+          "D’Asaro et al.\n2": "probabilistic nature facilitates\nthe communication with probabilistic machine learning-based"
+        },
+        {
+          "D’Asaro et al.\n2": "classiﬁers. As\nit\nis a symbolic framework,\nit can also be used to provide accurate human-"
+        },
+        {
+          "D’Asaro et al.\n2": "understandable reports of the user activity at\nthe end of each therapeutic session. Typical feed-"
+        },
+        {
+          "D’Asaro et al.\n2": "back includes information about attention levels of the child (e.g., “The user was highly engaged"
+        },
+        {
+          "D’Asaro et al.\n2": "for 36 seconds during the session”), justiﬁcation for the decisions taken (e.g., “Switched to higher"
+        },
+        {
+          "D’Asaro et al.\n2": "difﬁculty level as the user has been carrying out the exercise correctly for the last 10 seconds”),"
+        },
+        {
+          "D’Asaro et al.\n2": "as well as a complete report of what happened throughout the therapeutic session (e.g., “The user"
+        },
+        {
+          "D’Asaro et al.\n2": "was not visible at 15:43:23”, “Visual stimulus presented at 15:43:24”, etc.) and a series of graphs"
+        },
+        {
+          "D’Asaro et al.\n2": "for accurate tracking of user activity."
+        },
+        {
+          "D’Asaro et al.\n2": "This paper extends (D’Asaro et al. 2019) and is organized as follows. In Section 2, we overview"
+        },
+        {
+          "D’Asaro et al.\n2": "the logical part of our architecture, EPEC, and show some of its features through the discussion"
+        },
+        {
+          "D’Asaro et al.\n2": "of a toy example.\nIn Section 3, we discuss how we adapted the original ASP-based inference"
+        },
+        {
+          "D’Asaro et al.\n2": "mechanism of EPEC in order to work at runtime. In Section 4, we brieﬂy describe the layers of"
+        },
+        {
+          "D’Asaro et al.\n2": "sensors and classiﬁers. In Section 5, we demonstrate our approach in our use-case and provide a"
+        },
+        {
+          "D’Asaro et al.\n2": "systematic empirical evaluation. In Section 6 we discuss related work, in particular probabilistic"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming": "PEC-RUNTIME"
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "Domain Independent"
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "Part"
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "Domain Dependent"
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "Part"
+        },
+        {
+          "Theory and Practice of Logic Programming": ""
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n4": "start of the experiment,\nthe child has been detected to be tracking the object on the screen with"
+        },
+        {
+          "D’Asaro et al.\n4": "conﬁdence levels 0.25 and 0.13. What\nis the level of attention of the child at\ninstant 2? Should"
+        },
+        {
+          "D’Asaro et al.\n4": "the sound be played at time 2?”."
+        },
+        {
+          "D’Asaro et al.\n4": "We let\nthe set of instants in our timeline be {0, 1, 2}, whose elements can be naturally inter-"
+        },
+        {
+          "D’Asaro et al.\n4": "preted as seconds since the start of the experiment."
+        },
+        {
+          "D’Asaro et al.\n4": "2.1 Syntax overview"
+        },
+        {
+          "D’Asaro et al.\n4": "The only ﬂuent in our example scenario is Attention. It is boolean, i.e., it may take values (cid:62) and"
+        },
+        {
+          "D’Asaro et al.\n4": "⊥. In EPEC, this is written"
+        },
+        {
+          "D’Asaro et al.\n4": "Attention takes-values {(cid:62), ⊥}\n(1)"
+        },
+        {
+          "D’Asaro et al.\n4": "In the example, we consider the agent to be an automated system that is responsible for trigger-"
+        },
+        {
+          "D’Asaro et al.\n4": "ing a re-engagement strategy when necessary. On the other hand, the child is considered part of"
+        },
+        {
+          "D’Asaro et al.\n4": "the environment. Therefore, the actions are PlaySound and TrackObject, where PlaySound is the"
+        },
+        {
+          "D’Asaro et al.\n4": "agent action of playing a sound and TrackObject\nis the environmental action which corresponds"
+        },
+        {
+          "D’Asaro et al.\n4": "to the child tracking the object with her eyes. The effects of not\ntracking the object are deﬁned"
+        },
+        {
+          "D’Asaro et al.\n4": "by the following proposition:"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n5": "2.2 Semantics overview"
+        },
+        {
+          "Theory and Practice of Logic Programming\n5": "The semantics of EPEC enumerates all\nthe possible evolutions (worlds in the terminology of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n5": "EPEC) of the environment being modeled, starting from the initial state. It then applies a series of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n5": "standard reasoning about actions principles (e.g. persistence of ﬂuents, closed world assumption"
+        },
+        {
+          "Theory and Practice of Logic Programming\n5": "for actions) to ﬁlter out those evolutions of the environment that do not make intuitive sense with"
+        },
+        {
+          "Theory and Practice of Logic Programming\n5": "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that"
+        },
+        {
+          "Theory and Practice of Logic Programming\n5": "they are meaningful with respect\nto the given domain description, are assigned a probability"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": "they are meaningful with respect"
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": "value. Some well-behaved worlds for our example domain can be depicted as follows:"
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": "W1"
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": ""
+        },
+        {
+          "respect to the given domain. The remaining worlds, dubbed well-behaved worlds to indicate that": "W2"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6": "",
+          "D’Asaro et al.": "Therefore, EPEC deduces that the answer to our last question in Scenario 2.1 (“Should the sound"
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "be played at time 2?”) is no. Then, Proposition (4) does not ﬁre and the action PlaySound, under"
+        },
+        {
+          "6": "the control of the agent, is not played in any of the well-behaved worlds.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "2.3 Simulating epistemic actions via c-propositions and o-propositions"
+        },
+        {
+          "6": "The reader may have noticed that our target application domain mainly deals with sensors. In its",
+          "D’Asaro et al.": ""
+        },
+        {
+          "6": "original formulation (D’Asaro et al. 2020), epistemic modeling is reserved to an additional, type",
+          "D’Asaro et al.": ""
+        },
+        {
+          "6": "of propositions, called s-propositions (s for “senses”), of the following form:",
+          "D’Asaro et al.": ""
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "S senses F with-accuracies M"
+        },
+        {
+          "6": "for an action S, a ﬂuent F and some matrix M representing the accuracy of A when sensing F.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "Given their role within EPEC, we would need s-propositions to model sensors in our domain."
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "However, s-propositions add a layer of complexity that in this work we would like to avoid due"
+        },
+        {
+          "6": "to the necessity of",
+          "D’Asaro et al.": "taking decisions at\nruntime."
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "translation procedure s-propositions into pairs of a c-proposition and an o-proposition. This aims"
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "to show that one can “improperly” use c-propositions and o-propositions (that are typically used"
+        },
+        {
+          "6": "",
+          "D’Asaro et al.": "for effectors) as a means to also model epistemic aspects of a domain. Whether a sound and"
+        },
+        {
+          "6": "complete translation is available remains however a subject for future work.",
+          "D’Asaro et al.": ""
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n7": "agent will believe that\nthe probability of [Flu]@0 decreased from the initial value 0.7 to"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "0.206."
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "• The test came up negative at instant 0 and positive at instant 1 (as in the case of (16)). This"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "is likely to happen with probability 0.184, and in this case the agent will believe that\nthe"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "probability of [Flu]@0 is 0.608."
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "• The test came up positive at instant 0 and negative at instant 1 (as in the case of (17)). This"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "is likely to happen with probability 0.184, and in this case the agent will believe that\nthe"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "probability of [Flu]@0 is 0.608."
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "• The test came up positive twice (as inthe case of (18)). This is likely to happen with prob-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "ability 0.496, and in this case the agent will believe that\nthe probability of\n[Flu]@0 is"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "0.903."
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "This syntax shows the epistemic core of EPEC, which allows one to reasoning about past,"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "present and future: for example, note that\nin (14) we reason about\nthe perspective of an agent"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "at\ninstant 2 who is reasoning about whether\nit had Flu at\ninstant 0 in the past. This powerful"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "syntax comes at expenses of computational efﬁciency, and therefore in this work we adopt a"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "number of simpliﬁcations due to the fact that we only need to reason about the present. The ﬁrst"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "of such simpliﬁcations is that we drop s-propositions and simulate them via o-propositions and"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "c-propositions, in a way that we now aim to make clearer."
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "Assume that the agent modeled in the domain description above tests positive twice. Then, we"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "may note that substituting the s-proposition (11) and the two p-propositions (12) and (13) with"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "Test causes {({Flu}, 1)}\n(19)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "Test occurs-at 0 with-prob 0.412\n(20)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "Test occurs-at 1 with-prob 0.452\n(21)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "yields"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "D ||= [Flu]@2 holds-with-prob 0.903\n(22)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "which matches with the result\nin (18), and therefore we may say that simulates it. Although a"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "formal characterization of the translation from s-proposition to c-propositions and o-propositions"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "is beyond the scope of this work, note that an s-proposition for a boolean ﬂuent F of the form"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "(cid:18)a\n1 − a"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "S senses F with-accuracies\n(23)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "b\n1 − b"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "is simulated either by a c-proposition"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "S+ causes-one-of {({F}, 1)}\n(24)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "and an o-proposition"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "p(a − b)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "S+ occurs-at I with-prob\n(25)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "p(a − b) + b"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "if S is performed at I and produces a positive result, or by a c-proposition"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "S− causes-one-of {({¬F}, 1)}\n(26)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "and an o-proposition"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "(p − 1)(a − b)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "S− occurs-at I with-prob\n(27)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n7": "p(a − b) + b − 1"
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n8": "if S is performed at I and produces a negative result, where p is the probability such that"
+        },
+        {
+          "D’Asaro et al.\n8": "D ||= [F]@I with-prob p"
+        },
+        {
+          "D’Asaro et al.\n8": "in the domain D under consideration. This informally shows that\nit\nis possible to meaningfully"
+        },
+        {
+          "D’Asaro et al.\n8": "interpret c-propositions and o-propositions as epistemic actions in place of s-propositions, and"
+        },
+        {
+          "D’Asaro et al.\n8": "justiﬁes their employment to perform sensing."
+        },
+        {
+          "D’Asaro et al.\n8": "3 A runtime adaptation of EPEC"
+        },
+        {
+          "D’Asaro et al.\n8": "The subset of EPEC introduced in Section 2 is sufﬁcient\nto handle domains that\nrequire lim-"
+        },
+        {
+          "D’Asaro et al.\n8": "ited epistemic functionalities. For this special class of domains, one can use the non-epistemic"
+        },
+        {
+          "D’Asaro et al.\n8": "framework to approximate the behavior of EPEC and efﬁciently compute probabilities of queries"
+        },
+        {
+          "D’Asaro et al.\n8": "at runtime, at\nthe expense of the ability to reason about\nthe past. These assumptions are not re-"
+        },
+        {
+          "D’Asaro et al.\n8": "strictive for our use-case, as we only need to reason about\nthe present state of\nthe world and"
+        },
+        {
+          "D’Asaro et al.\n8": "possibly react at runtime. In this section, we provide details about an implementation, dubbed"
+        },
+        {
+          "D’Asaro et al.\n8": "PEC-RUNTIME, that exploits these restrictions to provide a fast reasoning system that overcomes"
+        },
+        {
+          "D’Asaro et al.\n8": "the limitations of other implementations of EPEC in terms of computation time. PEC-RUNTIME"
+        },
+        {
+          "D’Asaro et al.\n8": "is publicly available2."
+        },
+        {
+          "D’Asaro et al.\n8": "PEC-RUNTIME is based on PEC-ASP, an Answer Set Programming implementation of the"
+        },
+        {
+          "D’Asaro et al.\n8": "non-epistemic fragment of EPEC that was presented in (D’Asaro et al. 2017) and based on ASP"
+        },
+        {
+          "D’Asaro et al.\n8": "grounder and solver clingo (Gebser et al. 2014). PEC-ASP and PEC-RUNTIME share the same"
+        },
+        {
+          "D’Asaro et al.\n8": "syntax and domain-independent part of\nthe implementation.\nIn addition, PEC-RUNTIME ex-"
+        }
+      ],
+      "page": 8
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n9": "PEC3. However,\nthis technique also suffers from scalability and precision issues when dealing"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "with large narratives as we describe in Section 5.1, Experiment\n(a), and is mostly suited for"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "ofﬂine tasks."
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "The approach we adopt here relies on a form of progression (Lin and Reiter 1997). Given a"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "domain description D and an instant I, knowledge about what happened before instant I can be"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "that does not\ninclude\nappropriately recompiled and mapped to a new domain description D≥I"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "any narrative knowledge about instants < I but agrees with the original domain D on all queries"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "about\ninstants ≥ I. This requires exhaustively querying D about\nthe state of\nthe environment"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "at\nI,\ni.e.,\nthe (boolean) ﬂuents in the language, one must perform queries\nif F1, . . . , Fn are all"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "is either Fi or\nits negation ¬Fi. These queries must be then\n[±F1 ∧ · · · ∧ ±Fn]@I where ±Fi"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "recompiled into an appropriate i-proposition."
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "We elaborate this procedure using our Scenario 2.1. Consider the domain description D and"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "instant 1. Since this domain has only one ﬂuent, exhaustively querying D at 1 means ﬁnding the"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "probabilities P1 and P2 such that"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "(30)\nD ||= [Attention]@1 holds-with-prob P1"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "(31)\nD ||= [¬Attention]@1 holds-with-prob P2"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "These values are P1 = 0.325 and P2 = 1 − P1 = 0.675 (as it can be calculated e.g. by using"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "PEC-ASP) and can be recompiled into the following i-proposition:"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "initially-one-of {({Attention}, 0.325), ({¬Attention}, 0.675)}\n(32)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "The domain description D≥1 consists of propositions (32), (1), (2), (3), (4) and (7). Since the"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "idea is that of discarding all knowledge about instants before 1, D≥1 has corresponding domain"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "language with set of\ninstants {1, 2} (i.e.,\ninstant 0 was removed from the language). Domain"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "descriptions D and D≥I agree on all queries with instants ≥ I: for example, it is possible to show"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "is also the case that\nthat MD≥1([Attention]@2) = 0.158275, and we have already calculated it"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "MD ([Attention]@2) = 0.158275. Since domain description D≥1 has fewer o-propositions than"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "D,\nit also has fewer well-behaved worlds (namely 5).\nIn turn this intuitively means that,\nif a"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "query only contains instants ≥ 1, it is computationally more convenient to query D≥1 rather than"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "D."
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "Repeating the process on D and instant 2 produces the i-proposition"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "initially-one-of {({Attention}, 0.158275), ({¬Attention}, 0.841725)}\n(33)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "and the domain description D≥2 consisting of propositions (33), (1), (2), (3) and (4). This new"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "domain description has only 2 well-behaved worlds. Clearly, MD≥2([Attention]@2) = 0.158275"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "as\nthis\nis encoded directly in the i-proposition, and this also equals MD ([Attention]@2) and"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "MD≥1([Attention]@2) as we have already calculated."
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "Note that the domain description D≥2 trivializes the task of deciding whether Proposition (4)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "ﬁres or not. In fact,\nit sufﬁces to check whether its epistemic precondition is satisﬁed or not by"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "the epistemic precondition requires Attention to be in the\nthe i-proposition in D≥I. In this case,"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "interval [0, 0.1], which is not the case as it can be immediately seen by looking at the i-proposition"
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "(33) and considering that 0.158275 /∈ [0, 0.1]."
+        },
+        {
+          "Theory and Practice of Logic Programming\n9": "As we show below, we can turn this intuition into an efﬁcient procedure for updating a domain"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n10": "description as new events are received and reason about this smaller domain, instead of augment-"
+        },
+        {
+          "D’Asaro et al.\n10": "ing it with new propositions and reason about\nthe full augmented domain. The pseudo code of"
+        },
+        {
+          "D’Asaro et al.\n10": "our PEC-RUNTIME procedure is as follows:"
+        },
+        {
+          "D’Asaro et al.\n10": "Algorithm 1: PEC-RUNTIME(Domain Description D, Classiﬁers C)"
+        },
+        {
+          "D’Asaro et al.\n10": "I = 0;"
+        },
+        {
+          "D’Asaro et al.\n10": "while session is not over do"
+        },
+        {
+          "D’Asaro et al.\n10": "currentIProp ← constructIProp(exhaustivelyQuery(D, I));"
+        },
+        {
+          "D’Asaro et al.\n10": "D ← D \\ iprop(D) \\ narr(D) ∪ {currentIProp};"
+        },
+        {
+          "D’Asaro et al.\n10": "for p-proposition p in D do"
+        },
+        {
+          "D’Asaro et al.\n10": "if p is satisﬁed in iprop(D) then"
+        },
+        {
+          "D’Asaro et al.\n10": "Execute p’s postconditions;"
+        },
+        {
+          "D’Asaro et al.\n10": "end"
+        },
+        {
+          "D’Asaro et al.\n10": "end"
+        },
+        {
+          "D’Asaro et al.\n10": "currentNarrative ← generateEventsFrom(C, I);"
+        },
+        {
+          "D’Asaro et al.\n10": "D ← D ∪ currentNarrative;"
+        },
+        {
+          "D’Asaro et al.\n10": "outputNarrative ← outputNarrative ∪ currentNarrative;"
+        },
+        {
+          "D’Asaro et al.\n10": "I ← I + 1;"
+        },
+        {
+          "D’Asaro et al.\n10": "end"
+        },
+        {
+          "D’Asaro et al.\n10": "return outputNarrative"
+        },
+        {
+          "D’Asaro et al.\n10": "The correctness of this algorithm is guaranteed by the following proposition."
+        },
+        {
+          "D’Asaro et al.\n10": "Proposition 3.1"
+        },
+        {
+          "D’Asaro et al.\n10": "Let D be any domain description such that D = D≤0. Then, MD>0(ϕ) = MD (ϕ) for any i-formula"
+        },
+        {
+          "D’Asaro et al.\n10": "ϕ having instants > 0."
+        },
+        {
+          "D’Asaro et al.\n10": "Proof"
+        },
+        {
+          "D’Asaro et al.\n10": "See Appendix B"
+        },
+        {
+          "D’Asaro et al.\n10": "4 Sensors and Classiﬁers"
+        },
+        {
+          "D’Asaro et al.\n10": "In this section, we brieﬂy overview the layers of sensors and classiﬁers we currently use to detect"
+        },
+        {
+          "D’Asaro et al.\n10": "user activity that is relevant to the rehabilitation task."
+        },
+        {
+          "D’Asaro et al.\n10": "At\nthe present stage, our main source of information is a 2D-webcam placed in front of the"
+        },
+        {
+          "D’Asaro et al.\n10": "children performing the rehabilitation task. The camera stream is mainly responsible for the eval-"
+        },
+        {
+          "D’Asaro et al.\n10": "uation of the current pose of head and shoulders of the child, and to estimate his/her emotional"
+        },
+        {
+          "D’Asaro et al.\n10": "response to the interaction. Its output is processed by three modules:"
+        },
+        {
+          "D’Asaro et al.\n10": "Head Pose Recognition Module: We use the library Head Pose Estimation4\nto detect\nthe"
+        },
+        {
+          "D’Asaro et al.\n10": "facial\nlandmarks (see Figure 2). A box containing the face and its surrounding area is selected,"
+        },
+        {
+          "D’Asaro et al.\n10": "resized, and normalized in order\nto use it as input\nfor\nthe facial-landmarks detector, which is"
+        },
+        {
+          "D’Asaro et al.\n10": "based on a CNN architecture. The facial-landmarks detection step is carried out by a custom"
+        },
+        {
+          "D’Asaro et al.\n10": "4 https://github.com/yinguobing/head-pose-estimation"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "trained facial"
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "outputs 68 facial"
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "estimate the direction of gaze and quality of head posture (Malek and Rossi 2021)."
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "while performing the rehabilitation."
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "et al. 2017)."
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": ""
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "sources. Speciﬁcally, we will employ pillows equipped with pressure sensors, mounted on the"
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "seat-back of"
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "better evaluate whether the child is sitting correctly. We also plan on complementing the Head"
+        },
+        {
+          "Fig. 2. Facial landmarks detected by the Head Pose Recognition module.": "Pose and Emotion Recognition Modules using an Eye Tracker and EEG respectively."
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Instant I": "0",
+          "PEC-ASP": "0.01",
+          "PEC-ANG (100)": "1.55",
+          "PEC-ANG (1000)": "4.52",
+          "PEC-ANG (10000)": "29.29",
+          "PEC-RUNTIME": "0.07"
+        },
+        {
+          "Instant I": "1",
+          "PEC-ASP": "1260.24",
+          "PEC-ANG (100)": "1.58",
+          "PEC-ANG (1000)": "3.23",
+          "PEC-ANG (10000)": "29.02",
+          "PEC-RUNTIME": "0.19"
+        },
+        {
+          "Instant I": "2",
+          "PEC-ASP": "2142.81",
+          "PEC-ANG (100)": "1.64",
+          "PEC-ANG (1000)": "4.87",
+          "PEC-ANG (10000)": "31.54",
+          "PEC-RUNTIME": "0.18"
+        },
+        {
+          "Instant I": "3",
+          "PEC-ASP": "2557.31",
+          "PEC-ANG (100)": "1.58",
+          "PEC-ANG (1000)": "5.46",
+          "PEC-ANG (10000)": "33.04",
+          "PEC-RUNTIME": "0.17"
+        },
+        {
+          "Instant I": "4",
+          "PEC-ASP": "2708.37",
+          "PEC-ANG (100)": "1.61",
+          "PEC-ANG (1000)": "3.22",
+          "PEC-ANG (10000)": "28.66",
+          "PEC-RUNTIME": "0.17"
+        },
+        {
+          "Instant I": "5",
+          "PEC-ASP": "2911.29",
+          "PEC-ANG (100)": "1.61",
+          "PEC-ANG (1000)": "3.69",
+          "PEC-ANG (10000)": "32.92",
+          "PEC-RUNTIME": "0.22"
+        },
+        {
+          "Instant I": "6",
+          "PEC-ASP": "3086.32",
+          "PEC-ANG (100)": "1.79",
+          "PEC-ANG (1000)": "3.58",
+          "PEC-ANG (10000)": "35.62",
+          "PEC-RUNTIME": "0.13"
+        },
+        {
+          "Instant I": "7",
+          "PEC-ASP": "3147.04",
+          "PEC-ANG (100)": "1.56",
+          "PEC-ANG (1000)": "3.70",
+          "PEC-ANG (10000)": "26.98",
+          "PEC-RUNTIME": "0.22"
+        },
+        {
+          "Instant I": "8",
+          "PEC-ASP": "3208.48",
+          "PEC-ANG (100)": "1.55",
+          "PEC-ANG (1000)": "5.18",
+          "PEC-ANG (10000)": "33.00",
+          "PEC-RUNTIME": "0.14"
+        },
+        {
+          "Instant I": "9",
+          "PEC-ASP": "3251.10",
+          "PEC-ANG (100)": "1.53",
+          "PEC-ANG (1000)": "3.33",
+          "PEC-ANG (10000)": "32.79",
+          "PEC-RUNTIME": "0.19"
+        },
+        {
+          "Instant I": "10",
+          "PEC-ASP": "3298.81",
+          "PEC-ANG (100)": "1.53",
+          "PEC-ANG (1000)": "5.41",
+          "PEC-ANG (10000)": "32.95",
+          "PEC-RUNTIME": "0.18"
+        },
+        {
+          "Instant I": "11",
+          "PEC-ASP": "3316.88",
+          "PEC-ANG (100)": "1.60",
+          "PEC-ANG (1000)": "4.66",
+          "PEC-ANG (10000)": "28.72",
+          "PEC-RUNTIME": "0.13"
+        },
+        {
+          "Instant I": "12",
+          "PEC-ASP": "3311.27",
+          "PEC-ANG (100)": "1.57",
+          "PEC-ANG (1000)": "3.88",
+          "PEC-ANG (10000)": "27.99",
+          "PEC-RUNTIME": "0.21"
+        },
+        {
+          "Instant I": "13",
+          "PEC-ASP": "3338.23",
+          "PEC-ANG (100)": "1.55",
+          "PEC-ANG (1000)": "1.50",
+          "PEC-ANG (10000)": "27.62",
+          "PEC-RUNTIME": "0.18"
+        },
+        {
+          "Instant I": "14",
+          "PEC-ASP": "3440.68",
+          "PEC-ANG (100)": "1.56",
+          "PEC-ANG (1000)": "4.05",
+          "PEC-ANG (10000)": "23.97",
+          "PEC-RUNTIME": "0.15"
+        },
+        {
+          "Instant I": "15",
+          "PEC-ASP": "3368.67",
+          "PEC-ANG (100)": "1.80",
+          "PEC-ANG (1000)": "4.65",
+          "PEC-ANG (10000)": "24.85",
+          "PEC-RUNTIME": "0.13"
+        },
+        {
+          "Instant I": "Average:",
+          "PEC-ASP": "2771.72",
+          "PEC-ANG (100)": "1.60",
+          "PEC-ANG (1000)": "4.06",
+          "PEC-ANG (10000)": "29.93",
+          "PEC-RUNTIME": "0.17"
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n13": "Probability of ¬F (PEC-ASP, PEC-RUNTIME)"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "Probability of ¬F (PEC-ANGLICAN (100))"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "2\n4\n8\n10\n12\n14\n6\n16"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "Instant"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "Actions"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "Fluents"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "2\n4\n8\n10\n12\n14\n16\n6"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "Number of actions/ﬂuents"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "the number of actions and ﬂuents. The results show averages over 15 runs –"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "F takes-values {(cid:62), ⊥}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "initially-one-of {({F}, 1)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "∀I, A1 performed-at I with-prob 0.5"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "."
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "."
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "."
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": "∀I, An performed-at I with-prob 0.5"
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        },
+        {
+          "Theory and Practice of Logic Programming\n13": ""
+        }
+      ],
+      "page": 13
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "14": "",
+          "D’Asaro et al.": "Experiment (c). To empirically evaluate the effect of the number of ﬂuents in the domain, we"
+        },
+        {
+          "14": "performed a similar experiment with domain descriptions of the following forms:",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "F1 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "Fn takes-values {(cid:62), ⊥}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "initially-one-of {({F1, . . . , Fn}, 1)}"
+        },
+        {
+          "14": "where I = {1, . . . , 15} and n ranges from 1 to 15. Results are shown in Figure 4, and conﬁrm",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "the intuition that computational time scales exponentially as a function of the number of ﬂuents",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "in the domain.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "Experiment (d). This experiment combines (b) and (c) in that it shows how computation time"
+        },
+        {
+          "14": "scales with both ﬂuents and actions. The considered domain descriptions are:",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "F1 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "Fn takes-values {(cid:62), ⊥}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "initially-one-of {({F1, . . . , Fn}, 1)}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "∀I, A1 performed-at I with-prob 0.5"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "∀I, Am performed-at I with-prob 0.5"
+        },
+        {
+          "14": "where I = {1, . . . , 15},",
+          "D’Asaro et al.": "the number of ﬂuents varies from 1 to 15 and the number of actions"
+        },
+        {
+          "14": "varies from 0 to 15. Result are shown in Figure 5 and extend those of Figure 4.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "Experiment\n(e).",
+          "D’Asaro et al.": "In this experiment we empirically evaluate the effect of\ninitial conditions,"
+        },
+        {
+          "14": "and show that computation time scales linearly with their number. To this aim, we consider the",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "following domain description:",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "F1 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "."
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "F10 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "initially-one-of {({F1, . . . , F10}, 1/n), . . . , ({¬F1, . . . , F10}, 1/n), ({¬F1, . . . , ¬F10}, 1/n)}"
+        },
+        {
+          "14": "where I = {1, . . . , 15} and n ranges from 1 to 210, i.e., the maximum number of possible initial",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "conditions with 10 ﬂuents. Note that n is also the number of well-behaved worlds considered by",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "PEC-RUNTIME at each progression step. Results are shown in Figure 6 and conﬁrm the intuitive",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "hypothesis that computational",
+          "D’Asaro et al.": "time scales linearly with the number of\ninitial conditions/well-"
+        },
+        {
+          "14": "behaved worlds.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "14": "",
+          "D’Asaro et al.": "Experiment (f). This experiment aims to study how PEC-RUNTIME behaves in a more real-"
+        },
+        {
+          "14": "istic domain where every sensor has a ﬁxed probability p of producing a reading at every instant.",
+          "D’Asaro et al.": ""
+        }
+      ],
+      "page": 14
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "F1 takes-values {(cid:62), ⊥}": "F2 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "F1 takes-values {(cid:62), ⊥}": "F3 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "F1 takes-values {(cid:62), ⊥}": "F4 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "F1 takes-values {(cid:62), ⊥}": "F5 takes-values {(cid:62), ⊥}"
+        },
+        {
+          "F1 takes-values {(cid:62), ⊥}": "initially-one-of {({¬F1, ¬F2, ¬F3, ¬F4, ¬F5}, 1)}"
+        }
+      ],
+      "page": 15
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        },
+        {
+          "D’Asaro et al.": ""
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n17": "f\nand the truth value of\nis initially unknown, i.e.:"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "initially-one-of {({F}, 0.5), ({¬F}, 0.5)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "We analyse the behavior of EPEC in different scenarios (corresponding to different values for"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "P\ntrue and Pf alse):"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "Scenario\n(a).\nThe\nclassiﬁer C\nproduces\ntrue with\nhigh\nconﬁdence\nand\nfalse with"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "P\nlow conﬁdence,\ne.g.\nand\nThis\ndomain\ndescription\nentails\ntrue = 0.99\nPf alse = 0.01."
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "“[F]@20 holds-with-prob P” where P ≈ 0.9899, which makes intuitive sense as the false events"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "have low conﬁdence and are discarded as background noise."
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "Scenario (b). The classiﬁer C produces true and false with a high degree of uncertainty. How-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "ever, it assigns true a slightly higher degree of conﬁdence, e.g. Ptrue = 0.501 and Pf alse = 0.499."
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "This domain description entails “[F]@20 holds-with-prob P” where P ≈ 0.653246, which re-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "ﬂects that such a sequence of events does not carry as much information as in Scenario (a), due"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "to the the small difference between Ptrue and Pf alse."
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "Scenario\ntrue\n(c). The\nclassiﬁer C produces\nboth\nand\nfalse with\nlow conﬁdence, with"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "P\ntrue (cid:29) Pf alse. For example,\nlet Ptrue = 0.49 and Pf alse = 0.01. This domain description entails"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "“[F]@20 holds-with-prob P” where P ≈ 0.979286, which again makes intuitive sense as false"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "readings are again discarded as background noise, with the repeated true readings making the"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "probability of F steadily grow throughout the timeline."
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "These scenarios show that EPEC is sensibly more accurate than any logical framework that is"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "not capable of handling probabilities in the presence of noisy sensors. In fact, these frameworks"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "would have to set a threshold, and only accept events with probabilities higher than that thresh-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "old. In our example, setting a threshold e.g. of 0.5 would lead to signiﬁcant errors especially in"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "Scenarios (b) and (c). In Scenario (b), all Cfalse events would be discarded,\nimplying that F is"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "detected to hold true at\ninstant 20 with certainty (compare this to the probability 0.653246 as-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "signed to the same query by EPEC). In Scenario (c), all events would be discarded and it would"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "not be possible neither that F holds at 20 nor that\nit does not (compare again to the probability"
+        },
+        {
+          "Theory and Practice of Logic Programming\n17": "0.979286 assigned by EPEC)."
+        }
+      ],
+      "page": 17
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "18": "",
+          "D’Asaro et al.": "1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "0.8"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "Probability\n0.6"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "0.4"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "Engagement"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "0.2"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "TaskCorrect"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "Threshold"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "0"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "0\n2\n4\n8\n10\n12\n6"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "Instant"
+        },
+        {
+          "18": "Fig. 8. Engagement and TaskCorrect as a function of time in the example from Section 5.3",
+          "D’Asaro et al.": ""
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "BadPosture occurs-at 0 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "LowValence occurs-at 0 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 1 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "BadPosture occurs-at 1 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "LowValence occurs-at 1 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 2 with-prob 76/100"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "LowValence occurs-at 2 with-prob 87/100"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 3 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "BadPosture occurs-at 3 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "LowValence occurs-at 3 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 7 with-prob 7/100"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 8 with-prob 89/100"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 9 with-prob 74/100"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "EyesNotFollowingTarget occurs-at 11 with-prob 1"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "These events are given a meaning by means of a domain description (see Appendix A for the"
+        },
+        {
+          "18": "full domain) that specify what bearing each event has on ﬂuents TaskCorrect and Engagement.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "18": "Furthermore, consider a conditional plan of the following form:",
+          "D’Asaro et al.": ""
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "∀I, PlaySound performed-at I if-believes (Attention, [0, 0.3])"
+        },
+        {
+          "18": "",
+          "D’Asaro et al.": "∀I, LowerDifﬁcultyLevel performed-at I if-believes (TaskCorrect, [0, 0.3])"
+        },
+        {
+          "18": "which states that a sound must be played by the system whenever",
+          "D’Asaro et al.": "the Attention of\nthe child"
+        },
+        {
+          "18": "is low, and that",
+          "D’Asaro et al.": "the difﬁculty level must be lowered if the child does not manage to perform it"
+        },
+        {
+          "18": "correctly.",
+          "D’Asaro et al.": ""
+        },
+        {
+          "18": "PEC-RUNTIME works",
+          "D’Asaro et al.": "out\nthe\nprobabilities\nin\nFigure\n8,\nand\ntriggers\ndecisions when"
+        },
+        {
+          "18": "they fall below the given threshold.",
+          "D’Asaro et al.": "In particular, PlaySound is\ntriggered at\ninstant 4,\nand"
+        }
+      ],
+      "page": 18
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming": "is triggered at\ninstants 2, 3 and 4.\nIt\nis worth noting here that",
+          "19": "thresholds"
+        },
+        {
+          "Theory and Practice of Logic Programming": "may induce the so-called rubberband effect, where abrupt probability changes (due e.g. to noise)",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "may lead to decisions being taken too frequently. Unfortunately, EPEC (and therefore also PEC-",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "RUNTIME) does not allow to control this effect, therefore we implemented a bespoke semaphore",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "in the underlying Python script that only allows decision to be taken every 20 seconds.",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "These decisions are forwarded to the game. At the end of each therapeutic session, this narra-",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "tive is saved to a ﬁle so that it can be used to provide feedback to the therapists and re-consulted",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "if needed. In this scenario, PEC-RUNTIME provides feedback such as “The child performed the",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "task correctly for a total of 10 instants out of 13 (76.9%). The game difﬁculty was lowered at",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "",
+          "19": ""
+        },
+        {
+          "Theory and Practice of Logic Programming": "in Figure 8 is also shown to the therapists, so that",
+          "19": "they can have a"
+        },
+        {
+          "Theory and Practice of Logic Programming": "",
+          "19": ""
+        }
+      ],
+      "page": 19
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n20": "6.2 Probabilistic Reasoning about Actions"
+        },
+        {
+          "D’Asaro et al.\n20": "Recently,\nlogic-based techniques have been successfully applied to several ﬁelds of Artiﬁcial"
+        },
+        {
+          "D’Asaro et al.\n20": "Intelligence,\nincluding among others event recognition from security cameras (Skarlatidis et al."
+        },
+        {
+          "D’Asaro et al.\n20": "2015; Skarlatidis et al. 2015), robot location estimation (Belle and Levesque 2018), understand-"
+        },
+        {
+          "D’Asaro et al.\n20": "ing of tenses (Van Lambalgen and Hamm 2008), natural\nlanguage processing (Nadkarni et al."
+        },
+        {
+          "D’Asaro et al.\n20": "2011), probabilistic diagnosis (Lee and Wang 2018) and intention recogntion (Acciaro et al."
+        },
+        {
+          "D’Asaro et al.\n20": "2021). Given the importance of Machine Learning and Probability Theory in AI,\nthese frame-"
+        },
+        {
+          "D’Asaro et al.\n20": "works and languages have gradually started employing probabilistic semantics (Sato 1995)\nto"
+        },
+        {
+          "D’Asaro et al.\n20": "incorporate and deal with uncertainty. This has given birth to the ﬁeld of Probabilistic Logic"
+        },
+        {
+          "D’Asaro et al.\n20": "Programming (Riguzzi 2018), and we are particularly concerned with Probabilistic Reasoning"
+        },
+        {
+          "D’Asaro et al.\n20": "about Action frameworks as they can deal with agents interacting with some (partially known)"
+        },
+        {
+          "D’Asaro et al.\n20": "environment. For example (Bacchus et al. 1999; Belle and Levesque 2018),\nthat are based on"
+        },
+        {
+          "D’Asaro et al.\n20": "the Situation Calculus ontology (Reiter 2001), can model\nimperfect sensors and effectors. The"
+        },
+        {
+          "D’Asaro et al.\n20": "Situation Calculus’ branching structure makes these frameworks mostly suitable for planning"
+        },
+        {
+          "D’Asaro et al.\n20": "under partial states of information. A recent extension of language C + (Giunchiglia et al. 2004),"
+        },
+        {
+          "D’Asaro et al.\n20": "dubbed pBC +,\nis presented in (Lee and Wang 2018). The authors show how pBC + can be"
+        },
+        {
+          "D’Asaro et al.\n20": "implemented in LPMLN, a probabilistic extension of ASP that can be readily implemented us-"
+        },
+        {
+          "D’Asaro et al.\n20": "ing tools such as LPMLN2ASP (Lee et al. 2017). Unlike our work, which focuses on runtime"
+        },
+        {
+          "D’Asaro et al.\n20": "reasoning, pBC + is mostly suited for probabilistic diagnosis and parameter learning. The two"
+        },
+        {
+          "D’Asaro et al.\n20": "languages MLN-EC (Skarlatidis et al. 2015) and ProbEC (Skarlatidis et al. 2015) extend the"
+        },
+        {
+          "D’Asaro et al.\n20": "semantics of the Event Calculus (Kowalski and Sergot 1986; Miller and Shanahan 2002) ontol-"
+        },
+        {
+          "D’Asaro et al.\n20": "ogy, using Markov Logic Networks (Richardson and Domingos 2006) and ProbLog (De Raedt"
+        },
+        {
+          "D’Asaro et al.\n20": "et al. 2007) to perform event recognition from security cameras. In their proposed case study,"
+        },
+        {
+          "D’Asaro et al.\n20": "the logical part of\nthe architecture receives time-stamped events as inputs and processes them"
+        },
+        {
+          "D’Asaro et al.\n20": "in order to detect complex long-term activities (e.g.,\ninfer that\ntwo people are ﬁghting from the"
+        },
+        {
+          "D’Asaro et al.\n20": "fact\nthat\nthey have been close to each other and moving abruptly during the last few seconds)."
+        },
+        {
+          "D’Asaro et al.\n20": "Given their semi-probabilistic nature, these frameworks are able to handle uncertainty in the in-"
+        },
+        {
+          "D’Asaro et al.\n20": "put events (ProbEC) or in the causal rules linking events and ﬂuents (MLN-EC) but they do not"
+        },
+        {
+          "D’Asaro et al.\n20": "deal with any form of epistemic knowledge. On the other hand, EPEC (D’Asaro et al. 2020) has"
+        },
+        {
+          "D’Asaro et al.\n20": "the advantage of being based on the Event Calculus (making it particularly well suited for Event"
+        },
+        {
+          "D’Asaro et al.\n20": "Recognition tasks) and being able to deal with epistemic aspects. Its semantics abstracts from"
+        },
+        {
+          "D’Asaro et al.\n20": "any speciﬁc programming language and therefore it\nlends itself\nto task-speciﬁc optimizations,"
+        },
+        {
+          "D’Asaro et al.\n20": "such as the runtime adaptation presented in this work."
+        }
+      ],
+      "page": 20
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "7 Conclusion and Future Work": ""
+        },
+        {
+          "7 Conclusion and Future Work": "It presents an architecture, currently being actively developed and tested, for the rehabilita-"
+        },
+        {
+          "7 Conclusion and Future Work": "tion of children with Development Coordination Disorders. The suggested approach mixes"
+        },
+        {
+          "7 Conclusion and Future Work": "machine learning, logic-based and gamiﬁcation techniques."
+        },
+        {
+          "7 Conclusion and Future Work": "It introduces an novel implementation of a state-of-the-art probabilistic logic programming"
+        },
+        {
+          "7 Conclusion and Future Work": "framework (EPEC) that can work at runtime."
+        }
+      ],
+      "page": 20
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n21": "a predeﬁned strategy that\nis hard-encoded in the domain description, and (ii) provide human-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "understandable feedback after each therapeutic session, that can be used to log user performance"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "over time."
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "Nonetheless,\nthere is much room for extending the scope and functionalities of our applica-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "tion. As we collect data about\nthe users of our system, we can compare the decisions taken by"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "the system to those that therapists and psychologists would take, and adapt our domain descrip-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "tions accordingly.\nIn the future, we would like to do this semi-automatically by learning the"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "probabilities in our domain descriptions from data-streams annotated by experts."
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "It is also possible to expand the feedback functionalities of our system. At the moment, feed-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "back includes a series of graphs about\nthe level of engagement of\nthe patient and limited tex-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "tual reports about his/her performance level (see Section 5.3). However, a full history of what"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "happened throughout each therapeutic session is recorded in an EPEC-readable narrative. Imple-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "menting a device to automatically translate these narratives into natural language would greatly"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "enhance the transparency of our system, and constitutes a future step of this work. In fact, “ex-"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "planations” coming from our system are limited to plots such as the one depicted in Figure 8, that"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "shows what the engagement level of the child is throughout the therapeutic session, and reasons"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "behind decisions are explained in terms of trespassed thresholds. Transforming them into natural"
+        },
+        {
+          "Theory and Practice of Logic Programming\n21": "language would greatly enhance intelligibility of our system."
+        }
+      ],
+      "page": 21
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "References": "ACCIARO, G. D., D’ASARO, F. A., AND ROSSI, S. 2021. Predicting humans: a sensor-based architecture"
+        },
+        {
+          "References": "the 22nd Workshop ”From Objects to\nfor real\ntime intent recognition using problog.\nIn Proceedings of"
+        },
+        {
+          "References": "Agents”, Bologna, Italy, September 1-3, 2021, R. Calegari, G. Ciatto, E. Denti, A. Omicini, and G. Sartor,"
+        },
+        {
+          "References": "Eds. CEUR Workshop Proceedings, vol. 2963. CEUR-WS.org, 72–82."
+        },
+        {
+          "References": "BACCHUS, F., HALPERN, J. Y., AND LEVESQUE, H. J. 1999. Reasoning about Noisy Sensors and Effec-"
+        },
+        {
+          "References": "tors in the Situation Calculus. Artiﬁcial Intelligence 111, 1-2, 171–208."
+        },
+        {
+          "References": "BELLE, V. AND LEVESQUE, H. J. 2018. Reasoning about Discrete and Continuous Noisy Sensors and"
+        },
+        {
+          "References": "Effectors in Dynamical Systems. Artif. Intell. 262, 189–221."
+        },
+        {
+          "References": "BELPAEME, T., BAXTER, P. E., READ, R., WOOD, R., CUAY ´AHUITL, H., KIEFER, B., RACIOPPA, S.,"
+        },
+        {
+          "References": "KRUIJFF-KORBAYOV ´A, I., ATHANASOPOULOS, G., ENESCU, V., ET AL. 2012. Multimodal child-robot"
+        },
+        {
+          "References": "interaction: Building social bonds. Journal of Human-Robot Interaction 1, 2, 33–53."
+        },
+        {
+          "References": "D’ASARO, F. A., BIKAKIS, A., DICKENS, L., AND MILLER, R. 2017.\nFoundations for a probabilistic"
+        },
+        {
+          "References": "event calculus.\nIn Proceedings of the 14th International Conference Logic Programming and Nonmono-"
+        },
+        {
+          "References": "tonic Reasoning, LPNMR 2017, M. Balduccini and T. Janhunen, Eds. Springer International Publishing,"
+        },
+        {
+          "References": "Cham, 57–63."
+        },
+        {
+          "References": "D’ASARO, F. A., BIKAKIS, A., DICKENS, L., AND MILLER, R. 2020.\nProbabilistic reasoning about"
+        },
+        {
+          "References": "epistemic action narratives. Artif. Intell. 287, 103352."
+        },
+        {
+          "References": "D’ASARO, F. A., ORIGLIA, A., AND ROSSI, S. 2019. Towards a Logic-Based Approach for Multi-Modal"
+        },
+        {
+          "References": "Fusion and Decision Making during Motor Rehabilitation Sessions. In Proceedings of the 20th Workshop"
+        },
+        {
+          "References": "“From Objects to Agents” (WOA)."
+        },
+        {
+          "References": "DE RAEDT, L., KIMMIG, A., AND TOIVONEN, H. 2007. Problog: A probabilistic prolog and its application"
+        },
+        {
+          "References": "in link discovery.\nIn IJCAI. Vol. 7. 2462–2467."
+        }
+      ],
+      "page": 21
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n22": "GEBSER, M., KAMINSKI, R., KAUFMANN, B., AND SCHAUB, T. 2014. Clingo = asp + control: Prelimi-"
+        },
+        {
+          "D’Asaro et al.\n22": "nary report. Vol. arXiv:1405.3694v1."
+        },
+        {
+          "D’Asaro et al.\n22": "GIUNCHIGLIA, E., LEE, J., LIFSCHITZ, V., MCCAIN, N., AND TURNER, H. 2004. Nonmonotonic causal"
+        },
+        {
+          "D’Asaro et al.\n22": "theories. Artiﬁcial Intelligence 153, 1-2, 49–104."
+        },
+        {
+          "D’Asaro et al.\n22": "HUANG, C.-Y., TUNG, L.-C., CHOU, Y.-T., WU, H.-M., CHEN, K.-L., AND HSIEH, C.-L. 2018. De-"
+        },
+        {
+          "D’Asaro et al.\n22": "velopment of a computerized adaptive test of children’s gross motor skills. Archives of physical medicine"
+        },
+        {
+          "D’Asaro et al.\n22": "and rehabilitation 99, 3, 512–520."
+        },
+        {
+          "D’Asaro et al.\n22": "KOWALSKI, R. AND SERGOT, M. 1986. A Logic-based Calculus of Events. New Generation Comput-"
+        },
+        {
+          "D’Asaro et al.\n22": "ing 4, 1 (Mar), 67–95."
+        },
+        {
+          "D’Asaro et al.\n22": "KRIZHEVSKY, A., SUTSKEVER, I., AND HINTON, G. E. 2012.\nImagenet classiﬁcation with deep convo-"
+        },
+        {
+          "D’Asaro et al.\n22": "lutional neural networks.\nIn Advances in neural information processing systems. 1097–1105."
+        },
+        {
+          "D’Asaro et al.\n22": "LEE, J., TALSANIA, S., AND WANG, Y. 2017. Computing lpmln using asp and mln solvers. Theory and"
+        },
+        {
+          "D’Asaro et al.\n22": "Practice of Logic Programming 17, 5-6, 942–960."
+        },
+        {
+          "D’Asaro et al.\n22": "LEE, J. AND WANG, Y. 2018. A probabilistic extension of action language bc+. Theory and Practice of"
+        },
+        {
+          "D’Asaro et al.\n22": "Logic Programming 18, 3-4, 607–622."
+        },
+        {
+          "D’Asaro et al.\n22": "LIN, F. AND REITER, R. 1997. How to progress a database. Artiﬁcial Intelligence 92, 1, 131 – 167."
+        },
+        {
+          "D’Asaro et al.\n22": "MALEK, S. AND ROSSI, S. 2021. Head pose estimation using facial-landmarks classiﬁcation for children"
+        },
+        {
+          "D’Asaro et al.\n22": "rehabilitation games. Pattern Recognition Letters 152, 406–412."
+        },
+        {
+          "D’Asaro et al.\n22": "MILLER, R. AND SHANAHAN, M. 2002. Some Alternative Formulations of the Event Calculus.\nIn Com-"
+        },
+        {
+          "D’Asaro et al.\n22": "putational Logic: Logic Programming And Beyond. Springer, 452–490."
+        },
+        {
+          "D’Asaro et al.\n22": "MOLLAHOSSEINI, A., HASANI, B., AND MAHOOR, M. H. 2017. Affectnet: A database for\nfacial ex-"
+        },
+        {
+          "D’Asaro et al.\n22": "pression, valence, and arousal computing in the wild.\nIEEE Transactions on Affective Computing 10, 1,"
+        },
+        {
+          "D’Asaro et al.\n22": "18–31."
+        },
+        {
+          "D’Asaro et al.\n22": "MULCAHEY, M., HALEY, S. M., DUFFY, T., NI, P., AND BETZ, R. R. 2008. Measuring physical func-"
+        },
+        {
+          "D’Asaro et al.\n22": "Journal of pediatric\ntioning in children with spinal\nimpairments with computerized adaptive testing."
+        },
+        {
+          "D’Asaro et al.\n22": "orthopedics 28, 3, 330."
+        },
+        {
+          "D’Asaro et al.\n22": "NADKARNI, P. M., OHNO-MACHADO, L., AND CHAPMAN, W. W. 2011. Natural\nlanguage processing:"
+        },
+        {
+          "D’Asaro et al.\n22": "an introduction. Journal of the American Medical Informatics Association 18, 5, 544–551."
+        },
+        {
+          "D’Asaro et al.\n22": "ORIGLIA, A., COSI, P., ROD `A, A., AND ZMARICH, C. 2017. A dialogue-based software architecture for"
+        },
+        {
+          "D’Asaro et al.\n22": "gamiﬁed discrimination tests.\nIn GHITALY@ CHItaly."
+        },
+        {
+          "D’Asaro et al.\n22": "PAPANDREOU, G., ZHU, T., CHEN, L.-C., GIDARIS, S., TOMPSON, J., AND MURPHY, K. 2018. Person-"
+        },
+        {
+          "D’Asaro et al.\n22": "lab: Person pose estimation and instance segmentation with a bottom-up, part-based, geometric embed-"
+        },
+        {
+          "D’Asaro et al.\n22": "ding model.\nIn Proceedings of the European Conference on Computer Vision (ECCV). 269–286."
+        },
+        {
+          "D’Asaro et al.\n22": "REITER, R. 2001. Knowledge in Action: Logical Foundations for Specifying and Implementing Dynamical"
+        },
+        {
+          "D’Asaro et al.\n22": "Systems. MIT Press."
+        },
+        {
+          "D’Asaro et al.\n22": "RESCIGNO, M., SPEZIALETTI, M., AND ROSSI, S. 2020. Personalized models for facial emotion recog-"
+        },
+        {
+          "D’Asaro et al.\n22": "nition through transfer learning. Multimedia Tools and Applications 79, 47, 35811–35828."
+        },
+        {
+          "D’Asaro et al.\n22": "RICHARDSON, M. AND DOMINGOS, P. 2006. Markov logic networks. Machine Learning 62, 1 (Feb),"
+        },
+        {
+          "D’Asaro et al.\n22": "107–136."
+        },
+        {
+          "D’Asaro et al.\n22": "RIGUZZI, F. 2018. Foundations of Probabilistic Logic Programming. River Publishers Series in Software"
+        },
+        {
+          "D’Asaro et al.\n22": "Engineering. River Publishers."
+        },
+        {
+          "D’Asaro et al.\n22": "SATO, T. 1995. A statistical learning method for logic programs with distribution semantics. In Proceedings"
+        },
+        {
+          "D’Asaro et al.\n22": "of the 12th International Conference on Logic Programming (ICLP95). Citeseer."
+        },
+        {
+          "D’Asaro et al.\n22": "SKARLATIDIS, A., ARTIKIS, A., FILIPPOU, J., AND PALIOURAS, G. 2015. A Probabilistic Logic Pro-"
+        },
+        {
+          "D’Asaro et al.\n22": "gramming Event Calculus. Theory and Practice of Logic Programming 15, 213–245."
+        },
+        {
+          "D’Asaro et al.\n22": "SKARLATIDIS, A., PALIOURAS, G., ARTIKIS, A., AND VOUROS, G. A. 2015. Probabilistic Event Calcu-"
+        },
+        {
+          "D’Asaro et al.\n22": "lus for Event Recognition. ACM Transactions on Computational Logic (TOCL) 16, 2, 11."
+        },
+        {
+          "D’Asaro et al.\n22": "VAN LAMBALGEN, M. AND HAMM, F. 2008. The proper treatment of events. Vol. 6. John Wiley & Sons."
+        },
+        {
+          "D’Asaro et al.\n22": "VERNADAKIS, N., PAPASTERGIOU, M., ZETOU, E., AND ANTONIOU, P. 2015.\nThe\nimpact of\nan"
+        },
+        {
+          "D’Asaro et al.\n22": "exergame-based intervention on children’s fundamental motor skills. Computers & Education 83, 90–"
+        },
+        {
+          "D’Asaro et al.\n22": "102."
+        }
+      ],
+      "page": 22
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Theory and Practice of Logic Programming\n23": "WU, Y., CAI, Y., AND TU, D. 2019.\nA computerized adaptive testing advancing the measurement of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "subjective well-being. Journal of Paciﬁc Rim Psychology 13."
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "Appendix A"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "This is the causal part of the domain (the i-proposition and c-propositions) for the example in"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "Section 5.3.\nIt assumes that\nthe subject\nis initially fully engaged and doing the task correctly."
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "An event of type LowValence causes the level of Engagement\nto drop, whereas TaskCorrect\nis"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "negatively affected by BadPosture and EyesNotFollowingTarget events. Since PEC-RUNTIME"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "can also model concurrent actions, the effect of multiple events happening at the same time can"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "also be modeled.\nIn our scenarios, we assume that\nthere are some (negative) synergies when"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "multiple (distinct) events happen at\nthe same time. Furthermore, when none of\nthe previous"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "activities is detected by the sensors, the value of Engagement and TaskCorrect grows."
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "initially-one-of {({Engagement = true, TaskCorrect = true}, 1)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{EyesNotFollowingTarget = false, LowValence = false, BadPosture = false}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "causes-one-of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{({TaskCorrect = true, Engagement = true}, 4/10),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({}, 6/10)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{EyesNotFollowingTarget = true, LowValence = false, BadPosture = false, Engagement = true}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "causes-one-of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{({TaskCorrect = false, Engagement = false}, 3/100),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({TaskCorrect = false}, 17/100),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({}, 8/10)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{EyesNotFollowingTarget = true, LowValence = false, BadPosture = false, Engagement = false}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "causes-one-of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{({TaskCorrect = false}, 3/10),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({}, 7/10)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{EyesNotFollowingTarget = false, LowValence = true, BadPosture = false}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "causes-one-of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{({Engagement = false}, 3/10),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({}, 7/10)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{EyesNotFollowingTarget = true, LowValence = true, BadPosture = false}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "causes-one-of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{({TaskCorrect = false, Engagement = false}, 4/10),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({}, 6/10)}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{EyesNotFollowingTarget = false, LowValence = false, BadPosture = true}"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "causes-one-of"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "{({TaskCorrect = false, Engagement = false}, 3/100),"
+        },
+        {
+          "Theory and Practice of Logic Programming\n23": "({TaskCorrect = false}, 17/100),"
+        }
+      ],
+      "page": 23
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D’Asaro et al.\n24": "({}, 8/10)}"
+        },
+        {
+          "D’Asaro et al.\n24": "{EyesNotFollowingTarget = true, LowValence = false, BadPosture = true}"
+        },
+        {
+          "D’Asaro et al.\n24": "causes-one-of"
+        },
+        {
+          "D’Asaro et al.\n24": "{({TaskCorrect = false, Engagement = false}, 1/10),"
+        },
+        {
+          "D’Asaro et al.\n24": "({TaskCorrect = false}, 3/10),"
+        },
+        {
+          "D’Asaro et al.\n24": "({}, 6/10)}"
+        },
+        {
+          "D’Asaro et al.\n24": "{EyesNotFollowingTarget = true, LowValence = true, BadPosture = true}"
+        },
+        {
+          "D’Asaro et al.\n24": "causes-one-of"
+        },
+        {
+          "D’Asaro et al.\n24": "{({TaskCorrect = false, Engagement = false}, 3/10),"
+        },
+        {
+          "D’Asaro et al.\n24": "({TaskCorrect = false}, 2/10),"
+        },
+        {
+          "D’Asaro et al.\n24": "({}, 5/10)}"
+        },
+        {
+          "D’Asaro et al.\n24": "Appendix B"
+        },
+        {
+          "D’Asaro et al.\n24": "This appendix proves the following proposition6:"
+        },
+        {
+          "D’Asaro et al.\n24": "Proposition 7.1"
+        },
+        {
+          "D’Asaro et al.\n24": "Let D be any domain description such that D = D≤0. Then, MD>0(ϕ) = MD (ϕ) for any i-formula"
+        },
+        {
+          "D’Asaro et al.\n24": "ϕ having instants > 0."
+        },
+        {
+          "D’Asaro et al.\n24": "Proof"
+        },
+        {
+          "D’Asaro et al.\n24": "Since D = D≤0 the entire narrative of D (possibly) occurs at 0. Let ϕ be a formula that only has"
+        },
+        {
+          "D’Asaro et al.\n24": "instants > 0. According to PEC’s semantics,"
+        },
+        {
+          "D’Asaro et al.\n24": "i(W )εD (W )tD (W (0),W (> 0))\n(34)\nMD (ϕ) = ∑"
+        },
+        {
+          "D’Asaro et al.\n24": "W ||=ϕ"
+        },
+        {
+          "D’Asaro et al.\n24": "where i(W ) is the initial probability of the state in W , εD (W ) is the probability of occurrence of"
+        },
+        {
+          "D’Asaro et al.\n24": "the narrative in W , and tD (W (0),W (> 0)) is the probability of transition from the state W (0) to"
+        },
+        {
+          "D’Asaro et al.\n24": "W (> 0)."
+        },
+        {
+          "D’Asaro et al.\n24": "Since the formula ϕ only has instants > 0 we can group together worlds by their state at 1. That"
+        },
+        {
+          "D’Asaro et al.\n24": "is, we construct equivalence classes [W ] such that W (cid:48) ∈ [W ]\nif W (cid:48)(1) = W (1). Since D has no"
+        },
+        {
+          "D’Asaro et al.\n24": "narrative occurring at instants > 0, well-behaved worlds W w.r.t. D are such that W (I +1) = W (I)"
+        },
+        {
+          "D’Asaro et al.\n24": "for all instants I > 0 due to persistence. Since ϕ only has instants > 0, if a world W (cid:48) ∈ [W ] is such"
+        },
+        {
+          "D’Asaro et al.\n24": "that W (cid:48)\n||= ϕ then also W ||= ϕ, since W and W (cid:48) can only possibly differ at 0. Then, Equation"
+        },
+        {
+          "D’Asaro et al.\n24": "(34) continues as follows:"
+        },
+        {
+          "D’Asaro et al.\n24": "MD>0([W ]) = MD>0(ϕ)\n= ∑"
+        },
+        {
+          "D’Asaro et al.\n24": "[W ]||=ϕ"
+        },
+        {
+          "D’Asaro et al.\n24": "by deﬁnition."
+        },
+        {
+          "D’Asaro et al.\n24": "6 The notation used in this proof follows (D’Asaro et al. 2017) and (D’Asaro et al. 2020)."
+        }
+      ],
+      "page": 24
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Predicting humans: a sensor-based architecture for real time intent recognition using problog",
+      "authors": [
+        "G Acciaro",
+        "F Rossi"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 22nd Workshop \"From Objects to Agents"
+    },
+    {
+      "citation_id": "2",
+      "title": "Reasoning about Noisy Sensors and Effectors in the Situation Calculus",
+      "authors": [
+        "F Bacchus",
+        "J Halpern",
+        "H Levesque"
+      ],
+      "year": "1999",
+      "venue": "Artificial Intelligence"
+    },
+    {
+      "citation_id": "3",
+      "title": "Reasoning about Discrete and Continuous Noisy Sensors and Effectors in Dynamical Systems",
+      "authors": [
+        "V Belle",
+        "H Levesque"
+      ],
+      "year": "2018",
+      "venue": "Artif. Intell"
+    },
+    {
+      "citation_id": "4",
+      "title": "Multimodal child-robot interaction: Building social bonds",
+      "authors": [
+        "T Belpaeme",
+        "P Baxter",
+        "R Read",
+        "R Wood",
+        "H Cuay Áhuitl",
+        "B Kiefer",
+        "S Racioppa",
+        "I Kruijff-Korbayov Á",
+        "G Athanasopoulos",
+        "V Enescu",
+        "Et Al"
+      ],
+      "year": "2012",
+      "venue": "Journal of Human-Robot Interaction"
+    },
+    {
+      "citation_id": "5",
+      "title": "Foundations for a probabilistic event calculus",
+      "authors": [
+        "F Bikakis",
+        "A Dickens",
+        "L Miller"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 14th International Conference Logic Programming and Nonmonotonic Reasoning"
+    },
+    {
+      "citation_id": "6",
+      "title": "Probabilistic reasoning about epistemic action narratives",
+      "authors": [
+        "F Bikakis",
+        "A Dickens",
+        "L Miller"
+      ],
+      "year": "2020",
+      "venue": "Artif. Intell"
+    },
+    {
+      "citation_id": "7",
+      "title": "Towards a Logic-Based Approach for Multi-Modal Fusion and Decision Making during Motor Rehabilitation Sessions",
+      "authors": [
+        "F Origlia",
+        "A Rossi"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 20th Workshop"
+    },
+    {
+      "citation_id": "8",
+      "title": "Problog: A probabilistic prolog and its application in link discovery",
+      "authors": [
+        "L De Raedt",
+        "A Kimmig",
+        "H Toivonen"
+      ],
+      "year": "2007",
+      "venue": "In IJCAI"
+    },
+    {
+      "citation_id": "9",
+      "title": "Clingo = asp + control: Preliminary report",
+      "authors": [
+        "M Gebser",
+        "R Kaminski",
+        "B Kaufmann",
+        "T Schaub"
+      ],
+      "year": "2014",
+      "venue": "Clingo = asp + control: Preliminary report",
+      "arxiv": "arXiv:1405.3694v1"
+    },
+    {
+      "citation_id": "10",
+      "title": "Nonmonotonic causal theories",
+      "authors": [
+        "E Giunchiglia",
+        "J Lee",
+        "V Lifschitz",
+        "N Mccain",
+        "H Turner"
+      ],
+      "year": "2004",
+      "venue": "Artificial Intelligence"
+    },
+    {
+      "citation_id": "11",
+      "title": "Development of a computerized adaptive test of children's gross motor skills",
+      "authors": [
+        "C.-Y Huang",
+        "L.-C Tung",
+        "Y.-T Chou",
+        "H.-M Wu",
+        "K.-L Chen",
+        "C.-L Hsieh"
+      ],
+      "year": "2018",
+      "venue": "Archives of physical medicine and rehabilitation"
+    },
+    {
+      "citation_id": "12",
+      "title": "A Logic-based Calculus of Events",
+      "authors": [
+        "R Kowalski",
+        "M Sergot"
+      ],
+      "year": "1986",
+      "venue": "New Generation Computing"
+    },
+    {
+      "citation_id": "13",
+      "title": "Imagenet classification with deep convolutional neural networks",
+      "authors": [
+        "A Krizhevsky",
+        "I Sutskever",
+        "G Hinton"
+      ],
+      "year": "2012",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "14",
+      "title": "Computing lpmln using asp and mln solvers",
+      "authors": [
+        "J Lee",
+        "S Talsania",
+        "Y Wang"
+      ],
+      "year": "2017",
+      "venue": "Theory and Practice of Logic Programming"
+    },
+    {
+      "citation_id": "15",
+      "title": "A probabilistic extension of action language bc+",
+      "authors": [
+        "J Lee",
+        "Y Wang"
+      ],
+      "year": "2018",
+      "venue": "Theory and Practice of Logic Programming"
+    },
+    {
+      "citation_id": "16",
+      "title": "How to progress a database",
+      "authors": [
+        "F Lin",
+        "R Reiter"
+      ],
+      "year": "1997",
+      "venue": "Artificial Intelligence"
+    },
+    {
+      "citation_id": "17",
+      "title": "Head pose estimation using facial-landmarks classification for children rehabilitation games",
+      "authors": [
+        "S Malek",
+        "S Rossi"
+      ],
+      "year": "2021",
+      "venue": "Pattern Recognition Letters"
+    },
+    {
+      "citation_id": "18",
+      "title": "Some Alternative Formulations of the Event Calculus",
+      "authors": [
+        "R Miller",
+        "M Shanahan"
+      ],
+      "year": "2002",
+      "venue": "Computational Logic: Logic Programming And Beyond"
+    },
+    {
+      "citation_id": "19",
+      "title": "Affectnet: A database for facial expression, valence, and arousal computing in the wild",
+      "authors": [
+        "A Mollahosseini",
+        "B Hasani",
+        "M Mahoor"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "20",
+      "title": "Measuring physical functioning in children with spinal impairments with computerized adaptive testing",
+      "authors": [
+        "M Mulcahey",
+        "S Haley",
+        "T Duffy",
+        "P Ni",
+        "R Betz"
+      ],
+      "year": "2008",
+      "venue": "Journal of pediatric orthopedics"
+    },
+    {
+      "citation_id": "21",
+      "title": "Natural language processing: an introduction",
+      "authors": [
+        "P Nadkarni",
+        "L Ohno-Machado",
+        "W Chapman"
+      ],
+      "year": "2011",
+      "venue": "Journal of the American Medical Informatics Association"
+    },
+    {
+      "citation_id": "22",
+      "title": "A dialogue-based software architecture for gamified discrimination tests",
+      "authors": [
+        "A Origlia",
+        "P Cosi",
+        "A Rod À",
+        "C Zmarich"
+      ],
+      "year": "2017",
+      "venue": "GHITALY@ CHItaly"
+    },
+    {
+      "citation_id": "23",
+      "title": "Personlab: Person pose estimation and instance segmentation with a bottom-up, part-based, geometric embedding model",
+      "authors": [
+        "G Papandreou",
+        "T Zhu",
+        "L.-C Chen",
+        "S Gidaris",
+        "J Tompson",
+        "K Murphy"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the European Conference on Computer Vision (ECCV)"
+    },
+    {
+      "citation_id": "24",
+      "title": "Knowledge in Action: Logical Foundations for Specifying and Implementing Dynamical Systems",
+      "authors": [
+        "R Reiter"
+      ],
+      "year": "2001",
+      "venue": "Knowledge in Action: Logical Foundations for Specifying and Implementing Dynamical Systems"
+    },
+    {
+      "citation_id": "25",
+      "title": "Personalized models for facial emotion recognition through transfer learning",
+      "authors": [
+        "M Rescigno",
+        "M Spezialetti",
+        "S Rossi"
+      ],
+      "year": "2020",
+      "venue": "Multimedia Tools and Applications"
+    },
+    {
+      "citation_id": "26",
+      "title": "Markov logic networks",
+      "authors": [
+        "M Richardson",
+        "P Domingos"
+      ],
+      "year": "2006",
+      "venue": "Machine Learning"
+    },
+    {
+      "citation_id": "27",
+      "title": "Foundations of Probabilistic Logic Programming. River Publishers Series in Software Engineering",
+      "authors": [
+        "F Riguzzi"
+      ],
+      "year": "2018",
+      "venue": "Foundations of Probabilistic Logic Programming. River Publishers Series in Software Engineering"
+    },
+    {
+      "citation_id": "28",
+      "title": "A statistical learning method for logic programs with distribution semantics",
+      "authors": [
+        "T Sato"
+      ],
+      "year": "1995",
+      "venue": "Proceedings of the 12th International Conference on Logic Programming (ICLP95)"
+    },
+    {
+      "citation_id": "29",
+      "title": "A Probabilistic Logic Programming Event Calculus",
+      "authors": [
+        "A Skarlatidis",
+        "A Artikis",
+        "J Filippou",
+        "G Paliouras"
+      ],
+      "year": "2015",
+      "venue": "Theory and Practice of Logic Programming"
+    },
+    {
+      "citation_id": "30",
+      "title": "Probabilistic Event Calculus for Event Recognition",
+      "authors": [
+        "A Skarlatidis",
+        "G Paliouras",
+        "A Artikis",
+        "G Vouros"
+      ],
+      "year": "2015",
+      "venue": "ACM Transactions on Computational Logic (TOCL)"
+    },
+    {
+      "citation_id": "31",
+      "title": "The impact of an exergame-based intervention on children's fundamental motor skills",
+      "authors": [
+        "M Van Lambalgen",
+        "F Hamm",
+        "& John Wiley",
+        "Sons",
+        "N Vernadakis",
+        "M Papastergiou",
+        "E Zetou",
+        "P Antoniou"
+      ],
+      "year": "2008",
+      "venue": "Computers & Education"
+    },
+    {
+      "citation_id": "32",
+      "title": "A computerized adaptive testing advancing the measurement of subjective well-being",
+      "authors": [
+        "Y Wu",
+        "Y Cai",
+        "D Tu"
+      ],
+      "year": "2019",
+      "venue": "Journal of Pacific Rim Psychology"
+    }
+  ]
+}

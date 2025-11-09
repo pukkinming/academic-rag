@@ -1,0 +1,1764 @@
+{
+  "paper_id": "2502.00702v1",
+  "title": "Cardiolive: Empowering Video Streaming With Online Cardiac Monitoring",
+  "published": "2025-02-02T07:26:05Z",
+  "authors": [
+    "Sheng Lyu",
+    "Ruiming Huang",
+    "Sijie Ji",
+    "Yasar Abbas Ur Rehman",
+    "Lan Ma",
+    "Chenshu Wu"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Online Cardiac Monitoring (OCM) emerges as a compelling enhancement for the next-generation video streaming platforms. It enables various applications including remote health, online affective computing, and deepfake detection. Yet the physiological information encapsulated in the video streams has been long neglected. In this paper, we present the design and implementation of Car-dioLive, the first online cardiac monitoring system in video streaming platforms. We leverage the naturally co-existed video and audio streams and devise CardioNet, the first audio-visual network to learn the cardiac series. It incorporates multiple unique designs to extract temporal and spectral features, ensuring robust performance under realistic video streaming conditions. To enable the Service-On-Demand online cardiac monitoring, we implement CardioLive as a plug-and-play middleware service and develop systematic solutions to practical issues including changing FPS and unsynchronized streams. Extensive experiments have been done to demonstrate the effectiveness of our system. We achieve a Mean Square Error (MAE) of 1.79 BPM error, outperforming the videoonly and audio-only solutions by 69.2% and 81.2%, respectively. Our CardioLive service achieves average throughputs of 115.97 and 98.16 FPS when implemented in Zoom and YouTube. We believe our work opens up new applications for video stream systems. We will release the code soon.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Video streaming has exploded in recent years, and its growth shows no signs of slowing down. From social platforms like TikTok that have turned live video sharing into a global phenomenon, to Zoom, which has become synonymous with remote work and learning, video streaming has woven itself into the fabric of our daily lives. The popularity of these platforms has not waned even after the COVID-19 pandemic. The market is booming steadily  [12] , reflecting our collective appetite for real-time, interactive, and accessible content.\n\nOnline Cardiac Monitoring (OCM) can be one intriguing enhancement for the next-generation video streaming platforms. The rich tapestry of video and audio in streaming not only provides the context of actions, movement, human activities, speech, etc., but it also embeds subtle cardiac events, which have been long neglected in contemporary video streaming systems. Uncovering such physiological information would bring various benefits. In the realm of remote health, physicians could remotely access real-time cardiac data without the need for specialized equipment  [3] . Similarly, in video gaming, displaying a player's heart rate during live streams could add a new layer of excitement and engagement for viewers  [8] . Notably, in the Paris Olympics 2024, NBC introduced heart-rate streaming to add a new \"gamifying\" element for creating compelling  TV [6] . This technology could also play a pivotal role in online conferences or interviews, where emotional responses (including lies) inferred from cardiac data  [52, 56]  could enrich interactions, making them more nuanced and meaningful. Furthermore, the potential for this technology extends into security and fraud detection against digital impersonation techniques like deepfakes  [37, 46] . These multifaceted applications of OCM underscore its potential to revolutionize video streaming, making it not just a tool for communication and entertainment, but also a platform for health monitoring, affective computing, emotional intelligence, and security.\n\nHowever, existing online cardiac monitoring either relies on specified hardware [7](e.g., heartbeat belt) or introduces additional sensing modalities (e.g., Wi-Fi  [38] , mmWave  [69] , and UWB  [21]  etc.) which are not typically available in live streaming systems. These approaches suffer from extra cost and are often misaligned with live streams. Moreover, sensing-based approaches necessitate active transmission of the sensing signals  [47, 57] , which is often impractical to force in live streaming applications. A video streaming system that seamlessly enables online cardiac monitoring in pervasive contexts without additional hardware still lacks.\n\nIn this paper, we ask: Can we incorporate accurate and robust online cardiac monitoring into a video-streaming system without introducing additional hardware or modalities? To build such a system, we answer the following key questions:\n\nFirst, what information should we take from the video streaming system to monitor the cardiac activities? Existing works  [20, 33, 39, 40, 44, 71, 72, 73, 76]  on extracting heart rate from human faces focus on remote photoplethysmography (rPPG) which leverages solely video. These video-only solutions are more likely to suffer from low illumination conditions, head movement, and orientation. Recent progress in cardiac Vocal User Interfaces (VUIs)  [66]  inspires us to infer heart rate from human speech. However, audio signals are usually sensitive to noise interference and lack contextual background information, rendering them less robust in real-life scenarios and requiring user calibration. Conceptually, video provides detailed visual context while sound exhibits resilience to varying light conditions and body motions. Consequently, they offer complementary advantages to enhance cardiac monitoring. This motivates us to move beyond video-only or audio-only solutions, and investigate new designs to combine the naturally co-existed video and audio streams.\n\nSecond, how to tackle real-world problems to make this system robust and accurate? Unveiling the cardiac activity from video and audio is challenging. The information is nuanced and easy to be overshadowed by more prominent body movements, environmental dynamics, and/or ambient noise. Previous works  [33, 39, 40, 44, 73, 76]  primarily evaluate models on well-controlled datasets featuring static subjects under optimized light conditions and viewing angles, which simplifies the problems yet becomes unrealistic in real-world settings. The task gets even more challenging when deployed in live video streaming environments, due to the discrepancies in frame rates, degraded image quality, and presence of multiple individuals with mixed audio and video streams. To deliver an accurate and robust system in practice, novel techniques are desired to effectively discern subtle cardiac signals amidst various disturbances while combating fluctuating frame rates and drifted misalignment of the streams.\n\nThird, how to enable Service-On-Demand (SoD) cardiac monitoring in video streaming systems? Despite the promise of the integration, enabling SoD for users poses significant challenges due to the complexity of modern video streaming systems. These platforms vary widely, encompassing formats such as conferences  [5, 9, 11] , Video-On-Demand (VoD) [4, 10], live streaming [1, 13], etc, each with its own technical and operational nuances. These providers must balance the demands of real-time data processing with the need for immediate accessibility and minimal latency while not interfering with the original streams. At the same time, deploying our service on edge (e.g., browsers) benefits from preserving privacy, while getting access to the data yields another challenge. One naive way is to deploy our models over the WebRTC peers, but it lacks scalability and versatility. To this end, we are motivated to establish a plug-andplay service that can be seamlessly integrated into video streaming systems, whether hosted on servers or edges.\n\nIn this paper, we present CardioLive, the first-of-its-kind online cardiac monitoring system, that can continuously infer the heart rate in video streaming systems. At the core of CardioLive, we design a novel audio-video deep learning network, CardioNet, that can effectively learn the nuanced cardiac activities from facial regions and human voices. Specifically, we combine the temporal difference network and a frequency-aware block to model the temporalspectrum properties from videos. We directly exploit the raw audio to capture the cardiac activities by emulating the natural filtering effects of the human body. To handle the irregularly sampled data, we integrate time embeddings to provide temporal context. Finally, we fuse audio and visual features through a multi-head temporal attention mechanism, which synergistically combines the strengths of both modalities to produce a robust and precise cardiac monitoring solution.\n\nWe further devise systematic solutions to deploy CardioLive as a middleware service to support the SoD online cardiac monitoring. We introduce practical techniques to handle issues like changing FPS and unsynchronized streams. Through in-depth analyses of mainstream video streaming architectures, we realize a CardioLive service with effective data hooks and novel packet and buffer designs, which can be easily integrated with various video streaming systems.\n\nExtensive experiments have been done to validate the effectiveness of CardioLive. We have self-collected data through 8 different devices and 10 users. Our evaluation results show that CardioLive achieves a mean absolute error (MAE) of 1.79 BPM and root mean square error (RMSE) of 3.25 BPM, largely outperforming the video-only solutions by 69.2% in MAE and 61.4% in RMSE, and the audio-only solution by 81.2% in MAE and 76.8% in RMSE. We demonstrate CardioLive's generalizability to different environments, devices, and users. As for CardioLive service, we implement our system on two ends, a meeting platform (Zoom) and a content provider (YouTube), respectively. We achieve the overall throughput of 115.97 FPS and 98.16 FPS for each platform respectively, ensuring smooth updates without disrupting the original streams. These results highlight the robustness and accuracy of CardioLive, confirming its potential for widespread application in video streaming systems.",
+      "page_start": 1,
+      "page_end": 3
+    },
+    {
+      "section_name": "Contributions: We Conclude Our Contributions As Follows:",
+      "text": "❶ To the best of our knowledge, we are the first to combine video and audio for cardiac monitoring in video streaming systems. Our solution outperforms video-only or audio-only approaches, especially under adverse conditions in practice.\n\n❷ We develop CardioNet, a novel audio-video pipeline that can uncover the nuanced heart rate. Our experiments validate the robustness against different conditions. ❸ We implement CardioLive as a service-based plug-and-play middleware, that can seamlessly be integrated into mainstream platforms for real-time streaming.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Design Scope",
+      "text": "In this section, we will discuss what potential benefits CardioLive can bring about and the research scope of this paper.\n\nApplication Momentum: Consider a scenario where users on platforms such as Zoom or YouTube can access realtime cardiac monitoring. With just a single click, users see their heart rate, providing immediate insights into their emotional and physiological states, including what others are thinking about, whether they are in good health, and how exciting the game is. By online cardiac monitoring, these platforms could significantly enhance user engagement and interactivity. Particularly, CardioLive can provide unique and compelling benefits in the downstream applications:\n\n• Accessibility: In many video streaming scenarios, such as live product demonstrations on TikTok or Zoom interviews, using wearables or additional hardware is often impractical. OCM can overcome this problem by leveraging modalities that already exist within video streams, thereby increasing accessibility for audiences and facilitating broader engagement. It also promises wider dissemination of remote health, offering devicefree cardiac monitoring compared to the latest work  [19]  that relies on earphones.\n\n• Enhanced Analytical Abilities: While there exist alternative approaches for tasks including affective computing  [15, 43, 45, 65]  and deepfake detection  [23, 68] , the cardiac signal shows a strong correlation with them  [45, 62] , by capturing the subtle changes in heart rate. In this context, OCM provides an additional verification layer in a real-time and continuous manner, allowing experts to proceed to analyze behaviors. This analysis can help determine if someone is lying, happy, nervous, or engaging in deceptive behavior.\n\n• Entertainment: Our work also presents a distinct chance for augmented entertainment. With the rise of live streaming, the audience can access the heart rates of celebrities, which opens up a new world for the existing viewing experiences.\n\nDespite the potential, there are no existing solutions capable of achieving this integration without additional hardware.\n\nIn this work, we focus on addressing this gap by leveraging the co-existence of audio and video signals, specifically in scenarios where a speaker is talking. This can be common in both entertainment and telehealth use cases, including affective computing, remote health, deepfake detection, etc. At the core of OCM is the accurate prediction of cardiac information. Our system should robustly detect the heart rate from the video streaming systems by hooking the video and audio chunks. Once cardiac data is acquired, it can be further analyzed for various downstream tasks, including affective computing, remote health monitoring, and deepfake detection. Yet how cardiac monitoring is used for downstream tasks (e.g., emotions, lies, etc) is not the focus of this paper.\n\nAudio-Video Pair: We intend to integrate the video and audio information for cardiac monitoring. Leveraging the natural co-existence of audio and video modalities offers contemporary benefits as follows:\n\n• Ubiquity: Video and audio streams are the most fundamental components in video streaming systems, while no additional hardware is needed.\n\n• Feasibility: Both video and audio data contain the cardiac information (discussed in §3.1).\n\n• Complementarity: Audio and video offer different strengths and weaknesses. Audio is less interfered with by motion and light but is sensitive to noises. Video is more robust to noises but will fail in various body movements and non-optimized view angles. We will elaborate the detailed analyses in §3.\n\nWe argue that in our primary target application scenarios-such as video conferencing, live streaming, and remote healthcare-human speech is inherently present alongside video. Our goal is to fully leverage the potential of these naturally coexisting signals. Additionally, our system is welldesigned to seamlessly fall back to a video-only solution when audio quality degrades.\n\nCardioLive as a service: To deploy such an OCM system, a straightforward way is to build a self-hosted WebRTC service, which, however, does not scale to existing video streaming systems. The recent rise of Software as a service (SaaS) provides a scalable and robust software design paradigm to construct our system. Therefore, for the sake of versatility, we aim to establish a microservice to host CardioLive for seamless integration with mainstream video streaming platforms.\n\nPrivacy Concerns: Audio and video data are inherently sensitive and vulnerable to privacy breaches. However, in our proposed scenarios, privacy concerns are mitigated for several reasons. First, the primary purpose of audio and video data in this context is for communication. Therefore, participants are already receiving this data during the meetings, regardless of whether our system is activated or not. In other words, all participants have consented to share their audio and video within the video streaming applications, without requiring extra sensitive data inputs. Additionally, our system is implemented as a middleware solution within existing video streaming systems. These contemporary systems are subject to stringent privacy regulations. CardioLive will operate in compliance with these established privacy frameworks.\n\nIn a nutshell, the audio-video pair appears to be an attractive choice for ubiquitous and practical OCM, yet it entails numerous challenges to build an accurate and robust multi-modal algorithm and system. We will present our model design in §3 and leave the system implementation in §4.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Cardionet Design",
+      "text": "In this section, we will present our design of CardioNet. We will first describe the underlying fundamentals of inferring cardiac activity from video and audio. Then, we will illustrate our design of model.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Kinetics For Cardiac Learning",
+      "text": "Principles: In this section, we introduce the principles of extracting cardiac information from video and audio data. The fundamental concept revolves around the variations in blood pressure caused by cardiac activities, which manifest as quasi-periodic deformations of blood vessels. Since blood vessels circulate blood throughout the body, including the face, lungs, and throat, we can infer heart activity in these areas through video and audio analysis. Specifically, when a light illuminates the skin, subtle color variations caused by pulse-induced blood flow can be captured through video streams. Additionally, as the lungs supply airflow for vocal fold vibrations and the throat modulates voice production, subtle cardiovascular motions associated with these processes can be detected in human speech.\n\nIn video streams, when light hits the skin, subtle color changes from pulse-induced blood flow can be captured, as described by the Dichromatic Reflection Model (DRM)  [49] . We define the Domain of Interest (DOI) of the facial areas as Π ∈ R Nv×C×H f ×W f , and Π i,j ∈ Π denotes the RGB pixels at the i-th row and the j-th column. To bridge the color with RGB values, we model the spectral relationship as:\n\nwhere I(f ) is the illumination spectral components, * is the convolution operation, and ∆(f ) is the reflection modulator, comprising specular reflection ∆ s (f ) and diffuse reflection ∆ d (f ). Specular reflection occurs at the epidermis level, while diffuse reflection penetrates into the hypodermis, reflecting off capillaries and blood vessels, encapsulating physiological spectrum H(f ). We further decompose I(f ) and ∆ s (f ) into static and dynamic components, where dynamic components are denoted as µ(H(f\n\nand ν(•) are transfer functions without analytic expressions. Our goal is to infer h(t) from Π, where h(t) is the temporal counterpart of the spectral representation H(f ).\n\nSpeech is a complex auditory phenomenon that carries biological information. The airflow is produced from the lungs, which is then modulated by the vocal folds within the larynx to generate sound. This sound is further shaped by the movements and positions of the articulatory organs, such as the tongue and throat. Formally, the speech signal Ξ can be formulated in the frequency domain as\n\nwhere L(f ) is the sound energy source. R(f ) is an acoustic filter creating formant, affected by the vocal tract's physical attributes. Blood flow in surrounding vessels, particularly carotid arteries, influences the acoustic properties  [66] .These cardiovascular dynamics are encapsulated in the model by integrating the physiological signal Ĥ(f ) into R(f ).\n\nObservations: Existing video-based solutions  [20, 39, 40, 60, 71, 76] , though many, are trained on small datasets with controlled environments, e.g., PURE  [50] . Their performances will degrade greatly when training and testing on more complicated datasets, e.g., MMPD  [53] . As can be seen from Fig.  2 , the existing video-based solutions cannot effectively capture the cardiac semantics across different body movements and light conditions. These results present a grand challenge for cardiac learning. Meanwhile, different light conditions and body movements will degrade the performance from the video-based approaches, where audio can help  [66] . Therefore, our goal is to design a dedicated audio-visual network to extract those motions.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Model Design",
+      "text": "Given the underlying cardiac motions, we aim to devise a learning approach to extract h(t). As shown in Fig.  3 , the DOI pairs, i.e., frames Π and audio clips Ξ, will be fed into video encoder E v and audio encoder E a , respectively, to acquire the latent representation. Then we devise a fusion network to aggregate the two modalities. We will elaborate on the details of the design below.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Video Branch Design",
+      "text": "We will first introduce E v .\n\nTemporal Differential Block (TDB): The input video frames Π will first be processes as, i.e.,\n\nNote that in online learning, we only have past information, so we perform backward differentiation. The key idea is, we treat the psychological activities as tiny local \"motions\". It efficiently captures the changes between consecutive frames  [59] . Furthermore, TDB plays a crucial role in isolating dynamic features while suppressing static components present in the video data, as stated in Eq. (1). Furthermore, temporal difference enhances the contrast of the cardiac signal h(t) within the latent space, facilitating more effective feature extraction and subsequent analysis. Thereafter, they are fed into convolution networks and upsampled to meet the length of video features. It is also imperative to capture the static information inherent in the video frames. To this end, we integrate a parallel pathway to process the original video frames, allowing for a more comprehensive understanding of the environment. We then introduce lateral connections to facilitate fusion of static and dynamic information.\n\nStatic and Dynamic Path: In addition to dynamic modeling through the temporal difference block described earlier, it is imperative to capture the static information inherent in the video frames. While the temporal difference mechanism offers a means to extract low-resolution and sparse representations, it inevitably overlooks crucial static details such as appearance and illumination. Recognizing the significance of this static information, we integrate a parallel pathway to process the original video frames. This parallel pathway begins with passing the original video frames through a convolution block, followed by downsampling using max pooling , i.e.,",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "S(Π",
+      "text": "This can preserve static information, allowing for a more comprehensive understanding of the environment. To ensure mutual awareness and coherence between the dynamic and static pathways, we introduce lateral connections to facilitate fusion. Specifically, bidirectional connections are employed to merge features by downsampling the static branch and upsampling the dynamic branch , i.e., This fusion mechanism enables the model to effectively leverage insights gained from both temporal dynamics and static features, enhancing overall performance and interoperability.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Motion-Aware Aggregation (Maa):",
+      "text": "The above design incorporates temporal information with static and dynamic modeling. After lateral fusion, we pass the intermediate latent to the bottleneck block , which gradually reduces the channels of the feature while being effective to extract the spatial information and increase the expressive power. We recognize the importance of spatial modeling in mitigating the motion noise from head movement. Unlike video recognition tasks, where the relative location of the pixel is vital, we care more about how to track the variations of these pixels over time. To this end, we introduce a self-attention mechanism for frame-wise aggregation between consecutive frames. Our goal is to establish a mapping between temporal pixel variations and consecutive spatial information. Given the latent space Π ∈ R T × Ĉ× Ĥ× Ŵ , we query the one pixel at time t, i.e., Πt i,j and compute the attention with previous frame,\n\nHere ∆i = ∆j = k/2, which is the perception grid size. d k is the dimension of Πt-1 i±∆i,j±∆j . ρ t captures the inter-frame pixel displacement, drawing attention to motion while enhancing temporal features between frames. Subsequently, we can get the weighted sum of temporal neighbor frames and aggregate with a query to enhance the original pixel:\n\n) This mechanism scrutinizes pixel displacements across consecutive frames, akin to tracing the path of movement within a sequence of images. Each pixel's attention weight encapsulates its significance in depicting motion, allowing the model to recognize subtle shifts and fluctuations over time.\n\nThis mechanism allows the model to selectively attend to relevant spatial features and enhance the temporal motion modeling. In essence, this scheme can be conceptualized as a motion vector, dynamically tracking and encoding the intricate temporal variations within video data. By leveraging the self-attention mechanism, The model scrutinizes pixel displacements across consecutive frames, akin to tracing the path of movement within a sequence of images. Each pixel's attention weight encapsulates its significance in depicting motion, allowing the model to recognize subtle shifts and fluctuations over time. Through this process, the model elucidates the underlying motion patterns embedded within the video stream.\n\nFrequency-Aware Block (FAB): After applying motion attention aggregation, we acquire the enhanced feature Π ∈ R T × Ĉ× Ĥ× Ŵ . Our previous focus has been on modeling video dynamics in the temporal domain. These are very effective designs for cardiac time series learning. Moreover, given the intrinsic property of h(t), which turns out to be a quasi-periodic signal, it becomes imperative to incorporate frequency features into our analysis. Here, the term \"frequency\" does not merely refer to the spectrum of color space within the video; rather, we aim to capture the underlying frequency variations of pixels over time. Inspired by DTF  [42] , we attempt to explicitly incorporate FFT in our design. For each pixel Πi,j ∈ R T × Ĉ , we apply FFT along the temporal dimension to acquire the feature spectrum Ψ Πi,j (f ). To capture the frequency information, we introduce a learnable frequency filter Ψ G (f ) ∈ R Ĉ×N f . We use IFFT to get the modulated temporal feature. With FCB, we can enlarge the receptive field and profile cardiac time series with frequency constraints.\n\nIrregular Sampled Time Embedding: Another challenge of online cardiac learning is the fluctuating FPS. To this end, we introduce the timestamp feature to handle the irregular sampled time learning. Technically, we can acquire the set of timestamps {t i } Nv i=1 for each frame. We incorporate a timestamp embedding E t design and fuse it with Θ Ev (Π). Specifically, we employ a frequency embedding scheme, which computes triangle embedding based on a geometric progression of frequencies up to f m . We first derive a set of frequencies with the size of embedding dimension N t d , i.e.,\n\nwhere\n\nThen the angle for each timestamp i is given by\n\nFinally, the timestamps are embedded through trigonometric encoding by concatenating sine and cosine values for each angle.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Audio Branch Design",
+      "text": "We then introduce the design for the audio encode E a . As discussed in §3.1, human speech is modulated by the time-varying filter R(f ). And the cardiac series is encapsulated in R(f ). Inspired by this filtering process, we opt to emulate it within our design. We target directly processing raw audio in our case. We will justify the rationale first, followed by our design.\n\nRaw Audio: Traditional audio-based learning often leverages mel-spectrogram, a common practice for tasks like speech recognition. However, this method may not be suitable for our task. Our predictions, h(t), manifest as quasiperiodic signals, ideally shown as straight lines on a mel-spectrum. But because cardiac activities are variable, these lines will exhibit randomness on a temporal-frequency map. Also, the location of the \"straight\" line has physical meanings, rather than a simple pattern. Therefore, we resort to learning from the raw audio signals directly. The key insight is, the process of producing speed from our vocal organs is composed of several acoustic filters, as indicated in §3.1. We can simulate the effect of filters and incorporate them in our design.\n\nTemporal-Frequency Filter (TFF): The temporal format of Eq. (2) can be rewritten as ξ(t) = l(t) * r(t), where ξ(t) is the speech signal. l(t) represents the source of the sound while r(t) is combination of source filters. To this end, we adopt the SincNet  [48] , which can be expressed as,\n\nf θ i,2 and f θ i,1 denotes the two cutoff frequencies. We can treat the two cutoff frequencies as learnable parameters. We then perform convolution between r i (t) and raw audio ξ(t). They will be fed into 1D convolution blocks for feature extraction.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Fusion Block Design",
+      "text": "Until now, we have handled the video feature Θ Ev (Π) and audio feature Θ Ea (Ξ). We now present the design of the fusion network. We opt for the late-fusion scheme, as the relationships between audio and cardiac activity, as well as video and cardiac activity, are not initially apparent. Within the fusion block, we aim to address two challenges: 1) aligning the audio and video features along the temporal domain, and 2) handling the sampling rate mismatch between the audio and video features. To do so, we propose a multi-head temporal attention fusion block. Subsequently, the fused feature will be passed through linear fully connected layers. To achieve this, we adopt a temporal attention-based fusion scheme. Technically, we exploit video features as the query, and audio features as the key and value , i.e.,\n\nThe fused feature Θ f (Π, Ξ) will be fed to the output layer.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Loss",
+      "text": "In this part, we will elaborate our loss function design.\n\nIn the time domain, we calculate the focal loss:\n\nwhere ĥ (t) is the predicted cardiac series. ϵ and η are the balancing coefficient and focusing coefficient, respectively. M(•, •) represents the mean square error (MSE). Given the inherent complexity and variability of physiological signals, focal loss offers a more robust framework for capturing peaks. Besides, we also introduce similarity loss,\n\nThe range of L sim is [0, 2], where L sim = 0 represents perfect alignment and is the optimization goal. Additionally, as we are learning quasi-periodic signal, we incorporate spectral loss as well. Specifically, we calculate the FFT-MSE loss,\n\nwhere Ψ(•) represents the spectrum function. To wrap up, we calculate the weighted sum of the above three losses,\n\nwhere α, β and γ are weights to balance the loss items. Thus far, we present the design of CardioNet. To our best knowledge, it is the first audio-visual network designed for cardiac learning. We will demonstrate the performance in §5.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Cardiolive Design",
+      "text": "In this section, we will introduce the design of CardioLive. We will introduce the design goal of CardioLive in §4.1, followed by our detailed designs of service in §4.2 and §4.3. We will introduce the preprocessing in §4.4.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Design Goal",
+      "text": "Modern video streaming systems are complicated, and integrating OCM into them is non-trivial. As shown in Fig.  6 , the content is sent through cloud servers spanning across different locations globally. Besides running the data center and cloud computing, these video streaming systems offer a range of application services, such as content summarization, transcriptions, and AI-driven interactive features. Note that for content providers like YouTube, Netflix, and many VoD providers, integrating new features is relatively straightforward because they can preload resources in their data centers. However, this does work well with streaming systems with live content generation and interactions. On the other hand, deploying cardiac monitoring on edge devices is also valuable. Users will be concerned about how the sensitive data are communicated over the network.\n\nTherefore, to achieve SoD cardiac monitoring service, we need to both consider deploying the cardiac monitoring services on the edge ends, e.g., browsers, and application services. Notably, direct access to data that manufacturers possess is often restricted by stringent privacy regulations affecting external developers. To this end, we aim to package CardioLive into a service, which both end users and manufacturers can readily access. At a high level, we are not concerned about specific implementations on specific platforms, but aim to develop CardioLive as a microservice.\n\nWe utilize data hooks to capture video and audio streams, organizing them into buffer queues as data packets, which will be fed to the inference engines, as detailed below.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Buffer Design",
+      "text": "Data Hook: We will first introduce data hooks to get the video and audio streams, namely onVideoDataReceived() and onAudioDataReceived(). Meeting platforms like Zoom usually support in-app bots that virtually participate in calls. We can leverage the bots to access the raw data streams, as shown in Fig.  7a . Meanwhile, increasingly more video streaming systems are based on web pages, e.g., YouTube, Bilibili, etc. Direct accessing the video streams of this platform is rather complicated and violates the policies. To this end, we leverage WebGL and WebAudio that exist in modern browsers to get the data streams, as shown in Fig.  7b . The browsers usually provide the Document Object Model (DOM), a programming interface to manipulate the structure, style, and content of web content. Our service will first access the canvas, an element for graphics on a web page, through DOM. The canvas offers a bitmap where each pixel can be individually manipulated. We get the rendering context through WebGL, which operates as a rendering context of canvas using the underlying GPU. We create an offscreen canvas that is rendered off the main thread and read the pixels through WebGL, preventing it from interfering with the normal UI updates. Meanwhile, we capture the audio from the video element through WebAudio, a versatile framework to handle audio operations on the web. We record the timestamp of the audio and video as well. Through the data hook, we can acquire the video and audio streams. Then we will construct them into data packets and buffer queues.\n\nData Packet: Normally, audio and video are encoded in separate ways. In meeting platforms, the video frames are usually encoded in YUV format. They are designed for the best transmission efficiency. Encoding the data in YUV space allows fewer total bits of space in a video stream for the colors to be shown. To recover the original RGB streams, we have first to decode the YUV streams. To reduce the cost of decoding, we adapt a streaming-based decoding pipeline from GStreamer [2]. We set the appsink property for receiving the RGB data and assign appsrc for handling YUV encoding. We set the transformation in asynchronous mode so that the incoming frames will not conflict with the current operations. After that, we will construct the collected frames in buffers.\n\nThen we feed the video-audio pair into the forwarding packets. For audio and video streams, we apply the same packet format, which contains a unique header, an identifier, the data size, timestamps, and the encoded payload data, as illustrated in Fig.  8 . The unique header is designed to judge whether the packet is correctly constructed and not mixed with other packets. The identifier is assigned to indicate whether it is audio or video data packets. We embed the received timestamps to denote the sequence of the video and audio, which will be further used for synchronization.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Service Design",
+      "text": "We abstract our system as a plug-and-play service. Our service first gets the hooked video and audio packets as the input. The data will be preprocessed and fed to the inference engine for output. Our design overcomes the two challenges: fluctuating FPS and unsynchronized audio and video streams.\n\nChanging FPS: The fluctuating FPS will lead to two subproblems. Initially, the video streaming systems will ideally have 30 FPS but in reality undersampled at the receiver's end, as illustrated in Fig.  9 , with some outliers present as well. Additionally, the frame rate is not constant, resulting in a varying number of frames within a given window. However, our model assumes a fixed 4-s input, with 120 frames of video  (30 FPS)  and 32000 samples of audio (8kHz). In other word, we have to adapt the real input size to the model. To this end, instead of padding empty frames at the end, we duplicate one single frame circularly. For instance, if the actual FPS is 25, we insert an additional identical frame after every 5 frames to approximate a smoother transition to 30 FPS. Any remaining gaps at the end of the sequence are filled by repeating the last frame. As for overlarge FPS, we downsample the frames. For the audio clips, as 8kHz is much lower than the typical sampling rates (usually 32kHz or 44.1kHz) in modern video streaming systems, we can concatenate the received audio chunks and safely downsample them to 8kHz.\n\nAudio Video Synchronization: The audio-visual misalignment is a more severe issue than changing FPS. As we are hooking audio and video from separate channels, they are likely to lose synchronization with the increase of time. As can be seen from Fig.  7b , the starting time of the audio and video will be misaligned quickly with accumulating drifts. To overcome this issue, we develop a scheme to ensure the audio and video chunks are synchronized before sending to the inference engine. Given the audio and video streams S a (t) and S b (t), they will be extended to the buffer queues Q a (t) and Q v (t), respectively. We also maintain t a and t v as the starting time of audio and video chunks, respectively. We denote ∆t n = t k a -t k v as the temporal drift between audio and video streams at k-th trial. To mitigating the continuously increasing ∆t n , we align the start time at each step k as, when ∆t n is larger than the threshold ϵ t . We use ϵ t = 0.3s. Then the ending time will be determined by t k end = t k start + t w , where t w is the window lengths. Note that we are adopting a sliding window scheme, with window length t w and step length t s . For the next window, the start time will be updated by finding the timestamp closest to, i.e., t k+1 a = t k a + t s and t k+1 v = t k v + t s . Meanwhile, we will pop the items that have been processed from the buffer queues, i.e.,\n\nWe then feed the synchronized pairs for inference.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "Preprocessing",
+      "text": "In this section, we will discuss the preprocessing pipelines. We use OpenCV face detector to find the faces. We also perform voice activity detection to segment the talking period. Additionally, we need to separate multiple persons, if any, and match their audio and videos.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Multi-Person Separation:",
+      "text": "We deduct the more challenging multi-user case into the single-user case by separating them. Initially, face detection can determine the number of participants. To ensure facial resolution, we focus on the largest N f faces, disregarding the others. Similarly, we will only consider N f speech clips with the largest power spectrum when separating audio. For efficiency, we choose N f = 2 in our paper. At this stage, the separated faces and speech segments may not correspond to each other. To address this mismatch, we proceed with audio-visual matching as described next.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Audio-Visual Matching:",
+      "text": "To realize the matching between speaking clips and facial hints, we adopt a cross-attention scheme  [31, 55] . Specifically, after the encoders, we get two features M a and M v . These features are expected to encapsulate relevant speaking activities by employing temporal encoders  [14, 30] . To fuse the audio and video features, The audio features M a are integrated with the video data by treating M v as the target for querying through an attention framework. Conversely, the video features M v interact with Q a , representing the audio query sequences. The outputs are concatenated together along the temporal direction.",
+      "page_start": 12,
+      "page_end": 12
+    },
+    {
+      "section_name": "Evaluation",
+      "text": "In this section, we systematically evaluate CardioLive. We aim to answer the following questions:\n\n1. To what extent does CardioLive outperform existing video-only and audio-only solutions?\n\n2. How effectively does CardioLive perform across various scenarios, including edge cases?\n\n3. How does the streaming service of CardioLive perform when integrated into real-world video streaming systems? Data Collection: There is no existing dataset that can fit our requirements, with audio-visual pairs and clear heart rate ground truth. Therefore, we self-collect the dataset through 8 commodity devices which span multiple mainstream platforms (iOS, Android, Windows, Mac), major brands, and device types (smartphones, tablets, laptops, and webcams) released between 2018-2024: Logitech C930 Webcam, OPPO Reno 2Z, Redmi Note 5, Honor 20i, MacBook Air M2, iPad 2018, iPad 2023 Pro, and iPhone 14. We leverage Polar H10 [7] to collect the ground truth. We utilize Flutter to develop a cross-platform application capable of recording raw video and audio, while also establishing the connections to the ground truth via MQTT. Our dataset comprises recordings from 10 users of diverse genders and regions. They are requested to read 10 materials  [51] , counting for 2,800 words. Each round lasts for 40 minutes. They wear the heartbeat belt when they are reading. We do not restrict users to a fixed distance from the recording devices. We leverage a tripod along with a ring light to cast different light sources on the users. We collected a total of 84,666 data clips, which are clipped into facial regions with 4-s windows. We resize the video frames to 72×72×3 and the audio is resampled to 8kHz. The missing frames will be duplicated adopting the same scheme as §4.3 mentions. We gain IRB from our university board. Moreover, we also make use of two publicly available video-only datasets: PURE  [50]  and MMPD  [53]  to validate the video-only solution.\n\nSoftware: We implement CardioNet through Pytorch 2.4.0. The model is trained via a single-card NVIDIA A100 80GB. We train the model with the learning rate of 1e-3, AdamW optimizer, batch size of 16, OneCycle scheduler. We use Pytorch JIT to compile the model. We write 2000+ lines C++ code to implement the service in Zoom and 1500+ lines JavaScript code for developing the service in the extension.",
+      "page_start": 12,
+      "page_end": 13
+    },
+    {
+      "section_name": "Deployment:",
+      "text": "We propose two deployment paradigms, web-based and app-based. For the web-based one, we develop a browser extension that operates CardioLive in the background, which continuously captures audio and video data for processing, with results displayed on a canvas within the interface. In the app-based deployment, we register a bot in compliance with the policies of the video streaming companies. This bot joins the sessions as a member, similar to other participants, with the consent of all members. The data hook extracts audio and video towards inference engines. The processed results are delivered through a notification system. Notably, the inference can be performed either on the company's cloud server or locally on the user's device. In our real-world evaluation, we perform inference on the user's device (Xiaoxin 16 Pro with AMD Ryzen 7 5800H), demonstrating the robustness and efficiency of our model.",
+      "page_start": 13,
+      "page_end": 13
+    },
+    {
+      "section_name": "Comparative Study",
+      "text": "We compare our CardioNet with various baselines. We choose the SOTA video-only baselines: TS-CAN  [39] , DeepPhys  [20] , PhysNet  [71] , EfficientPhys  [40] , RhythmFormer  [76] , POS  [60] . The last one represents the signal processing based rPPG approaches. We also reimplement VocalHR  [66] , the recent work that employs human speech for detecting heart rate. Through this study, we will justify our superior performances using both audio and video modalities.\n\nDistances: We first experiment with different distances, ranging from 0.5m to 2.5m. We apply the logarithmic scale to each graph, with the base of 10. As shown in Fig.  12 , while the error increases with distance for all methods, our approach consistently outperforms other baseline models at all tested distances. CardioNet achieves a MAE of just 1.   of 8.12 BPM at the same distance, which is 82.8% higher than ours. Even at the maximum testing distance of 2.5 meters, CardioNet is still 63.1% better than RhythmFormer and 77.9% better than VocalHR. This demonstrates the fusion of audio and video signals in CardioNet significantly enhances the overall performance. Besides, we observe the identical patterns of MAE, MAPE and RMSE, we will mainly report MAE for simplicity.\n\nAngles: We evaluate our model across a range of angles from 0°to ±60°at a distance of 1 meter, as shown in Fig.  13 . As the viewing angle increases, video-based methods suffer from significant performance degradation due to reduced visibility of facial features. However, CardioNet, through audio-visual fusion, maintains robust performance across all angles. While the video quality deteriorates with extreme angles, audio signals remain largely unaffected by viewing angles. Even at extreme angles like ±60°, where video signals typically falter, our model achieves up to 38.9% lower MAE compared to baseline models, highlighting its superior resilience in challenging conditions. This result underscores the critical role of the audio modality in compensating for the loss of visual information at extreme angles.\n\nNoise Levels: We test heart rate estimation under noise levels from 30 dB to 38 dB. As in Fig.  14 , increasing noise leads to higher absolute error. Nonetheless, CardioNet consistently outperforms the SOTA audio-only model VocalHR. This can be attributed to our temporal frequency filter design and the video modality which provides complementary information that remains stable under acoustic noise. For instance, at 30 dB, our model achieves a MAE of 1.25 BPM, significantly lower than VocalHR's 8.64 BPM, and maintains this advantage even at 38 dB. The fusion network learns to adaptively reduce reliance on noisy audio features while leveraging more stable visual cues. The CDF curves show that CardioNet achieves higher cumulative probabilities at lower error thresholds, indicating its resilience to noise.\n\nNoise Sources: We analyze the impact of noise sources such as rain, music, and TV shows in Fig.  15 . CardioNet demonstrates strong noise resilience, particularly with rain noise, where it significantly outperforms VocalHR, achieving a MAE of just 1.94 BPM compared to 12.93 BPM. Even with more complex noise like music and TV shows, our model maintains lower MAEs, showcasing its robustness in diverse acoustic environments. This highlights the effectiveness of video modalities when facing the ambient noises.\n\nBody Motions: Body motion can significantly impact the performance of heart rate detection models. To validate the robustness of our approach under different body motion scenarios, we evaluate the model in three typical body movements: walking, left-right (LR) rotation, and up-down (UD) rotation, as in Fig.  16 . Despite the motion artifacts, CardioNet maintains robust performance, achieving an MAE of 1.35 BPM in the UD scenario, and consistently outperforms baselines by significant margins in all motion types. Our model benefits from the unique design of the motion-aware aggregation and temporal differentiation block. These prove the robustness of our model against body motions by effectively employing video plus audio modalities.\n\nVideo-only Solutions: We evaluate our approach on open datasets that contain only video data. As shown in Fig.  17 , our method consistently ranks among the top among rPPG-based solutions. We achieve MAE errors of 2.09 and 1.12 BPM on PURE and MMPD datasets, respectively. It is important to note that during evaluation, we disable the audio branch of CardioNet. This ensures that our video encoder independently captures heart-related activities. In Different Devices: We evaluate our model on various devices under inter-device and cross-device conditions, as shown in Fig.  20 . For inter-device testing, the average MAE is approximately 2.95 BPM. In cross-device scenarios, the average MAE is around 8.07 BPM. While there is a drop in accuracy, the model still delivers acceptable performance across different hardware platforms. This suggests that despite some variability, the model remains robust and capable of providing reliable heart rate estimates on a wide range of devices.\n\nDifferent Users: We evaluate our model's performance across a diverse set of users in Fig.  21 . Our model's user generalization capability stems from learning universal cardiac patterns rather than user-specific features. The temporalspectral modeling captures fundamental physiological characteristics that are consistent across individuals. Under inter-user conditions, the average MAE is about 1.93 BPM. In cross-user scenarios, the model still performs reasonably well, with an average MAE of 7.53 BPM. Despite the diversity, the model maintains a usable level of accuracy, underscoring its generalizability across different user groups. This demonstrates that our feature extraction pipeline effectively captures device-independent cardiac patterns.",
+      "page_start": 13,
+      "page_end": 16
+    },
+    {
+      "section_name": "Multi-Person Scenarios:",
+      "text": "We evaluate the multi-person scenarios to justify the effectiveness of our preprocessing. We set the maximum number of people to be separated as two and crop the face region to a size of 72×72 pixels. In our test, two users read materials simultaneously while sitting next to each other. We apply the facial and sound separation and match their audio and face regions. The test results show an MAE of 7.83 BPM and 8.13 BPM for each person, respectively. Although we observe some performance drops, our method still effectively distinguishes between the two individuals. Notably, the heart rates of the two people vary over time, with average heart rates of 76.17 BPM and 68.55 BPM, respectively ,showing our system can track distinct physiological states simultaneously.",
+      "page_start": 16,
+      "page_end": 16
+    },
+    {
+      "section_name": "Cardiolive In The Wild",
+      "text": "In this section, we will evaluate how CardioLive works as a service. We assess the service on two ends: the meeting platform and the online content providers.\n\nMeeting Platforms: We choose Zoom as one of online meeting platforms, which provides the external developers the SDK to acquire access to the raw data. The average FPS is 28.4. We exploit the data hooks to acquire the streams and      leverage buffer queues to hold the packets, as described in §4.2. The model consumes on average in 850ms on CPU. We choose a step size of 1s, and a window size of 4s. It means every second, we feed the 4-s windows for inference. The overall system latency averages 1.03 seconds, as depicted in Fig.  22b . Notably, latency was primarily elevated at the start due to the initial model warm-up period  [36] . This means our systems can run inference in real-time. Furthermore, we calculate the throughput of the whole system. We measure the time since the last update of heart rate. As we are feeding 4-s window of video and audio frames, the throughput is calculated as the volume of video and audio data processed per update period. As in Fig.  22b , the average throughput of the system is 115.97 FPS, which is prominently larger than the common video FPS. It means that our systems can hold the service robustly without any freezes.\n\nOnline Content Providers: Online content providers such as YouTube often host their services in the web browser. We implement such a service in a Chrome extension. We employ the data hook developed from WebGL and WebAudio to acquire the streams. The average FPS is 26.97. The overall latency of our service is 1.23s, comparable to our step size 1s, as can be observed from Fig.  22a . Meanwhile, the average throughput is 98.16 FPS, with a maximum throughput of 114.41 FPS. These results also justify our service will run smoothly in the extensions.",
+      "page_start": 16,
+      "page_end": 17
+    },
+    {
+      "section_name": "Related Work",
+      "text": "In this section, we will summarize the existing works.\n\nCardiac Monitoring: Cardiac information is crucial for health monitoring, affective computing  [26, 67]  and deception analysis  [16] . Traditional approaches in hospitals, e.g., electrocardiograms (ECGs) and CT scans  [3] , provide the most accurate data but require professional operation and are prohibitively expensive and cumbersome for everyday use. Recent advancements have focused on more portable solutions. Earable-based systems  [17, 19, 27]  allow earpieces to detect cardiac information, but they either need specific probing signals or custom hardware, limiting their widespread adoption. Similarly, wearable solutions necessitate constant wear, which is not practical for all users. Wireless technologies, including Wi-Fi  [38] , mmWave  [69] , and UWB  [21] , etc, are constrained by specific hardware which is not commonly available in video systems . Solutions using active acoustic sensing  [47, 57, 58, 74]  with smart speakers rely on pseudo-inaudible signals, which can be intrusive to human hearing and increase hardware burden. Video-based solutions use optical means to measure blood volume changes in tissues. Signal processing  [22, 34, 60, 61]  and deep learning  [20, 33, 39, 40, 44, 71, 72, 73, 76]  techniques have been developed to enhance these methods. Yet these solutions are sensitive to low light conditions, head/body movements, and typically perform poorly outside controlled environments. VocalHR  [66]  proves the potential of extracting heart rate from human speech. Although it leverages human speech effectively, it is limited by range, requires pre-calibration, and cannot distinguish multiple individuals.",
+      "page_start": 17,
+      "page_end": 17
+    },
+    {
+      "section_name": "Inter-Group",
+      "text": "Cross-Group   Differently, CardioLive is the first to combine the complementary and naturally co-existing audio and video modalities in online video streaming systems. Our video design incorporates temporal-frequency co-design and motion-aware aggregations for the first time in OCM to mitigate the light and body movement influence. The audio module employs the temporal acoustic filter for OCM. These designs are innovative and contribute to our performances.",
+      "page_start": 18,
+      "page_end": 18
+    },
+    {
+      "section_name": "Cross-Group Inter-Group",
+      "text": "Video Streaming System: Video streaming systems have gained immense popularity due to their vast libraries of on-demand content, user-generated videos, and live streaming capabilities, catering to diverse viewer preferences, including YouTube, TikTok, Zoom, etc. They can be further categorized into VoD systems, live streaming systems and video conferencing systems. Research efforts have been devoted to communication protocols  [24, 29] , adaptive rate streaming algorithms  [35, 63, 75] , online learning  [28, 32, 54, 70] , etc. None of these works explore adding cardiac monitoring into modern video streaming systems. In contrast, CardioLive stands out as the first work that creates a middleware service of OCM that can be seamlessly integrated into mainstream video streaming systems.\n\n7 Discussion and Future Work\n\nAudio-Video Pair: In our primary application scenarios (e.g., live streaming, online meetings, etc), audio and video naturally coexist. In practice, only video data is available in some situations, where CardioLive can be easily adapted to a video-only solution. Such periods can be detected through mature voice activity detection techniques  [64] . Our results shown in Fig.  17  have demonstrated that CardioLive also performs well in video-only scenarios. CardioLive not only introduces a novel approach to OCM by utilizing audio-visual pairs for the first time, but also integrates these capabilities into a practical system with flexibility and robustness.\n\nImpacts on Original Streams: Integrating additional services into standard streaming platforms has been a bottleneck for many previous solutions  [18, 25, 41] . In CardioLive, we address this challenge with a dedicated design of data hook and middleware service. Our approach ensures that these additional services are isolated from the original streams. With offscreen canvas, which operates independently in the extension, we avoid disrupting the original content. In meetings, our data hook duplicates data to the inference engine instantly, seamlessly, and without affecting the main video and audio streams. Our evaluations demonstrate that CardioLive operates without causing any disruptions or interference to ongoing streams.\n\nEquality and Accessibility: CardioLive is designed for equality and is devised to be flexible and adaptable, allowing it to be integrated into any platform without the need for specialized hardware. This significantly increases accessibility, making the technology available to a wider audience. Moreover, while companies can promote this service on cloud platforms, CardioLive is crafted to ensure democratized access, preventing any hidden biases or preferential treatment. By enabling audiences to independently initiate the service, CardioLive reduces the likelihood of companies manipulating the system for economic gains by altering the model.",
+      "page_start": 18,
+      "page_end": 19
+    },
+    {
+      "section_name": "Use Of Deep Learning:",
+      "text": "The relationship between video-audio information and cardiac activity is inherently implicit and complex. We evaluate our results against signal processing approaches in Fig.  12  and Fig.  13 , where our performances are significantly better. And our system evaluation validates real-time monitoring without introducing large latency. We identify the exploration of combining signal processing with increased explainability as a direction for future work.",
+      "page_start": 19,
+      "page_end": 19
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this paper, we envision the attractiveness of Online Cardiac Monitoring (OCM) in video streaming and present CardioLive, the first-of-its-kind system to fuse both audio and video streams for online cardiac monitoring in video streaming systems. We devise an effective audio-visual network that can robustly and accurately unveil the nuanced cardiac activities, achieving an average MAE of 1.79 BPM and outperforming the video-only and audio-only solutions by 69.2% and 81.2%, respectively. Furthermore, we design and implement CardioLive as a plug-and-play microservice that can seamlessly be integrated into mainstream video streaming systems. We believe our work will significantly enhance the entertainment and healthcare value of video streaming and inspire a new direction in this field.",
+      "page_start": 19,
+      "page_end": 19
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Online Cardiac Monitoring (OCM).",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: The performances of video-based approaches vary under different body movements light conditions.",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: , the existing video-based solutions cannot",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: Overall Illustration of CardioNet",
+      "page": 7
+    },
+    {
+      "caption": "Figure 4: Video Encoder",
+      "page": 7
+    },
+    {
+      "caption": "Figure 5: Frequency-Aware Convolution Block (FCB)",
+      "page": 7
+    },
+    {
+      "caption": "Figure 6: The architecture of a video streaming system.",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: Data Hook Design.",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: a. Meanwhile, increasingly more",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: b. The browsers usually provide the Document",
+      "page": 10
+    },
+    {
+      "caption": "Figure 8: The unique header is designed to judge whether the packet is correctly constructed and not",
+      "page": 10
+    },
+    {
+      "caption": "Figure 8: Packet and Buffer Design",
+      "page": 11
+    },
+    {
+      "caption": "Figure 9: The FPS vary and change rapidly.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 9: , with some outliers present",
+      "page": 11
+    },
+    {
+      "caption": "Figure 7: b, the starting time of the audio and video will be misaligned quickly with accumulating drifts.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 10: Audio-Video Synchronization Scheme.",
+      "page": 12
+    },
+    {
+      "caption": "Figure 11: Experimental Setups",
+      "page": 13
+    },
+    {
+      "caption": "Figure 12: , while the error increases with distance for all methods,",
+      "page": 13
+    },
+    {
+      "caption": "Figure 12: The performances for different distances.",
+      "page": 14
+    },
+    {
+      "caption": "Figure 13: The performances for different angles.",
+      "page": 14
+    },
+    {
+      "caption": "Figure 13: As the viewing angle increases, video-based methods suffer from significant performance degradation due to",
+      "page": 14
+    },
+    {
+      "caption": "Figure 14: , increasing",
+      "page": 14
+    },
+    {
+      "caption": "Figure 15: CardioNet",
+      "page": 14
+    },
+    {
+      "caption": "Figure 16: Despite the motion artifacts,",
+      "page": 14
+    },
+    {
+      "caption": "Figure 17: , our method consistently ranks among the top among rPPG-based solutions. We achieve MAE errors of 2.09 and",
+      "page": 14
+    },
+    {
+      "caption": "Figure 14: CDF for different noise levels.",
+      "page": 15
+    },
+    {
+      "caption": "Figure 15: CDF for different noise sources.",
+      "page": 15
+    },
+    {
+      "caption": "Figure 16: The performances of different body motions.",
+      "page": 16
+    },
+    {
+      "caption": "Figure 17: The performances on public datasets.",
+      "page": 16
+    },
+    {
+      "caption": "Figure 18: The performances under different light, FPS and image conditions.",
+      "page": 17
+    },
+    {
+      "caption": "Figure 19: The performances under different environments and face beauty filters.",
+      "page": 17
+    },
+    {
+      "caption": "Figure 22: b. Notably, latency was primarily elevated",
+      "page": 17
+    },
+    {
+      "caption": "Figure 22: b, the average throughput of the system is 115.97 FPS, which is",
+      "page": 17
+    },
+    {
+      "caption": "Figure 22: a. Meanwhile, the average throughput is 98.16 FPS, with a maximum",
+      "page": 17
+    },
+    {
+      "caption": "Figure 20: Different Devices",
+      "page": 18
+    },
+    {
+      "caption": "Figure 21: Different Users",
+      "page": 18
+    },
+    {
+      "caption": "Figure 22: Latency & throughput for Zoom and Chrome",
+      "page": 18
+    },
+    {
+      "caption": "Figure 17: have demonstrated that CardioLive also performs well in video-only scenarios. CardioLive",
+      "page": 18
+    },
+    {
+      "caption": "Figure 12: and Fig. 13, where our",
+      "page": 19
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Encoder": "SmartQoS",
+          "Decoder": ""
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Multi-MediaRouters": "ActivityControllers"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ApplicationServices": "Database"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Encoder": "SmartQoS",
+          "Decoder": ""
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "ApplicationServices\n… … … CardioLive"
+        },
+        {
+          "Column_1": "WebApp"
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "onVideoDataReceived() onAudioDataReceived() CardioNet\nMutexLock\nDecoderLayer dequeue()\nHeader Identifier DataSize TimeStamp\nenqueue() BufferPipe\nEncodedData\nCardioLiveService": "onVideoDataReceived() onAudioDataReceived() CardioNet\nMutexLock\nDecoderLayer dequeue()\nHeader Identifier DataSize TimeStamp\nenqueue() BufferPipe\nEncodedData\nCardioLiveService"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "Header Identifier DataSize TimeStamp\nEncodedData": "",
+          "Column_3": "",
+          "Column_4": "Header",
+          "Column_5": "Identifier",
+          "Column_6": "DataSize",
+          "Column_7": "TimeStamp",
+          "Column_8": ""
+        },
+        {
+          "Column_1": "",
+          "Header Identifier DataSize TimeStamp\nEncodedData": "",
+          "Column_3": "",
+          "Column_4": "EncodedData",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": ""
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "Column_2": "𝑡\"\n!\nDequeue()\n𝑡\" 𝑡\n’ %&’(&\nDequeue()\n𝑡\"#$ 𝑡\"#$\n! ’\n𝑡\n)*+\n…… ……\nIncomingStreams"
+        }
+      ],
+      "page": 12
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Conference Room": "",
+          "Column_2": "RingLight"
+        }
+      ],
+      "page": 13
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Video Audio Video+Audio\n20 )MP 1 0.5 )%( 50 )MPB": "10 5 B(\nEAM\n1\n0.5 0.5m 1m 1.5\nDistan",
+          "Column_2": "m 2m 2.5m\nce (m)",
+          "Column_3": "10 5 ( ESMR\n1 0.5m 1m 1.\nDistan",
+          "Column_4": "5m 2m 2.5m\nce (m)"
+        }
+      ],
+      "page": 14
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Noise Sources: Rain\n1.0\nFDC\n0.5\nCardionet\nVocalHR\n0.0\n0 20\nAbsolute Error (BPM)": "",
+          "Column_2": "Noise Sources: Music\n1.0\nFDC\n0.5\nCardionet\nVocalHR\n0.0\n0 20 40\nAbsolute Error (BPM)",
+          "Column_3": "Noise Sources: TV Show\n1.0\nFDC\n0.5\nCardionet\nVocalHR\n0.0\n0 20 40\nAbsolute Error (BPM)"
+        }
+      ],
+      "page": 15
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "Walk\n50 )MPB(\n20\n10\n5 EAM\n1",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "",
+          "Column_10": "",
+          "Column_11": "",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "",
+          "Column_16": "",
+          "Column_17": "",
+          "Column_18": "",
+          "Column_19": "",
+          "Column_20": "",
+          "Column_21": "LR Rotate\n60 )MPB(\n30\n10\n5 EAM\n1",
+          "Column_22": "",
+          "Column_23": "",
+          "Column_24": "",
+          "Column_25": "",
+          "Column_26": "",
+          "Column_27": "",
+          "Column_28": "",
+          "Column_29": "",
+          "Column_30": "",
+          "Column_31": "",
+          "Column_32": "",
+          "Column_33": "",
+          "Column_34": "",
+          "Column_35": "",
+          "Column_36": "",
+          "Column_37": "",
+          "Column_38": "",
+          "Column_39": "",
+          "Column_40": "",
+          "Column_41": "",
+          "Column_42": "",
+          "Column_43": "",
+          "Column_44": "UD Rotate\n70\n30 )MPB(\n10\n1 EAM\n0.1",
+          "Column_45": "",
+          "Column_46": "",
+          "Column_47": "",
+          "Column_48": "",
+          "Column_49": "",
+          "Column_50": "",
+          "Column_51": "",
+          "Column_52": "",
+          "Column_53": "",
+          "Column_54": "",
+          "Column_55": "",
+          "Column_56": "",
+          "Column_57": "",
+          "Column_58": "",
+          "Column_59": "",
+          "Column_60": "",
+          "Column_61": "",
+          "Column_62": "",
+          "Column_63": "",
+          "Column_64": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "BP\nly\nt\nF\nM\nffe\ndin\nt\non\nm\nrc\nl,\nri\nly\ners\nax\nus\nch\nel\nvid\nPM\nrd\nect\na\nP\nac",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "(",
+          "Column_7": "a)",
+          "Column_8": "",
+          "Column_9": "Wal",
+          "Column_10": "",
+          "Column_11": "k",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "Fi",
+          "Column_16": "",
+          "Column_17": "gu",
+          "Column_18": "",
+          "Column_19": "",
+          "Column_20": "",
+          "Column_21": "",
+          "Column_22": "",
+          "Column_23": "",
+          "Column_24": "",
+          "Column_25": "rf",
+          "Column_26": "",
+          "Column_27": "(\nor",
+          "Column_28": "b)\nma",
+          "Column_29": "Le\nnc",
+          "Column_30": "",
+          "Column_31": "ft\ne",
+          "Column_32": "-R\nso",
+          "Column_33": "i\nf",
+          "Column_34": "ght\nd",
+          "Column_35": "if",
+          "Column_36": "fer",
+          "Column_37": "",
+          "Column_38": "e",
+          "Column_39": "nt",
+          "Column_40": "bo",
+          "Column_41": "",
+          "Column_42": "",
+          "Column_43": "",
+          "Column_44": "",
+          "Column_45": "",
+          "Column_46": "",
+          "Column_47": "",
+          "Column_48": "",
+          "Column_49": "",
+          "Column_50": "",
+          "Column_51": "",
+          "Column_52": "(c",
+          "Column_53": ")",
+          "Column_54": "Up",
+          "Column_55": "-Do",
+          "Column_56": "",
+          "Column_57": "w",
+          "Column_58": "n",
+          "Column_59": "s o\nndi\nen\nperf\nan\nl’s\net\nuals\nrm\nof\nion\nces\nxel\nds\nac\nbet\n7\nthe\nvel\nstr",
+          "Column_60": "",
+          "Column_61": "r\nio\nrio\nrm\nca\nse\nm\nre\ncc\npi\nin\n. I\npa\np\nee\nP\nme\npe\nam",
+          "Column_62": "",
+          "Column_63": "od\ns,\n,t\nan\nab\nge\nor\nnd\nso\nrac\neli\n.\no\nati\nrso\nn t\na\neti\nst\na",
+          "Column_64": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": ")MPB(\nEAM",
+          "Column_6": "",
+          "Column_7": "2\n1\n0.",
+          "Column_8": "0\n0\n5\n1\n5",
+          "Column_9": "",
+          "Column_10": "",
+          "Column_11": "",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "",
+          "Column_16": "",
+          "Column_17": "",
+          "Column_18": "",
+          "Column_19": "",
+          "Column_20": "",
+          "Column_21": "",
+          "Column_22": "",
+          "Column_23": "",
+          "Column_24": "",
+          "Column_25": "",
+          "Column_26": "",
+          "Column_27": "",
+          "Column_28": "",
+          "Column_29": "",
+          "Column_30": "",
+          "Column_31": "",
+          "Column_32": "",
+          "Column_33": "",
+          "Column_34": "",
+          "Column_35": "",
+          "Column_36": "",
+          "Column_37": "",
+          "Column_38": "",
+          "Column_39": "",
+          "Column_40": "",
+          "Column_41": "",
+          "Column_42": "",
+          "Column_43": "",
+          "Column_44": "",
+          "Column_45": "",
+          "Column_46": "",
+          "Column_47": "",
+          "Column_48": "",
+          "Column_49": "",
+          "Column_50": "",
+          "Column_51": "",
+          "Column_52": "",
+          "Column_53": "",
+          "Column_54": "",
+          "Column_55": "",
+          "Column_56": "",
+          "Column_57": "",
+          "Column_58": "",
+          "Column_59": "",
+          "Column_60": "",
+          "Column_61": "",
+          "Column_62": "",
+          "Column_63": "",
+          "Column_64": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "",
+          "Column_10": "",
+          "Column_11": "",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "",
+          "Column_16": "",
+          "Column_17": "",
+          "Column_18": "",
+          "Column_19": "",
+          "Column_20": "",
+          "Column_21": "",
+          "Column_22": "",
+          "Column_23": "",
+          "Column_24": "",
+          "Column_25": "",
+          "Column_26": "",
+          "Column_27": "",
+          "Column_28": "",
+          "Column_29": "",
+          "Column_30": "",
+          "Column_31": "",
+          "Column_32": "",
+          "Column_33": ")MPB(\nEAM",
+          "Column_34": "2\n1\n0",
+          "Column_35": ".",
+          "Column_36": "0\n0\n5\n1\n5",
+          "Column_37": "",
+          "Column_38": "",
+          "Column_39": "",
+          "Column_40": "",
+          "Column_41": "",
+          "Column_42": "",
+          "Column_43": "",
+          "Column_44": "",
+          "Column_45": "",
+          "Column_46": "",
+          "Column_47": "",
+          "Column_48": "",
+          "Column_49": "",
+          "Column_50": "",
+          "Column_51": "",
+          "Column_52": "",
+          "Column_53": "",
+          "Column_54": "",
+          "Column_55": "",
+          "Column_56": "",
+          "Column_57": "",
+          "Column_58": "",
+          "Column_59": "",
+          "Column_60": "",
+          "Column_61": "",
+          "Column_62": "",
+          "Column_63": "",
+          "Column_64": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "M,\nan\nev\ng.2\nE\nren\nre\nse\nap\nde\non\nit\ng i\nap\non\nim\nrs\nhe\n.\nual\n,re\noL\non\ndt\natf\nuir",
+          "Column_6": "",
+          "Column_7": "wh\nle\nce\n.\nsa\nha\nia\ns:\nbi\nng\ntio\nan\ns g\nur\nce\nm\nea\na\nlth\n. N\npe\ne\nwe\neo\nrm\nac",
+          "Column_8": "",
+          "Column_9": "e a\nap\n:\nori\noun\ndw\nleh\nWe\nty\ncap\nns,\nave\nne\nsd\nar\num\nm\ndio\nug\nota\ntiv\nnt\nwi\nnlin\ns:\nes",
+          "Column_10": "",
+          "Column_11": "m\npea\nWe\nnte\nd\nare\nea\neva\nste\ntur\nthe\nrag\nrali\nevic\nios\nbe\nater\nan\nh\nbly\nely\nhe\nlle\nec\nWe\nsto",
+          "Column_12": "",
+          "Column_13": "re\nan\nv\n-d\n0\npl\nr\nua\ns\ns\nav\nab\n-i\nW\no\nal\nf\ne\nth\nsh\nil\nal\nn\nh\nh",
+          "Column_14": "",
+          "Column_15": "g\ne\nu\nvi\nB\nf\ne\no\nu\nra\nA\ni\nd\np\nsi\ne\nbs\nh\nw\nat\nn\ns\nra",
+          "Column_16": "(\ng\nc\nat\nc\nP\nor\ne\no\nm\nnd\ng\nE\nty\nep\nev\neo\nm\nr\ne\ne\ni\ne\nt\ne\nw",
+          "Column_17": "a)\nre\nh\ne\net\nM\nm\nst\nur\nl\na\ne\no\na\ne\nal\np\nu\ne\nrv\nar\nng\nh\npr\nZ",
+          "Column_18": "P\nF\ns\nan\no\ne\n.\ns\ni\ne\nm\nM\nf\nc\nn\nu\nle\nlt\ngi\ne\nt\no\no\no\nd",
+          "Column_19": "UR\nigu\nsive\nge\nur\nstin\nW\n. T\nmat\nmod\narn\nent\nA\n7.\nros\nden\nate\nto\nane\nons\nso\nrate\nour\nwC\nvid\nom\nata.",
+          "Column_20": "",
+          "Column_21": "e1\nfilt\nwh\nod\n,th\nlet\nss\non\nl’s\nngu\nl p\nis\n3B\ndif\ncar\nhe\nes\nusl\nTh\ne p\nof\nyst\nrdi\nrs.\nso\nThe",
+          "Column_22": "",
+          "Column_23": "Th\nlik\nem\non\nave\nere\nges\nawi\nerfo\nive\nysio\nout\nM.\nren\niac\nulti\npara\nwh\ntes\nrfor\nhet\nmc\nLiv\neof\nver",
+          "Column_24": "",
+          "Column_25": "e\ne\na\nr\ni\nt\nd\nr\nrs\nl\nD\nt\np\n-p\nt\nil\nt\nw\nan\ne\no\na",
+          "Column_26": "p\nS\nin\nv\na\ns\ns\ne\nm\na\no\n1.\ne\nu\nat\ne\ne\ne\nr\nm\no\nw\nn\ng",
+          "Column_27": "",
+          "Column_28": "for\narpe\ninin\nous\nMA\nrop\natd\nnge\nce\nard\nal c\nBP\nitet\nr gr\nrns.\nons\nstw\nting\nlts\nce d\neopl\nck\nksa\nnem\nPS",
+          "Column_29": "r\ne\nn\ns\nA\np\nd\ne\nd\nc\nP\nt\nr\ns.\ns\nw\nng\ns\nd\npl\na\nm\nS",
+          "Column_30": "m\nn\ng\ne\na\ni\nh\nh\no\nc\ns\nr\ne\nd\ni",
+          "Column_31": "",
+          "Column_32": "nc\nFa\nac\nev\nis\na\nit\nfd\nos\np\nra\n.I\nd\nps\nna\nan\nex\now\nps\nva\ntin\nas\neti\n28\n6",
+          "Column_33": "",
+          "Column_34": "s\ne\nura\nes\npp\ncu\nso\nvi\na\ntte\nter\nc\nver\nT\nios\nc\nto\nan\nou\nyo\nt\nrv\ng\n4.",
+          "Column_35": "",
+          "Column_36": "np\nchi\ny.\nun\nox\nac\nme\nes.\niv\nns\nsti\noss\nity\nis\nto\nop\nac\nM\nm\ner\nhy\nce.\nat\nWe",
+          "Column_37": "",
+          "Column_38": "",
+          "Column_39": "ubli\nve\ner\nma\nth\nari\nrse\nath\ns t\nuse\nthe\nem\nusti\nhe\not\nE\neth\nim\nolo\nWe\norm\nexp",
+          "Column_40": "c\ns\ni\nt\ne\na\ns\ne\nh\nr\no\nf\nf\nh\nof\no\ne,\ng\ns\nl",
+          "Column_41": "d\na\nnt\nel\nm\nbi\net\nr\nat\ns\nm\nn\ny\nac\ner\nd\ni\nas\n,\noi",
+          "Column_42": "",
+          "Column_43": "",
+          "Column_44": "",
+          "Column_45": "",
+          "Column_46": "MP\n.\nof\nce\nBP\nill\nm\nrsi\ner-\nnsi\ns,t\nain\ntha\ncti\nnt\nply\nM\nect\nrag\nss\nes\nro\ntah",
+          "Column_47": "",
+          "Column_48": "D\n.69\nnd\n.In\neliv\ndel\nFig\npeci\nent\nem\nins\nour\nene\nas\nthe\nnd\nely\nhe\nmul\nvic\ndes\nok",
+          "Column_49": "",
+          "Column_50": "c\ne\nr\n.\nfi\na\nf\nss\niz\nf\n8\na\nta\ne\nt\ns",
+          "Column_51": "BP\nros\ncro\nrsa\nem\n21.\ncf\ncr\node\nau\nea\nof\neo\naci\n.13\ndis\nrtr\nne\non\nhe\nto",
+          "Column_52": "P\ns\no\na\nm\n1.\nf\nr\nde\nu\na\nof\no\nci\n13\nis\nr\ne\nn\ne\no",
+          "Column_53": "",
+          "Column_54": ". I\nde\n-de\ncep\nns\nOur\natu\ns i\nstil\nble\nre\nur\n72\nan\nBP\nng\ntes\nusl\nwo\nxte\nqu",
+          "Column_55": "t\nvi\nv\nt\nr\nre\nn\nl\nl\ne\np\n×\nd\nM\nui\no\ny.\ne\nrn\nir",
+          "Column_56": "s\nc\ni\na\nob\nm\ns\ndi\np\ne\nxt\nre\n7\ns\ns\nf\nn\na\ne",
+          "Column_57": "",
+          "Column_58": "w\nco\nsc\ne\nst\nde\nTh\nid\nfo\nel\nct\nro\npi\nun\nre\ns\n6.1\ns:\nde\ne",
+          "Column_59": "",
+          "Column_60": "",
+          "Column_61": "",
+          "Column_62": "",
+          "Column_63": "",
+          "Column_64": ""
+        }
+      ],
+      "page": 16
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "5\nOffice Conf Room\nOutdoor Lab\n)MPB(\n3\nEAM\n1": "",
+          "Column_2": "Office Conf Room\nOutdoor Lab",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "",
+          "Column_10": ""
+        }
+      ],
+      "page": 17
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Explore -Find your favourite videos on TikTok",
+      "venue": "Explore -Find your favourite videos on TikTok"
+    },
+    {
+      "citation_id": "2",
+      "title": "",
+      "authors": [
+        "Gstreamer"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "3",
+      "title": "Heart disease -Symptoms and causes -Mayo Clinic",
+      "venue": "Heart disease -Symptoms and causes -Mayo Clinic"
+    },
+    {
+      "citation_id": "4",
+      "title": "Netflix Singapore -Watch TV Programmes Online, Watch Films Online",
+      "venue": "Netflix Singapore -Watch TV Programmes Online, Watch Films Online"
+    },
+    {
+      "citation_id": "5",
+      "title": "One platform to connect | Zoom",
+      "venue": "One platform to connect | Zoom"
+    },
+    {
+      "citation_id": "6",
+      "title": "Parents to be fitted with heart-rate monitors as part of Olympic Games coverage",
+      "year": "2024",
+      "venue": "Parents to be fitted with heart-rate monitors as part of Olympic Games coverage"
+    },
+    {
+      "citation_id": "7",
+      "title": "Polar H10 | Polar Global",
+      "venue": "Polar H10 | Polar Global"
+    },
+    {
+      "citation_id": "8",
+      "title": "Pulsoid -a real-time heart rate widget for streaming",
+      "venue": "Pulsoid -a real-time heart rate widget for streaming"
+    },
+    {
+      "citation_id": "9",
+      "title": "Skype | Stay connected with free video calls worldwide",
+      "venue": "Skype | Stay connected with free video calls worldwide"
+    },
+    {
+      "citation_id": "10",
+      "title": "",
+      "authors": [
+        "T Stream",
+        "Movies Live",
+        "| Online",
+        "Hulu"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "11",
+      "title": "Teams and Channels | Microsoft Teams",
+      "venue": "Teams and Channels | Microsoft Teams"
+    },
+    {
+      "citation_id": "12",
+      "title": "Video Streaming (SVoD) -Global | Statista Market Forecast",
+      "venue": "Video Streaming (SVoD) -Global | Statista Market Forecast"
+    },
+    {
+      "citation_id": "13",
+      "title": "",
+      "authors": [
+        "Youtube"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "14",
+      "title": "The conversation: Deep audio-visual speech enhancement",
+      "authors": [
+        "Triantafyllos Afouras",
+        "Son Chung",
+        "Andrew Zisserman"
+      ],
+      "year": "2018",
+      "venue": "The conversation: Deep audio-visual speech enhancement",
+      "arxiv": "arXiv:1804.04121"
+    },
+    {
+      "citation_id": "15",
+      "title": "Detecting deception in natural environments using incremental transfer learning",
+      "authors": [
+        "Muneeb Imtiaz",
+        "Abdullah Alzahrani",
+        "Sunbul M Ahmad"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the 26th International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "16",
+      "title": "UbiHR: Resourceefficient Long-range Heart Rate Sensing on Ubiquitous Devices",
+      "authors": [
+        "Bin Haoyu Bian",
+        "Sicong Guo",
+        "Yasan Liu",
+        "Shanshan Ding",
+        "Zhiwen Gao",
+        "Yu"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies"
+    },
+    {
+      "citation_id": "17",
+      "title": "HeartPrint: Passive heart sounds authentication exploiting in-ear microphones",
+      "authors": [
+        "Yetong Cao",
+        "Chao Cai",
+        "Fan Li",
+        "Zhe Chen",
+        "Jun Luo"
+      ],
+      "year": "2023",
+      "venue": "IEEE INFOCOM 2023-IEEE Conference on Computer Communications"
+    },
+    {
+      "citation_id": "18",
+      "title": "MMDetection: Open MMLab Detection Toolbox and Benchmark",
+      "authors": [
+        "Kai Chen",
+        "Jiaqi Wang",
+        "Jiangmiao Pang",
+        "Yuhang Cao",
+        "Yu Xiong",
+        "Xiaoxiao Li",
+        "Shuyang Sun",
+        "Wansen Feng",
+        "Ziwei Liu",
+        "Jiarui Xu",
+        "Zheng Zhang",
+        "Dazhi Cheng",
+        "Chenchen Zhu",
+        "Tianheng Cheng",
+        "Qijie Zhao",
+        "Buyu Li",
+        "Xin Lu",
+        "Rui Zhu",
+        "Yue Wu",
+        "Jifeng Dai",
+        "Jingdong Wang",
+        "Jianping Shi",
+        "Wanli Ouyang",
+        "Chen Loy",
+        "Dahua Lin"
+      ],
+      "year": "2019",
+      "venue": "MMDetection: Open MMLab Detection Toolbox and Benchmark",
+      "arxiv": "arXiv:1906.07155"
+    },
+    {
+      "citation_id": "19",
+      "title": "Exploring the Feasibility of Remote Cardiac Auscultation Using Earphones",
+      "authors": [
+        "Tao Chen",
+        "Yongjie Yang",
+        "Xiaoran Fan",
+        "Xiuzhen Guo",
+        "Jie Xiong",
+        "Longfei Shangguan"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the 30th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "20",
+      "title": "Deepphys: Video-based physiological measurement using convolutional attention networks",
+      "authors": [
+        "Weixuan Chen",
+        "Daniel Mcduff"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the european conference on computer vision (ECCV)"
+    },
+    {
+      "citation_id": "21",
+      "title": "MoVi-Fi: Motion-robust vital signs waveform recovery via deep interpreted RF sensing",
+      "authors": [
+        "Zhe Chen",
+        "Tianyue Zheng",
+        "Chao Cai",
+        "Jun Luo"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 27th annual international conference on mobile computing and networking"
+    },
+    {
+      "citation_id": "22",
+      "title": "Robust pulse rate from chrominance-based rPPG",
+      "authors": [
+        "Gerard De",
+        "Vincent Jeanne"
+      ],
+      "year": "2013",
+      "venue": "IEEE transactions on biomedical engineering"
+    },
+    {
+      "citation_id": "23",
+      "title": "Where do deep fakes look? synthetic face detection via gaze tracking",
+      "authors": [
+        "Ilke Demir",
+        "Umur Aybars"
+      ],
+      "year": "2021",
+      "venue": "ACM symposium on eye tracking research and applications"
+    },
+    {
+      "citation_id": "24",
+      "title": "Converge: Qoedriven multipath video conferencing over webrtc",
+      "authors": [
+        "Kyunghan Sandesh Dhawaskar Sathyanarayana",
+        "Dirk Lee",
+        "Sangtae Grunwald",
+        "Ha"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the ACM SIGCOMM 2023 Conference"
+    },
+    {
+      "citation_id": "25",
+      "title": "Server-driven video streaming for deep learning inference",
+      "authors": [
+        "Kuntai Du",
+        "Ahsan Pervaiz",
+        "Xin Yuan",
+        "Aakanksha Chowdhery",
+        "Qizheng Zhang",
+        "Henry Hoffmann",
+        "Junchen Jiang"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the Annual conference of the ACM Special Interest Group on Data Communication on the applications, technologies, architectures, and protocols for computer communication"
+    },
+    {
+      "citation_id": "26",
+      "title": "Personal informatics and negative emotions during commuter driving: Effects of data visualization on cardiovascular reactivity & mood",
+      "authors": [
+        "H Stephen",
+        "Chelsea Fairclough",
+        "Dobbins"
+      ],
+      "year": "2020",
+      "venue": "International Journal of Human-Computer Studies"
+    },
+    {
+      "citation_id": "27",
+      "title": "Apg: Audioplethysmography for cardiac monitoring in hearables",
+      "authors": [
+        "Xiaoran Fan",
+        "David Pearl",
+        "Richard Howard",
+        "Longfei Shangguan",
+        "Trausti Thormundsson"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 29th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "28",
+      "title": "Metastream: Live volumetric content capture, creation, delivery, and rendering in real time",
+      "authors": [
+        "Yongjie Guan",
+        "Xueyu Hou",
+        "Nan Wu",
+        "Bo Han",
+        "Tao Han"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 29th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "29",
+      "title": "Ekho: Synchronizing cloud gaming media across multiple endpoints",
+      "authors": [
+        "Pouya Hamadanian",
+        "Doug Gallatin",
+        "Mohammad Alizadeh",
+        "Krishna Chintalapudi"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the ACM SIGCOMM 2023 Conference"
+    },
+    {
+      "citation_id": "30",
+      "title": "Squeeze-and-excitation networks",
+      "authors": [
+        "Jie Hu",
+        "Li Shen",
+        "Gang Sun"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the IEEE conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "31",
+      "title": "Target Active Speaker Detection with Audio-visual Cues",
+      "authors": [
+        "Yidi Jiang",
+        "Ruijie Tao",
+        "Zexu Pan",
+        "Haizhou Li"
+      ],
+      "year": "2023",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "32",
+      "title": "{RECL}: Responsive {Resource-Efficient} continuous learning for video analytics",
+      "authors": [
+        "Mehrdad Khani",
+        "Ganesh Ananthanarayanan",
+        "Kevin Hsieh",
+        "Junchen Jiang",
+        "Ravi Netravali",
+        "Yuanchao Shu",
+        "Mohammad Alizadeh",
+        "Victor Bahl"
+      ],
+      "year": "2023",
+      "venue": "20th USENIX Symposium on Networked Systems Design and Implementation"
+    },
+    {
+      "citation_id": "33",
+      "title": "Learning motion-robust remote photoplethysmography through arbitrary resolution videos",
+      "authors": [
+        "Jianwei Li",
+        "Zitong Yu",
+        "Jingang Shi"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "34",
+      "title": "Remote heart rate measurement from face videos under realistic situations",
+      "authors": [
+        "Xiaobai Li",
+        "Jie Chen",
+        "Guoying Zhao",
+        "Matti Pietikainen"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the IEEE conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "35",
+      "title": "Dashlet: Taming swipe uncertainty for robust short video streaming",
+      "authors": [
+        "Zhuqi Li",
+        "Yaxiong Xie",
+        "Ravi Netravali",
+        "Kyle Jamieson"
+      ],
+      "year": "2023",
+      "venue": "20th USENIX Symposium on Networked Systems Design and Implementation"
+    },
+    {
+      "citation_id": "36",
+      "title": "2016. {Don't} Get Caught in the Cold, Warm-up Your {JVM}: Understand and Eliminate {JVM} Warm-up Overhead in {Data-Parallel} Systems",
+      "authors": [
+        "David Lion",
+        "Adrian Chiu",
+        "Hailong Sun",
+        "Xin Zhuang",
+        "Nikola Grcevski",
+        "Ding Yuan"
+      ],
+      "venue": "12th USENIX Symposium on Operating Systems Design and Implementation"
+    },
+    {
+      "citation_id": "37",
+      "title": "Cardiocam: Leveraging camera on mobile devices to verify users while their heart is pumping",
+      "authors": [
+        "Jian Liu",
+        "Cong Shi",
+        "Yingying Chen",
+        "Hongbo Liu",
+        "Marco Gruteser"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 17th Annual International Conference on Mobile Systems, Applications, and Services"
+    },
+    {
+      "citation_id": "38",
+      "title": "Tracking vital signs during sleep leveraging off-the-shelf wifi",
+      "authors": [
+        "Jian Liu",
+        "Yan Wang",
+        "Yingying Chen",
+        "Jie Yang",
+        "Xu Chen",
+        "Jerry Cheng"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the 16th ACM international symposium on mobile ad hoc networking and computing"
+    },
+    {
+      "citation_id": "39",
+      "title": "Multi-task temporal shift attention networks for on-device contactless vitals measurement",
+      "authors": [
+        "Xin Liu",
+        "Josh Fromm",
+        "Shwetak Patel",
+        "Daniel Mcduff"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "40",
+      "title": "Efficientphys: Enabling simple, fast and accurate camera-based cardiac measurement",
+      "authors": [
+        "Xin Liu",
+        "Brian Hill",
+        "Ziheng Jiang",
+        "Shwetak Patel",
+        "Daniel Mcduff"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the IEEE/CVF winter conference on applications of computer vision"
+    },
+    {
+      "citation_id": "41",
+      "title": "Grad: Learning for overhead-aware adaptive video streaming with scalable video coding",
+      "authors": [
+        "Yunzhuo Liu",
+        "Bo Jiang",
+        "Tian Guo",
+        "Ramesh Sitaraman",
+        "Don Towsley",
+        "Xinbing Wang"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "42",
+      "title": "Dynamic temporal filtering in video models",
+      "authors": [
+        "Fuchen Long",
+        "Zhaofan Qiu",
+        "Yingwei Pan",
+        "Ting Yao",
+        "Chong-Wah Ngo",
+        "Tao Mei"
+      ],
+      "year": "2022",
+      "venue": "European Conference on Computer Vision"
+    },
+    {
+      "citation_id": "43",
+      "title": "An affect detection technique using mobile commodity sensors in the wild",
+      "authors": [
+        "Aske Mottelson",
+        "Kasper Hornbaek"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 2016 ACM International Joint Conference on Pervasive and Ubiquitous Computing"
+    },
+    {
+      "citation_id": "44",
+      "title": "Video-based remote physiological measurement via cross-verified feature disentangling",
+      "authors": [
+        "Xuesong Niu",
+        "Zitong Yu",
+        "Hu Han",
+        "Xiaobai Li",
+        "Shiguang Shan",
+        "Guoying Zhao"
+      ],
+      "year": "2020",
+      "venue": "Computer Vision-ECCV 2020: 16th European Conference"
+    },
+    {
+      "citation_id": "45",
+      "title": "Towards Efficient Emotion Self-report Collection Using Human-AI Collaboration: A Case Study on Smartphone Keyboard Interaction",
+      "authors": [
+        "Ayush Prajwal",
+        "Sougata Raj",
+        "Snehanshu Sen",
+        "Surjya Saha",
+        "Ghosh"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies"
+    },
+    {
+      "citation_id": "46",
+      "title": "Deeprhythm: Exposing deepfakes with attentional visual heartbeat rhythms",
+      "authors": [
+        "Hua Qi",
+        "Qing Guo",
+        "Felix Juefei-Xu",
+        "Xiaofei Xie",
+        "Lei Ma",
+        "Wei Feng",
+        "Yang Liu",
+        "Jianjun Zhao"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 28th ACM international conference on multimedia"
+    },
+    {
+      "citation_id": "47",
+      "title": "Acousticcardiogram: Monitoring heartbeats using acoustic signals on smart devices",
+      "authors": [
+        "Chenshu Kun Qian",
+        "Fu Wu",
+        "Yue Xiao",
+        "Yi Zheng",
+        "Zheng Zhang",
+        "Yunhao Yang",
+        "Liu"
+      ],
+      "year": "2018",
+      "venue": "IEEE INFOCOM 2018-IEEE"
+    },
+    {
+      "citation_id": "48",
+      "title": "Speaker recognition from raw waveform with sincnet",
+      "authors": [
+        "Mirco Ravanelli",
+        "Yoshua Bengio"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE spoken language technology workshop (SLT)"
+    },
+    {
+      "citation_id": "49",
+      "title": "Using color to separate reflection components",
+      "authors": [
+        "A Steven",
+        "Shafer"
+      ],
+      "year": "1985",
+      "venue": "Color Research & Application"
+    },
+    {
+      "citation_id": "50",
+      "title": "Non-contact video-based pulse rate measurement on a mobile service robot",
+      "authors": [
+        "Ronny Stricker",
+        "Steffen Müller",
+        "Horst-Michael Gross"
+      ],
+      "year": "2014",
+      "venue": "The 23rd IEEE International Symposium on Robot and Human Interactive Communication"
+    },
+    {
+      "citation_id": "51",
+      "title": "UltraSE: single-channel speech enhancement using ultrasound",
+      "authors": [
+        "Ke Sun",
+        "Xinyu Zhang"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 27th annual international conference on mobile computing and networking"
+    },
+    {
+      "citation_id": "52",
+      "title": "Estimating stress in online meetings by remote physiological signal and behavioral features",
+      "authors": [
+        "Zhaodong Sun",
+        "Alexander Vedernikov",
+        "Virpi-Liisa",
+        "Mikko Kykyri",
+        "Miriam Pohjola",
+        "Xiaobai Nokia",
+        "Li"
+      ],
+      "year": "2022",
+      "venue": "Adjunct Proceedings of the 2022 ACM International Joint Conference on Pervasive and Ubiquitous Computing and the 2022 ACM International Symposium on Wearable Computers"
+    },
+    {
+      "citation_id": "53",
+      "title": "MMPD: Multi-Domain Mobile Video Physiology Dataset",
+      "authors": [
+        "Jiankai Tang",
+        "Kequan Chen",
+        "Yuntao Wang",
+        "Yuanchun Shi",
+        "Shwetak Patel",
+        "Daniel Mcduff",
+        "Xin Liu"
+      ],
+      "year": "2023",
+      "venue": "2023 45th Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC)",
+      "doi": "10.1109/EMBC40787.2023.10340857"
+    },
+    {
+      "citation_id": "54",
+      "title": "Lut-nn: Empower efficient neural network inference with centroid learning and table lookup",
+      "authors": [
+        "Xiaohu Tang",
+        "Yang Wang",
+        "Ting Cao",
+        "Li Zhang",
+        "Qi Chen",
+        "Deng Cai",
+        "Yunxin Liu",
+        "Mao Yang"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 29th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "55",
+      "title": "Is Someone Speaking? Exploring Long-term Temporal Features for Audio-visual Active Speaker Detection",
+      "authors": [
+        "Ruijie Tao",
+        "Zexu Pan",
+        "Rohan Kumar Das",
+        "Xinyuan Qian",
+        "Mike Shou",
+        "Haizhou Li"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 29th ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "56",
+      "title": "What you wear know how you feel: An emotion inference system with multi-modal wearable devices",
+      "authors": [
+        "Dan Wang",
+        "Haibo Lei",
+        "Haozhi Dong",
+        "Yunshu Wang",
+        "Yongpan Zou",
+        "Kaishun Wu"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 26th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "57",
+      "title": "Df-sense: Multi-user acoustic sensing for heartbeat monitoring with dualforming",
+      "authors": [
+        "Lei Wang",
+        "Tao Gu",
+        "Wei Li",
+        "Haipeng Dai",
+        "Yong Zhang",
+        "Dongxiao Yu",
+        "Chenren Xu",
+        "Daqing Zhang"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 21st Annual International Conference on Mobile Systems, Applications and Services"
+    },
+    {
+      "citation_id": "58",
+      "title": "LoEar: Push the range limit of acoustic sensing for vital sign monitoring",
+      "authors": [
+        "Lei Wang",
+        "Wei Li",
+        "Ke Sun",
+        "Fusang Zhang",
+        "Tao Gu",
+        "Chenren Xu",
+        "Daqing Zhang"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies"
+    },
+    {
+      "citation_id": "59",
+      "title": "Tdn: Temporal difference networks for efficient action recognition",
+      "authors": [
+        "Limin Wang",
+        "Zhan Tong",
+        "Bin Ji",
+        "Gangshan Wu"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the IEEE/CVF conference on computer vision and pattern recognition"
+    },
+    {
+      "citation_id": "60",
+      "title": "Algorithmic principles of remote PPG",
+      "authors": [
+        "Wenjin Wang",
+        "Albertus C Den",
+        "Sander Brinker",
+        "Gerard Stuijk",
+        "De Haan"
+      ],
+      "year": "2016",
+      "venue": "IEEE Transactions on Biomedical Engineering"
+    },
+    {
+      "citation_id": "61",
+      "title": "A novel algorithm for remote photoplethysmography: Spatial subspace rotation",
+      "authors": [
+        "Wenjin Wang",
+        "Sander Stuijk",
+        "Gerard De Haan"
+      ],
+      "year": "2015",
+      "venue": "IEEE transactions on biomedical engineering"
+    },
+    {
+      "citation_id": "62",
+      "title": "Heart rate as a measure of emotional arousal in evolutionary biology",
+      "authors": [
+        "A Claudia",
+        "Wascher"
+      ],
+      "year": "2021",
+      "venue": "Philosophical Transactions of the Royal Society B"
+    },
+    {
+      "citation_id": "63",
+      "title": "Adaptivenet: Post-deployment neural architecture adaptation for diverse edge environments",
+      "authors": [
+        "Yuanchun Hao Wen",
+        "Zunshuai Li",
+        "Shiqi Zhang",
+        "Xiaozhou Jiang",
+        "Ye Ye",
+        "Yaqin Ouyang",
+        "Yunxin Zhang",
+        "Liu"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 29th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "64",
+      "title": "Python interface to the webrtc voice activity detector",
+      "authors": [
+        "John Wiseman",
+        "Ivan Yu"
+      ],
+      "year": "2016",
+      "venue": "Python interface to the webrtc voice activity detector"
+    },
+    {
+      "citation_id": "65",
+      "title": "EMO: Real-time emotion recognition from single-eye images for resource-constrained eyewear devices",
+      "authors": [
+        "Hao Wu",
+        "Jinghao Feng",
+        "Xuejin Tian",
+        "Edward Sun",
+        "Yunxin Liu",
+        "Bo Dong",
+        "Fengyuan Xu",
+        "Sheng Zhong"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 18th International Conference on Mobile Systems, Applications, and Services"
+    },
+    {
+      "citation_id": "66",
+      "title": "Hearing heartbeat from voice: Towards next generation voice-user interfaces with cardiac sensing functions",
+      "authors": [
+        "Chenhan Xu",
+        "Tianyu Chen",
+        "Huining Li",
+        "Alexander Gherardi",
+        "Michelle Weng",
+        "Zhengxiong Li",
+        "Wenyao Xu"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 20th ACM Conference on Embedded Networked Sensor Systems"
+    },
+    {
+      "citation_id": "67",
+      "title": "Survey on emotion sensing using mobile devices",
+      "authors": [
+        "Kangning Yang",
+        "Benjamin Tag",
+        "Chaofan Wang",
+        "Yue Gu",
+        "Zhanna Sarsenbayeva",
+        "Tilman Dingler",
+        "Greg Wadley",
+        "Jorge Goncalves"
+      ],
+      "year": "2022",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "68",
+      "title": "Avoid-df: Audio-visual joint learning for detecting deepfake",
+      "authors": [
+        "Wenyuan Yang",
+        "Xiaoyu Zhou",
+        "Zhikai Chen",
+        "Bofei Guo",
+        "Zhongjie Ba",
+        "Zhihua Xia",
+        "Xiaochun Cao",
+        "Kui Ren"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Information Forensics and Security"
+    },
+    {
+      "citation_id": "69",
+      "title": "Monitoring vital signs using millimeter wave",
+      "authors": [
+        "Zhicheng Yang",
+        "H Parth",
+        "Yunze Pathak",
+        "Xixi Zeng",
+        "Prasant Liran",
+        "Mohapatra"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 17th ACM international symposium on mobile ad hoc networking and computing"
+    },
+    {
+      "citation_id": "70",
+      "title": "Boosting dnn cold inference on edge devices",
+      "authors": [
+        "Rongjie Yi",
+        "Ting Cao",
+        "Ao Zhou",
+        "Xiao Ma",
+        "Shangguang Wang",
+        "Mengwei Xu"
+      ],
+      "year": "2023",
+      "venue": "Proceedings of the 21st Annual International Conference on Mobile Systems, Applications and Services"
+    },
+    {
+      "citation_id": "71",
+      "title": "Remote photoplethysmograph signal measurement from facial videos using spatio-temporal networks",
+      "authors": [
+        "Zitong Yu",
+        "Xiaobai Li",
+        "Guoying Zhao"
+      ],
+      "year": "2019",
+      "venue": "Remote photoplethysmograph signal measurement from facial videos using spatio-temporal networks",
+      "arxiv": "arXiv:1905.02419"
+    },
+    {
+      "citation_id": "72",
+      "title": "Remote heart rate measurement from highly compressed facial videos: an end-to-end deep learning solution with video enhancement",
+      "authors": [
+        "Zitong Yu",
+        "Wei Peng",
+        "Xiaobai Li",
+        "Xiaopeng Hong",
+        "Guoying Zhao"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE/CVF international conference on computer vision"
+    },
+    {
+      "citation_id": "73",
+      "title": "Physformer++: Facial video-based physiological measurement with slowfast temporal difference transformer",
+      "authors": [
+        "Zitong Yu",
+        "Yuming Shen",
+        "Jingang Shi",
+        "Hengshuang Zhao",
+        "Yawen Cui",
+        "Jiehua Zhang",
+        "Philip Torr",
+        "Guoying Zhao"
+      ],
+      "year": "2023",
+      "venue": "International Journal of Computer Vision"
+    },
+    {
+      "citation_id": "74",
+      "title": "Your Smart Speaker Can\" Hear",
+      "authors": [
+        "Fusang Zhang",
+        "Zhi Wang",
+        "Beihong Jin",
+        "Jie Xiong",
+        "Daqing Zhang"
+      ],
+      "year": "2020",
+      "venue": "Your Heartbeat! Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies"
+    },
+    {
+      "citation_id": "75",
+      "title": "Learning to coordinate video codec with transport protocol for mobile video telephony",
+      "authors": [
+        "Anfu Zhou",
+        "Huanhuan Zhang",
+        "Guangyuan Su",
+        "Leilei Wu",
+        "Ruoxuan Ma",
+        "Zhen Meng",
+        "Xinyu Zhang",
+        "Xiufeng Xie",
+        "Huadong Ma",
+        "Xiaojiang Chen"
+      ],
+      "year": "2019",
+      "venue": "The 25th Annual International Conference on Mobile Computing and Networking"
+    },
+    {
+      "citation_id": "76",
+      "title": "Rhythmformer: Extracting rppg signals based on hierarchical temporal periodic transformer",
+      "authors": [
+        "Bochao Zou",
+        "Zizheng Guo",
+        "Jiansheng Chen",
+        "Huimin Ma"
+      ],
+      "year": "2024",
+      "venue": "Rhythmformer: Extracting rppg signals based on hierarchical temporal periodic transformer",
+      "arxiv": "arXiv:2402.12788"
+    }
+  ]
+}

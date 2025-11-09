@@ -1,0 +1,2738 @@
+{
+  "paper_id": "2405.16677v2",
+  "title": "Crossmodal Asr Error Correction With Discrete Speech Units",
+  "published": "2024-05-26T19:58:38Z",
+  "authors": [
+    "Yuanchao Li",
+    "Pinzhen Chen",
+    "Peter Bell",
+    "Catherine Lai"
+  ],
+  "keywords": [
+    "ASR Error Correction",
+    "Discrete Speech Units",
+    "Low-Resource Speech",
+    "Out-of-Domain Data"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "ASR remains unsatisfactory in scenarios where the speaking style diverges from that used to train ASR systems, resulting in erroneous transcripts. To address this, ASR Error Correction (AEC), a post-ASR processing approach, is required. In this work, we tackle an understudied issue: the LOW-RESOURCE OUT-OF-DOMAIN (LROOD) problem, by investigating crossmodal AEC on very limited downstream data with 1-best hypothesis transcription. We explore pretraining and fine-tuning strategies and uncover an ASR domain discrepancy phenomenon, shedding light on appropriate training schemes for LROOD data. Moreover, we propose the incorporation of discrete speech units to align with and enhance the word embeddings for improving AEC quality. Results from multiple corpora and several evaluation metrics demonstrate the feasibility and efficacy of our proposed AEC approach on LROOD data as well as its generalizability and superiority on large-scale data. Finally, a study on speech emotion recognition confirms that our model produces ASR error-robust transcripts suitable for downstream applications.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Over the past decade, the field of Automatic Speech Recognition (ASR) has made significant progress, driven by improvements in computing resources and training schemes, as well as the availability of data. In particular, speech foundation models have demonstrated excellent performance  [1, 2, 3] , pushing the boundaries of ASR performance to new heights. In addition, their learned representations have proven valuable not only for ASR but also for various downstream applications and scenarios  [4, 5, 6] .\n\nHowever, in some situations, the speech data does not have much in common with the data used to train the ASR systems, resulting in an out-of-domain problem. For example, the acoustic characteristics of emotional, pathological, or children's speech could contain irregular, disfluent, and ambiguous patterns, which are different from and unexpected in the speech found in audiobooks or general speaking scenarios  [7, 8, 9] . As a result, when ASR is applied to these downstream tasks (e.g., emotion or depression detection), the transcription is of poor quality and difficult to use  [8, 10] .\n\nTo further improve the performance of ASR, ASR Error Correction (AEC) approaches have been proposed, allowing for post-processing without modifying the acoustic model. Traditionally, researchers trained an external language model to be incorporated into the ASR system for re-scoring  [11] . More recently, there has been a trend toward using generative error correction via Large Language Models (LLMs)  [12] , replacing traditional language models. Additionally, end-to-end AEC, which maps erroneous transcripts to ground-truth text using a Sequence-to-Sequence (S2S) approach, has become prevalent in scenarios where ASR is treated as a black box  [13, 14] . Furthermore, some work has used both acoustic information and ASR hypotheses as input instead of text-only data, achieving crossmodal AEC  [15, 16, 17, 18] . Despite these advances, AEC is still a challenging task, especially for Low-Resource Out-of-Domain (LROOD) data. Therefore, we explore this relatively unexplored aspect, aiming to provide a comprehensive analysis, which in turn provides a better understanding of AEC, as well as to improve the crossmodal AEC using Discrete Speech Units (DSUs). The exploration steps with respective research problems and hypotheses are as follows.\n\n1) While S2S models have been established for AEC, research on LROOD scenarios is limited. Many previous studies were performed on the same large corpus without considering the LROOD problem  [19, 20] , leaving challenges remain such as determining effective Pre-Training (PT) and Fine-Tuning (FT) strategies with LROOD data. Therefore, we compare AEC performance with and without PT or FT on LROOD data using an S2S model.\n\n2) None of the prior works has considered the characteristics of the ASR models that are the source of transcript generation. Moreover, although some studies have used data augmentation to produce more erroneous sentences for LROOD downstream corpora for AEC training, we argue that such arbitrary augmentation is unreliable because the error patterns of the augmented data differ from the original ASR errors. We hypothesize that different ASR models may produce distinct patterns of ASR errors (e.g., some may have more insertions, substitutions, or deletions, and some may remove or retain disfluencies), which requires that the AEC model be trained for corresponding ASR domain errors. Thus, through a comparative analysis using transcripts obtained from differ-ent ASR models with nearly the same WER, we investigate this issue and refer to it as ASR DOMAIN DISCREPANCY.\n\n3) Acoustic information has proven useful for crossmodal AEC  [15, 17] , but it is not always possible to acquire audio sources for the PT stage (e.g., due to privacy or other ethical issues). Therefore, determining how to better incorporate audio features and which acoustic features are useful remains an open question, considering high-WER speech usually contains low-quality audio that can introduce distortions into the crossmodal training. To address this, we improve crossmodal AEC by incorporating DSUs only in the FT stage, representing a resource-efficient and effort-saving approach.\n\n4) Very few studies have applied corrected ASR transcripts to downstream tasks to evaluate AEC extrinsically. Hence, we conduct Speech Emotion Recognition (SER) using the transcripts corrected by our proposed AEC approach, validating its potential for downstream applications. Related Work: To our knowledge, we are the first to address the LROOD problem in AEC. The closest works are  [15, 18, 19, 20] , which fused audio into the language model as crossmodal AEC. They either fine-tuned models on large downstream data or used the same corpus with audio in all phases of model training. This work, however, proposes DSU fusion in FT only and provides insights for tasks that require highquality transcripts yet are constrained by limited resources.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Corpora, Asr Models, And Metrics",
+      "text": "Two corpora are primarily used in this work: Common Voice  [21]  and IEMOCAP  [22] . Common Voice is one of the largest publicly available multilingual and diverse speech datasets. We adopt its 13.0 English version, using 150k utterances from the training set and the entire test set, bringing the total number to 166k. IEMOCAP is an acted corpus consisting of dyadic sessions in which actors perform improvisations or scripted scenarios specifically selected to elicit emotional expression. We follow prior research  [7] , using four basic emotions with 5,500 utterances whose transcripts are not empty.\n\nCMU-MOSI  [23]  and MSP-Podcast  [24]  are also used for validation, with results presented, but detailed analysis is omitted due to limited space. CMU-MOSI contains only 2,199 samples, which is approximately half the size of IEMOCAP. We randomly select 1,800 samples to fine-tune our AEC model and the remaining samples for testing. For MSP-Podcast, we adopt its Odyssey 2024 emotion challenge version, which contains a training set of 68,119 samples and a test set of 19,815 samples, making it approximately 16 times larger than IEMOCAP. These two corpora are used for: 1) confirming the generalizability of our approach and further proving its effectiveness; and 2) investigating the impact of data size (i.e., how our performance varies with different amounts of FT data).\n\nFor the ASR models, we use Wav2Vec 2.0 (W2V2)  [1]  in its base-960h version, a Conformer model (CONF)  [25]  from ESPnet  [26] , and the Whisper model  [3]  in its tiny.en version. We combine the transcripts of W2V2, CONF, and the ground truth, resulting in a mixture of different system error types that mimic the transcript of a random ASR system (Random). This mixture is then compared with the Whisper-based transcript with a comparable WER to investigate the ASR domain discrepancy problem in AEC (see  Sec. 3.1.2) .\n\nWhisper is run on all four corpora, yielding satisfactory WERs (see Table  1 ) for the following reasons: 1) the WERs indicate that the corpora fall outside the domain used for training Whisper, aligning with our goal to study the OOD problem; 2) the WER of Common Voice (for PT) is close to the others (for FT), ensuring the error ratios are consistent in PT and FT. Otherwise in PT, too many errors can result in a serious over-correction problem in subsequent FT and inference phases (which generally occurs in OOD scenarios, as we have observed in our experiments), while too few errors may lead to insufficient learning of error-gold pairs. This setting was usually ignored in the literature, where many studies trained the AEC model on Librispeech with less than 10% WER  [27] , thereby hindering their generalizability. Subsequently, to discover the ASR domain discrepancy problem, which is a new concept presented by this work, we create the transcript of IEMOCAP from the Random model for comparison, which has almost the same WER as that from Whisper. As said, we omit experimental details on CMU-MOSI and MSP-Podcast. In the following experiments, we employ three metrics to evaluate AEC performance: WER, BLEU, and GLEU. Unlike WER, which examines individual words, BLEU considers ngrams as units for further validating the quality of corrected transcripts  [13] . Additionally, GLEU  [28]  is designed with a specific focus on per-sentence reward objectives, addressing certain limitations associated with applying BLEU to individual sentences. We believe that BLEU and GLEU analyze a broader word span containing context for downstream tasks to infer syntactic and semantic information. Utilizing all three metrics, we aim to comprehensively assess AEC quality from different perspectives.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Approach, Experiments, And Results",
+      "text": "The architecture of our proposed AEC approach is shown in Fig.  1 . On one path, the audio input is transcribed by the ASR model into a textual transcript, which is then tok-",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Audio Input",
+      "text": "",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Asr Model",
+      "text": "RoBERTa Encoder",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Cross-Attention Hubert Encoder",
+      "text": "A m ...",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Word Tokens",
+      "text": "Frame-level embeddings Mean pooling ... ... enized for the RoBERTa-base encoder to generate word embeddings. On the other path, the HuBERT encoder produces Self-Supervised Representations (SSR) from the audio input, followed by mean pooling to generate SSR-based Acoustic Word Embeddings (AWEs) as DSUs. Note that the Montreal Forced Aligner  [29]  was used on the ASR transcripts beforehand to determine the word boundaries for mean pooling. Next, cross-attention aligns the AWEs and word embeddings to obtain the acoustic-enhanced word embeddings for the Transformer decoder to produce corrected word tokens. Our motivation for using this architecture is to highlight our effectiveness even with the most basic components.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Acoustic Word Embeddings Word Embeddings",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Transformer Decoder",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Corrected Word Tokens",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Acoustic-Enhanced Word Embeddings",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Montreal Forced Aligner",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "1-Best Hypothesis",
+      "text": "",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Crossmodal Aec On Lrood Data",
+      "text": "We first investigate PT and FT without incorporating audio information, revealing the ASR domain discrepancy problem mentioned earlier. Subsequently, we incorporate different acoustic features and propose the use of DSUs for better audio-text alignment to generate corrected word tokens.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Pre-Training & Fine-Tuning",
+      "text": "To pre-train the AEC model, 166k samples from Common Voice were recognized by Whisper, with 1,000 random samples held out as the test set, and the rest for training and validation with an 80%-20% split. The training aims to recover the gold transcripts from the ASR output. With a batch size of 256, an initial learning rate of 1e-5, and the Adam optimizer, we train the model for 30 epochs using cross-entropy loss and select the best checkpoint based on WER as the evaluation metric. Decoding is performed using beam search with a size of 5. The training framework is adopted from  [30] . Perfor-mance on the test set is shown in Table  2 . Furthermore, to prevent the over-correction problem, we continue training this saved checkpoint on TED transcriptions  [31]  to learn to copy the gold transcripts (i.e., ground truth → ground truth) and potentially enhance its domain robustness. This continue-training lasts for two epochs, ensuring it does not overfit while maintaining correction stability. We save the checkpoint 1  as the base model for subsequent experiments.\n\nNext, we fine-tune this model on the training set of IEMO-CAP for 40 epochs with a batch size of 64, an initial learning rate of 2e-5 (excluding the parameters of \"bias\" and \"Layer-Norm.weight\"), an epsilon of 1e-8, and the Adam optimizer. Following the standard five-fold split of IEMOCAP, the FT is performed five times (each time using four folds for FT and one for testing), and the final performance is reported based on the transcript composed of the corrected results obtained from five instances. The details of FT on the other two corpora are omitted yet the final results will be presented in Sec. 3.1.4.\n\nTable  3  shows that without FT, a pre-trained model cannot perform well. The improvement is hardly noticeable on IEMOCAP, whereas the improvement is significant on the test set of Common Voice (Table  2 ), despite their original ASR transcripts being of similar quality (Table  1 ). This is likely due to the domain discrepancy between Common Voice and IEMOCAP, which results in the model pre-trained on the former being unable to recognize some erroneous OOD words in the latter. However, even without PT, the model can still improve transcript quality after FT 2  on LROOD data.\n\nOur best result comes from using both PT and FT, which indicates that the capacity learned during PT is activated and enhanced by FT. This combination well alleviates the LROOD problem.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Asr Domain Discrepancy Problem",
+      "text": "To study the impact of ASR domain discrepancy, we conduct experiments by FT the AEC model on the output from another ASR system. Specifically, we use the transcript generated by Random and compare it to the transcript generated by Whisper. The results are presented in Table  4 .\n\nWe can observe that without PT on the transcript of Common Voice (which is generated by Whisper), the difference in the metric values remains small after FT 2 , compared to their original ASR transcripts. However, this pattern disappears with PT, as the transcript quality from Whisper becomes better than that from Random, highlighting the detrimental impact of ASR domain discrepancy. This phenomenon suggests that to correct transcripts from an ASR model, it is crucial to use the same ASR model as that used in PT (i.e., to continue using the same ASR model in both PT and FT). Nevertheless, the transcript quality from Random still improves, indicating that PT on a large corpus, even if its transcript is from a different ASR model, is still indispensable in LROOD scenarios. Previous studies usually incorporated acoustic information in all stages-PT, FT, and testing-and only utilized continuous features such as Mel-spectrogram or raw SSR  [15, 16] . However, we argue that these practices do not apply to LROOD scenarios for the following reasons:\n\n1) The audio source of large-scale PT data is not always accessible due to privacy or other ethical concerns. 2) The high-WER OOD speech usually contains low-quality audio that can introduce acoustic distortions (e.g., prosody variation or noise) into crossmodal training. 3) It is challenging to align discrete word embeddings with continuous audio features. To this end, we propose to discretize the audio features to create DSUs and avoid incorporating such acoustic information in PT, making it a resource-efficient and effort-saving approach.\n\nWe utilize AWEs, which are fixed-dimensional vectors representing variable-length spoken word segments as DSUs. These vectors map acoustic features extracted from audio signals to vectors, where similar words or linguistic units have similar embeddings in the vector space  [32, 33] . AWEs can capture information about phonetics and other acoustic aspects of speech, offering promising potential for word discrimination  [34] .\n\nFollowing recent studies on the analysis of AWEs from self-supervised speech models, we use SSR from HuBERT with mean pooling followed by forced alignment to find the word boundary, as this practice has been shown competitive with the state of the art on English AWEs  [35, 36] . On the other hand, we also use Mel-spectrogram and continuous raw SSR for comparison. After a layer-wise analysis (omitted due to space), we use AWEs from HuBERT layer 7 and raw SSR from HuBERT layer 8 as they performed the best among all layers, respectively. This aligns with a previous finding that HuBERT encodes the most word information between the middle layer and the last layer  [37] .\n\nTo incorporate the DSUs, we set the maximum sequence length as that of corresponding word embeddings and 0-pad the short sequence. To incorporate continuous features for comparison, we first downsample them to the same sequence length as the word embeddings using a fast Fourier transform. Unlike HuBERT, which has the same feature dimension of 768 as RoBERTa, we use a feed-forward layer for Melspectrogram to expand its dimension to this size. After such pre-processing, we implement cross-attention to align acoustic features with word embeddings:\n\nwhere Q t , K a , and V a represent the respective matrix for query (word embeddings), key (acoustic features), and value (acoustic features), d k is the size of a key vector, and A ′ is the word-aligned acoustic features. Next, we add A ′ and W for the Transformer decoder with optimizable parameters θ T to generate a corrected version W ′ :\n\nThe results of fusing acoustic features are shown in Table  5  with previous experimental results included for comparison. We note that 1) compared with other acoustic features, HuBERT AWEs provide the best results across all metrics. This verifies our hypothesis that DSUs align more easily with word embeddings than continuous acoustic features. 2) The inclusion of Mel-spec worsens WER rather than improves it, which contrasts with findings in  [15, 19, 20] . This phenomenon is reasonable and consistent with discussions in Sec. 3.1.3: i) IEMOCAP being emotional speech, contains intense prosody variation, making it challenging to encode phonetic information from Mel-spec; ii) the small-size data for FT (4.4k samples with an average duration of 5 seconds) hinders the model from sufficiently learning linguistic information from Mel-spec, representing a low-resource scenario; iii) our incorporation of audio features only happens during FT and testing, causing Mel-spec to struggle to provide sufficient information to word embeddings. In contrast,  [15, 19, 20]  conducted all training phases using the same large corpus, making their findings inapplicable to LROOD scenarios. 3) Interestingly, despite that Mel-spec worsens WER compared to the original ASR transcript and PT, BLEU and GLEU record improvement. This is likely because the corrected texts are more fluent and structurally correct with respect to the reference (favourable for BLEU and GLEU), while still containing word-level mistakes captured by WER. This demonstrates the contribution of audio to high-level linguistic information, which corroborates our later finding in SER (Sec. 4).",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Evaluation On Additional Corpora",
+      "text": "As mentioned before, we test the performance of our proposed approach on two more corpora: CMU-MOSI and MSP-Podcast, to verify its generalizability. The results are shown in Table  6  and 7 . All experimental settings remain the same, while several non-optimal models are omitted for brevity.\n\nIt can be noted that 1) PT fails to provide better results than the original ASR transcript on CMU-MOSI, whereas the performance improvement is significant on MSP-Podcast. This phenomenon is plausible due to the OOD problem: CMU-MOSI consists of monologue speech with opinions on specific topics (mainly about movies), containing a high proportion of OOD words, making the PT model trained on Common Voice less effective. In contrast, MSP-Podcast consists of natural, real-life speech recorded in podcast settings, sharing more linguistic similarities with Common Voice. 2) Both FT and the incorporation of DSUs bring performance improvements on CMU-MOSI, despite PT not being effective and the FT data being extremely limited at only 1,800 samples. Since the data size and domain similarity of IEMO-CAP are between those of CMU-MOSI and MSP-Podcast, its performance improvement also falls in between (Table  5 ). Furthermore, the performance improvement is even more significant on MSP-Podcast, indicating that the more data available for FT, the better the performance. These findings demonstrate the efficacy of our approach in LROOD scenarios and also highlight its generalizability and potential across various scenarios. To confirm the effectiveness of our approach, we compare it with the literature by adopting the following baselines: 1) Crossmodal AEC using continuous acoustic information: Mel-spectrogram  [19]  2) Crossmodal AEC using continuous acoustic information: raw self-supervised representations  [15] .\n\n3) Generative AEC using an LLM with 1-best ASR hypothesis and Alpaca prompt  [17] .\n\n4) Generative AEC using an LLM with N-best ASR hypothesis and Alpaca prompt  [17] .\n\n5) Generative AEC using an LLM with 1-best ASR hypothesis and Task-Activating prompt  [12] .\n\n6) Generative AEC using an LLM with N-best ASR hypothesis and Task-Activating prompt  [12] .\n\nSince the comparisons with 1) and 2) have already been presented in Table  5  and discussed, we omit them here. For the remaining comparisons, we attempt the Alpaca prompt  [38]  and Task-Activating (TA) prompt  [12]  using InstructGPT on both 1-best and 5-best hypotheses. Fig.  2  illustrates how the Alpaca prompt and TA prompt are used. The results are presented in Table  8 .  From the comparison results, it can be observed that: the generative AEC approaches underperform our S2S crossmodal AEC approach, particularly as the 1-best hypothesis shows hardly any difference compared to the original ASR transcript, confirming our effectiveness for scenarios where only the 1-best hypothesis is available.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Aec For Downstream Use -Ser",
+      "text": "To verify the quality and usability of our AEC approaches in downstream applications, we compare SER performances using the corrected transcript and the original ASR transcript.\n\nFollowing the same training scheme as  [7] , we train the SER model on the ground-truth transcript of the IEMOCAP training set and evaluate its performance on the ASR transcript of the test set, employing five-fold cross-validation. Textual features are extracted using BERT. The SER model consists of two bidirectional LSTM layers (hidden state: 32), a self-attention layer (hidden state: 64, heads: 16), a dense layer (hidden state: 64) with ReLU activation, and an output layer with Softmax activation. We use the AdamW optimizer with a learning rate of 1e-4 and weight decay of 1e-5 and a batch size of 64. Training is performed for 150 epochs, and the reported results are the best Unweighted Accuracy (UA) achieved. The only difference from  [7]  is that they used the pooler output from BERT, while we use hidden states. As expected, SER performance can be improved by using the corrected transcript. In  [7] , UA increased from 55.4 to 57.1 (+1.70) with WER decreasing from 20 to 15 (-5.00). In our case, UA increased from 60.92 to 61.82 (+0.90) with WER decreasing from 17.18 to 16.07 (-1.11), which represents a more significant improvement. This observation can be attributed to the fact that AEC with DSUs not only reduces WER but potentially does so via preserving syntax and semantics better, leading to higher usability in downstream tasks (resonates with the last finding in Sec. 3.1.3). However, further analysis is needed to understand the nature of ASR errors: where they occur and how they are corrected.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Discussion And Conclusion",
+      "text": "In this paper, we pre-trained an S2S AEC model on large corpora and fine-tuned it on an LROOD corpus with the assistance of DSUs. The results indicate that for AEC on LROOD data, PT, FT, and DSUs are all important. Moreover, the ASR domain discrepancy problem requires attention and should be alleviated by using the same ASR model to generate transcripts in all phases of AEC applications. We compared different acoustic features and verified the superiority of DSUs over continuous features in aligning with word embeddings. A downstream task of SER further demonstrated the improved quality of the corrected transcript, highlighting the applicability of our approach. Additionally, as confirmed by the experiment in Sec. 3.1.4, our approach is expected to perform better on larger downstream data.",
+      "page_start": 6,
+      "page_end": 6
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: On one path, the audio input is transcribed by",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: Architecture of our crossmodal AEC with discrete speech units. (Pink: trainable; Blue: frozen).",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: illustrates how",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: An illustration of the Alpaca prompt (upper) and Task-",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "University of Edinburgh, UK": "ABSTRACT"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "ASR remains unsatisfactory in scenarios where the speak-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "ing style diverges from that used to train ASR systems,\nre-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "sulting in erroneous transcripts. To address this, ASR Error"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "Correction (AEC), a post-ASR processing approach,\nis\nre-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "quired.\nIn this work, we tackle an understudied issue:\nthe"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "LOW-RESOURCE OUT-OF-DOMAIN (LROOD) problem, by"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "investigating crossmodal AEC on very limited downstream"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "data with 1-best hypothesis\ntranscription. We explore pre-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "training and fine-tuning strategies and uncover an ASR do-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "main discrepancy phenomenon, shedding light on appropri-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "ate training schemes for LROOD data. Moreover, we pro-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "pose the incorporation of discrete speech units to align with"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "and enhance the word embeddings for improving AEC qual-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "ity. Results from multiple corpora and several evaluation met-"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "rics demonstrate the feasibility and efficacy of our proposed"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "AEC approach on LROOD data as well as its generalizability"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "and superiority on large-scale data. Finally, a study on speech"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "emotion recognition confirms that our model produces ASR"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "error-robust transcripts suitable for downstream applications."
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "Index Terms— ASR Error Correction, Discrete Speech"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "Units, Low-Resource Speech, Out-of-Domain Data"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "1.\nINTRODUCTION"
+        },
+        {
+          "University of Edinburgh, UK": ""
+        },
+        {
+          "University of Edinburgh, UK": "Over the past decade, the field of Automatic Speech Recogni-"
+        },
+        {
+          "University of Edinburgh, UK": "tion (ASR) has made significant progress, driven by improve-"
+        },
+        {
+          "University of Edinburgh, UK": "ments in computing resources and training schemes, as well"
+        },
+        {
+          "University of Edinburgh, UK": "as the availability of data.\nIn particular,\nspeech foundation"
+        },
+        {
+          "University of Edinburgh, UK": "models have demonstrated excellent performance [1, 2, 3],"
+        },
+        {
+          "University of Edinburgh, UK": "pushing the boundaries of ASR performance to new heights."
+        },
+        {
+          "University of Edinburgh, UK": "In addition,\ntheir\nlearned representations have proven valu-"
+        },
+        {
+          "University of Edinburgh, UK": "able not only for ASR but also for various downstream appli-"
+        },
+        {
+          "University of Edinburgh, UK": "cations and scenarios [4, 5, 6]."
+        },
+        {
+          "University of Edinburgh, UK": "However,\nin some situations,\nthe speech data does not"
+        },
+        {
+          "University of Edinburgh, UK": "have much in common with the data used to train the ASR"
+        },
+        {
+          "University of Edinburgh, UK": "systems,\nresulting in an out-of-domain problem.\nFor exam-"
+        },
+        {
+          "University of Edinburgh, UK": "ple, the acoustic characteristics of emotional, pathological, or"
+        },
+        {
+          "University of Edinburgh, UK": "children’s speech could contain irregular, disfluent, and am-"
+        },
+        {
+          "University of Edinburgh, UK": "biguous patterns, which are different\nfrom and unexpected"
+        },
+        {
+          "University of Edinburgh, UK": "in the speech found in audiobooks or general speaking sce-"
+        },
+        {
+          "University of Edinburgh, UK": "narios [7, 8, 9]. As a result, when ASR is applied to these"
+        },
+        {
+          "University of Edinburgh, UK": "downstream tasks (e.g., emotion or depression detection), the"
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "ent ASR models with nearly the same WER, we investigate": "this issue and refer to it as ASR DOMAIN DISCREPANCY.",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "We combine the transcripts of W2V2, CONF, and the ground"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "3) Acoustic information has proven useful for crossmodal",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "truth,\nresulting in a mixture of different system error\ntypes"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "it\nis not always possible to acquire audio\nAEC [15, 17], but",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "that mimic the transcript of a random ASR system (Random)."
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "sources for the PT stage (e.g., due to privacy or other ethi-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "This mixture is then compared with the Whisper-based tran-"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "cal issues). Therefore, determining how to better incorporate",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "script with a comparable WER to investigate the ASR domain"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "audio features and which acoustic features are useful remains",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "discrepancy problem in AEC (see Sec. 3.1.2)."
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "an open question, considering high-WER speech usually con-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "Whisper is run on all\nfour corpora, yielding satisfactory"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "tains low-quality audio that can introduce distortions into the",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "WERs (see Table 1) for the following reasons: 1) the WERs"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "crossmodal training. To address this, we improve crossmodal",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "indicate that the corpora fall outside the domain used for train-"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "AEC by incorporating DSUs only in the FT stage, represent-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "ing Whisper, aligning with our goal\nto study the OOD prob-"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "ing a resource-efficient and effort-saving approach.",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "lem; 2) the WER of Common Voice (for PT) is close to the"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "few studies have applied corrected ASR tran-\n4) Very",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "others (for FT), ensuring the error ratios are consistent in PT"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "scripts\nto downstream tasks\nto evaluate AEC extrinsically.",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "and FT. Otherwise in PT, too many errors can result in a seri-"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "Hence, we conduct Speech Emotion Recognition (SER) us-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "ous over-correction problem in subsequent FT and inference"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "ing the transcripts corrected by our proposed AEC approach,",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "phases (which generally occurs in OOD scenarios, as we have"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "validating its potential for downstream applications.",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "observed in our experiments), while too few errors may lead"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "Related Work: To our knowledge, we are the first to address",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "to insufficient\nlearning of error-gold pairs. This setting was"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "the LROOD problem in AEC. The closest works are [15, 18,",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "usually ignored in the literature, where many studies trained"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "19, 20], which fused audio into the language model as cross-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "the AEC model on Librispeech with less than 10% WER [27],"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "modal AEC. They either fine-tuned models on large down-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "thereby hindering their generalizability. Subsequently, to dis-"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "stream data or used the same corpus with audio in all phases",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "cover the ASR domain discrepancy problem, which is a new"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "of model training. This work, however, proposes DSU fusion",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "concept presented by this work, we create the transcript of"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "in FT only and provides insights for tasks that require high-",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "IEMOCAP from the Random model\nfor comparison, which"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "quality transcripts yet are constrained by limited resources.",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "has almost the same WER as that from Whisper. As said, we"
+        },
+        {
+          "ent ASR models with nearly the same WER, we investigate": "",
+          "ESPnet [26], and the Whisper model [3] in its tiny.en version.": "omit experimental details on CMU-MOSI and MSP-Podcast."
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "omit experimental details on CMU-MOSI and MSP-Podcast."
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "2. CORPORA, ASR MODELS, AND METRICS",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "Table 1. WERs (%) of the ASR transcripts."
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "Two corpora are primarily used in this work: Common Voice",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "ASR Model\nCorpus\nWER"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "[21] and IEMOCAP [22]. Common Voice is one of the largest",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "Common Voice\n19.11"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "Whisper"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "publicly available multilingual and diverse speech datasets.",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "IEMOCAP\n17.18"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "We adopt its 13.0 English version, using 150k utterances from",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "CMU-MOSI\n17.84"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "the training set and the entire test set, bringing the total num-",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "MSP-Podcast\n17.65"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "ber\nto 166k.\nIEMOCAP is an acted corpus consisting of",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "",
+          "has almost the same WER as that from Whisper. As said, we": "Random\nIEMOCAP\n17.12"
+        },
+        {
+          "quality transcripts yet are constrained by limited resources.": "dyadic sessions\nin which actors perform improvisations or",
+          "has almost the same WER as that from Whisper. As said, we": ""
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table 3: shows that without FT, a pre-trained model can-",
+      "data": [
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "mance on the test set is shown in Table 2.\nenized for the RoBERTa-base encoder to generate word em-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "beddings. On the other path,\nthe HuBERT encoder produces"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Self-Supervised Representations (SSR) from the audio input,"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Table 2. AEC Performance on the test set of Common Voice."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "followed by mean pooling to generate SSR-based Acoustic"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Model\nWER\nBLEU\nGLEU"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Word Embeddings\n(AWEs) as DSUs.\nNote that\nthe Mon-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Original ASR transcript\n19.30\n70.56\n71.24"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "treal Forced Aligner\n[29] was used on the ASR transcripts\nBest checkpoint"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "18.19\n72.14\n72.45"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "beforehand to determine the word boundaries for mean pool-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "ing. Next, cross-attention aligns the AWEs and word embed-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Furthermore,\nto prevent\nthe over-correction problem, we"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "dings to obtain the acoustic-enhanced word embeddings for"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "continue training this saved checkpoint on TED transcriptions"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "the Transformer decoder\nto produce corrected word tokens."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "[31] to learn to copy the gold transcripts (i.e., ground truth →"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Our motivation for using this architecture is to highlight our"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "ground truth) and potentially enhance its domain robustness."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "effectiveness even with the most basic components."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "This continue-training lasts for two epochs, ensuring it does"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "not overfit while maintaining correction stability. We save the"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "3.1. Crossmodal AEC on LROOD Data\ncheckpoint1 as the base model for subsequent experiments."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Next, we fine-tune this model on the training set of IEMO-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "We first\ninvestigate PT and FT without\nincorporating audio"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "CAP for 40 epochs with a batch size of 64, an initial learning"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "information, revealing the ASR domain discrepancy problem"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "rate of 2e-5 (excluding the parameters of “bias” and “Layer-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "mentioned earlier.\nSubsequently, we\nincorporate different"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Norm.weight”), an epsilon of 1e-8, and the Adam optimizer."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "acoustic\nfeatures\nand propose\nthe use of DSUs\nfor better"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Following the standard five-fold split of\nIEMOCAP,\nthe FT"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "audio-text alignment to generate corrected word tokens."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "is performed five times\n(each time using four\nfolds\nfor FT"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "and one for\ntesting), and the final performance is\nreported"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "based on the transcript composed of the corrected results ob-\n3.1.1. Pre-Training & Fine-Tuning"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "tained from five instances. The details of FT on the other two"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "To pre-train the AEC model, 166k samples from Common"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "corpora are omitted yet\nthe final results will be presented in"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Voice were recognized by Whisper, with 1,000 random sam-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Sec. 3.1.4."
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "ples held out as the test set, and the rest for training and val-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "Table 3 shows that without FT, a pre-trained model can-"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "idation with an 80%-20% split. The training aims to recover"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "not perform well. The improvement\nis hardly noticeable on"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "the gold transcripts from the ASR output. With a batch size of"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "IEMOCAP, whereas the improvement is significant on the test"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "256, an initial learning rate of 1e-5, and the Adam optimizer,"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "set of Common Voice (Table 2), despite their original ASR"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "we train the model for 30 epochs using cross-entropy loss and"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "transcripts being of similar quality (Table 1). This is likely"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "select\nthe best checkpoint based on WER as the evaluation"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "due to the domain discrepancy between Common Voice and"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "metric. Decoding is performed using beam search with a size"
+        },
+        {
+          "Fig. 1. Architecture of our crossmodal AEC with discrete speech units. (Pink:\ntrainable; Blue: frozen).": "1https://github.com/yc-li20/Crossmodal AEC\nof 5. The training framework is adopted from [30]. Perfor-"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table 3: Comparison results on IEMOCAP of w/ and w/o",
+      "data": [
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "So far, we have investigated how PT and FT contribute to text-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "only S2S AEC. To further\nimprove the quality of error cor-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "rection, we study the incorporation of acoustic information."
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "Previous studies usually incorporated acoustic information in"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "all stages—PT, FT, and testing—and only utilized continuous"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "features such as Mel-spectrogram or raw SSR [15, 16]. How-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "ever, we argue that\nthese practices do not apply to LROOD"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "scenarios for the following reasons:"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "1) The audio source of large-scale PT data is not always"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "accessible due to privacy or other ethical concerns.\n2) The"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "high-WER OOD speech usually contains low-quality audio"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "that can introduce acoustic distortions (e.g., prosody variation"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "or noise) into crossmodal training. 3) It is challenging to align"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "discrete word embeddings with continuous audio features. To"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "this end, we propose to discretize the audio features to create"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "DSUs and avoid incorporating such acoustic information in"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "PT, making it a resource-efficient and effort-saving approach."
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "We utilize AWEs, which are fixed-dimensional vectors"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "representing variable-length spoken word segments as DSUs."
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "These vectors map acoustic features extracted from audio sig-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "nals to vectors, where similar words or linguistic units have"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "similar embeddings in the vector space [32, 33]. AWEs can"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "capture information about phonetics and other acoustic as-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "pects of\nspeech, offering promising potential\nfor word dis-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "crimination [34]."
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "Following recent studies on the analysis of AWEs from"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "self-supervised speech models, we use SSR from HuBERT"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "with mean pooling followed by forced alignment\nto find the"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "word boundary, as this practice has been shown competitive"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "with the state of\nthe art on English AWEs [35, 36]. On the"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "other hand, we also use Mel-spectrogram and continuous raw"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "SSR for comparison.\nAfter a layer-wise analysis\n(omitted"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "due to space), we use AWEs from HuBERT layer 7 and raw"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "SSR from HuBERT layer 8 as they performed the best among"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "all\nlayers,\nrespectively.\nThis aligns with a previous finding"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "that HuBERT encodes\nthe most word information between"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "the middle layer and the last layer [37]."
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "To incorporate the DSUs, we set\nthe maximum sequence"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "length as that of corresponding word embeddings and 0-pad"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "the short sequence.\nTo incorporate continuous features for"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "comparison, we first downsample them to the same sequence"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "length as\nthe word embeddings using a fast Fourier\ntrans-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "form. Unlike HuBERT, which has the same feature dimension"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "of 768 as RoBERTa, we use a feed-forward layer\nfor Mel-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "spectrogram to expand its dimension to this size. After such"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "pre-processing, we implement cross-attention to align acous-"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "tic features with word embeddings:"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": ""
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "QwK T"
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "√\n(1)\n)Va\nA′ = Attn(Qw, Ka, Va) = sof tmax("
+        },
+        {
+          "3.1.3.\nIncorporation of Discrete Speech Units": "dk"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table 5: CommonVoicelesseffective. Incontrast,MSP-Podcastcon-",
+      "data": [
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "the word-aligned acoustic features. Next, we add A′ and W",
+          "It can be noted that 1) PT fails to provide better\nresults": "than the original ASR transcript on CMU-MOSI, whereas"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "for the Transformer decoder with optimizable parameters θT",
+          "It can be noted that 1) PT fails to provide better\nresults": "the performance improvement is significant on MSP-Podcast."
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "to generate a corrected version W ′:",
+          "It can be noted that 1) PT fails to provide better\nresults": "This\nphenomenon\nis\nplausible\ndue\nto\nthe OOD problem:"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "CMU-MOSI\nconsists of monologue\nspeech with opinions"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "W ′ = argmax\n(2)\nP (W |addition(A′, W ); θT )",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "W",
+          "It can be noted that 1) PT fails to provide better\nresults": "on specific topics (mainly about movies), containing a high"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "proportion of OOD words, making the PT model\ntrained on"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "The results of fusing acoustic features are shown in Table 5",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "Common Voice less effective. In contrast, MSP-Podcast con-"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "with previous experimental results included for comparison.",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "sists of natural, real-life speech recorded in podcast settings,"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "2)\nsharing more linguistic similarities with Common Voice."
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "Table 5. Result summary on IEMOCAP.",
+          "It can be noted that 1) PT fails to provide better\nresults": "Both FT and the incorporation of DSUs bring performance"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "Model\nWER↓\nBLEU↑\nGLEU↑",
+          "It can be noted that 1) PT fails to provide better\nresults": "improvements on CMU-MOSI, despite PT not being effec-"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "Original ASR transcript\n17.18\n76.56\n75.29",
+          "It can be noted that 1) PT fails to provide better\nresults": "tive and the FT data being extremely limited at only 1,800"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "PT\n17.14\n76.61\n75.34",
+          "It can be noted that 1) PT fails to provide better\nresults": "samples. Since the data size and domain similarity of IEMO-"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "FT\n17.08\n77.01\n75.52",
+          "It can be noted that 1) PT fails to provide better\nresults": "CAP are between those of CMU-MOSI and MSP-Podcast,"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "PT+FT\n16.40\n78.00\n76.58",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "its performance improvement also falls in between (Table 5)."
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "PT+FT+Mel-spec\n17.36\n76.82\n75.48",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "Furthermore,\nthe\nperformance\nimprovement\nis\neven more"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "PT+FT+HuBERT SSR\n16.20\n78.01\n76.71",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "significant on MSP-Podcast,\nindicating that\nthe more data"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "PT+FT+HuBERT AWEs\n16.07\n78.22\n76.96",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "available for FT,\nthe better the performance. These findings"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "demonstrate the efficacy of our approach in LROOD scenar-"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "We note that 1) compared with other acoustic features,",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "ios and also highlight its generalizability and potential across"
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "HuBERT AWEs provide the best\nresults across all metrics.",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "various scenarios."
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "This verifies our hypothesis that DSUs align more easily with",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "word embeddings than continuous acoustic features. 2) The",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "Table 6. Result summary on CMU-MOSI."
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "inclusion of Mel-spec worsens WER rather\nthan improves",
+          "It can be noted that 1) PT fails to provide better\nresults": ""
+        },
+        {
+          "is\n(acoustic features), dk is the size of a key vector, and A′": "",
+          "It can be noted that 1) PT fails to provide better\nresults": "Model\nWER↓\nBLEU↑\nGLEU↑"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 5: CommonVoicelesseffective. Incontrast,MSP-Podcastcon-",
+      "data": [
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "HuBERT AWEs provide the best"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "This verifies our hypothesis that DSUs align more easily with"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "word embeddings than continuous acoustic features. 2) The"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "inclusion of Mel-spec worsens WER rather"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "it, which contrasts with findings in [15, 19, 20]."
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "reasonable"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "i)"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "intense prosody variation, making it challenging to encode"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "phonetic information from Mel-spec;"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "for FT (4.4k samples with an average duration of 5 sec-"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "onds) hinders the model from sufficiently learning linguistic"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "information from Mel-spec, representing a low-resource sce-"
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": "information to word embeddings."
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        },
+        {
+          "We note that 1) compared with other acoustic features,": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 5: CommonVoicelesseffective. Incontrast,MSP-Podcastcon-",
+      "data": [
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "and GLEU record improvement.\nThis is likely because the"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "corrected texts are more fluent and structurally correct with"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "respect\nto the reference (favourable for BLEU and GLEU),"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "while still containing word-level mistakes captured by WER."
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "This demonstrates the contribution of audio to high-level lin-"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "guistic information, which corroborates our\nlater finding in"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "SER (Sec. 4)."
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "3.1.4. Evaluation on Additional Corpora"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": ""
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "As mentioned before, we test\nthe performance of our pro-"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "posed approach on two more corpora: CMU-MOSI and MSP-"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "Podcast,\nto verify its generalizability. The results are shown"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "in Table 6 and 7. All experimental settings remain the same,"
+        },
+        {
+          "WER compared to the original ASR transcript and PT, BLEU": "while several non-optimal models are omitted for brevity."
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table 5: and discussed, we omit them here. For",
+      "data": [
+        {
+          "training set and evaluate its performance on the ASR tran-": "script of\nthe test\nset,\nemploying five-fold cross-validation."
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "Textual\nfeatures are extracted using BERT. The SER model"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "consists of two bidirectional LSTM layers (hidden state: 32),"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "a self-attention layer\n(hidden state:\n64, heads:\n16), a dense"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "layer (hidden state: 64) with ReLU activation, and an output"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "layer with Softmax activation. We use the AdamW optimizer"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "with a learning rate of 1e-4 and weight decay of 1e-5 and a"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "batch size of 64. Training is performed for 150 epochs, and"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "the reported results are the best Unweighted Accuracy (UA)"
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": ""
+        },
+        {
+          "training set and evaluate its performance on the ASR tran-": "achieved. The only difference from [7] is that\nthey used the"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 5: and discussed, we omit them here. For",
+      "data": [
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "To verify the quality and usability of our AEC approaches"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "in downstream applications, we compare SER performances"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "using the corrected transcript and the original ASR transcript."
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "Following the same training scheme as [7], we train the"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "SER model on the ground-truth transcript of the IEMOCAP"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "training set and evaluate its performance on the ASR tran-"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "script of\nthe test\nset,\nemploying five-fold cross-validation."
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "Textual\nfeatures are extracted using BERT. The SER model"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "consists of two bidirectional LSTM layers (hidden state: 32),"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "WER↓",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "a self-attention layer\n(hidden state:\n64, heads:\n16), a dense"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "17.18",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "layer (hidden state: 64) with ReLU activation, and an output"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "16.07",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "layer with Softmax activation. We use the AdamW optimizer"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "17.18",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "with a learning rate of 1e-4 and weight decay of 1e-5 and a"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "17.01",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "batch size of 64. Training is performed for 150 epochs, and"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "17.18",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "the reported results are the best Unweighted Accuracy (UA)"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "16.62",
+          "4. AEC FOR DOWNSTREAM USE – SER": ""
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "achieved. The only difference from [7] is that\nthey used the"
+        },
+        {
+          "Since the comparisons with 1) and 2) have already been": "",
+          "4. AEC FOR DOWNSTREAM USE – SER": "pooler output from BERT, while we use hidden states."
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table 5: and discussed, we omit them here. For",
+      "data": [
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "pooler output from BERT, while we use hidden states."
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "Table 9. Comparison results of SER performance."
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "Transcript\nWER↓\nBLEU↑\nGLEU↑\nUA↑"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "Original\n17.18\n76.56\n75.29\n60.92"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "Corrected\n61.82\n16.07\n78.22\n76.96"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "As expected, SER performance can be improved by us-"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "ing the corrected transcript.\nIn [7], UA increased from 55.4"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "to 57.1 (+1.70) with WER decreasing from 20 to 15 (-5.00)."
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "In our case, UA increased from 60.92 to 61.82 (+0.90) with"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "WER decreasing from 17.18 to 16.07 (-1.11), which repre-"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "sents a more significant\nimprovement. This observation can"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "be attributed to the fact\nthat AEC with DSUs not only re-"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "duces WER but potentially does so via preserving syntax and"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "semantics better,\nleading to higher usability in downstream"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "tasks (resonates with the last finding in Sec. 3.1.3). However,"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "further analysis is needed to understand the nature of ASR"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "errors: where they occur and how they are corrected."
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "5. DISCUSSION AND CONCLUSION"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "In this paper, we pre-trained an S2S AEC model on large"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "corpora\nand fine-tuned it on an LROOD corpus with the"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "assistance of DSUs.\nThe results\nindicate that\nfor AEC on"
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": ""
+        },
+        {
+          "achieved. The only difference from [7] is that\nthey used the": "LROOD data, PT, FT, and DSUs are all important. Moreover,"
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "(ICASSP). IEEE, 2022, pp. 7362–7366."
+        },
+        {
+          "6. REFERENCES": "[1] Alexei Baevski, Yuhao Zhou, Abdelrahman Mohamed,",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "[11] Tomohiro Tanaka, Ryo Masumura, Hirokazu Masataki,"
+        },
+        {
+          "6. REFERENCES": "and Michael Auli,\n“wav2vec 2.0: A framework for",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "and Yushi Aono,\n“Neural\nerror\ncorrective\nlanguage"
+        },
+        {
+          "6. REFERENCES": "self-supervised learning of speech representations,” Ad-",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "models for automatic speech recognition.,”\nin INTER-"
+        },
+        {
+          "6. REFERENCES": "vances\nin neural\ninformation processing systems, vol.",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "SPEECH, 2018, pp. 401–405."
+        },
+        {
+          "6. REFERENCES": "33, pp. 12449–12460, 2020.",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "[12] Chao-Han Huck Yang, Yile Gu, Yi-Chieh Liu, Shalini"
+        },
+        {
+          "6. REFERENCES": "[2] Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai,",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Ghosh, Ivan Bulyko, and Andreas Stolcke, “Generative"
+        },
+        {
+          "6. REFERENCES": "Kushal Lakhotia, Ruslan Salakhutdinov, and Abdelrah-",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "speech recognition error correction with large language"
+        },
+        {
+          "6. REFERENCES": "man Mohamed,\n“Hubert: Self-supervised speech rep-",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "models,” arXiv preprint arXiv:2309.15649, 2023."
+        },
+        {
+          "6. REFERENCES": "resentation learning by masked prediction of hidden",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "IEEE/ACM Transactions on Audio, Speech, and\nunits,”",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "[13] Anirudh Mani, Shruti Palaskar, Nimshi Venkat Meripo,"
+        },
+        {
+          "6. REFERENCES": "Language Processing, vol. 29, pp. 3451–3460, 2021.",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Sandeep Konam, and Florian Metze, “ASR error correc-"
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "tion and domain adaptation using machine translation,”"
+        },
+        {
+          "6. REFERENCES": "[3] Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "in ICASSP 2020-2020 IEEE International Conference"
+        },
+        {
+          "6. REFERENCES": "man, Christine McLeavey, and Ilya Sutskever,\n“Robust",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "on Acoustics, Speech and Signal Processing (ICASSP)."
+        },
+        {
+          "6. REFERENCES": "speech recognition via large-scale weak supervision,” in",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "IEEE, 2020, pp. 6344–6348."
+        },
+        {
+          "6. REFERENCES": "International Conference on Machine Learning. PMLR,",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "2023, pp. 28492–28518.",
+          "Conference on Acoustics, Speech and Signal Processing": "[14]\nJunwei Liao, Sefik Eskimez, Liyang Lu, Yu Shi, Ming"
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Gong, Linjun Shou, Hong Qu, and Michael Zeng, “Im-"
+        },
+        {
+          "6. REFERENCES": "[4] Yuanchao Li, Yumnah Mohamied,\nPeter Bell,\nand",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "proving\nreadability\nfor\nautomatic\nspeech\nrecognition"
+        },
+        {
+          "6. REFERENCES": "Catherine Lai, “Exploration of a self-supervised speech",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "ACM Transactions on Asian and Low-\ntranscription,”"
+        },
+        {
+          "6. REFERENCES": "model: A study on emotional corpora,”\nin 2022 IEEE",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Resource Language Information Processing, vol. 22, no."
+        },
+        {
+          "6. REFERENCES": "Spoken Language Technology Workshop (SLT).\nIEEE,",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "5, pp. 1–23, 2023."
+        },
+        {
+          "6. REFERENCES": "2023, pp. 868–875.",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "[15] Binghuai Lin and Liyuan Wang,\n“Multi-modal ASR"
+        },
+        {
+          "6. REFERENCES": "[5] Gene-Ping Yang, Yue Gu, Qingming Tang, Dongsu",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "error\ncorrection with joint ASR error detection,”\nin"
+        },
+        {
+          "6. REFERENCES": "Du,\nand Yuzong Liu,\n“On-device\nconstrained self-",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "ICASSP 2023-2023 IEEE International Conference on"
+        },
+        {
+          "6. REFERENCES": "supervised speech representation learning for keyword",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Acoustics,\nSpeech\nand\nSignal Processing\n(ICASSP)."
+        },
+        {
+          "6. REFERENCES": "spotting via knowledge distillation,” Interspeech, 2023.",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "IEEE, 2023, pp. 1–5."
+        },
+        {
+          "6. REFERENCES": "[6] Yuan Gong, Sameer Khurana, Leonid Karlinsky,\nand",
+          "Conference on Acoustics, Speech and Signal Processing": "[16]\nJing Du, Shiliang Pu, Qinbo Dong, Chao Jin, Xin Qi,"
+        },
+        {
+          "6. REFERENCES": "James Glass,\n“Whisper-at:\nNoise-robust\nautomatic",
+          "Conference on Acoustics, Speech and Signal Processing": "Dian Gu, Ru Wu, and Hongwei Zhou,\n“Cross-modal"
+        },
+        {
+          "6. REFERENCES": "speech recognizers are also strong general audio event",
+          "Conference on Acoustics, Speech and Signal Processing": "ASR post-processing system for error correction and ut-"
+        },
+        {
+          "6. REFERENCES": "taggers,” Interspeech, 2023.",
+          "Conference on Acoustics, Speech and Signal Processing": "terance rejection,”\narXiv preprint arXiv:2201.03313,"
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "2022."
+        },
+        {
+          "6. REFERENCES": "[7] Yuanchao Li, Zeyu Zhao, Ondrej Klejch, Peter Bell, and",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "Catherine Lai,\n“ASR and emotional speech: A word-",
+          "Conference on Acoustics, Speech and Signal Processing": "[17] Srijith\nRadhakrishnan,\nChao-Han\nHuck\nYang,"
+        },
+        {
+          "6. REFERENCES": "level\ninvestigation of\nthe mutual\nimpact of speech and",
+          "Conference on Acoustics, Speech and Signal Processing": "Sumeer\nAhmad\nKhan,\nRohit\nKumar,\nNarsis\nA"
+        },
+        {
+          "6. REFERENCES": "emotion recognition,” in Interspeech 2023, 2023.",
+          "Conference on Acoustics, Speech and Signal Processing": "Kiani,\nDavid Gomez-Cabrero,\nand\nJesper\nTegn´er,"
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "“Whispering\nllama:\nA cross-modal\ngenerative\nerror"
+        },
+        {
+          "6. REFERENCES": "[8] Wen Wu, Chao Zhang, and Philip C Woodland,\n“Self-",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "correction framework for speech recognition,”\nin The"
+        },
+        {
+          "6. REFERENCES": "supervised representations\nin speech-based depression",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "2023 Conference\non Empirical Methods\nin Natural"
+        },
+        {
+          "6. REFERENCES": "detection,”\nin ICASSP 2023-2023 IEEE International",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Language Processing, 2023."
+        },
+        {
+          "6. REFERENCES": "Conference on Acoustics, Speech and Signal Processing",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "(ICASSP). IEEE, 2023, pp. 1–5.",
+          "Conference on Acoustics, Speech and Signal Processing": "[18] Chen Chen, Ruizhe Li, Yuchen Hu,\nSabato Marco"
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "Siniscalchi, Pin-Yu Chen, Ensiong Chng,\nand Chao-"
+        },
+        {
+          "6. REFERENCES": "[9] Satwik Dutta, Sarah A. Tao, Jacob C. Reyna, Rebecca E.",
+          "Conference on Acoustics, Speech and Signal Processing": "Han Huck Yang,\n“It’s never\ntoo late: Fusing acoustic"
+        },
+        {
+          "6. REFERENCES": "Hacker, Dwight W. Irvin, Jay Buzhardt, and John H. L.",
+          "Conference on Acoustics, Speech and Signal Processing": "information into large language models\nfor automatic"
+        },
+        {
+          "6. REFERENCES": "Hansen,\n“Challenges remain in building asr\nfor spon-",
+          "Conference on Acoustics, Speech and Signal Processing": "speech recognition,”\narXiv preprint arXiv:2402.05457,"
+        },
+        {
+          "6. REFERENCES": "taneous preschool children speech in naturalistic educa-",
+          "Conference on Acoustics, Speech and Signal Processing": "2024."
+        },
+        {
+          "6. REFERENCES": "tional environments,” in Interspeech, 2022.",
+          "Conference on Acoustics, Speech and Signal Processing": ""
+        },
+        {
+          "6. REFERENCES": "",
+          "Conference on Acoustics, Speech and Signal Processing": "[19] Shuai Zhang, Jiangyan Yi, Zhengkun Tian, Ye Bai, Jian-"
+        },
+        {
+          "6. REFERENCES": "[10] Yuanchao Li, Peter Bell,\nand Catherine Lai,\n“Fus-",
+          "Conference on Acoustics, Speech and Signal Processing": "hua Tao, and Xuefei Liu,\n“End-to-end spelling correc-"
+        },
+        {
+          "6. REFERENCES": "ing ASR outputs\nin joint\ntraining for\nspeech emotion",
+          "Conference on Acoustics, Speech and Signal Processing": "tion conditioned on acoustic feature for code-switching"
+        },
+        {
+          "6. REFERENCES": "recognition,” in ICASSP 2022-2022 IEEE International",
+          "Conference on Acoustics, Speech and Signal Processing": "speech recognition.,” in Interspeech, 2021."
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "hiko Takashima, Takafumi Moriya, Takanori Ashihara,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Michael Wagner, and Morgan Sonderegger,\n“Montreal"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Shota Orihashi, and Naoki Makishima,\n“Cross-modal",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "forced aligner: Trainable text-speech alignment using"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "transformer-based neural\ncorrection models\nfor\nauto-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "kaldi.,” in Interspeech, 2017, vol. 2017, pp. 498–502."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "matic speech recognition,” Interspeech, 2021.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[30] Pinzhen Chen and Gerasimos Lampouras,\n“Exploring"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[21] Rosana Ardila, Megan Branson, Kelly Davis, Michael",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "data augmentation for code generation tasks,”\nin Find-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Henretty, Michael Kohler, Josh Meyer, Reuben Morais,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "ings of\nthe Association for Computational Linguistics:"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Lindsay Saunders, Francis M Tyers, and Gregor Weber,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "EACL 2023, 2023, pp. 1497–1505."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "“Common voice: A massively-multilingual speech cor-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[31] Mauro Cettolo, Christian Girardi,\nand Marcello Fed-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Proceedings of\nthe Twelfth Language Resources\npus,”",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "erico,\n“WIT3: Web inventory of transcribed and trans-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "and Evaluation Conference (LREC), 2020.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "lated talks,” in Proceedings of the 16th Annual Confer-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "ence of the European Association for Machine Transla-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[22] Carlos Busso, Murtaza Bulut,\nChi-Chun Lee, Abe",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "tion, Trento, Italy, 2012, pp. 261–268, European Asso-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Kazemzadeh, Emily Mower, Samuel Kim, Jeannette N",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "ciation for Machine Translation."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Chang,\nSungbok Lee,\nand\nShrikanth\nS Narayanan,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "“IEMOCAP: Interactive emotional dyadic motion cap-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[32] Andrew L Maas, Stephen D Miller, Tyler M O’neil, An-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "ture database,” Language resources and evaluation, vol.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "drew Y Ng, and Patrick Nguyen,\n“Word-level acous-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "42, pp. 335–359, 2008.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "tic modeling with convolutional vector\nregression,”\nin"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Proc. ICML Workshop Representation Learn, 2012."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[23] Amir Zadeh, Rowan Zellers, Eli Pincus,\nand Louis-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Philippe Morency,\n“Multimodal\nsentiment\nintensity",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[33] Keith Levin, Katharine Henry, Aren Jansen, and Karen"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "analysis\nin\nvideos:\nFacial\ngestures\nand\nverbal mes-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Livescu,\n“Fixed-dimensional acoustic embeddings of"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "sages,”\nIEEE Intelligent Systems, vol. 31, no. 6, pp.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "variable-length segments in low-resource settings,”\nin"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "82–88, 2016.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "2013 IEEE workshop on automatic speech recognition"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "and understanding. IEEE, 2013, pp. 410–415."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[24] Reza Lotfian and Carlos Busso,\n“Building naturalistic",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "emotionally balanced speech corpus by retrieving emo-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[34] Yevgen Matusevych, Herman Kamper,\nand\nSharon"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "IEEE\ntional speech from existing podcast recordings,”",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Goldwater,\n“Analyzing\nautoencoder-based\nacoustic"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Transactions on Affective Computing, vol. 10, no. 4, pp.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "word embeddings,”\nin ICLR Workshop on Bridging AI"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "471–483, 2017.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "and Cognitive Science, 2020."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[25] Anmol Gulati,\nJames Qin, Chung-Cheng Chiu, Niki",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[35] Ramon Sanabria, Hao Tang,\nand Sharon Goldwater,"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Parmar, Yu Zhang,\nJiahui Yu, Wei Han, Shibo Wang,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "“Analyzing acoustic word embeddings from pre-trained"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Zhengdong Zhang, Yonghui Wu, et al.,\n“Conformer:",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "self-supervised speech models,”\nin ICASSP 2023-2023"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Convolution-augmented transformer\nfor speech recog-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "IEEE International Conference on Acoustics,\nSpeech"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "nition,” Interspeech, 2020.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "and Signal Processing (ICASSP). IEEE, 2023, pp. 1–5."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[36] Alexandra Saliba, Yuanchao Li, Ramon Sanabria, and"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[26] Shinji Watanabe, Takaaki Hori, Shigeki Karita, Tomoki",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Catherine Lai,\n“Layer-wise analysis of self-supervised"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Hayashi,\nJiro Nishitoba,\nYuya Unno,\nNelson\nEn-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "acoustic word embeddings: A study on speech emotion"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "rique Yalta Soplin,\nJahn Heymann, Matthew Wiesner,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "recognition,”\nin 2024 IEEE International Conference"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Nanxin Chen, et al.,\n“Espnet: End-to-end speech pro-",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "on Acoustics, Speech, and Signal Processing Workshops"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "cessing toolkit,” Interspeech, 2018.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "(ICASSPW). IEEE, 2024."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[27]\nJinxi Guo, Tara N Sainath, and Ron J Weiss, “A spelling",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[37] Ankita Pasad, Bowen Shi, and Karen Livescu,\n“Com-"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "correction model\nfor\nend-to-end speech recognition,”",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "parative layer-wise analysis of\nself-supervised speech"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "in ICASSP 2019-2019 IEEE International Conference",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "models,”\nin ICASSP 2023-2023 IEEE International"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "on Acoustics, Speech and Signal Processing (ICASSP).",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Conference on Acoustics, Speech and Signal Processing"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "IEEE, 2019, pp. 5651–5655.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "(ICASSP). IEEE, 2023, pp. 1–5."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "[28] Yonghui Wu, Mike Schuster, Zhifeng Chen, Quoc V",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "[38] Rohan Taori,\nIshaan Gulrajani, Tianyi Zhang, Yann"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Le, Mohammad Norouzi, Wolfgang Macherey, Maxim",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "Dubois, Xuechen Li, Carlos Guestrin,\nPercy Liang,"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "Krikun, Yuan Cao, Qin Gao, Klaus Macherey,\net al.,",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "and Tatsunori B Hashimoto,\n“Stanford alpaca:\nAn"
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "“Google’s neural machine translation system: Bridging",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": "instruction-following llama model,” 2023."
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "the gap between human and machine translation,” arXiv",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        },
+        {
+          "[20] Tomohiro Tanaka, Ryo Masumura, Mana Ihori, Aki-": "preprint arXiv:1609.08144, 2016.",
+          "[29] Michael McAuliffe, Michaela Socolof, Sarah Mihuc,": ""
+        }
+      ],
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "",
+      "authors": [
+        "References"
+      ],
+      "venue": ""
+    },
+    {
+      "citation_id": "2",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Yuhao Zhou",
+        "Abdelrahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "wav2vec 2.0: A framework for self-supervised learning of speech representations"
+    },
+    {
+      "citation_id": "3",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei-Ning Hsu",
+        "Benjamin Bolte",
+        "Hubert Yao-Hung",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "4",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Kim",
+        "Tao Xu",
+        "Greg Brockman",
+        "Christine Mcleavey",
+        "Ilya Sutskever"
+      ],
+      "year": "2023",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "5",
+      "title": "Exploration of a self-supervised speech model: A study on emotional corpora",
+      "authors": [
+        "Yuanchao Li",
+        "Yumnah Mohamied",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "year": "2023",
+      "venue": "2022 IEEE Spoken Language Technology Workshop (SLT)"
+    },
+    {
+      "citation_id": "6",
+      "title": "On-device constrained selfsupervised speech representation learning for keyword spotting via knowledge distillation",
+      "authors": [
+        "Gene-Ping Yang",
+        "Yue Gu",
+        "Qingming Tang",
+        "Dongsu Du",
+        "Yuzong Liu"
+      ],
+      "year": "2023",
+      "venue": "On-device constrained selfsupervised speech representation learning for keyword spotting via knowledge distillation"
+    },
+    {
+      "citation_id": "7",
+      "title": "Whisper-at: Noise-robust automatic speech recognizers are also strong general audio event taggers",
+      "authors": [
+        "Yuan Gong",
+        "Sameer Khurana",
+        "Leonid Karlinsky",
+        "James Glass"
+      ],
+      "year": "2023",
+      "venue": "Whisper-at: Noise-robust automatic speech recognizers are also strong general audio event taggers"
+    },
+    {
+      "citation_id": "8",
+      "title": "ASR and emotional speech: A wordlevel investigation of the mutual impact of speech and emotion recognition",
+      "authors": [
+        "Yuanchao Li",
+        "Zeyu Zhao",
+        "Ondrej Klejch",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "venue": "ASR and emotional speech: A wordlevel investigation of the mutual impact of speech and emotion recognition"
+    },
+    {
+      "citation_id": "9",
+      "title": "Selfsupervised representations in speech-based depression detection",
+      "authors": [
+        "Wen Wu",
+        "Chao Zhang",
+        "Philip Woodland"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Challenges remain in building asr for spontaneous preschool children speech in naturalistic educational environments",
+      "authors": [
+        "Satwik Dutta",
+        "Sarah Tao",
+        "Jacob Reyna",
+        "Rebecca Hacker",
+        "Dwight Irvin",
+        "Jay Buzhardt",
+        "John Hansen"
+      ],
+      "year": "2022",
+      "venue": "Challenges remain in building asr for spontaneous preschool children speech in naturalistic educational environments"
+    },
+    {
+      "citation_id": "11",
+      "title": "Fusing ASR outputs in joint training for speech emotion recognition",
+      "authors": [
+        "Yuanchao Li",
+        "Peter Bell",
+        "Catherine Lai"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Neural error corrective language models for automatic speech recognition",
+      "authors": [
+        "Tomohiro Tanaka",
+        "Ryo Masumura",
+        "Hirokazu Masataki",
+        "Yushi Aono"
+      ],
+      "year": "2018",
+      "venue": "INTER-SPEECH"
+    },
+    {
+      "citation_id": "13",
+      "title": "Generative speech recognition error correction with large language models",
+      "authors": [
+        "Chao-Han Huck",
+        "Yile Yang",
+        "Yi-Chieh Gu",
+        "Shalini Liu",
+        "Ivan Ghosh",
+        "Andreas Bulyko",
+        "Stolcke"
+      ],
+      "year": "2023",
+      "venue": "Generative speech recognition error correction with large language models",
+      "arxiv": "arXiv:2309.15649"
+    },
+    {
+      "citation_id": "14",
+      "title": "ASR error correction and domain adaptation using machine translation",
+      "authors": [
+        "Anirudh Mani",
+        "Shruti Palaskar",
+        "Venkat Nimshi",
+        "Sandeep Meripo",
+        "Florian Konam",
+        "Metze"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "15",
+      "title": "Improving readability for automatic speech recognition transcription",
+      "authors": [
+        "Junwei Liao",
+        "Sefik Eskimez",
+        "Liyang Lu",
+        "Yu Shi",
+        "Ming Gong",
+        "Linjun Shou",
+        "Hong Qu",
+        "Michael Zeng"
+      ],
+      "year": "2023",
+      "venue": "ACM Transactions on Asian and Low-Resource Language Information Processing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Multi-modal ASR error correction with joint ASR error detection",
+      "authors": [
+        "Binghuai Lin",
+        "Liyuan Wang"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "17",
+      "title": "Cross-modal ASR post-processing system for error correction and utterance rejection",
+      "authors": [
+        "Jing Du",
+        "Shiliang Pu",
+        "Qinbo Dong",
+        "Chao Jin",
+        "Xin Qi",
+        "Dian Gu",
+        "Ru Wu",
+        "Hongwei Zhou"
+      ],
+      "year": "2022",
+      "venue": "Cross-modal ASR post-processing system for error correction and utterance rejection",
+      "arxiv": "arXiv:2201.03313"
+    },
+    {
+      "citation_id": "18",
+      "title": "Whispering llama: A cross-modal generative error correction framework for speech recognition",
+      "authors": [
+        "Srijith Radhakrishnan",
+        "Chao-Han Huck",
+        "Sumeer Yang",
+        "Rohit Ahmad Khan",
+        "Narsis Kumar",
+        "David Kiani",
+        "Jesper Gomez-Cabrero",
+        "Tegnér"
+      ],
+      "year": "2023",
+      "venue": "The 2023 Conference on Empirical Methods in Natural Language Processing"
+    },
+    {
+      "citation_id": "19",
+      "title": "It's never too late: Fusing acoustic information into large language models for automatic speech recognition",
+      "authors": [
+        "Chen Chen",
+        "Ruizhe Li",
+        "Yuchen Hu",
+        "Sabato Marco Siniscalchi",
+        "Pin-Yu Chen",
+        "Ensiong Chng",
+        "Chao-Han Huck"
+      ],
+      "year": "2024",
+      "venue": "It's never too late: Fusing acoustic information into large language models for automatic speech recognition",
+      "arxiv": "arXiv:2402.05457"
+    },
+    {
+      "citation_id": "20",
+      "title": "End-to-end spelling correction conditioned on acoustic feature for code-switching speech recognition",
+      "authors": [
+        "Shuai Zhang",
+        "Jiangyan Yi",
+        "Zhengkun Tian",
+        "Ye Bai",
+        "Jianhua Tao",
+        "Xuefei Liu"
+      ],
+      "year": "2021",
+      "venue": "End-to-end spelling correction conditioned on acoustic feature for code-switching speech recognition"
+    },
+    {
+      "citation_id": "21",
+      "title": "Cross-modal transformer-based neural correction models for automatic speech recognition",
+      "authors": [
+        "Tomohiro Tanaka",
+        "Ryo Masumura",
+        "Mana Ihori",
+        "Akihiko Takashima",
+        "Takafumi Moriya",
+        "Takanori Ashihara",
+        "Shota Orihashi",
+        "Naoki Makishima"
+      ],
+      "year": "2021",
+      "venue": "Cross-modal transformer-based neural correction models for automatic speech recognition"
+    },
+    {
+      "citation_id": "22",
+      "title": "Common voice: A massively-multilingual speech corpus",
+      "authors": [
+        "Rosana Ardila",
+        "Megan Branson",
+        "Kelly Davis",
+        "Michael Henretty",
+        "Michael Kohler",
+        "Josh Meyer",
+        "Reuben Morais",
+        "Lindsay Saunders",
+        "Francis Tyers",
+        "Gregor Weber"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the Twelfth Language Resources and Evaluation Conference (LREC)"
+    },
+    {
+      "citation_id": "23",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Mower",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "24",
+      "title": "Multimodal sentiment intensity analysis in videos: Facial gestures and verbal messages",
+      "authors": [
+        "Amir Zadeh",
+        "Rowan Zellers",
+        "Eli Pincus",
+        "Louis-Philippe Morency"
+      ],
+      "year": "2016",
+      "venue": "IEEE Intelligent Systems"
+    },
+    {
+      "citation_id": "25",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "Reza Lotfian",
+        "Carlos Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "26",
+      "title": "Conformer: Convolution-augmented transformer for speech recognition",
+      "authors": [
+        "Anmol Gulati",
+        "James Qin",
+        "Chung-Cheng Chiu",
+        "Niki Parmar",
+        "Yu Zhang",
+        "Jiahui Yu",
+        "Wei Han",
+        "Shibo Wang",
+        "Zhengdong Zhang",
+        "Yonghui Wu"
+      ],
+      "year": "2020",
+      "venue": "Conformer: Convolution-augmented transformer for speech recognition"
+    },
+    {
+      "citation_id": "27",
+      "title": "Espnet: End-to-end speech processing toolkit",
+      "authors": [
+        "Shinji Watanabe",
+        "Takaaki Hori",
+        "Shigeki Karita",
+        "Tomoki Hayashi",
+        "Jiro Nishitoba",
+        "Yuya Unno",
+        "Nelson Enrique",
+        "Yalta Soplin",
+        "Jahn Heymann",
+        "Matthew Wiesner",
+        "Nanxin Chen"
+      ],
+      "year": "2018",
+      "venue": "Espnet: End-to-end speech processing toolkit"
+    },
+    {
+      "citation_id": "28",
+      "title": "A spelling correction model for end-to-end speech recognition",
+      "authors": [
+        "Jinxi Guo",
+        "Tara Sainath",
+        "Ron Weiss"
+      ],
+      "year": "2019",
+      "venue": "ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "29",
+      "title": "Google's neural machine translation system: Bridging the gap between human and machine translation",
+      "authors": [
+        "Yonghui Wu",
+        "Mike Schuster",
+        "Zhifeng Chen",
+        "V Quoc",
+        "Mohammad Le",
+        "Wolfgang Norouzi",
+        "Maxim Macherey",
+        "Yuan Krikun",
+        "Qin Cao",
+        "Klaus Gao",
+        "Macherey"
+      ],
+      "year": "2016",
+      "venue": "Google's neural machine translation system: Bridging the gap between human and machine translation",
+      "arxiv": "arXiv:1609.08144"
+    },
+    {
+      "citation_id": "30",
+      "title": "Montreal forced aligner: Trainable text-speech alignment using kaldi",
+      "authors": [
+        "Michael Mcauliffe",
+        "Michaela Socolof",
+        "Sarah Mihuc",
+        "Michael Wagner",
+        "Morgan Sonderegger"
+      ],
+      "year": "2017",
+      "venue": "Montreal forced aligner: Trainable text-speech alignment using kaldi"
+    },
+    {
+      "citation_id": "31",
+      "title": "Exploring data augmentation for code generation tasks",
+      "authors": [
+        "Pinzhen Chen",
+        "Gerasimos Lampouras"
+      ],
+      "year": "2023",
+      "venue": "Findings of the Association for Computational Linguistics: EACL 2023"
+    },
+    {
+      "citation_id": "32",
+      "title": "WIT3: Web inventory of transcribed and translated talks",
+      "authors": [
+        "Mauro Cettolo",
+        "Christian Girardi",
+        "Marcello Federico"
+      ],
+      "year": "2012",
+      "venue": "Proceedings of the 16th Annual Conference of the European Association for Machine Translation"
+    },
+    {
+      "citation_id": "33",
+      "title": "Word-level acoustic modeling with convolutional vector regression",
+      "authors": [
+        "Stephen Andrew L Maas",
+        "Miller",
+        "M Tyler",
+        "Andrew O'neil",
+        "Patrick Ng",
+        "Nguyen"
+      ],
+      "year": "2012",
+      "venue": "Proc. ICML Workshop Representation Learn"
+    },
+    {
+      "citation_id": "34",
+      "title": "Fixed-dimensional acoustic embeddings of variable-length segments in low-resource settings,\" in 2013 IEEE workshop on automatic speech recognition and understanding",
+      "authors": [
+        "Keith Levin",
+        "Katharine Henry",
+        "Aren Jansen",
+        "Karen Livescu"
+      ],
+      "year": "2013",
+      "venue": "Fixed-dimensional acoustic embeddings of variable-length segments in low-resource settings,\" in 2013 IEEE workshop on automatic speech recognition and understanding"
+    },
+    {
+      "citation_id": "35",
+      "title": "Analyzing autoencoder-based acoustic word embeddings",
+      "authors": [
+        "Yevgen Matusevych",
+        "Herman Kamper",
+        "Sharon Goldwater"
+      ],
+      "year": "2020",
+      "venue": "ICLR Workshop on Bridging AI and Cognitive Science"
+    },
+    {
+      "citation_id": "36",
+      "title": "Analyzing acoustic word embeddings from pre-trained self-supervised speech models",
+      "authors": [
+        "Ramon Sanabria",
+        "Hao Tang",
+        "Sharon Goldwater"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "37",
+      "title": "Layer-wise analysis of self-supervised acoustic word embeddings: A study on speech emotion recognition",
+      "authors": [
+        "Alexandra Saliba",
+        "Yuanchao Li",
+        "Ramon Sanabria",
+        "Catherine Lai"
+      ],
+      "year": "2024",
+      "venue": "2024 IEEE International Conference on Acoustics, Speech, and Signal Processing Workshops (ICASSPW)"
+    },
+    {
+      "citation_id": "38",
+      "title": "Comparative layer-wise analysis of self-supervised speech models",
+      "authors": [
+        "Ankita Pasad",
+        "Bowen Shi",
+        "Karen Livescu"
+      ],
+      "year": "2023",
+      "venue": "ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "39",
+      "title": "Stanford alpaca: An instruction-following llama model",
+      "authors": [
+        "Rohan Taori",
+        "Ishaan Gulrajani",
+        "Tianyi Zhang",
+        "Yann Dubois",
+        "Xuechen Li",
+        "Carlos Guestrin",
+        "Percy Liang",
+        "Tatsunori B Hashimoto"
+      ],
+      "year": "2023",
+      "venue": "Stanford alpaca: An instruction-following llama model"
+    }
+  ]
+}

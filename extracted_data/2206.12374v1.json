@@ -1,0 +1,964 @@
+{
+  "paper_id": "2206.12374v1",
+  "title": "Affective Signals In A Social Media Recommender System",
+  "published": "2022-06-24T16:57:08Z",
+  "authors": [
+    "Jane Dwivedi-Yu",
+    "Yi-Chia Wang",
+    "Lijing Qin",
+    "Cristian Canton-Ferrer",
+    "Alon Y. Halevy"
+  ],
+  "keywords": [
+    "affective computing",
+    "recommendation systems",
+    "social media"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "People come to social media to satisfy a variety of needs, such as being informed, entertained and inspired, or connected to their friends and community. Hence, to design a ranking function that gives useful and personalized post recommendations, it would be helpful to be able to predict the affective response a user may have to a post (e.g., entertained, informed, angered). This paper describes the challenges and solutions we developed to apply Affective Computing to social media recommendation systems. We address several types of challenges. First, we devise a taxonomy of affects that was small (for practical purposes) yet covers the important nuances needed for the application. Second, to collect training data for our models, we balance between signals that are already available to us (namely, different types of user engagement) and data we collected through a carefully crafted human annotation effort on 800k posts. We demonstrate that affective response information learned from this dataset improves a module in the recommendation system by more than 8%. Online experimentation also demonstrates statistically significant decreases in surfaced violating content and increases in surfaced content that users find valuable. \n CCS CONCEPTS • Human-centered computing → Social networks; • Information systems → Sentiment analysis; Recommender systems.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Social media platforms have become a common means of interacting and connecting with others as well as finding interesting, informing, and entertaining content  [5, 20, 51] . Users of those platforms depend on the ranking systems of the recommendation systems to show them information they will be most interested in, provide them with positive experiences, and safeguard them against offensive material. Users may also look for online content that will help them change or enhance their current affective state  [31, 52] , and social media is indeed rich in these signals  [22, 23, 48] . Conceivably, Affective Computing, a field that develops methods to predict user's affects in a particular application context (e.g., customer support interaction, online learning), can contribute to the suite of methods used by recommender systems to ensure that users are having the best experiences possible  [9, 12, 40, 50, 60] . This paper describes the challenges and solutions we developed to apply Affective Computing in the context of Facebook's ranking algorithm.\n\nThe first contribution of this paper is translating the vision of applying Affective Computing into a well-specified technical problem. Doing so involved several challenges. The first challenge was to understand where in the complex recommendation system an affective prediction can be useful for ranking and how to combine it with other ranking signals. The second challenge was to devise a set of criteria for determining which affects pertain to recommender systems (e.g., inspiration, entertainment, sadness, fear) and to apply these criteria to decide on a reasonably short list of affects to operationalize.\n\nThe second set of contributions concern the operationalization of Affective Computing where we developed models for predicting the potential affective response a user may have to a post. We began by developing methods for training affect classifiers based on users' engagement (reactions, shares, outbound clicks, negative user feedback, and comments) on the platform, which carries an important signal about their affective response towards content. However, engagement alone does not suffice, because a single response can sometimes indicate different intents given different contexts. For instance, consider the sad or sorry reaction used in response to a post. In some cases, the reaction may simply indicate the user's emotional support, but in other cases, it may indicate the user's sadness and a preference to never see that type of content again. Hence, we also supplemented the signal based on engagement with a carefully constructed human annotation pipeline to directly label affective response. Using this data, we developed a model for Figure  1 : Example of a recommender system. The first step removes any violating content from the pool of candidate items. The top 500 or so of the remaining posts get scored on whether post p would produce value for the user u at time T, denoted 𝑐 𝑝,𝑢,𝑇 . Lastly, the selected posts undergo a reranking step to ensure the feed contains enough diversity.\n\npredicting affective signals that was then injected into the ranking algorithm of the recommendation system, leading to substantial improvements of several metrics.\n\nThe paper is organized as follows. Section 2 describes where Affective Computing can contribute to a recommendation system and how we decided which affects to operationalize. Section 3 describes how we create training data for our classifiers and the modeling architecture and features for predicting affective signals. Section 4 provides an analysis of both the dataset and model when incorporated into the recommendation system, describing experiments that validate some of the choices we made in this work. Section 5 describes related work and Section 6 concludes and points to future avenues of research.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Problem Definition",
+      "text": "This section begins by reviewing the basic aspects of recommendation systems that are relevant to our discussion (Section 2.1). We then define the concept of affective response and discuss how it can be incorporated into the recommendation system (Section 2.2). Finally, we discuss how we chose the affects to model in our work (Section 2.3).",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Recommendation Systems",
+      "text": "The recommendation system is the component responsible for deciding which posts will be shown to a user and in what order. A typical architecture of a recommendation system inspired by  [24]  is shown in Figure  1 .\n\nThe recommendation system starts with a pool of available posts. These posts may have been posted by the user's friends or pages they follow, or come from sources that post about topics that the user seems to be interested in. The posts can also be curated by the platform, such as information about voting locations during an election cycle or about COVID vaccines.\n\nBecause much of the content is organic, the first step in the process is to remove items that violate the community policies set forth by the platform. Such items may include hate speech, bullying, nudity, calls for violence, or misinformation  [13] . At the next step, the recommender uses a lightweight model to reduce the number of candidate items to about 500 per user.\n\nIn the main ranking step, the goal of the recommender system is to produce a score 𝑐 𝑝,𝑢,𝑇 which determines whether post 𝑝 is of value to user 𝑢 at time 𝑇 . The value of 𝑐 𝑝,𝑢,𝑇 is computed as a weighted linear sum of a set of prediction models. Prediction models can include trying to predict engagement actions such as liking or resharing a post. They can also incorporate how recent the post is or whether other friends have engaged with it. Since not all types of user value can be captured through their engagement with posts, the platform also conducts surveys with small sets of users. These surveys can ask direct questions such as whether posts are worth their time, provide value, or contribute to their feeling of being informed. Based on these surveys, an additional set of predictors tries to predict the user's answer to these survey questions.\n\nThe final step of the recommendation system is a re-ranking step, where the goal is to ensure that the feed that is produced contains enough diversity (e.g., not overwhelmed by a particular topic or set of users that post often).",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Affective Response",
+      "text": "In this work, we use the term affect to refer to both an affective state (e.g., anger, joy) as well as a cognitive state (e.g., entertainment, inspiration). Our goal is to model the affective response, the affect that a user may have when exposed to a particular post, and use such a model to improve a scoring module of the recommendation system.\n\nPredicting affective response is a form of content analysis. A common type of content analysis done for recommendation today is to determine the topic of a post  [2, 37] . However, the topic alone does not capture its full nuance. For example, consider that a post on the topic of clowns can have an affective response varying from happy to scared. Our definition of affect as both affective and cognitive experiences is motivated by a need to narrow the gap between topic analysis and more nuanced analysis of a post.\n\nWe found that a prediction of affective signals can be useful in several of the scoring modules that are used in the recommender system, and therefore we create an embedding that can be used as a feature in any scoring module. The embedding is the penultimate layer of the network that predicts affective tasks.\n\nAn alternative option would have been to use the affective model as a scoring module in itself. We discarded this option because these affective signals alone do not necessarily indicate whether a post should be ranked higher or lower.\n\nFinally, it is important to differentiate between affective response and the more prevalent work in Affective Computing on emotion detection. In the context of social media, emotion detection has been used to try to detect the emotion of the author of the post (referred to as the publisher affect in Chen et al.  [3] ), whereas our focus is on the anticipating the viewer's affective response to the post. While the publisher affect may be relevant to the affective response, it is not always sufficient signal (see Figure  7  for an illustrative example). For example, a post with an excited publisher affect can induce an angry affective response. We decided to focus on affective response for two main reasons. First, detecting the emotional state of the author of a post is ethically questionable. Second, our goal here is to curate content that caters to the preferences of the user, and therefore the possible affective responses should be taken into consideration.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Defining The Affective Taxonomy",
+      "text": "In determining the set of affective responses to operationalize, we need to construct a taxonomy of labels with the proper granularity. There are two challenges in designing the taxonomy. First, the labels need to be discriminative enough to distinguish different use cases and serve a variety of user preferences. Take, for instance, the affective response of being angered. On social media, there are instances where collectively venting over a common issue can permit self-expression and community, and can be cathartic and useful to both the posters and viewers  [17, 53] . On the other hand, there is clearly an unproductive type of anger that can arise, such as when viewing posts containing spam, toxic speech, or misinformation  [4] . In the former case, we may still consider showing the user the candidate post, but in the latter case it's much more unlikely. Consequently, we realized that a single label for angered was too broad, and we constructed two types of angered: constructivelyangered and deconstructively-angered. Another example is excited and relaxed, which in other works such as  [43]  are classified under a single category joy.\n\nThe second challenge we faced was to design a taxonomy that covers the important use cases but, for practical considerations, also minimizes the number of affective responses as much as possible. As noted in  [19] , the degree of difficulty in modeling affective responses would scale with an increase in the number of affects. In particular, the quality of human labels would decrease because it is impractical to ask annotators to distinguish between a large number of affects. In Section 4, we evaluate the interrater correlation and show average values much larger than that of state-of-the-art work in publisher affect detection.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Methods",
+      "text": "In this section, we describe methods for generating training data for our affective models and the architecture and features of the model that is trained on this data. Training data can be generated in two ways: engagement data that we have on the platform and human labeling of posts. Our goal is to leverage the engagement data as much as possible to reduce the costs of human labeling. Section 3.1 describes how we extract training data from these simple behaviors on the network (e.g., reactions to post). Note, we could have also relied on explicitly asking users their affective states regarding content, but this has the drawbacks of being intrusive and potentially unreliable  [36] . In Section 3.2 we analyze the content of comments written in response to posts to generate training labels, and in Section 3.3 we discuss how we obtained annotations from human labelers. Together, the affective response labels and the engagement labels are used for training a two-tower architecture multi-class classifier described in Section 3.4. For this work, only de-identified Facebook posts were utilized.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Engagement Signals",
+      "text": "When using the platform, there are a number of ways that users can indirectly give feedback on how they feel about the content that they see. These include but are not necessarily limited to:\n\n• User reactions (e.g. like, love, care, haha, wow, sad, angry as in Figure  8 ) • User behaviors (e.g. share, outbound click) • Negative user feedback (e.g. hide, snooze, unfollow, report as in Figure  9 ) While these signals may not be directly indicative of an affective state, a subset of these categories could conceivably provide useful signals that are transferrable to learning the affective response. For instance, a user clicking the haha reaction to a post might indicate that they're feeling entertained by that content, while a user reporting a post might indicate that they are angered or offended. These engagement signals are also straightforward to incorporate into our model because they are already personalized (i.e., the engagement signal is both user and post dependent).\n\nIn the dataset we constructed, we used prediction of these engagement signals from the prior 90 days as a new training task (i.e., as prediction labels). Another possibility would be to use these engagement signals as features, rather than training labels, because they intuitively could help in predicting the affective response. There are two issues with this. Firstly, removing engagement as training labels, would greatly reduce our overall training set size and force us to learn a more complex feature space with less data. Secondly, we ideally would like to predict affective response at the time of the post's creation when there is little to no engagement yet. Consequently, assuming engagement signals are available to be used as features was not a suitable design.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Patterns From Comments",
+      "text": "In addition to engagement, comments that users write in response to posts contain valuable signal relevant to the affective response they had when viewing the post. For example, the expression \"What a hilarious story\" may indicate that a post is humorous, and \"This is so cute\" may indicate that a post is adorable. If comments of the same flavor appear multiple times in a response to a post, we can use that as a label for the affective response.\n\nWe developed the CARE (Common Affective Response Expression) method  [59] , a means of obtaining labels for affective response in an unsupervised way from the comments written in response to online posts. Since these labels were going to be used as training data, we wanted to ensure that their precision is high, but we also wanted a flexible method that can be applied for new affects as they came up.\n\nCARE uses patterns and a keyword-affect mapping to identify expressions in comments that provide high-precision evidence about the affective response of the readers to the post. We seed the system with a small number of high-precision patterns and mappings. We then iteratively and automatically expand on the initial set by considering frequent patterns and keywords in unlabeled comments on posts labeled by the previous iteration. The CARE method is illustrated in Figure  2 . We stopped expansion of the system after reaching 23 distinct patterns and a lexicon of 163 keywords because this sufficed to generate enough labels for each class. Note, because these patterns are applied to the comments rather than the post, training any models on the content of the post will not be biased to these particular expressions.\n\nUsing the CARE method, we obtained 4 million labels for the affects adoring, entertained, excited, saddened, scared, angered, and approving (which is not in Table  1  but refers to expressing support, praise, or pride). To evaluate the quality of the labels generated by CARE, we randomly selected 6000 posts and asked human annotators to label them according to these labels. The comparison of the human annotations and the CARE labels are shown in Table  2  and indicate high agreement.\n\nIn implementing CARE, we noticed a few shortcomings of the method. Firstly, in analyzing the individual classes and mappings, there are some patterns which work for certain class-keyword mappings but not so for others. While this is a point for improvement in future work, we observe that in large numbers, the more error-prone combinations are infrequent compared to the highlyaccurate ones. Consequently, the method as a whole is a reasonable cost-effective alternative to obtaining more human annotations. Table  2 : The rate of agreement between the annotators and the labels proposed by CARE. The first column specifies the number of annotators to be used for consensus. The rest of the columns shows for all posts, the average rate of intersection of the human labels with at least one CARE label, all CARE labels, and any label that is not a CARE label.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "Human Labels",
+      "text": "In addition to weakly-labeled data from engagement signals and comments, we also crowdsourced a ground-truth dataset, which allowed us to augment our original data with high-quality labels that can be used for evaluation and analysis. In our annotation tasks, we restricted to posts with just text and image (no video) and to English only.\n\nLabeling guidelines. Before deciding the details of the annotation procedure, it was important for us to first understand which frame of reference we wanted annotators to label from. Unlike in most labeling frameworks which ask objective tasks (e.g., is the post about baseball?), a labeler's background and personality can greatly affect their answers in our context. More specifically, in asking individuals about the affective response to a post, they could either answer with their personal opinion or they could answer with what they perceive is a more universally accepted answer:\n\n(1) Personalized: The affective response of a post from a labeler's personal perspective (i.e., how does this post make you feel?).\n\n(2) Unpersonalized: The affective response of a post from a common, universal perspective (i.e., how does this post make most people feel?). One could equate this framing to how genres on Netflix are labeled (e.g., feel-good, emotional, provocative).\n\nIt is clear that (1) lends itself best to personalized predictions and is more akin to the recommendation system setting. However human annotators are not our users and therefore we lack their user engagement history and other information that is normally critical for personalized prediction. Moreover, for each post, we have five distinct labelers annotate, which is not sufficiently large to leverage annotator agreement if operating under  (1) . For these reasons, (2) was the more effective solution, and so we asked the following question: How might someone feel after seeing the following post? Select up to 3 of the top options.\n\nPersonalizing annotated posts. As discussed previously, the labels we obtained from human annotation were not personalized, but our recommendation system is personalized. In order to incorporate the non-personalized human labels, we construct a personalized dataset with the following heuristic: if a user liked (or loved) a post that was annotated with an affect 𝐴 by the annotators, we assume that the user also had the same affect towards the post. Specifically, for each post 𝑝 labeled as a positive affect 𝐴 by the human labelers, we collect all users U who liked or loved the post. We then add a row (𝑝, 𝐴, 𝑢) to the personalized dataset for each 𝑢 ∈ U. We note that this heuristic does not apply to the negative affects (angered, saddened, and scared), since 'liking' an angering post does not naturally imply that the user felt angered. Personalizing these negative affects remains as future work and they were withheld from the modeling stage. This personalization process also applied to the CARE labels discussed in Section 3.2 but was not necessary for the engagement-sourced labels since those are already personalized.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Modeling",
+      "text": "Now that we have discussed each component of the training data, we combine all engagement signals (all reactions, unfollow, report, hide, share, and outbound click) and all affective response classes except angered, saddened, neutral, other, and scared (excluded due to the reasons discussed in the previous paragraph), resulting in Conceivably, our multi-label classification model trained on affective signals can be used for a number of applications. In some uses cases, personalization will be necessary, and in others, only content information be necessary. In order to have a model which is flexible to the needs of the downstream use cases, we used a two-tower architecture model (see Figure  3 ) where the left tower is used to model information about the content, and the right for the user. Each tower features a linformer transformer  [55]  followed by a multi-layer perceptron (MLP) module. The outputs of each tower are then fused in a secondary MLP module, which is then used for multi-label classification.\n\nMore concretely, the input to the model consists of the features for both the content and user tower. The content features, for instance, consist of properties of the post like the text of the title, body, optical character recognition, and video transcript, if available. The user features, on the other hand, consist of statistics from the user's network, interests, and profile properties such as text from a user's biography. The output of the model is a multi-label prediction for the 23 prediction classes (i.e., a vector of length 23 with binary values). After conducting a sweep over epochs and learning rate, we found training with 3 epochs and a learning rate of 0.0007 to be optimal.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Results",
+      "text": "In this section, we provide results and analysis of the dataset and model. Specifically, we first discuss statistics pertaining to the human-labeled dataset (e.g., annotator agreement) and second, we will discuss correlation with alternative labels, such as those discussed in Section 3.1. Lastly, we describe results for incorporating the trained model into the overarching recommendation system.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Analysis Of Human Annotations",
+      "text": "We collected human labels for nearly 820k posts with five annotators each, resulting in a total of 7.3 million annotations. In total, there were 348 unique human annotators and on average, each annotator selected 2.57 options per post. In analyzing the number of annotations per post, we compute these statistics using two sets of labels: labels selected by at least one out of the five annotators (1x) and labels selected by at least three of the five annotators (3x). Figure  4  shows the breakdown by class under both settings and indicates that the labels informed, excited, and connected are among the top most prevalent affects. Note, we did not source posts randomly. Instead, we iteratively trained simple binary models to predict for each affect, applied inference to a set of randomly selected posts, and then sent posts with high prediction scores (particularly for low-volume and important classes such as entertained and inspired). This was done in an effort to screen out neutral posts and reduce labeling costs. Thus, the distribution in Figure  4  is not reflective of the sampling distribution.  Naturally, the number of labels agreed upon by 3 annotators (3x) is smaller than labels with no agreement restriction (1x). The average degree of annotator support for each affect (given that at least one annotator suggests the affect) is shown in Figure  5 . The numbers suggest that the classes other, relaxed, the two types of angered, and grateful have the lowest degree of agreement given 5 annotators. The other category here was an option in the labeling process to submit alternative affects not listed in our taxonomy. Some of the  most frequent suggestions were confused, curious, yummy, beautiful, disgusted, and annoyed, and these alternative suggestions are valuable for improving future iterations. We did consider distinguishing disgusted and annoyed from destructively-angered, but concluded that the use cases are too similar to justify additional labels.\n\nFollowing the work of Demszky et al.  [7]  on publisher affect, we estimate rater agreement by interrater correlation  [6] , which is computed by taking the average correlation between each rater's judgement and the mean of other rater judgements. We find that the average inter-rater correlation in our context is 0.52, which is much higher than the inter-rater agreement of 0.28 in  [7] , where they had 28 classes in their taxonomy (and only 3 labelers).\n\nTo investigate whether the low agreement of certain classes is a consequence of conceptual overlap amongst the labels, we study the correlation between the affects in Figure  6 . Here we use the interpretation of moderate (0.40-0.69) and weak (0.10-0.39) correlation as described in Schober et al.  [41] . Figure  6  shows that weak correlations are indeed present. For instance, constructivelyangered and deconstructively-angered are weakly correlated with each other (0.26) as well as several other affects like scared, saddened, and surprised (0.23 to 0.34). Other correlations that are weak to moderate include adoring and excited (0.35) as well as saddened and scared (0.5). Interestingly, the affective response connected, which is not typically in traditional emotion detection taxonomies, seems to have weak correlations with feelings of excitement (0.19), gratitude (0.12), inspiration (0.1), and feeling touched (0.15).",
+      "page_start": 5,
+      "page_end": 7
+    },
+    {
+      "section_name": "Publisher Affect Vs. Affective Response",
+      "text": "In Section 2.3 we distinguished between publisher affect of the poster and the affective response of the viewer, noting that the two are not always interchangeable. In what follows, we experimentally validate and quantify this hypothesis.\n\nLike other social networking platforms, there exists a feature allowing posters to set their status updates, particularly with feelings such as feeling blessed or feeling sad, which we refer to as the poster-annotated feelings. Because the poster-annotated feelings come from the users themselves and denote their affective state, we can consider these labels as the publisher affect of the post. Hence, we can test our hypothesis given these two sets of labels: publisher affect from the user and affective response from human annotation.\n\nFor this analysis, we identify posts in our human-annotated dataset which contain poster-annotated feelings and compute their correlation (after filtering out feelings with frequency less than 1000). As shown in Figure  11 , we find moderate correlations between feeling sad and saddened (0.5) and weak correlation for feeling worried and scared (0.36), which are intuitive relationships. Overall, however, these correlations between equivalent publisher affects and affective response such as for excited (0.12) and grateful (0.11) are weak, suggesting that making a distinction between publisher affect and affective response is valid. Interestingly, touched is weakly correlated with feeling sad (0.25) and deconstructively-angered and constructively-angered are weakly correlated with feeling angry and feeling annoyed (0.19 to 0.25), though this is more so the case for deconstructively-angered. While there is certainly noise in making these comparisons, the low degree to which these two types of affects correlate indicate that they are not completely synonymous.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Affective Response Vs. Engagement",
+      "text": "While the poster-annotated feelings give insight into the poster's perspective, we also want to understand how affective response aligns with the viewer's actual behavior and feedback. Figure  12  shows the correlation between several prevalent engagement signals and affective response labels. Firstly, the behavior and negative user feedback signals (nufs) don't seem to have significant correlation with any of the affects (< 0.042), but this is perhaps due to their low overall prevalence (less than 1000). For reactions, where data is more abundant, we find that the anger, haha, and sorry reactions are weakly correlated with the affective responses angered (0.14 to 0.25) and entertained (0.41), and saddened (0.36), respectively, as one might anticipate. Intuitively, like and love reactions are associated with positive affects and inversely so to negative affects. The support reaction seems to be correlated most with saddened (0.14), which empirically seems to be because it is often used in response to expressing concern or sympathy to sad news. As seen earlier in Figure  6 , the anger reaction is also weakly correlated with saddened (0.13), scared (0.16), and surprised (0.11). These results together suggest that some affective signals can be gleaned from engagement, as discussed in Section 3.4.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "The Affective Model In The Recommender",
+      "text": "This section provides an analysis of the end-to-end system that incorporates the affective predictors. To evaluate our affective model, we experimented with using our model embedding in one of the scoring models of the recommendation system. Given a post and a user, the scoring model we chose tries to predict a user's answer to a survey concerning their preferences regarding the post. We chose this predictor for two reasons: (a) understanding whether a user wants to see more of a particular content necessitates understanding the user's affective response to a given post and (b) since this scoring model tries to predict the result of a survey, it by nature has much less training data, and hence can potentially benefit from the data-rich affect embeddings.\n\nWe conducted several ablation experiments, which involved a two-step process. The first step involved ablating features and parameters such as the number of encoding layers. The second step involved exporting the 32-length embedding from the content tower, and using this as a feature in the scoring model. Here we prefer to use the embedding from the content tower for internal infrastructure efficiency reasons, but we experimented with both the content and user tower embeddings (including the concatenation of both) and found the results for the latter to be only marginally higher than the content embedding alone.\n\nTo evaluate, we first created a static dataset of around 1.5 million survey responses. After running ablation experiments using this offline dataset that was split into train, validation, and test partitions, we identified an embedding with the highest statistical improvement. This model achieved an AUC-ROC loss reduction (the observed improvement normalized by the possible amount of improvement) of more than 8%, as computed by 𝑆 𝑛𝑒𝑤 -𝑆 𝑏𝑎𝑠𝑒 1-𝑆 𝑏𝑎𝑠𝑒 * 100 where 𝑆 𝑛𝑒𝑤 and 𝑆 𝑏𝑎𝑠𝑒 refer to the AUC-ROC of the model with the embedding and model without the embedding, respectively. We then conducted an online experiment involving more than 20 million users using the scoring model which uses the new affective embedding (the test group) and using the original scoring model running in production, which does not use the affective embedding (the control group). During the 14 days of online experimentation, we measured a number of metrics relevant to user satisfaction with the platform and benchmarked these values against those of the control group.\n\nThe results showed statistically significant decreases in visibility of integrity-violating content like misinformation and engagement bait (more than 0.6% decreases), and also demonstrated meaningful gains in engagement, like the number of like reactions (around 0.4% improvement), without causing detriment to other key important metrics. Additionally, the affective embedding ranked as the most important feature in the scoring model, reaffirming our approach to ranking from an affective response perspective. It also suggests that users, when given more control over their content, will overall choose higher quality content that encourages greater engagement. After launching to an even larger population, these overall trends still generally hold.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Related Work",
+      "text": "In this section, we situate our work with respect to previous research on related tasks.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Affective Recommender Systems",
+      "text": "Our work is the first to demonstrate that affective signals can benefit recommender systems at large scale in the context of social networks. The following are related work in the field. A significant portion of these study implicit physiological signals like facial and audio tracking  [21, 45, 50, 54]  while others rely on explicit surveys  [11, 25, 49] , both of which are not feasible for social media at scale. Some of these works also focus on clean and curated multi-media datasets that are impractical for real-world settings  [10, 33, 34, 60] . Orellana-Rodriguez et al.  [35]  applies affective recommendation to social media, particularly Youtube videos, by acquiring affective annotations from 80 human annotators along Plutchik's eight basic emotions  [38] . Much larger in scale is the work done by Mizgajski and Morzy  [29]  and Leung et al.  [26]  using feedback to online news and tweets, respectively, but these works do not leverage multiple types of affective sources. Qian et al.  [39]  combines user rating data, user social network data, and sentiment from user reviews as affective information, but again is small in scale. Additionally, many of these works utilize traditional machine learning techniques like similarity-based clustering or regression trees as the basis for their recommendation system  [29, 35] . We note that this work also differs from others in the space of affective models in that it utilizes a two-tower architecture to jointly model the user and content features, particularly for live online prediction serving billions of users.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Methods For Unsupervised Labeling",
+      "text": "A major bottleneck in developing models for emotion and affective response detection is the need for large amounts of training data. As an alternative to manually-labeled data, many works utilize metadata such as hashtags, emoticons, and Facebook reactions as pseudo-labels  [14, 30, 46, 56] . The work we present here extracts labels from both engagement like Facebook reactions as well as free-form text in comments rather than metadata. The work done in Sintsova and Pu  [44]  is similar to our work on comments in that it pseudo-labels tweets and extends its lexicon, but the classifier itself is a keyword, rule-based approach and is heavily reliant on the capacity of these lexicons. In contrast, our work leverages the high precision of CARE on the comments and uses the post content to train a model, which is not constrained by the lexicon size in its predictions. Our method also employs bootstrapping to expand the set of patterns and lexicon, similar to Agichtein and Gravano  [1]  and Jones et al.  [18]  but focuses on extracting affect rather than relation tuples. Many works utilize engagement and social network structure as features instead of labels in their model  [15, 27, 39, 57] , but as explained in Section 3.1, our application needs to perform inference prior to engagement signals being available.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Affective Taxonomies",
+      "text": "Perhaps two of the most well known categorical organizations for emotion are Paul Ekman's six basic emotions (happiness, sadness, disgust, fear, surprise, and anger)  [8]  and Robert Plutchik's Wheel of Emotions (anger, anticipation, joy, trust, fear, surprise, sadness, and disgust)  [38] . Arguably all of Ekman's six basic emotions exist in our taxonomy, with the exception of disgust which is assumed by deconstrutively-angered. These basic emotions are hardly sufficient, which is in line with Plutchik's theory that suggests few experiences are basic ones-they are often combination results, which necessitates the need for a more comprehensive taxonomy in practice. The Flickr LDL dataset  [58] , for example, contains images labeled according to a taxonomy that uses Ekman's six but also includes amusement and contentment, akin to entertained and relaxed in our current work. We also know from prior work that adequately detecting inspirational  [16]  and informative  [28, 32]  content as well as content expressing gratitude  [42]  is beneficial for users. Craig et al.  [5]  also found that the primary reasons adolescents use social media is because they want to be entertained, be informed, and feel connected to others. Our taxonomy builds upon prior taxonomies, but includes affects with the intention to satisfy these user needs.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "We described the challenges involved with incorporating affective signals in a large-scale recommendation system and the solutions we developed at Facebook. In particular, we designed an affective taxonomy customized to user needs on social media, and created training data for our models by combining engagement data and data from a human-labeling task. Our two-tower model learns from both engagement signals and affective response labels. Our results also provide new insights into the correlations among the affects in the taxonomy and correlations between publisher affect and viewer affective response, thereby justifying some of the design choices we made. We demonstrated that exporting the embedding of this model and using it as feature in one of the scoring models of the recommendation system greatly improves performance, both online and offline.\n\nThere are several avenues for improvement and additional research. Our taxonomy can be extended with affective responses that the human annotators frequently noted as missing and our techniques for personalizing human labels need to be extended to negative affects. We believe that more advanced analysis of images and videos can improve our models considerably. More broadly, our work considered the affective response the user may have to a single post. However, it is not clear how these individual affective responses combine to an affective response for a session that includes a sequence of posts, which is closer to the overall experience the user has on the platform.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "A Broader Impact",
+      "text": "Any work that touches upon recognizing affective response needs to ensure that it is sensitive to its application. Our work in detecting affective response is intended for anticipating the affective response of users to content, in order to better safeguard them against offensive material and provide them with content that better aligns with their user preferences. This work should not be used for illintended purposes, such as purposefully recommending particular content to manipulate a user's perception or preferences. Additionally, any work that utilizes user information or content created by users must be careful in respecting the privacy preferences of its users. Before this research was conducted, it went through an extensive internal review process with a diverse team to delineate these bounds. Regarding our crowdsourcing process, the human annotators were paid a competitive and fair rate. The raters were also selected by diversifying the pool amongst several categories along five attributes: age, ideology, gender, ethnicity, and location.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B Affective Response Vs. Publisher Affect",
+      "text": "",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "D Correlation Between Affective Response And Other Facebook Signals",
+      "text": "In this section, we show the correlation between affective response and poster-annotated feelings in Figure  11  and between affective response and engagement signals in Figure  12 .",
+      "page_start": 10,
+      "page_end": 10
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Example of a recommender system. The first step",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: The recommendation system starts with a pool of available posts.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 7: for an illustrative",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: We stopped expansion of the system after",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Overview of the CARE Method. The top part of the figure shows the process of labeling a post, while the bottom",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: ) where the left tower is",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: shows the breakdown by class under both settings and indi-",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: is not reflective of",
+      "page": 5
+    },
+    {
+      "caption": "Figure 3: Architecture of the two-tower model. The left and",
+      "page": 6
+    },
+    {
+      "caption": "Figure 4: Number of annotations per affect where at least 3",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: . The num-",
+      "page": 6
+    },
+    {
+      "caption": "Figure 5: Average degree of annotator support for each class.",
+      "page": 6
+    },
+    {
+      "caption": "Figure 6: Pearson correlation between the different affective",
+      "page": 6
+    },
+    {
+      "caption": "Figure 6: Here we use",
+      "page": 6
+    },
+    {
+      "caption": "Figure 6: shows that",
+      "page": 6
+    },
+    {
+      "caption": "Figure 11: , we find moderate correlations be-",
+      "page": 7
+    },
+    {
+      "caption": "Figure 12: shows the correlation between several prevalent engagement sig-",
+      "page": 7
+    },
+    {
+      "caption": "Figure 6: , the anger reaction is also weakly correlated with",
+      "page": 7
+    },
+    {
+      "caption": "Figure 7: An example case of differing publisher affect and",
+      "page": 10
+    },
+    {
+      "caption": "Figure 8: Facebook reactions.",
+      "page": 10
+    },
+    {
+      "caption": "Figure 9: Facebook negative user feedback controls.",
+      "page": 10
+    },
+    {
+      "caption": "Figure 10: Facebook feature allowing posters to annotate",
+      "page": 10
+    },
+    {
+      "caption": "Figure 11: and between affective",
+      "page": 10
+    },
+    {
+      "caption": "Figure 11: Pearson correlation between human annotations for affective response and poster-annotated feelings.",
+      "page": 11
+    },
+    {
+      "caption": "Figure 12: Pearson correlation between human-annotations for affective response and user engagement signals. Values are",
+      "page": 11
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: Affective responses (class) and their corresponding",
+      "page": 3
+    },
+    {
+      "caption": "Table 1: but refers to expressing support,",
+      "page": 4
+    },
+    {
+      "caption": "Table 2: The rate of agreement between the annotators and",
+      "page": 4
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Snowball: Extracting relations from large plain-text collections",
+      "authors": [
+        "Eugene Agichtein",
+        "Luis Gravano"
+      ],
+      "year": "2000",
+      "venue": "In Proceedings of the fifth ACM conference on Digital libraries",
+      "doi": "10.1145/336597.336644"
+    },
+    {
+      "citation_id": "2",
+      "title": "Comparing lda and lsa topic models for content-based movie recommendation systems",
+      "authors": [
+        "Sonia Bergamaschi",
+        "Laura Po"
+      ],
+      "year": "2014",
+      "venue": "International conference on web information systems and technologies"
+    },
+    {
+      "citation_id": "3",
+      "title": "Predicting viewer affective comments based on image content in social media",
+      "authors": [
+        "Yan-Ying Chen",
+        "Tao Chen",
+        "Winston Hsu",
+        "Hong-Yuan Mark Liao",
+        "Shih-Fu Chang"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of international conference on multimedia retrieval",
+      "doi": "10.1145/2578726.2578756"
+    },
+    {
+      "citation_id": "4",
+      "title": "Dynamics of online hate and misinformation",
+      "authors": [
+        "Matteo Cinelli",
+        "Andraž Pelicon",
+        "Igor Mozetič",
+        "Walter Quattrociocchi",
+        "Petra Novak",
+        "Fabiana Zollo"
+      ],
+      "year": "2021",
+      "venue": "Scientific reports"
+    },
+    {
+      "citation_id": "5",
+      "title": "Can social media participation enhance lgbtq+ youth well-being? Development of the social media benefits scale",
+      "authors": [
+        "Andrew Shelley L Craig",
+        "Lauren Eaton",
+        "Vivian Mcinroy",
+        "Sreedevi Leung",
+        "Krishnan"
+      ],
+      "year": "2021",
+      "venue": "Social Media+ Society"
+    },
+    {
+      "citation_id": "6",
+      "title": "Why cohen's kappa should be avoided as performance measure in classification",
+      "authors": [
+        "Rosario Delgado",
+        "Xavier-Andoni Tibau"
+      ],
+      "year": "2019",
+      "venue": "PloS one"
+    },
+    {
+      "citation_id": "7",
+      "title": "GoEmotions: A dataset of fine-grained emotions",
+      "authors": [
+        "Dorottya Demszky",
+        "Dana Movshovitz-Attias",
+        "Jeongwoo Ko",
+        "Alan Cowen",
+        "Gaurav Nemade",
+        "Sujith Ravi"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics",
+      "doi": "10.18653/v1/2020.acl-main.372"
+    },
+    {
+      "citation_id": "8",
+      "title": "Basic emotions. Handbook of cognition and emotion",
+      "authors": [
+        "Paul Ekman"
+      ],
+      "year": "1999",
+      "venue": "Basic emotions. Handbook of cognition and emotion"
+    },
+    {
+      "citation_id": "9",
+      "title": "Tweet moodifier: Towards giving emotional awareness to twitter users",
+      "authors": [
+        "Belén Saldías",
+        "Rosalind Picard"
+      ],
+      "year": "2019",
+      "venue": "8th International Conference on Affective Computing and Intelligent Interaction",
+      "doi": "10.1109/ACII.2019.8925533"
+    },
+    {
+      "citation_id": "10",
+      "title": "Pessimists and optimists: Improving collaborative filtering through sentiment analysis",
+      "authors": [
+        "Á Miguel",
+        "Arturo García-Cumbreras",
+        "Manuel C Díaz-Galiano Montejo-Ráez"
+      ],
+      "year": "2013",
+      "venue": "Expert Systems with Applications"
+    },
+    {
+      "citation_id": "11",
+      "title": "Embedding emotional context in recommender systems",
+      "authors": [
+        "Gustavo Gonzalez",
+        "Josep De",
+        "La Rosa",
+        "Miquel Montaner",
+        "Sonia Delfin"
+      ],
+      "year": "2007",
+      "venue": "2007 IEEE 23rd international conference on data engineering workshop"
+    },
+    {
+      "citation_id": "12",
+      "title": "Exploiting emotions for fake news detection on social media",
+      "authors": [
+        "Chuan Guo",
+        "Juan Cao",
+        "Xueyao Zhang",
+        "Kai Shu",
+        "Miao Yu"
+      ],
+      "year": "2019",
+      "venue": "Exploiting emotions for fake news detection on social media"
+    },
+    {
+      "citation_id": "13",
+      "title": "Preserving integrity in online social networks",
+      "authors": [
+        "Y Alon",
+        "Cristian Halevy",
+        "Hao Canton-Ferrer",
+        "Umut Ma",
+        "Patrick Ozertem",
+        "Marzieh Pantel",
+        "Fabrizio Saeidi",
+        "Ves Silvestri",
+        "Stoyanov"
+      ],
+      "year": "2020",
+      "venue": "Preserving integrity in online social networks"
+    },
+    {
+      "citation_id": "14",
+      "title": "Using hashtags as labels for supervised learning of emotions in twitter messages",
+      "authors": [
+        "Maryam Hasan",
+        "Emmanuel Agu",
+        "Elke Rundensteiner"
+      ],
+      "year": "2014",
+      "venue": "ACM SIGKDD workshop on health informatics"
+    },
+    {
+      "citation_id": "15",
+      "title": "Predicting the popularity of web 2.0 items based on user comments",
+      "authors": [
+        "Xiangnan He",
+        "Ming Gao",
+        "Min-Yen Kan",
+        "Yiqun Liu",
+        "Kazunari Sugiyama"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the 37th international ACM SIGIR conference on Research & development in information retrieval"
+    },
+    {
+      "citation_id": "16",
+      "title": "Detecting inspiring content on social media",
+      "authors": [
+        "Oana Ignat",
+        "Y-Lan Boureau",
+        "Jane Yu",
+        "Alon Halevy"
+      ],
+      "year": "2021",
+      "venue": "2021 9th International Conference on Affective Computing and Intelligent Interaction (ACII)"
+    },
+    {
+      "citation_id": "17",
+      "title": "Social media-an arena for venting negative emotions",
+      "authors": [
+        "Harri Jalonen"
+      ],
+      "year": "2014",
+      "venue": "Online Journal of Communication and Media Technologies"
+    },
+    {
+      "citation_id": "18",
+      "title": "Bootstrapping for text learning tasks",
+      "authors": [
+        "Rosie Jones",
+        "Andrew Mccallum",
+        "Kamal Nigam",
+        "Ellen Riloff"
+      ],
+      "year": "1999",
+      "venue": "IJCAI-99 Workshop on Text Mining: Foundations, Techniques and Applications"
+    },
+    {
+      "citation_id": "19",
+      "title": "Efficient crowdsourcing for multi-class labeling",
+      "authors": [
+        "Sewoong David R Karger",
+        "Devavrat Oh",
+        "Shah"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the ACM SIGMETRICS/international conference on Measurement and modeling of computer systems"
+    },
+    {
+      "citation_id": "20",
+      "title": "Social media risks and benefits: A public sector perspective",
+      "authors": [
+        "Bobby Gohar Feroz Khan",
+        "Sang Swar",
+        "Lee"
+      ],
+      "year": "2014",
+      "venue": "Social science computer review"
+    },
+    {
+      "citation_id": "21",
+      "title": "Queries and tags in affect-based multimedia retrieval",
+      "authors": [
+        "J Joep",
+        "Mohammad Kierkels",
+        "Thierry Soleymani",
+        "Pun"
+      ],
+      "year": "2009",
+      "venue": "2009 IEEE International Conference on Multimedia and Expo"
+    },
+    {
+      "citation_id": "22",
+      "title": "Network properties and social sharing of emotions in social awareness streams",
+      "authors": [
+        "Funda Kivran-Swaine",
+        "Mor Naaman"
+      ],
+      "year": "2011",
+      "venue": "Proceedings of the ACM 2011 conference on Computer supported cooperative work"
+    },
+    {
+      "citation_id": "23",
+      "title": "Experimental evidence of massive-scale emotional contagion through social networks",
+      "authors": [
+        "D Adam",
+        "Jamie Kramer",
+        "Jeffrey Guillory",
+        "Hancock"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the National Academy of Sciences"
+    },
+    {
+      "citation_id": "24",
+      "title": "Facebook news feed ranking",
+      "authors": [
+        "Akos Lada",
+        "Meihong Wang",
+        "Tak Yan"
+      ],
+      "year": "2021",
+      "venue": "Facebook news feed ranking"
+    },
+    {
+      "citation_id": "25",
+      "title": "International affective picture system (iaps): Affective ratings of pictures and instruction manual",
+      "authors": [
+        "Lang Peter"
+      ],
+      "year": "2005",
+      "venue": "International affective picture system (iaps): Affective ratings of pictures and instruction manual"
+    },
+    {
+      "citation_id": "26",
+      "title": "Text-based emotion aware recommender",
+      "authors": [
+        "John Kalung Leung",
+        "Igor Griva",
+        "William Kennedy"
+      ],
+      "year": "2020",
+      "venue": "Text-based emotion aware recommender",
+      "arxiv": "arXiv:2007.01455"
+    },
+    {
+      "citation_id": "27",
+      "title": "Understanding and leveraging tag-based relations in on-line social networks",
+      "authors": [
+        "Marek Lipczak",
+        "Borkur Sigurbjornsson",
+        "Alejandro Jaimes"
+      ],
+      "year": "2012",
+      "venue": "Proceedings of the 23rd ACM conference on Hypertext and social media"
+    },
+    {
+      "citation_id": "28",
+      "title": "Covid-19 outbreak: An ensemble pre-trained deep learning model for detecting informative tweets",
+      "authors": [
+        "Sreejagadeesh Malla",
+        "Alphonse"
+      ],
+      "year": "2021",
+      "venue": "Applied Soft Computing"
+    },
+    {
+      "citation_id": "29",
+      "title": "Affective recommender systems in online news industry: how emotions influence reading choices",
+      "authors": [
+        "Jan Mizgajski",
+        "Mikołaj Morzy"
+      ],
+      "year": "2019",
+      "venue": "User Modeling and User-Adapted Interaction"
+    },
+    {
+      "citation_id": "30",
+      "title": "Using hashtags to capture fine emotion categories from tweets",
+      "authors": [
+        "M Saif",
+        "Svetlana Mohammad",
+        "Kiritchenko"
+      ],
+      "year": "2015",
+      "venue": "Computational Intelligence",
+      "doi": "10.1111/coin.12024"
+    },
+    {
+      "citation_id": "31",
+      "title": "Emotion regulation, procrastination, and watching cat videos online: Who watches internet cats, why, and to what effect?",
+      "authors": [
+        "Jessica Gall"
+      ],
+      "year": "2015",
+      "venue": "Computers in human behavior"
+    },
+    {
+      "citation_id": "32",
+      "title": "Exploring in the weblog space by detecting informative and affective articles",
+      "authors": [
+        "Xiaochuan Ni",
+        "Gui-Rong Xue",
+        "Xiao Ling",
+        "Yong Yu",
+        "Qiang Yang"
+      ],
+      "year": "2007",
+      "venue": "Proceedings of the 16th international conference on World Wide Web"
+    },
+    {
+      "citation_id": "33",
+      "title": "Relevant context in a movie recommender system: Users' opinion vs. statistical detection",
+      "authors": [
+        "Ante Odic",
+        "Marko Tkalcic",
+        "Jurij Tasic",
+        "Andrej Košir"
+      ],
+      "year": "2012",
+      "venue": "Relevant context in a movie recommender system: Users' opinion vs. statistical detection"
+    },
+    {
+      "citation_id": "34",
+      "title": "Predicting and detecting the relevant contextual information in a movie-recommender system",
+      "authors": [
+        "Ante Odić",
+        "Marko Tkalčič",
+        "Jurij Tasič",
+        "Andrej Košir"
+      ],
+      "year": "2013",
+      "venue": "Interacting with Computers"
+    },
+    {
+      "citation_id": "35",
+      "title": "Mining affective context in short films for emotion-aware recommendation",
+      "authors": [
+        "Claudia Orellana-Rodriguez",
+        "Ernesto Diaz-Aviles",
+        "Wolfgang Nejdl"
+      ],
+      "year": "2015",
+      "venue": "Proceedings of the 26th ACM Conference on Hypertext & Social Media"
+    },
+    {
+      "citation_id": "36",
+      "title": "Implicit human-centered tagging [social sciences]",
+      "authors": [
+        "Maja Pantic",
+        "Alessandro Vinciarelli"
+      ],
+      "year": "2009",
+      "venue": "IEEE Signal Processing Magazine"
+    },
+    {
+      "citation_id": "37",
+      "title": "Investigating topic models for social media user recommendation",
+      "authors": [
+        "Marco Pennacchiotti",
+        "Siva Gurumurthy"
+      ],
+      "year": "2011",
+      "venue": "Proceedings of the 20th international conference companion on World wide web"
+    },
+    {
+      "citation_id": "38",
+      "title": "Chapter 1 -a general psychoevolutionary theory of emotion",
+      "authors": [
+        "Robert Plutchik"
+      ],
+      "year": "1980",
+      "venue": "Theories of Emotion",
+      "doi": "10.1016/B978-0-12-558701-3.50007-7"
+    },
+    {
+      "citation_id": "39",
+      "title": "Ears: Emotionaware recommender system based on hybrid information fusion",
+      "authors": [
+        "Yongfeng Qian",
+        "Yin Zhang",
+        "Xiao Ma",
+        "Han Yu",
+        "Limei Peng"
+      ],
+      "year": "2019",
+      "venue": "Information Fusion"
+    },
+    {
+      "citation_id": "40",
+      "title": "Joint modelling of emotion and abusive language detection",
+      "authors": [
+        "Santosh Rajamanickam",
+        "Pushka Mishra",
+        "Helen Yannakoudakis",
+        "Ekaterina Shutova"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the annual meeting of the association for computational linguistics"
+    },
+    {
+      "citation_id": "41",
+      "title": "Correlation coefficients: appropriate use and interpretation",
+      "authors": [
+        "Patrick Schober",
+        "Christa Boer",
+        "Lothar Schwarte"
+      ],
+      "year": "2018",
+      "venue": "Correlation coefficients: appropriate use and interpretation"
+    },
+    {
+      "citation_id": "42",
+      "title": "Anna Flavia Di Natale, and Camillo Regalia. 2021. Gratitude and social media: A pilot experiment on the benefits of exposure to others' grateful interactions on facebook",
+      "authors": [
+        "Simona Sciara",
+        "Daniela Villani"
+      ],
+      "venue": "Frontiers in Psychology"
+    },
+    {
+      "citation_id": "43",
+      "title": "Emotion knowledge: further exploration of a prototype approach",
+      "authors": [
+        "Phillip Shaver",
+        "Judith Schwartz",
+        "Donald Kirson",
+        "Cary O' Connor"
+      ],
+      "year": "1987",
+      "venue": "Journal of personality and social psychology"
+    },
+    {
+      "citation_id": "44",
+      "title": "Dystemo: Distant supervision method for multi-category emotion recognition in tweets",
+      "authors": [
+        "Valentina Sintsova",
+        "Pearl Pu"
+      ],
+      "year": "2016",
+      "venue": "ACM Trans. Intell. Syst. Technol",
+      "doi": "10.1145/2912147"
+    },
+    {
+      "citation_id": "45",
+      "title": "Multimodal emotion recognition in response to videos",
+      "authors": [
+        "Mohammad Soleymani",
+        "Maja Pantic",
+        "Thierry Pun"
+      ],
+      "year": "2011",
+      "venue": "IEEE transactions on affective computing"
+    },
+    {
+      "citation_id": "46",
+      "title": "Distant supervision for emotion classification with discrete binary values",
+      "authors": [
+        "Jared Suttles",
+        "Nancy Ide"
+      ],
+      "year": "2013",
+      "venue": "International Conference on Intelligent Text Processing and Computational Linguistics",
+      "doi": "10.1007/978-3-642-37256-8_11"
+    },
+    {
+      "citation_id": "47",
+      "title": "Clown on black background. Shutterstock",
+      "authors": [
+        "Luis Tapia"
+      ],
+      "venue": "Clown on black background. Shutterstock"
+    },
+    {
+      "citation_id": "48",
+      "title": "Data mining emotion in social network communication: Gender differences in myspace",
+      "authors": [
+        "Mike Thelwall",
+        "David Wilkinson",
+        "Sukhvinder Uppal"
+      ],
+      "year": "2010",
+      "venue": "Journal of the American Society for Information Science and Technology"
+    },
+    {
+      "citation_id": "49",
+      "title": "Using affective parameters in a content-based recommender system for images",
+      "authors": [
+        "Marko Tkalčič",
+        "Urban Burnik",
+        "Andrej Košir"
+      ],
+      "year": "2010",
+      "venue": "User Modeling and User-Adapted Interaction"
+    },
+    {
+      "citation_id": "50",
+      "title": "Affective labeling in a content-based recommender system for images",
+      "authors": [
+        "Marko Tkalcic",
+        "Ante Odic",
+        "Andrej Kosir",
+        "Jurij Tasic"
+      ],
+      "year": "2012",
+      "venue": "IEEE transactions on multimedia"
+    },
+    {
+      "citation_id": "51",
+      "title": "Benefits and costs of social media in adolescence",
+      "authors": [
+        "Nicole Yalda T Uhls",
+        "Kaveri Ellison",
+        "Subrahmanyam"
+      ],
+      "year": "2017",
+      "venue": "Pediatrics"
+    },
+    {
+      "citation_id": "52",
+      "title": "Online coping after negative life events: Measurement, prevalence, and relation with internet activities and well-being",
+      "authors": [
+        "Erik Van Ingen",
+        "Sonja Utz",
+        "Vera Toepoel"
+      ],
+      "year": "2016",
+      "venue": "Social Science Computer Review"
+    },
+    {
+      "citation_id": "53",
+      "title": "# smiling,# venting, or both? adolescents' social sharing of emotions on social media",
+      "authors": [
+        "Anne Vermeulen",
+        "Heidi Vandebosch",
+        "Wannes Heirman"
+      ],
+      "year": "2018",
+      "venue": "Computers in Human Behavior"
+    },
+    {
+      "citation_id": "54",
+      "title": "Utilizing implicit user feedback to improve interactive video retrieval",
+      "authors": [
+        "Stefanos Vrochidis",
+        "Ioannis Kompatsiaris",
+        "Ioannis Patras"
+      ],
+      "year": "2011",
+      "venue": "Advances in Multimedia"
+    },
+    {
+      "citation_id": "55",
+      "title": "Linformer: Self-attention with linear complexity",
+      "authors": [
+        "Sinong Wang",
+        "Belinda Li",
+        "Madian Khabsa",
+        "Han Fang",
+        "Hao Ma"
+      ],
+      "year": "2020",
+      "venue": "Linformer: Self-attention with linear complexity",
+      "arxiv": "arXiv:2006.04768"
+    },
+    {
+      "citation_id": "56",
+      "title": "Harnessing twitter \"big data\" for automatic emotion identification",
+      "authors": [
+        "Wenbo Wang",
+        "Lu Chen",
+        "Krishnaprasad Thirunarayan",
+        "Amit P Sheth"
+      ],
+      "year": "2012",
+      "venue": "2012 International Conference on Privacy, Security, Risk and Trust and 2012 International Confernece on Social Computing",
+      "doi": "10.1109/SocialCom-PASSAT.2012.119"
+    },
+    {
+      "citation_id": "57",
+      "title": "A sentimentenhanced personalized location recommendation system",
+      "authors": [
+        "Dingqi Yang",
+        "Daqing Zhang",
+        "Zhiyong Yu",
+        "Zhu Wang"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the 24th ACM conference on hypertext and social media"
+    },
+    {
+      "citation_id": "58",
+      "title": "Learning visual sentiment distributions via augmented conditional probability neural network",
+      "authors": [
+        "Jufeng Yang",
+        "Ming Sun",
+        "Xiaoxiao Sun"
+      ],
+      "year": "2017",
+      "venue": "Thirtyfirst AAAI conference on artificial intelligence"
+    },
+    {
+      "citation_id": "59",
+      "title": "The CARE dataset for affective response detection",
+      "authors": [
+        "Jane Yu",
+        "Alon Halevy"
+      ],
+      "year": "2022",
+      "venue": "The CARE dataset for affective response detection"
+    },
+    {
+      "citation_id": "60",
+      "title": "The role of emotions in context-aware recommendation",
+      "authors": [
+        "Yong Zheng",
+        "Bamshad Mobasher",
+        "Robin Burke"
+      ],
+      "year": "2013",
+      "venue": "Decisions@ RecSys"
+    }
+  ]
+}

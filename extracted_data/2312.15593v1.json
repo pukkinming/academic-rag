@@ -1,0 +1,656 @@
+{
+  "paper_id": "2312.15593v1",
+  "title": "Dsnet: Disentangled Siamese Network With Neutral Calibration For Speech Emotion Recognition",
+  "published": "2023-12-25T02:58:37Z",
+  "authors": [
+    "Chengxin Chen",
+    "Pengyuan Zhang"
+  ],
+  "keywords": [
+    "Speech emotion recognition",
+    "Disentangled representation learning",
+    "Siamese neural network"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "One persistent challenge in deep learning based speech emotion recognition (SER) is the unconscious encoding of emotion-irrelevant factors (e.g., speaker or phonetic variability), which limits the generalization of SER in practical use. In this paper, we propose DSNet, a Disentangled Siamese Network with neutral calibration, to meet the demand for a more robust and explainable SER model. Specifically, we introduce an orthogonal feature disentanglement module to explicitly project the high-level representation into two distinct subspaces. Later, we propose a novel neutral calibration mechanism to encourage one subspace to capture sufficient emotion-irrelevant information. In this way, the other one can better isolate and emphasize the emotion-relevant information within speech signals. Experimental results on two popular benchmark datasets demonstrate the superiority of DSNet over various state-of-the-art methods for speaker-independent SER.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Speech emotion recognition (SER), which aims to discern the emotional state from spoken language, has garnered significant interest in the field of affective computing  [1] . SER enables a more natural and harmonic human-machine interaction, fostering a variety of applications like user preference analysis, mental health care, and intelligent customer service. However, emotion is a relatively subtle variance hidden in speech and highly entangled with other acoustic factors, posing great challenges to the SER task.\n\nPrior studies on SER were devoted to exploring the emotionally discriminative acoustic features in a hand-crafted way  [2, 3] . In recent years, deep learning algorithms  [4, 5, 6, 7]  have become the mainstream in SER, owning to the capacity of automatic feature abstraction from raw speech spectrogram. Despite the advancements, SER models still suffer from severe performance degradation when tested on unseen data. Due to the limited scale of available SER datasets, there often exist spurious correlations between emotion labels and (easy to learn) latent emotion-irrelevant attributes. Consequently, models trained on such datasets are prone to learning the \"shortcuts\" and performing poorly when the correlations do not hold for the testing data.\n\nOne paradigm for handling this issue is to align such correlations by learning a shared feature space between training and testing data, also known as domain adaptation  [8, 9, 10] . For example, Luo et al. introduced a non-negative matrix factorization based transfer subspace learning method  [9]  to minimize the discrepancy between the two distributions and exclude their individual components. While appealing, these approaches typically require the unlabeled or partially labeled testing data to participate in training, and the models need to be retrained when adapted to new testing data. Another research line aims to directly eliminate the influence of emotion-irrelevant biases on the training data by means of feature normalization  [13, 14, 15]  or adversarial learning  [12, 16, 17] . Unfortunately, most of these methods are task-oriented and require manual definition and labeling for a particular bias, making it difficult to look through all undesirable biases and remove them simultaneously. More recently, researchers have explored several instance-oriented methods to reduce the distributional mismatch across different speakers  [18, 19] . The basic idea of these works is to model the relative variance between emotional and neutral speech of the same speaker. It is still unclear, though, how to make the most of the internal correlation that exists between emotional and neutral speech.\n\nMotivated by the above observations, we propose DSNet, a Disentangled Siamese Network with neutral calibration. The core innovation of DSNet is to explicitly disentangle the emotion-relevant and -irrelevant components of given emotional speech under the supervision of homologous neutral speech. Specifically, we assume that the deep representation extracted from neutral speech spectrogram contains all the latent biases of the same speaker, such as identity, gender, age, or accent, which can be regarded as a \"golden standard\" to guide the learning of the emotion-irrelevant representation. Besides, we incorporate a combination of orthogonality and reconstruction constraints to ensure the complementarity of feature disentanglement. Finally, the emotion-relevant representation is expected to facilitate the downstream classifier with better reliability and interpretability. The main contributions of this paper can be summarized as follows:\n\n-We present DSNet, an instance-oriented approach that performs explicit feature disentanglement with a novel neutral calibration mechanism. To our best knowledge, this is the first study that integrates the ideas behind disentangled representation learning and Siamese neural network for SER. -DSNet is a plug-and-play technique that can be easily integrated into different backbone architectures with a reasonable extra computational cost. -Experiments on two benchmark datasets demonstrate that our proposed DSNet outperforms currently advanced speaker-independent SER algorithms in both within-corpus and cross-corpus settings.\n\nThe remainder of this paper is organized as follows: Section 2 reviews the related works. Section 3 introduces the overall workflow and detailed modules of our proposed method. Section 4 describes the experimental datasets and setup. Section 5 presents the experimental results and discussions. Finally, Section 6 concludes this work and outlines future research directions.",
+      "page_start": 1,
+      "page_end": 3
+    },
+    {
+      "section_name": "Related Works",
+      "text": "Disentangled Representation Learning (DRL) is an important paradigm for explainable and controllable machine learning by identifying and separating the hidden factors of the learned representation  [20] . Early theoretical explorations of DRL showed significant promise in the field of computer vision, and they usually relied on certain model architectures, such as variational auto-encoder  [21]  or generative adversarial network  [22] . Recently, DRL has boosted various speech processing tasks, including speech synthesis  [23] , voice conversion  [24] , and speech enhancement  [25] . These empirical methods mainly used task-specific pre-trained encoders to extract certain factors of speech and designed appropriate loss functions to ensure the disentanglement. By contrast, this work proposes an instanceoriented DRL method to enhance the interpretability and reliability of SER.\n\nSiamese Neural Network (SNN) is a type of models made up of two or more identical sub-networks that have the same architectures and weights assigned to the parameters  [26] . Unlike typical neural networks, which learn to predict the correct labels by optimizing cross-entropy loss, SNN often measures the semantic similarity of inputs via contrastive loss  [27, 28] . Specifically, contrastive loss is intended to promote discriminative yet semantically rich representations by drawing dissimilar samples apart and similar samples closer together. Prior studies have explored the viability of using SNN for the speech classification tasks, such as emotion recognition  [29]  and speaker recognition  [30] . In this work, we introduce SNN to calibrate the disentangled emotion-irrelevant components under the supervision of Siamese neutral representation.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methodology",
+      "text": "As depicted in Fig.  1 , the overall workflow of our proposed DSNet consists of four major modules: an acoustic encoder E(•) for feature abstraction, a pair of projectors P er (•) and P ei (•) for feature disentanglement, a restorer R(•) for feature reconstruction, and a classifier C(•) for emotion prediction. In the following sub-sections, we present the details of each module.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Cnn-Based Acoustic Encoder",
+      "text": "To start with, we denote the input speech spectrogram as X ∈ R C×T ×F , where C, T , and F represent the dimensions of channel, time, and frequency, respectively. The acoustic encoder is used to transform X into an utterance-level representation. Within the encoder, multiple convolutional layers are first stacked with residual connection to extract the local characteristics of spectrogram. Afterwards, average pooling is applied on the frequency axis, while attention pooling  [31]  is applied on the time axis for global information aggregation. Formally, we have h = E(X), where h ∈ R D denotes the deep feature vector with a fixed size of D. Note that the encoder acts as the backbone network, which can be replaced by other architectures.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Disentangled Siamese Network With Neutral Calibration",
+      "text": "Typically, the learned representation h is directly used as the input for an emotion classifier, and the \"black box\" is optimized in an end-to-end manner. By contrast, our proposed DSNet aims to explicitly filter out the inadvertently encoded emotion-irrelevant information prior to the downstream emotion classification.\n\nOrthogonal Feature Disentanglement On the one hand, the orthogonal feature disentanglement module is designed to project h into independent feature subspaces. Each projector is comprised of stacked attention blocks to focus on the specific elements of h. Concretely, the calculation within each attention block can be formulated as:\n\nwhere θ 1 , θ 2 , θ 3 are trainable parameters of the fully connected layers, and • is the element-wise multiplication. σ and δ denote the sigmoid and ReLU activation functions, respectively. We aim to disentangle h into the emotion-relevant and -irrelevant feature vectors via the following functions:\n\nInspired by  [32] , we impose a soft orthogonality constraint to encourage that z er and z ei encode different aspects of h. Let Z er ∈ R N ×D and Z ei ∈ R N ×D be the matrices whose rows are z er and z ei , respectively, and N denotes the batch size of the training set. We first apply z-score normalization on the matrices, then the loss function can be calculated as:\n\nwhere ∥•∥ 2 F is the squared Frobenius Norm. By enforcing the orthogonality constraint, the projectors have the risk of learning trivial solutions as they could produce orthogonal but uninformative vectors. To this end, we impose an additional reconstruction constraint to ensure that z er and z ei retain the key information of h. We first obtain the reconstructed feature via an MLP-based restorer:\n\nthen the loss function can be calculated as:\n\nwhere\n\nSiamese Neutral Calibration On the other hand, the Siamese neutral calibration module is designed to further direct the learning process for feature disentanglement. Let X n be a neutral spectrogram from the same speaker as the original input X. As shown in Fig.  1 , we also pass X n through the encoder to get the deep feature vector h n . We assume that h n contains essential speech factors except for the emotional variation, then h n can be utilized to guide z ei in capturing emotion-irrelevant information. Note that the Kullback Leibler (KL) divergence is a statistical metric to measure the discrepancy from one distribution to the other. Mathematically, KL divergence is defined as:\n\nwhere p and q are two probability distributions. Hence, the loss function of neutral calibration can be formulated as:",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "Training Objectives",
+      "text": "The disentangled z er is expected to concentrate on the emotion-relevant information of h. Later, z er is utilized as the input for an MLP-based emotion classifier, which can be formulated as ŷ = C(z er ). The standard cross-entropy loss function is employed for the classification task:\n\nwhere y i is the true label of the i-th sample in a training batch. Finally, the overall loss function can be calculated as:\n\nwhere L o , L r , and L c are loss functions of the orthogonality, reconstruction, and calibration constraints, respectively. We empirically find that α = β = γ = 1 will suffice in our evaluation. All the modules of DSNet are jointly optimized by minimizing L.\n\n4 Experimental Datasets and Setup",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Dataset Description",
+      "text": "To evaluate the performance of DSNet, we conduct experiments on two popular English datasets in SER, known as IEMOCAP  [33]  and MSP-IMPROV  [34] .\n\nIEMOCAP contains five sessions of dyadic interactions between pairs of male-female actors in both scripted and improvised scenarios. In order to maintain consistency with earlier studies, we merge the excited category into the happy category. As a result, the distribution of utterances used in the experiments is {angry: 1103, happy: 1636, neutral : 1708, sad : 1084}.\n\nMSP-IMPROV contains six conversational sessions, where two actors interacted with each other in improvised scenarios, and one actor spoke the target sentences to make the emotion more natural. Four scenarios were developed for each target sentence to elicit different emotional responses. Finally, the distribution of utterances used in the experiments is {angry: 792, happy: 2644, neutral : 3477, sad : 885}.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Implementation Details",
+      "text": "We first resampled the speech signal at 16 kHz, then extracted the 80-dimensional Log Mel-scale Filter Bank (LMFB) with 25 ms frame size and 10 ms frame shift. Following prior works, we used LMFB with deltas and delta-deltas as input acoustic features. For parallel computing, the acoustic features of the same mini-batch were truncated or cyclically padded to a maximum length of 600 frames, and the batch size was set to 32. We applied an Adam optimizer with a learning rate of 10 -3 to optimize the model parameters. The models were trained for a maximum of 100 epochs, and the learning rate was halved if the validation loss did not decrease for a consecutive 20 epochs. We present the detailed configurations of our proposed DSNet in Table  1 . The models were implemented using the PyTorch framework with NVIDIA Tesla P100 GPUs. It should be noted that for each speaker, we chose one neutral reference X n at random and kept it unchanged throughout model training. Also, there was no overlap between X n and X.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Evaluation Settings",
+      "text": "We conducted both within-corpus (denoted as IEM and MSP) and cross-corpus (denoted as IEM2MSP and MSP2IEM) experiments to comprehensively evaluate the models in the speaker-independent scenarios. For within-corpus SER, leave-one-speaker-out cross-validation (LOSO CV) was employed to take full use of the limited data. Consider IEMOCAP as an example, a 10-fold LOSO CV was conducted, where 4 sessions were used for training, while utterances from the remaining two speakers were used for validating and testing, respectively. The predictions and labels from each fold were concatenated to determine the final evaluation results. Similar to this, a 12-fold LOSO CV was performed on MSP-IMPROV. While for cross-corpus SER, we directly evaluated the top models developed from the within-corpus experiments on the unseen dataset.\n\nFor instance, we evaluated the best 10 models trained on IEMOCAP using all the data from MSP-IMRPOV and averaged the results, and vice versa. As for performance evaluation, we used the officially recommended metric, named unweighted average recall (UAR). UAR is defined as the arithmetic mean recall of all categories, which is insensitive to the impact of class imbalance.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "Comparative Methods",
+      "text": "To compare with our proposed method, we reproduced various state-of-the-art models that focused on the problem of cross-speaker generalization in SER. For a fair comparison, the input acoustic features and backbone networks were kept in line with our proposed DSNet. We briefly introduce these as below.\n\nMEnAN: The Max-Entropy Adversarial Network (MEnAN)  [12]  employs an iterative adversarial training strategy to optimize a multi-task framework. While emotion-related information is maximized, speaker-related information is diminished by maximizing the entropy of the domain classifier output.\n\nDSC: The Deep Speaker Conditioning (DSC)  [18]  introduces an auxiliary sub-network that conditions the primary classification network on a single neutral speech sample of the target speaker. To realize speaker adaptation, the reference samples are required in both the training and inference phases.\n\nISNet: The Individual Standardization Network (ISNet)  [19]  designs an independent encoder to generate individual benchmarks, which are used to standardize the emotional representations via the subtraction operation. Several neutral speech samples from the same individuals are required during the multistage training pipeline.\n\nDIFL: The Domain Invariant Feature Learning (DIFL)  [35]  considers the speaker-independent SER problem as multi-source unsupervised domain adaptation. The hierarchical alignment layer and multiple domain discriminators are proposed to jointly minimize differences across domains and confuse domain information for a domain-invariant emotional speech representation.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Experimental Results And Analysis",
+      "text": "",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Comparison With Existing Works",
+      "text": "Classification Performance Analysis To start with, we perform the quantitative experiments and evaluate different approaches on both the IEMOCAP and MSP-IMPROV datasets. According to the results presented in Table  2 , we conclude the following observations:\n\n1) In the within-corpus settings, all the comparative methods remarkably outperform the baseline model on the two datasets, highlighting the efficacy of cross-speaker generalization for speaker-independent SER. Moreover, our proposed DSNet exceeds the best performing comparative methods by 0.48% and 1.90% UAR on the IEMOCAP and MSP-IMPROV datasets, respectively. We attribute these encouraging results to the explicit feature disentanglement in DSNet, which can better isolate and emphasize the emotion-relevant information within speech signals. 2) In the cross-corpus settings, however, most comparative methods can only achieve a slight performance gain over the baseline model. In some cases, they can even perform worse than the baseline model. While these techniques may be able to mitigate individual biases to some degree, we conjecture that they will inevitably learn the corpus-related biases. By contrast, our proposed DSNet can surpass the baseline model by a significant margin of 3.54% and 1.46% UAR in the two cross-corpus scenarios, respectively. We believe that the Siamese neutral calibration in DSNet can automatically discover the latent emotion-irrelevant factors including the corpus-related biases.\n\nComputational Complexity Analysis Subsequently, we compare the computational complexity of our proposed DSNet along with two other models that incorporate neutral speech samples in the training phase. Specifically, we employ the metrics of model parameters and multiply-accumulate operations (MACs)  3  . Note that only partial modules of ISNet and DSNet are activated in the inference phase. We also provide the computational complexity of the baseline model for reference purposes.\n\nAs shown in Table  3 , we can observe that ISNet confronts notably higher MACs in the training phase due to the complex multi-stage model optimization, while DSC needs to process a pair of emotional and neutral samples in the inference phase, hence the parameters and MACs are doubled. By contrast, the backbone network of DSNet is shared across the emotional and neutral samples in the training phase, and all the modules of DSNet are optimized jointly. As a result, DSNet has the least model parameters and MACs in both the training and inference phases.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Ablation Study",
+      "text": "In this subsection, we investigate the roles of different loss functions (i.e., L o , L c , and L r ) for feature disentanglement. Firstly, we plot the curves of loss variations with respect to the training epochs in Fig.  2 . We can observe that both the training and validation loss values of L c and L r rapidly decrease in the first few epochs, while L o is on a comparatively mild decline trend. On both training and validation data, all of the loss functions eventually converge to an incredibly small value, indicating that the model is optimized in accordance with our expectations.\n\nTo verify the contributions of each loss function to the model robustness, we implement the following three variants of DSNet for comparison:  The experimental results of different models are shown in Table  4 . We observe that all the three variants demonstrate inferior performance to the original DSNet, proving that each loss has positive impact on the model robustness. More specifically, the removal of L o causes the biggest performance degradation in the within-corpus settings, while the removal of L c results in the greatest performance decline in the cross-corpus settings. We argue that L o is an important constraint to ensure the complementarity of the disentagled subspaces, while L c plays a critical role in calibrating the emotion-irrelevant subspace especially in the cross-corpus settings. In each subplot, the colors of blue, orange, green, and red denote the categories of angry, happy, neutral and sad, while the shapes of circle and square represent the validation and testing sets, respectively. The smaller semitransparent points correspond to certain instances, while the larger opaque ones are the centers of each distribution.\n\nVisualization of Confusion Matrices Fig.  4  visualizes the confusion matrices of the baseline model and DSNet on the two datasets. For the baseline model, we empirically find that happy and neutral are most likely to be confused with other categories, especially on the MSP-IMPROV dataset. We speculate that the preponderance of data in these two categories may be the primary cause of this phenomenon. In comparison, DSNet can better alleviate the phenomenon by filtering out latent emotion-irrelevant biases. Moreover, DSNet is able to significantly improve recall of angry and sad by 8.31%/18.06% and 12.12%/23.27% on IEMOCAP/MSP-IMPROV, respectively. As a result, DSNet consistently outperforms the baseline model in terms of UAR on both datasets.",
+      "page_start": 10,
+      "page_end": 13
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "In this paper, we present DSNet, a simple yet effective framework that explicitly disentangles the high-level representation into emotion-relevant and -irrelevant components. To guarantee the complementarity of disentangled feature subspaces, we incorporate a variety of loss functions as regularization, and jointly optimize all the modules of DSNet. Quantitative experimental results demonstrate that DSNet is superior to currently advanced methods in terms of both classification performance and computational complexity. We further verify the roles of different loss functions and the characteristics of disentangled subspaces via ablation study and visualization analysis. Overall, DSNet can be regarded as a promising approach towards a more robust and explainable SER. Future work will investigate the impact of neutral speech selection on the quality of disentangled subspaces. Additionally, we intend to verify the effectiveness of our method on other backbone architectures.",
+      "page_start": 13,
+      "page_end": 13
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: , the overall workflow of our proposed DSNet consists of",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: The diagram of our proposed DSNet. The red arrows are activated throughout",
+      "page": 4
+    },
+    {
+      "caption": "Figure 1: , we also pass Xn through the encoder",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: Convergence curves of different regularization loss functions as the training",
+      "page": 10
+    },
+    {
+      "caption": "Figure 2: We can observe that both",
+      "page": 10
+    },
+    {
+      "caption": "Figure 3: T-SNE visualization for different feature spaces on the IEMOCAP and MSP-",
+      "page": 11
+    },
+    {
+      "caption": "Figure 3: visualizes the distribution of original",
+      "page": 12
+    },
+    {
+      "caption": "Figure 3: , we conclude the",
+      "page": 12
+    },
+    {
+      "caption": "Figure 4: Visualization for confusion matrices of the baseline model and our proposed",
+      "page": 12
+    },
+    {
+      "caption": "Figure 4: visualizes the confusion matri-",
+      "page": 13
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 1: The models were",
+      "data": [
+        {
+          "Module Settings": "Encoder",
+          "Output": "32 × 32 × 600 × 80"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 32 × 300 × 40"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 64 × 300 × 40"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 64 × 150 × 20"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 128 × 150 × 20"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 128 × 75 × 10"
+        },
+        {
+          "Module Settings": "",
+          "Output": ""
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 256 × 37 × 5"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 256 × 37"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 256"
+        },
+        {
+          "Module Settings": "Projector",
+          "Output": "32 × 256"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 256"
+        },
+        {
+          "Module Settings": "Restorer",
+          "Output": "32 × 256"
+        },
+        {
+          "Module Settings": "Classifier",
+          "Output": "32 × 64"
+        },
+        {
+          "Module Settings": "",
+          "Output": "32 × 4"
+        }
+      ],
+      "page": 7
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Speech emotion recognition: Two decades in a nutshell, benchmarks, and ongoing trends",
+      "authors": [
+        "B Schuller"
+      ],
+      "year": "2018",
+      "venue": "Communications of the ACM"
+    },
+    {
+      "citation_id": "2",
+      "title": "On the acoustics of emotion in audio: what speech, music, and sound have in common",
+      "authors": [
+        "F Weninger",
+        "F Eyben",
+        "B Schuller",
+        "M Mortillaro",
+        "K Scherer"
+      ],
+      "year": "2013",
+      "venue": "Frontiers in psychology"
+    },
+    {
+      "citation_id": "3",
+      "title": "The Geneva minimalistic acoustic parameter set (GeMAPS) for voice research and affective computing",
+      "authors": [
+        "F Eyben",
+        "K Scherer",
+        "B Schuller",
+        "J Sundberg",
+        "E André",
+        "C Busso",
+        ". Truong"
+      ],
+      "year": "2015",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "4",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Burkhardt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "5",
+      "title": "Temporal Modeling Matters: A Novel Temporal Emotional Modeling Approach for Speech Emotion Recognition",
+      "authors": [
+        "J Ye",
+        "X Wen",
+        "Y Wei",
+        "Y Xu",
+        "K Liu",
+        "H Shan"
+      ],
+      "year": "2023",
+      "venue": "2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "6",
+      "title": "Mingling or misalignment? temporal shift for speech emotion recognition with pre-trained representations",
+      "authors": [
+        "S Shen",
+        "F Liu",
+        "A Zhou"
+      ],
+      "year": "2023",
+      "venue": "2023 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "7",
+      "title": "CTA-RNN: Channel and Temporal-wise Attention RNN leveraging Pre-trained ASR Embeddings for Speech Emotion Recognition",
+      "authors": [
+        "C Chen",
+        "P Zhang"
+      ],
+      "year": "2022",
+      "venue": "CTA-RNN: Channel and Temporal-wise Attention RNN leveraging Pre-trained ASR Embeddings for Speech Emotion Recognition"
+    },
+    {
+      "citation_id": "8",
+      "title": "Domain adversarial for acoustic emotion recognition",
+      "authors": [
+        "M Abdelwahab",
+        "C Busso"
+      ],
+      "year": "2018",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "9",
+      "title": "Nonnegative matrix factorization based transfer subspace learning for cross-corpus speech emotion recognition",
+      "authors": [
+        "H Luo",
+        "J Han"
+      ],
+      "year": "2020",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Unsupervised Domain Adaptation Integrating Transformer and Mutual Information for Cross-Corpus Speech Emotion Recognition",
+      "authors": [
+        "S Zhang",
+        "R Liu",
+        "Y Yang",
+        "X Zhao",
+        "J Yu"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the 30th ACM International Conference on Multimedia"
+    },
+    {
+      "citation_id": "11",
+      "title": "Gender De-Biasing in Speech Emotion Recognition",
+      "authors": [
+        "C Gorrostieta",
+        "R Lotfian",
+        "K Taylor",
+        "R Brutti",
+        "J Kane"
+      ],
+      "year": "2019",
+      "venue": "INTERSPEECH 2019"
+    },
+    {
+      "citation_id": "12",
+      "title": "Speaker-invariant affective representation learning via adversarial training",
+      "authors": [
+        "H Li",
+        "M Tu",
+        "J Huang",
+        "S Narayanan",
+        "P Georgiou"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "13",
+      "title": "Speaker normalisation for speechbased emotion detection",
+      "authors": [
+        "V Sethu",
+        "E Ambikairajah",
+        "J Epps"
+      ],
+      "year": "2007",
+      "venue": "2007 15th international conference on digital signal processing"
+    },
+    {
+      "citation_id": "14",
+      "title": "Iterative feature normalization for emotional speech detection",
+      "authors": [
+        "C Busso",
+        "A Metallinou",
+        "S Narayanan"
+      ],
+      "year": "2011",
+      "venue": "2011 IEEE international conference on acoustics, speech and signal processing (ICASSP)"
+    },
+    {
+      "citation_id": "15",
+      "title": "Factor Analysis Based Speaker Normalisation for Continuous Emotion Prediction",
+      "authors": [
+        "T Dang",
+        "V Sethu",
+        "E Ambikairajah"
+      ],
+      "year": "2016",
+      "venue": "INTERSPEECH 2016"
+    },
+    {
+      "citation_id": "16",
+      "title": "Speaker-invariant adversarial domain adaptation for emotion recognition",
+      "authors": [
+        "Y Yin",
+        "B Huang",
+        "Y Wu",
+        "M Soleymani"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 2020 International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "17",
+      "title": "Speaker normalization for self-supervised speech emotion recognition",
+      "authors": [
+        "I Gat",
+        "H Aronowitz",
+        "W Zhu",
+        "E Morais",
+        "R Hoory"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "18",
+      "title": "Deep speaker conditioning for speech emotion recognition",
+      "authors": [
+        "A Triantafyllopoulos",
+        "S Liu",
+        "B Schuller"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE International Conference on Multimedia and Expo (ICME)"
+    },
+    {
+      "citation_id": "19",
+      "title": "Isnet: Individual standardization network for speech emotion recognition",
+      "authors": [
+        "W Fan",
+        "X Xu",
+        "B Cai",
+        "X Xing"
+      ],
+      "year": "2022",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "20",
+      "title": "Disentangled representation learning",
+      "authors": [
+        "X Wang",
+        "H Chen",
+        "S Tang",
+        "Z Wu",
+        "W Zhu"
+      ],
+      "year": "2022",
+      "venue": "Disentangled representation learning",
+      "arxiv": "arXiv:2211.11695"
+    },
+    {
+      "citation_id": "21",
+      "title": "Auto-encoding variational bayes",
+      "authors": [
+        "D Kingma",
+        "M Welling"
+      ],
+      "year": "2013",
+      "venue": "Auto-encoding variational bayes",
+      "arxiv": "arXiv:1312.6114"
+    },
+    {
+      "citation_id": "22",
+      "title": "Generative adversarial nets",
+      "authors": [
+        "I Goodfellow",
+        "J Pouget-Abadie",
+        "M Mirza",
+        "B Xu",
+        "D Warde-Farley",
+        "S Ozair",
+        ". Bengio"
+      ],
+      "year": "2014",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "23",
+      "title": "Disentangling correlated speaker and noise for speech synthesis via data augmentation and adversarial factorization",
+      "authors": [
+        "W Hsu",
+        "Y Zhang",
+        "R Weiss",
+        "Y Chung",
+        "Y Wang",
+        "Y Wu",
+        "J Glass"
+      ],
+      "year": "2019",
+      "venue": "ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Robust disentangled variational speech representation learning for zero-shot voice conversion",
+      "authors": [
+        "J Lian",
+        "C Zhang",
+        "D Yu"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "25",
+      "title": "Unsupervised speech enhancement with speech recognition embedding and disentanglement losses",
+      "authors": [
+        "V Trinh",
+        "S Braun"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "26",
+      "title": "Siamese neural networks: An overview. Artificial neural networks",
+      "authors": [
+        "D Chicco"
+      ],
+      "year": "2021",
+      "venue": "Siamese neural networks: An overview. Artificial neural networks"
+    },
+    {
+      "citation_id": "27",
+      "title": "Signet: Convolutional siamese network for writer independent offline signature verification",
+      "authors": [
+        "S Dey",
+        "A Dutta",
+        "J Toledo",
+        "S Ghosh",
+        "J Lladós",
+        "U Pal"
+      ],
+      "year": "2017",
+      "venue": "Signet: Convolutional siamese network for writer independent offline signature verification",
+      "arxiv": "arXiv:1707.02131"
+    },
+    {
+      "citation_id": "28",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "29",
+      "title": "Speech emotion recognition via contrastive loss under siamese networks",
+      "authors": [
+        "Z Lian",
+        "Y Li",
+        "J Tao",
+        "J Huang"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the Joint Workshop of the 4th Workshop on Affective Social Multimedia Computing and First Multi-Modal Affective Computing of Large-Scale Multimedia Data"
+    },
+    {
+      "citation_id": "30",
+      "title": "Siamese capsule network for end-to-end speaker recognition in the wild",
+      "authors": [
+        "A Hajavi",
+        "A Etemad"
+      ],
+      "year": "2021",
+      "venue": "ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "31",
+      "title": "Automatic speech emotion recognition using recurrent neural networks with local attention",
+      "authors": [
+        "S Mirsamadi",
+        "E Barsoum",
+        "C Zhang"
+      ],
+      "year": "2017",
+      "venue": "ICASSP 2017-2017 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "32",
+      "title": "Domain separation networks",
+      "authors": [
+        "K Bousmalis",
+        "G Trigeorgis",
+        "N Silberman",
+        "D Krishnan",
+        "D Erhan"
+      ],
+      "year": "2016",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "33",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        ". Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "34",
+      "title": "MSP-IMPROV: An acted corpus of dyadic interactions to study emotion perception",
+      "authors": [
+        "C Busso",
+        "S Parthasarathy",
+        "A Burmania",
+        "M Abdelwahab",
+        "N Sadoughi",
+        "E Provost"
+      ],
+      "year": "2016",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "35",
+      "title": "Domain invariant feature learning for speaker-independent speech emotion recognition",
+      "authors": [
+        "C Lu",
+        "Y Zong",
+        "W Zheng",
+        "Y Li",
+        "C Tang",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "36",
+      "title": "Visualizing data using t-SNE",
+      "authors": [
+        "L Van Der Maaten",
+        "G Hinton"
+      ],
+      "year": "2008",
+      "venue": "Journal of machine learning research"
+    }
+  ]
+}

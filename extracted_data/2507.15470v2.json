@@ -1,0 +1,2688 @@
+{
+  "paper_id": "2507.15470v2",
+  "title": "Fedmultiemo: Real-Time Emotion Recognition Via Multimodal Federated Learning",
+  "published": "2025-07-21T10:21:48Z",
+  "authors": [
+    "Baran Can Gül",
+    "Suraksha Nadig",
+    "Stefanos Tziampazis",
+    "Nasser Jazdi",
+    "Michael Weyrich"
+  ],
+  "keywords": [
+    "Federated Learning",
+    "Emotion Recognition",
+    "Multimodal Fusion",
+    "Automotive",
+    "Privacy"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In-vehicle emotion recognition underpins adaptive driver-assistance systems and, ultimately, occupant safety. However, practical deployment is hindered by (i) modality fragilitypoor lighting and occlusions degrade vision-based methods; (ii) physiological variability-heart-rate and skin-conductance patterns differ across individuals; and (iii) privacy risk-centralized training requires transmission of sensitive data. To address these challenges, we present FedMultiEmo, a privacy-preserving framework that fuses two complementary modalities at the decision level: visual features extracted by a Convolutional Neural Network from facial images, and physiological cues (heart rate, electrodermal activity, and skin temperature) classified by a Random Forest. FedMultiEmo builds on three key elements: (1) a multimodal federated learning pipeline with majority-vote fusion, (2) an end-to-end edge-to-cloud prototype on Raspberry Pi clients and a Flower server, and (3) a personalized Federated Averaging scheme that weights client updates by local data volume. Evaluated on FER2013 and a custom physiological dataset, the federated Convolutional Neural Network attains 77% accuracy, the Random Forest 74%, and their fusion 87%, matching a centralized baseline while keeping all raw data local. The developed system converges in 18 rounds, with an average round time of 120 s and a per-client memory footprint below 200 MB. These results indicate that FedMultiEmo offers a practical approach to real-time, privacy-aware emotion recognition in automotive settings.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Recent advances in machine learning (ML) have catalyzed innovations across multiple industries, including the automotive sector. An area of relevance is driver monitoring, where Emotion Recognition (ER) systems are emerging as enablers of enhanced Human-Machine Interaction (HMI) and personalized vehicle environments  [1] ,  [2] . By recognizing the emotional states of drivers in real time, these systems can promote safety and comfort by adapting the driving experience, for example, by adjusting seat position, regulating climate control, or activating stress-relief functions based on the driver's mood. This personalization can enhance safety by addressing signs of fatigue, stress, or distraction  [3] . Despite these promising applications, real-time ER in dynamic, uncontrolled environments like vehicle cabins raises practical concerns. Key obstacles include: (1) environmental variability, such as lighting changes, head poses, and occlusions (e.g., sunglasses), which complicate visual emotion detection systems  [4] ; (2) physiological heterogeneity, where individual differences in heart rate, electrodermal activity (EDA), and other bodily responses to emotion are not well captured by single-modality systems; and (3) privacy concerns, as centralized models require continuous transmission of sensitive data like facial images and physiological signals, risking user privacy  [5] . Furthermore, traditional centralized approaches face scalability and computational inefficiencies in handling large amounts of real-time data from a diverse set of users.\n\nIn response to these challenges, we propose FedMulti-Emo, a Federated Learning (FL) framework for multimodal emotion recognition that preserves user privacy and addresses dynamic variability in real-time environments. FL, as a general paradigm for decentralized learning, allows model training to occur directly on user devices. This ensures that sensitive data, such as physiological signals or facial images, remains local, thereby significantly mitigating privacy risks  [6] . Furthermore, FL distributes the computational load across edge devices, alleviating the pressure on central servers and allowing for scalable, real-time model updates  [7] . It is particularly wellsuited for automotive applications  [8] , where personalized comfort must be achieved in a privacy-conscious manner, and computational efficiency is essential.\n\nRecent works have explored the integration of visual (e.g., facial expressions) and physiological (e.g., heart rate, EDA) modalities in emotion recognition  [9] ,  [10] . However, common approaches either focus on a single modality or rely on centralized architectures that do not scale well to realtime applications. In contrast, multimodal FL enables realtime emotion detection that accounts for both visual and physiological cues. While FL has been successfully applied in privacy-preserving domains such as healthcare  [11] , its integration into automotive emotion recognition systems is still emerging.\n\nIn this paper, we present a multimodal, real-time emotion recognition system for automotive environments using FL. Specifically, we integrate visual data (facial expressions) processed through a Convolutional Neural Network (CNN) with physiological data (heart rate, EDA, and skin temperature) classified via a Random Forest (RF) model. Our key contributions include: (1) the design and implementation of a multimodal FL pipeline for emotion recognition, (2) an edge-to-cloud deployment architecture using Raspberry Pi clients and a Flower server for decentralized learning, and (3) a privacy-preserving, personalized aggregation mechanism based on Federated Averaging (FedAvg), weighted by client dataset sizes.\n\nExperiments conducted on publicly available and selfcollected datasets highlight the practical applicability of Fed-MultiEmo, achieving 77% accuracy for the visual CNN model, 74% for the RF model on physiological data, and 87% with multimodal decision-level fusion. We further show that our federated system converges in 18-20 rounds with an average round time of 120 seconds, offering real-time, privacyconscious emotion recognition while maintaining an efficient computational footprint on client devices.\n\nThe remainder of this paper is structured as follows: Section II reviews related work on emotion recognition, multimodal fusion, and federated learning. Section III outlines the design of the proposed multimodal federated learning framework. Section IV describes the system setup and experiments and presents the results. Finally, Section V concludes the paper and discusses future research directions.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Related Work",
+      "text": "In this section, we review the state-of-the-art in automotive ER, multimodal learning strategies, and the role of FL in privacy-preserving emotion detection. We highlight the limitations of existing systems and position our contributions within this evolving landscape.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Emotion Recognition In Automotive Contexts",
+      "text": "In-vehicle emotion recognition has become a focal point in efforts to enhance personalization and safety in modern vehicles. Commercial solutions such as Affectiva Automotive AI  [12]  and Seeing Machines' Driver Monitoring Systems  [13]  rely primarily on visual and audio cues for real-time monitoring of driver emotions. Fraunhofer IIS's multimodal systems combine biosignal monitoring with computer vision for stress and fatigue detection  [14] . While effective in controlled settings, these systems often falter in real-world conditions characterized by varying lighting, occlusions (e.g., sunglasses), and head poses  [15] .\n\nCritically, most commercial systems underutilize physiological signals, such as heart rate variability (HRV) and electrodermal activity (EDA), which offer objective, less environmentally-dependent indicators of emotional state  [16] . Furthermore, centralized processing models employed in commercial ER systems raise significant privacy concerns, as they require continuous transmission of sensitive personal data  [17] .\n\nOur proposed framework, FedMultiEmo, advances these commercial efforts by integrating both facial expression data and physiological signals while preserving privacy. This ensures robust performance in real-world conditions and eliminates the need for transmitting raw data to central servers.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Multimodal Emotion Recognition",
+      "text": "Multimodal ER systems that combine visual, auditory, and physiological data outperform unimodal models by offering a holistic understanding of affective states  [18] . Early work by  [19] ,  [20]  used physiological data with traditional classifiers such as Support Vector Machines (SVMs) and Random Forests (RFs), but their effectiveness was limited in real-time applications and noisy environments like car cabins.\n\nRecent advances leverage deep learning (DL) models such as CNNs and Recurrent Neural Networks (RNNs) to extract meaningful patterns across modalities  [21] ,  [22] . These models improve classification accuracy but are computationally intensive and often unsuitable for edge deployment without significant optimization. Furthermore, current multimodal approaches struggle with data synchronization, modality-specific noise, and user variability in physiological responses  [23] ,  [24] .\n\nOur work overcomes these limitations by introducing an edge-deployable multimodal ER system with decision-level fusion. By leveraging CNNs for visual input and RFs for physiological data, we balance model accuracy with computational efficiency. Through FL, we enable personalized model training across distributed devices, addressing variability and enhancing system adaptability.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "C. Federated Learning For Emotion Detection",
+      "text": "FL enables model training across user devices without transferring raw data, making it ideal for sensitive applications such as healthcare and driver monitoring  [6] ,  [25] . In ER, FL has demonstrated promising results in physiological and EEG-based systems. For example, Fed-PhyERS  [26]  processes physiological signals for privacy-aware emotion detection, while Reference  [27]  applied FL to EEG datasets, achieving over 90% accuracy on SEED and DEAP datasets. Fed-CMD  [28]  extended FL to cross-modal scenarios, showcasing the potential of decentralized training for multimodal affective computing. However, FL-based ER systems have not been widely applied to the automotive domain, particularly in scenarios requiring real-time processing and heterogeneous modalities. Existing methods often do not support multimodal fusion on edge devices or personalization based on individual user data.\n\nOur contribution fills this gap by presenting a fullyintegrated, real-time FL system tailored for in-vehicle multimodal ER. Unlike prior works, we deploy FL across Raspberry Pi clients using Flower and introduce a decision-level fusion strategy that combines CNN-and RF-based classifiers. Our personalization mechanism leverages FedAvg with clientweighted updates, improving generalization across heterogeneous users while maintaining privacy.\n\nAlthough prior work has made important strides in emotion recognition in centralized and federated settings, limitations remain, particularly for real-time, multimodal, and privacyconscious learning in automotive contexts. Across the reviewed approaches, most do not support fusion of heterogeneous modalities on edge devices, nor do they provide mechanisms for user-level personalization. These gaps motivate our proposed framework, which integrates FL with lightweight multimodal processing and edge deployment.\n\nIn summary, our work contributes:\n\n• A real-time multimodal emotion recognition system for automotive use, implemented using FL. • A privacy-preserving personalization scheme based on on-device model training and edge deployment.\n\n• A decision-level multimodal fusion approach validated under real-world conditions. These contributions position our proposed framework as a step toward practical deployment and align with current research directions in intelligent vehicles and edge learning.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Fedmultiemo: A Multimodal Federated Learning Framework For Real-Time Emotion Recognition",
+      "text": "We introduce our proposed framework FedMultiEmo, a privacy-preserving, multimodal federated learning framework designed for real-time emotion recognition in vehicle cabins. It addresses three core challenges: (i) environmental variability in visual sensing, (ii) physiological heterogeneity across users, and (iii) privacy concerns inherent to centralized data collection. Fig.  1",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Problem Formulation And Data Acquisition",
+      "text": "Let each client n ∈ {1, . . . , N } passively collect synchronized facial images {I t } t∈T and physiological signals {s t } t∈T during a driving session over a time window T . The goal is to collaboratively learn a global classifier f : (I, s) → y for predicting emotion labels y ∈ C, while preserving user privacy by keeping raw data local.\n\nEach client maintains a private dataset D n = {(I i , s i , y i )} mn i=1 , and the federated training objective is defined as:\n\nwhere M = N n=1 m n is the total number of local samples, and ℓ is the cross-entropy loss used for training the visual CNN component. The physiological classifier, implemented as a Random Forest, uses Gini impurity during local training and does not participate in gradient-based optimization.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Data Preprocessing",
+      "text": "We outline the preprocessing steps for the visual and physiological modalities used in the proposed emotion recognition framework.\n\na) Visual Modality: Facial frames are captured by the onboard camera at a resolution of 640×480 pixels and resized to a standard 48 × 48 grayscale format. The transformation from the original frame I(x, y) to the resized image I ′ (x ′ , y ′ ) is performed using the following equation: First, a 4th-order low-pass Butterworth filter with a cutoff frequency of 0.5 Hz is applied to each signal s(t) to remove high-frequency noise:\n\nwhere h[τ ] represents the filter coefficients, and T is the length of the filter (4th-order filter, so T = 4).\n\nNext, the filtered signal s(t) is smoothed using a 5-point moving average to reduce short-term fluctuations:\n\nwhere ŝ[t] represents the smoothed version of the signal at time t.\n\nFinally, the smoothed signal ŝ[t] is normalized using z-score normalization, transforming the signal to have zero mean and unit variance:\n\nwhere µ ŝ and σ ŝ are the mean and standard deviation of the smoothed signal ŝ[t], respectively. The resulting s[t] is the normalized signal used for feature extraction. These preprocessing steps ensure that the physiological signals are clean, stable, and standardized, improving performance.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Server",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Feature Extraction",
+      "text": "In this stage, both the visual and physiological features are extracted from the preprocessed data and prepared for classification. Feature extraction involves specialized models for each modality to capture the most discriminative information the recognition.\n\na) Visual Features: Visual features are extracted using a CNN composed of three convolutional blocks. Each block includes a convolutional layer, followed by a ReLU activation and a max-pooling layer to reduce spatial dimensions. The feature extraction at the l-th layer is formally defined as:\n\nwhere W l are the learnable convolutional filters at layer l, b l is the bias, and F l-1 is the input to the layer (which is the image or the feature map from the previous layer). The final output after passing through all layers is flattened and transformed into a fixed-length vector f visual ∈ R 1024 , which represents the visual features of the image. This feature vector is then passed to a softmax classifier to predict the emotional state over 7 possible classes. b) Physiological Features: For physiological data, such as heart rate, EDA, and skin temperature, a set of handcrafted features is extracted from the normalized signal s[t]. For each physiological signal, the following features are computed over a 5-second window:\n\n-Heart Rate Variability (HRV): HRV is calculated as the mean absolute difference between consecutive heart rate measurements, capturing the variation in heart rate:\n\nwhere T is the number of samples in the window, and sHR [i] represents the heart rate at the i-th sample.\n\n-Maximum Electrodermal Activity (EDA): The maximum value of the normalized EDA signal in the window is computed, providing an indicator of peak arousal:\n\n-Temperature Fluctuations (∆T ): The temperature fluctuations are measured by the difference between the maximum and minimum skin temperature in the window, which offers insights into the autonomic nervous system's response to emotional stimuli:\n\nThese three extracted features form the physiological feature vector f physio ∈ R 3 , which is then used as input to the Random Forest model for emotion classification. These features are then concatenated into a vector f physio ∈ R 3 that serves as the input to the Random Forest classifier.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "D. Local Model Training",
+      "text": "In the local model training phase, each client downloads the global model weights w t from the server and performs local updates using its own dataset. Each client performs E = 4 epochs of training, where the model is optimized using the Adam optimizer with a learning rate η = 10 -4 . Specifically, the update rule for the weights at client n is:\n\nwhere w t+1 n is the updated weight at client n after round t+1, and L n (w t ) is the loss function for client n (cross-entropy loss for the visual CNN and Gini impurity for the Random Forest). Each client independently optimizes its model using its local dataset and computes updates for both the CNN and RF models.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "E. Local Inference",
+      "text": "Once local models are trained, each client makes predictions for both the visual and physiological modalities based on their respective classifiers. The final predictions are obtained by passing the input through the trained models.\n\na) Visual Prediction: For the visual modality, the input image I ′ is passed through the CNN, and a softmax operation is applied to obtain the predicted probabilities for each class:\n\nwhere p visual ∈ R 7 is the vector of predicted probabilities for the 7 emotion classes. The predicted emotion label is the class with the highest probability:\n\nwhere p visual,k represents the predicted probability of class k. b) Physiological Prediction: For the physiological modality, the extracted feature vector f physio is passed through the Random Forest model, which outputs a probability distribution over the 7 emotion classes:\n\nThe predicted emotion label is again the class with the highest probability:",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "F. Decision-Level Fusion",
+      "text": "The final prediction is obtained through decision-level fusion of the predictions from both modalities. A majority voting mechanism is applied to select the emotion class with the highest aggregated probability across both the visual and physiological modalities. The final prediction is computed as:  (16)  where 1(ŷ i = c) is an indicator function that returns 1 if the predicted class ŷi from modality i matches class c, and 0 otherwise. This aggregation method reduces the impact of modality-specific noise or occlusions, ensuring a more robust and reliable prediction.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "G. Federated Aggregation",
+      "text": "The Federated Averaging (FedAvg) algorithm is used to aggregate the local model updates from each client and produce a global model. At each round t + 1, the server aggregates the weight updates from all clients n = 1, . . . , N using the following equation:\n\nwhere w t+1 is the global model weight after round t + 1, w t+1 n is the local model update at client n, and m n represents the number of data samples at client n. The global model is updated as a weighted average of the client models, with each client's update weighted by the size of its local dataset. This aggregation strategy allows for personalization and ensures that the global model adapts to the data distributions at each client while preserving data privacy.\n\nFedMultiEmo thus enables privacy-preserving, real-time emotion recognition by leveraging lightweight edge models, decision fusion, and federated optimization across multiple sensing modalities.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Iv. Prototype Implementation And Experimental Results",
+      "text": "We describe the end-to-end implementation of our invehicle, multimodal emotion recognition prototype and report its performance under practical FL settings. We first outline the two deployment phases and the hardware setup, then detail data collection and model architectures, finally presenting the FL configuration and resulting accuracy, convergence, and efficiency metrics.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "A. System Architecture And Hardware",
+      "text": "To validate both functionality and real-time performance, we developed the prototype in two phases. In Phase I, rapid prototyping was performed on a single high-performance laptop hosting the Flower federated server  [29]  and three Dockerisolated client instances. Each client ingested prerecorded facial video and physiological traces (heart rate, EDA, and skin temperature) from local storage, enabling us to debug the end-to-end pipeline and FedAvg aggregation without hardware constraints.\n\nPhase II transitioned to a true edge deployment. Three Raspberry Pi 4 devices served as clients, each paired with a USB camera and a Fitbit Versa",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Data Collection And Preprocessing",
+      "text": "We combined a public vision dataset with a controlled, selfcollected physiological set to ensure robustness and privacy:",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Model Architectures",
+      "text": "Two independent classifiers process each modality: a) Facial Expression CNN: The CNN comprises three convolutional blocks-(Conv + ReLU) → MaxPool-with filter depths {32, 64, 128}, each followed by dropout (p = 0.25). Flattened features feed a 1024-unit dense layer (ReLU, p = 0.5), then a softmax output over seven emotions. The model is optimized with Adam (initial LR 10 -4 , exponential decay).\n\nb) Physiological Random Forest: Physiological features, notably HRV, EDA peak rate, and temperature fluctuation over 5-second windows are classified by a 200-tree Random Forest (Gini criterion). This nonparametric ensemble is robust to noisy signals and small sample sizes, producing per-class probability estimates.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "D. Federated Learning Setup",
+      "text": "We orchestrate decentralized training via Flower with the standard FedAvg algorithm. Each of the three clients performs four local epochs per round on its own data; model weight deltas and validation metrics are returned to the server. The server aggregates local updates with FedAvg and we executed 20 global rounds in both phases.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "E. Results",
+      "text": "Classification performance is evaluated for unimodal and multimodal inputs; training efficiency is compared across individual, centralized, and federated setups. Overall, the physiological model achieves precision and recall of 67% and 73%, respectively. Fig.  2 (b) presents the results for facial image classification using a CNN. This model achieves a higher test accuracy of 78% and demonstrates more balanced performance across classes. True positive rates increase across most emotions, although disgust remains challenging due to limited training samples and its subtle facial cues. Still, the visual modality provides stronger generalization, with both precision and recall averaging around 77%, outperforming the physiological-only approach.\n\nFig.  2 (c) displays the confusion matrix for the decision-level fusion model, which combines outputs from both modalities. This configuration achieves the highest overall accuracy of 87%. Notably, the disgust class shows a marked improvement in true positive rate, illustrating the complementary nature of multimodal input. Precision, recall, and F1-scores average 87% across all classes. These findings confirm that multimodal fusion not only mitigates individual modality limitations but also enhances robustness in real-world conditions such as poor lighting or sensor noise.   the time base maintained by the FL server, which is periodically disciplined via Network Time Protocol (NTP) to limit drift and provide a consistent temporal baseline for the reported measurements  [32] -  [34] . While FL incurs a higher time cost, it offers the advantage of preserving data locality and user privacy. This trade-off is appropriate in scenarios with strong privacy requirements, such as in-vehicle driver monitoring.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "V. Conclusion And Future Work",
+      "text": "In this paper, we introduced FedMultiEmo, a privacypreserving multimodal federated learning framework for realtime emotion recognition in vehicle cabins. By integrating facial expressions analyzed through Convolutional Neural Networks with physiological signals processed via Random Forest classifiers, the framework addresses challenges related to environmental variability, physiological diversity, and data privacy. A decision-level fusion mechanism balances these modalities, while the federated averaging approach supports scalable, personalized learning across clients without sharing raw data.\n\nImplemented on Raspberry Pi edge devices and a Flower server, FedMultiEmo performs consistently, with the multimodal classifier attaining 87% accuracy, surpassing centralized baselines while maintaining data locality and adhering to strict resource constraints. The system converges within 18 rounds, while keeping communication and memory requirements within practical limits. The primary contributions of this work are:\n\n• Multimodal Fusion in FL: An in-vehicle system to fuse CNN and RF predictions via decision-level voting in a federated setup.\n\n• Edge-to-Cloud Deployment: A working prototype on Raspberry Pi clients and a Flower server, showing feasibility under real-time constraints. • Privacy-Preserving Personalization: A personalization scheme based on FedAvg, using client data volume to adapt global models without raw data exchange.\n\nLooking ahead, we plan to advance FedMultiEmo in three key areas: (i) transitioning from hand-crafted physiological features to learned temporal embeddings using models like LSTMs or Transformers; (ii) developing adaptive, confidenceweighted fusion strategies to enhance decision-level voting; and (iii) addressing real-world deployment challenges, including missing modalities, asynchronous client updates, and diverse hardware capabilities. Finally, validating the framework on a wider range of real-world datasets will strengthen its generalizability.",
+      "page_start": 7,
+      "page_end": 8
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: depicts the system pipeline, which consists",
+      "page": 3
+    },
+    {
+      "caption": "Figure 1: Pipeline for FedMultiEmo: A Multimodal Federated Learning Approach for Real-time Emotion Recognition, Illustrating",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Comparison of Confusion Matrices for Physiological, Image, and Multimodal Data in 7-Emotion Classification.",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: Fig. 2(a) shows the confusion matrix for the Random Forest",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: (b) presents the results for facial image classification",
+      "page": 6
+    },
+    {
+      "caption": "Figure 2: (c) displays the confusion matrix for the decision-level",
+      "page": 6
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "Despite these promising applications,\nreal-time ER in dy-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "namic, uncontrolled environments\nlike vehicle\ncabins\nraises"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "practical concerns. Key obstacles\ninclude:\n(1) environmental"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "variability,\nsuch\nas\nlighting\nchanges,\nhead\nposes,\nand\noc-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "clusions\n(e.g.,\nsunglasses), which complicate visual emotion"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "detection systems [4];\n(2) physiological heterogeneity, where"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "individual\ndifferences\nin\nheart\nrate,\nelectrodermal\nactivity"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "(EDA),\nand other bodily responses\nto emotion are not well"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "captured\nby\nsingle-modality\nsystems;\nand\n(3)\nprivacy\ncon-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "cerns, as centralized models\nrequire continuous\ntransmission"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "of sensitive data like facial\nimages and physiological signals,"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "risking user privacy [5]. Furthermore,\ntraditional centralized"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "approaches\nface\nscalability and computational\ninefficiencies"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "in handling large amounts of real-time data from a diverse set"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "of users."
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "In\nresponse\nto\nthese\nchallenges, we\npropose FedMulti-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "Emo, a Federated Learning (FL)\nframework for multimodal"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "emotion recognition that preserves user privacy and addresses"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "dynamic variability in real-time environments. FL, as a general"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "paradigm for decentralized learning, allows model\ntraining to"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "occur directly on user devices. This ensures that sensitive data,"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "such as physiological signals or\nfacial\nimages,\nremains local,"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "thereby significantly mitigating privacy risks [6]. Furthermore,"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "FL distributes\nthe\ncomputational\nload\nacross\nedge\ndevices,"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "alleviating the pressure on central\nservers\nand allowing for"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "scalable,\nreal-time model updates\n[7].\nIt\nis particularly well-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "suited\nfor\nautomotive\napplications\n[8], where\npersonalized"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "comfort must be achieved in a privacy-conscious manner, and"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "computational efficiency is essential."
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "Recent works have explored the integration of visual\n(e.g.,"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "facial expressions) and physiological\n(e.g., heart\nrate, EDA)"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "modalities\nin emotion recognition [9],\n[10]. However,\ncom-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "mon\napproaches\neither\nfocus\non\na\nsingle modality\nor\nrely"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "on\ncentralized\narchitectures\nthat\ndo\nnot\nscale well\nto\nreal-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "time\napplications.\nIn contrast, multimodal FL enables\nreal-"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "time\nemotion\ndetection\nthat\naccounts\nfor\nboth\nvisual\nand"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "physiological\ncues. While FL has been successfully applied"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "in\nprivacy-preserving\ndomains\nsuch\nas\nhealthcare\n[11],\nits"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": ""
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "integration into automotive emotion recognition systems is still"
+        },
+        {
+          "*Corresponding author. E-mail address: baran-can.guel@ias.uni-stuttgart.de": "emerging."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "tion\nrecognition\nsystem for\nautomotive\nenvironments\nusing",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "commercial efforts by integrating both facial expression data"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "FL. Specifically, we integrate visual data (facial expressions)",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "and physiological\nsignals while preserving privacy. This en-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "processed\nthrough\na Convolutional Neural Network\n(CNN)",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "sures robust performance in real-world conditions and elimi-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "with physiological data\n(heart\nrate, EDA,\nand skin temper-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "nates the need for\ntransmitting raw data to central servers."
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "ature)\nclassified via\na Random Forest\n(RF) model. Our key",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": ""
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "B. Multimodal Emotion Recognition"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "contributions\ninclude:\n(1)\nthe design and implementation of",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": ""
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "a multimodal FL pipeline\nfor\nemotion\nrecognition,\n(2)\nan",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "Multimodal ER systems that combine visual, auditory, and"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "edge-to-cloud\ndeployment\narchitecture\nusing Raspberry\nPi",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "physiological data outperform unimodal models by offering"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "clients\nand a Flower\nserver\nfor\ndecentralized learning,\nand",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "a holistic understanding of affective states\n[18]. Early work"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "(3) a privacy-preserving, personalized aggregation mechanism",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "by [19],\n[20] used physiological data with traditional classi-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "based on Federated Averaging (FedAvg), weighted by client",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "fiers such as Support Vector Machines (SVMs) and Random"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "dataset sizes.",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "Forests (RFs), but\ntheir effectiveness was limited in real-time"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "Experiments\nconducted\non\npublicly\navailable\nand\nself-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "applications and noisy environments like car cabins."
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "collected datasets highlight\nthe practical applicability of Fed-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "Recent advances leverage deep learning (DL) models such"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "MultiEmo,\nachieving\n77% accuracy\nfor\nthe\nvisual CNN",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "as CNNs and Recurrent Neural Networks\n(RNNs)\nto extract"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "model,\n74% for\nthe RF model\non\nphysiological\ndata,\nand",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "meaningful patterns across modalities [21],\n[22]. These mod-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "87% with multimodal decision-level\nfusion. We further show",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "els\nimprove\nclassification\naccuracy\nbut\nare\ncomputationally"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "that our\nfederated system converges in 18–20 rounds with an",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "intensive\nand often unsuitable\nfor\nedge deployment without"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "average round time of 120 seconds, offering real-time, privacy-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "significant optimization. Furthermore, current multimodal ap-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "conscious emotion recognition while maintaining an efficient",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "proaches struggle with data synchronization, modality-specific"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "computational\nfootprint on client devices.",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "noise,\nand\nuser\nvariability\nin\nphysiological\nresponses\n[23],"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "The remainder of\nthis paper\nis\nstructured as\nfollows: Sec-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "[24]."
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "tion II\nreviews\nrelated work on emotion recognition, multi-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "Our work overcomes\nthese\nlimitations by introducing an"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "modal\nfusion, and federated learning. Section III outlines the",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "edge-deployable multimodal ER system with\ndecision-level"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "design of\nthe proposed multimodal\nfederated learning frame-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "fusion. By\nleveraging CNNs\nfor\nvisual\ninput\nand RFs\nfor"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "work. Section IV describes the system setup and experiments",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "physiological data, we balance model accuracy with computa-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "and presents the results. Finally, Section V concludes the paper",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "tional efficiency. Through FL, we enable personalized model"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "and discusses future research directions.",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "training across distributed devices, addressing variability and"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "enhancing system adaptability."
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "II. RELATED WORK",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": ""
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "C. Federated Learning for Emotion Detection"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "In this section, we review the state-of-the-art\nin automotive",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": ""
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "ER, multimodal\nlearning\nstrategies,\nand\nthe\nrole\nof FL in",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "FL enables model\ntraining\nacross\nuser\ndevices without"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "privacy-preserving emotion detection. We highlight\nthe limita-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "transferring raw data, making it ideal for sensitive applications"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "tions of existing systems and position our contributions within",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "such as\nhealthcare\nand\ndriver monitoring\n[6],\n[25].\nIn ER,"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "this evolving landscape.",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "FL has demonstrated promising results\nin physiological and"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "EEG-based systems. For example, Fed-PhyERS [26] processes"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "A. Emotion Recognition in Automotive Contexts",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": ""
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "physiological\nsignals\nfor\nprivacy-aware\nemotion\ndetection,"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "In-vehicle\nemotion recognition has become\na\nfocal point",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "while Reference\n[27]\napplied FL to EEG datasets,\nachiev-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "in\nefforts\nto\nenhance\npersonalization\nand\nsafety\nin modern",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "ing over 90% accuracy on SEED and DEAP datasets. Fed-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "vehicles. Commercial solutions such as Affectiva Automotive",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "CMD [28] extended FL to cross-modal scenarios, showcasing"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "AI [12] and Seeing Machines’ Driver Monitoring Systems [13]",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "the potential of decentralized training for multimodal affective"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "rely primarily on visual and audio cues\nfor\nreal-time moni-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "computing. However, FL-based ER systems\nhave\nnot\nbeen"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "toring of driver\nemotions. Fraunhofer\nIIS’s multimodal\nsys-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "widely\napplied\nto\nthe\nautomotive\ndomain,\nparticularly\nin"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "tems combine biosignal monitoring with computer vision for",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "scenarios\nrequiring\nreal-time\nprocessing\nand\nheterogeneous"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "stress and fatigue detection [14]. While effective in controlled",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "modalities. Existing methods often do not support multimodal"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "settings,\nthese\nsystems often falter\nin real-world conditions",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "fusion on edge devices or personalization based on individual"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "characterized by varying lighting, occlusions (e.g., sunglasses),",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "user data."
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "and head poses [15].",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "Our\ncontribution\nfills\nthis\ngap\nby\npresenting\na\nfully-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "Critically, most\ncommercial\nsystems\nunderutilize\nphysio-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "integrated,\nreal-time FL system tailored for\nin-vehicle mul-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "logical\nsignals,\nsuch\nas\nheart\nrate\nvariability\n(HRV)\nand",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "timodal ER. Unlike prior works, we deploy FL across Rasp-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "electrodermal\nactivity\n(EDA), which\noffer\nobjective,\nless",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "berry Pi clients using Flower and introduce a decision-level"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "environmentally-dependent\nindicators of emotional state [16].",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "fusion strategy that combines CNN- and RF-based classifiers."
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "Furthermore, centralized processing models employed in com-",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "Our personalization mechanism leverages FedAvg with client-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "mercial ER systems raise significant privacy concerns, as they",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "weighted updates,\nimproving generalization across heteroge-"
+        },
+        {
+          "In\nthis\npaper, we\npresent\na multimodal,\nreal-time\nemo-": "require continuous transmission of sensitive personal data [17].",
+          "Our\nproposed\nframework,\nFedMultiEmo,\nadvances\nthese": "neous users while maintaining privacy."
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Although prior work has made important strides in emotion": "recognition in centralized and federated settings,\nlimitations",
+          "CNN component. The physiological\nclassifier,\nimplemented": "as a Random Forest, uses Gini\nimpurity during local\ntraining"
+        },
+        {
+          "Although prior work has made important strides in emotion": "remain, particularly for\nreal-time, multimodal,\nand privacy-",
+          "CNN component. The physiological\nclassifier,\nimplemented": "and does not participate in gradient-based optimization."
+        },
+        {
+          "Although prior work has made important strides in emotion": "conscious\nlearning\nin\nautomotive\ncontexts. Across\nthe\nre-",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "B. Data Preprocessing"
+        },
+        {
+          "Although prior work has made important strides in emotion": "viewed approaches, most do not\nsupport\nfusion of heteroge-",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "neous modalities on edge devices, nor do they provide mech-",
+          "CNN component. The physiological\nclassifier,\nimplemented": "We outline the preprocessing steps for the visual and phys-"
+        },
+        {
+          "Although prior work has made important strides in emotion": "anisms for user-level personalization. These gaps motivate our",
+          "CNN component. The physiological\nclassifier,\nimplemented": "iological modalities used in the proposed emotion recognition"
+        },
+        {
+          "Although prior work has made important strides in emotion": "proposed\nframework, which\nintegrates FL with\nlightweight",
+          "CNN component. The physiological\nclassifier,\nimplemented": "framework."
+        },
+        {
+          "Although prior work has made important strides in emotion": "multimodal processing and edge deployment.",
+          "CNN component. The physiological\nclassifier,\nimplemented": "a) Visual Modality:\nFacial\nframes\nare\ncaptured by the"
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "onboard camera at a resolution of 640×480 pixels and resized"
+        },
+        {
+          "Although prior work has made important strides in emotion": "In summary, our work contributes:",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "to a standard 48 × 48 grayscale format. The transformation"
+        },
+        {
+          "Although prior work has made important strides in emotion": "• A real-time multimodal emotion recognition system for",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "from the original frame I(x, y) to the resized image I ′(x′, y′)"
+        },
+        {
+          "Although prior work has made important strides in emotion": "automotive use,\nimplemented using FL.",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "is performed using the following equation:"
+        },
+        {
+          "Although prior work has made important strides in emotion": "• A privacy-preserving\npersonalization\nscheme\nbased\non",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "(cid:18)(cid:22)\n(cid:107)(cid:19)\n(cid:106)"
+        },
+        {
+          "Although prior work has made important strides in emotion": "on-device model\ntraining and edge deployment.",
+          "CNN component. The physiological\nclassifier,\nimplemented": ",\n,\ny′ w\nI ′(x′, y′) = I\nx′ h\n(3)"
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "48\n48"
+        },
+        {
+          "Although prior work has made important strides in emotion": "• A decision-level multimodal\nfusion approach validated",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "under\nreal-world conditions.",
+          "CNN component. The physiological\nclassifier,\nimplemented": "I(x, y)\nwhere\nrepresents\nthe\noriginal\nimage with\nheight"
+        },
+        {
+          "Although prior work has made important strides in emotion": "These contributions position our proposed framework as a step",
+          "CNN component. The physiological\nclassifier,\nimplemented": "h = 640 and width w = 480, and I ′(x′, y′) is the resized"
+        },
+        {
+          "Although prior work has made important strides in emotion": "toward practical deployment and align with current\nresearch",
+          "CNN component. The physiological\nclassifier,\nimplemented": "output. The indices x′ and y′ correspond to the pixel positions"
+        },
+        {
+          "Although prior work has made important strides in emotion": "directions in intelligent vehicles and edge learning.",
+          "CNN component. The physiological\nclassifier,\nimplemented": "in\nthe\nresized\nimage. During\ntraining,\nimage\naugmentation"
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "techniques\nsuch as horizontal flips and random rotations are"
+        },
+        {
+          "Although prior work has made important strides in emotion": "III. FEDMULTIEMO: A MULTIMODAL FEDERATED",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "applied to increase the robustness of the model and to account"
+        },
+        {
+          "Although prior work has made important strides in emotion": "LEARNING FRAMEWORK FOR REAL-TIME EMOTION",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "for variations in the orientation of\nthe driver."
+        },
+        {
+          "Although prior work has made important strides in emotion": "RECOGNITION",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "b) Physiological Modality: Physiological signals such as"
+        },
+        {
+          "Although prior work has made important strides in emotion": "We\nintroduce\nour\nproposed\nframework FedMultiEmo,\na",
+          "CNN component. The physiological\nclassifier,\nimplemented": "heart rate, electrodermal activity (EDA), and skin temperature"
+        },
+        {
+          "Although prior work has made important strides in emotion": "privacy-preserving, multimodal\nfederated learning framework",
+          "CNN component. The physiological\nclassifier,\nimplemented": "are sampled at a frequency of 1 Hz, with each signal denoted"
+        },
+        {
+          "Although prior work has made important strides in emotion": "designed for\nreal-time emotion recognition in vehicle cabins.",
+          "CNN component. The physiological\nclassifier,\nimplemented": "as s(t), where t represents the time index in seconds. The pre-"
+        },
+        {
+          "Although prior work has made important strides in emotion": "It addresses three core challenges:\n(i) environmental variabil-",
+          "CNN component. The physiological\nclassifier,\nimplemented": "processing of\nthese signals involves three key steps: filtering,"
+        },
+        {
+          "Although prior work has made important strides in emotion": "ity in visual\nsensing,\n(ii) physiological heterogeneity across",
+          "CNN component. The physiological\nclassifier,\nimplemented": "smoothing, and normalization."
+        },
+        {
+          "Although prior work has made important strides in emotion": "users, and (iii) privacy concerns\ninherent\nto centralized data",
+          "CNN component. The physiological\nclassifier,\nimplemented": "First, a 4th-order\nlow-pass Butterworth filter with a cutoff"
+        },
+        {
+          "Although prior work has made important strides in emotion": "collection. Fig. 1 depicts the system pipeline, which consists",
+          "CNN component. The physiological\nclassifier,\nimplemented": "frequency of 0.5 Hz is applied to each signal s(t) to remove"
+        },
+        {
+          "Although prior work has made important strides in emotion": "of six stages, consistent across both visual and physiological",
+          "CNN component. The physiological\nclassifier,\nimplemented": "high-frequency noise:"
+        },
+        {
+          "Although prior work has made important strides in emotion": "modalities: Data Acquisition, Data Preprocessing, Feature",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "Extraction, Local Model Training, Local\nInference, Decision-",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "T(cid:88) τ\ns[t] =\nh[τ ] · s[t − τ ],\n(4)"
+        },
+        {
+          "Although prior work has made important strides in emotion": "Level\nFederated\nAggregation\nFusion.\nFurthermore,\na\nstep",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "=0"
+        },
+        {
+          "Although prior work has made important strides in emotion": "synchronizes model updates across distributed clients.",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "where h[τ ] represents the filter coefficients, and T is the length"
+        },
+        {
+          "Although prior work has made important strides in emotion": "A. Problem Formulation and Data Acquisition",
+          "CNN component. The physiological\nclassifier,\nimplemented": "of\nthe filter\n(4th-order filter, so T = 4)."
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "Next,\nthe filtered signal ˜s(t)\nis\nsmoothed using a 5-point"
+        },
+        {
+          "Although prior work has made important strides in emotion": "Let each client n ∈ {1, . . . , N } passively collect\nsynchro-",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "moving average to reduce short-term fluctuations:"
+        },
+        {
+          "Although prior work has made important strides in emotion": "nized facial images {It}t∈T\nand physiological signals {st}t∈T",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "during a driving session over a time window T . The goal\nis",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "to collaboratively learn a global classifier f : (I, s)\n(cid:55)→ y for",
+          "CNN component. The physiological\nclassifier,\nimplemented": "1 5\n4(cid:88) i\ns[t] =\ns[t − i],\n(5)"
+        },
+        {
+          "Although prior work has made important strides in emotion": "predicting emotion labels y ∈ C, while preserving user privacy",
+          "CNN component. The physiological\nclassifier,\nimplemented": "=0"
+        },
+        {
+          "Although prior work has made important strides in emotion": "by keeping raw data local.",
+          "CNN component. The physiological\nclassifier,\nimplemented": "where ˆs[t]\nrepresents\nthe\nsmoothed version of\nthe\nsignal\nat"
+        },
+        {
+          "Although prior work has made important strides in emotion": "=\nEach\nclient\nmaintains\na\nprivate\ndataset\nDn",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "time t."
+        },
+        {
+          "Although prior work has made important strides in emotion": "and\nthe\nfederated\ntraining\nobjective\nis\n{(Ii, si, yi)}mn\ni=1,",
+          "CNN component. The physiological\nclassifier,\nimplemented": "Finally, the smoothed signal ˆs[t] is normalized using z-score"
+        },
+        {
+          "Although prior work has made important strides in emotion": "defined as:",
+          "CNN component. The physiological\nclassifier,\nimplemented": "normalization,\ntransforming the signal\nto have zero mean and"
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "unit variance:"
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "s[t] − µˆs"
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": ",\ns[t] =\n(6)"
+        },
+        {
+          "Although prior work has made important strides in emotion": "mn",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "σˆs"
+        },
+        {
+          "Although prior work has made important strides in emotion": "N(cid:88) n\n(1)\nLn(w),\nLglobal(w) =",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "M",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "=1",
+          "CNN component. The physiological\nclassifier,\nimplemented": "the\nwhere µˆs and σˆs are the mean and standard deviation of"
+        },
+        {
+          "Although prior work has made important strides in emotion": "(cid:88)",
+          "CNN component. The physiological\nclassifier,\nimplemented": "s[t]\nsmoothed signal\ns[t],\nrespectively. The\nresulting\nis\nthe"
+        },
+        {
+          "Although prior work has made important strides in emotion": "1 m\n(2)\nLn(w) =\nℓ(fw(I, s), y),",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "n",
+          "CNN component. The physiological\nclassifier,\nimplemented": "normalized signal used for\nfeature extraction."
+        },
+        {
+          "Although prior work has made important strides in emotion": "(I,s,y)∈Dn",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "",
+          "CNN component. The physiological\nclassifier,\nimplemented": "These\npreprocessing\nsteps\nensure\nthat\nthe\nphysiological"
+        },
+        {
+          "Although prior work has made important strides in emotion": "where M = (cid:80)N",
+          "CNN component. The physiological\nclassifier,\nimplemented": ""
+        },
+        {
+          "Although prior work has made important strides in emotion": "local samples,\nn=1 mn is the total number of",
+          "CNN component. The physiological\nclassifier,\nimplemented": "signals are clean, stable, and standardized,\nimproving perfor-"
+        },
+        {
+          "Although prior work has made important strides in emotion": "and ℓ\nis\nthe\ncross-entropy loss used for\ntraining the visual",
+          "CNN component. The physiological\nclassifier,\nimplemented": "mance."
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "Fig. 1: Pipeline for FedMultiEmo: A Multimodal Federated Learning Approach for Real-time Emotion Recognition, Illustrating",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "the Key Stages.",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "C. Feature Extraction",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "- Heart Rate Variability\n(HRV): HRV is\ncalculated\nas"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "the mean absolute difference between consecutive heart\nrate"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "In this stage, both the visual and physiological\nfeatures are",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "measurements, capturing the variation in heart\nrate:"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "extracted from the preprocessed data and prepared for clas-",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "sification. Feature extraction involves\nspecialized models\nfor",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "each modality to capture the most discriminative information",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "1 T\nT(cid:88) i\nHRV =\n(8)\n|¯sHR[i] − ¯sHR[i − 1]| ,"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "the recognition.",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "=1"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "a) Visual Features: Visual\nfeatures\nare\nextracted using",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "where T is the number of samples in the window, and ¯sHR[i]"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "a CNN composed of\nthree convolutional blocks. Each block",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "represents the heart\nrate at\nthe i-th sample."
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "includes a convolutional\nlayer, followed by a ReLU activation",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "- Maximum Electrodermal Activity (EDA): The maximum"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "and a max-pooling layer\nto reduce\nspatial dimensions. The",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "value of\nthe normalized EDA signal\nin the window is com-"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "feature extraction at\nthe l-th layer\nis formally defined as:",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "puted, providing an indicator of peak arousal:"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "(7)\nFl = ReLU(Wl ∗ Fl−1 + bl),\nF0 = I ′,",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "(9)\nEDAmax = max\nsEDA[i],"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "i∈[T ]"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "is\nwhere Wl are the learnable convolutional filters at layer l, bl",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "- Temperature Fluctuations\n(∆T ): The temperature fluctu-"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "to the layer (which is the image\nthe bias, and Fl−1 is the input",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "ations are measured by the difference between the maximum"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "or\nthe feature map from the previous layer). The final output",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "and minimum skin temperature in the window, which offers"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "after passing through all\nlayers\nis flattened and transformed",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "insights\ninto\nthe\nautonomic\nnervous\nsystem’s\nresponse\nto"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "into a fixed-length vector\nfvisual ∈ R1024, which represents",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "emotional stimuli:"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "the visual\nfeatures of\nthe image. This\nfeature vector\nis\nthen",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "passed to a softmax classifier\nto predict\nthe emotional\nstate",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "(10)\n∆T = max ¯sTemp − min ¯sTemp."
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "over 7 possible classes.",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": ""
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "b) Physiological Features: For physiological data, such",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "These three extracted features form the physiological feature"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "as heart rate, EDA, and skin temperature, a set of handcrafted",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "vector fphysio ∈ R3, which is then used as input to the Random"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "features is extracted from the normalized signal ¯s[t]. For each",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "Forest model\nfor\nemotion\nclassification. These\nfeatures\nare"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "physiological signal,\nthe following features are computed over",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "then concatenated into a vector\nthat\nserves\nas\nfphysio ∈ R3"
+        },
+        {
+          "Data Acquisition\nData Preprocessing\nFeature Extraction": "a 5-second window:",
+          "Local Model Training\nLocal Inference\nDecision-Level Fusion\nOutput": "the input\nto the Random Forest classifier."
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "D. Local Model Training": "In the local model training phase, each client downloads the",
+          "G. Federated Aggregation": "The Federated Averaging (FedAvg) algorithm is used to ag-"
+        },
+        {
+          "D. Local Model Training": "global model weights wt\nfrom the server and performs local",
+          "G. Federated Aggregation": "gregate the local model updates from each client and produce"
+        },
+        {
+          "D. Local Model Training": "updates using its own dataset. Each client performs E = 4",
+          "G. Federated Aggregation": "a global model. At each round t + 1,\nthe server aggregates"
+        },
+        {
+          "D. Local Model Training": "epochs of\ntraining, where\nthe model\nis optimized using the",
+          "G. Federated Aggregation": "the weight updates\nfrom all clients n = 1, . . . , N using the"
+        },
+        {
+          "D. Local Model Training": "Adam optimizer with a learning rate η = 10−4. Specifically,",
+          "G. Federated Aggregation": "following equation:"
+        },
+        {
+          "D. Local Model Training": "the update rule for\nthe weights at client n is:",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "mn"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "N(cid:88) n\nwt+1\n,\nwt+1 =\n(17)"
+        },
+        {
+          "D. Local Model Training": "wt+1\n(11)\n= wt − η∇Ln(wt),",
+          "G. Federated Aggregation": "n"
+        },
+        {
+          "D. Local Model Training": "n",
+          "G. Federated Aggregation": "M"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "=1"
+        },
+        {
+          "D. Local Model Training": "where wt+1\nis the updated weight at client n after round t+1,\nn",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "where wt+1\nis\nthe global model weight\nafter\nround t + 1,"
+        },
+        {
+          "D. Local Model Training": "is\nthe\nloss\nfunction for\nclient n (cross-entropy\nand Ln(wt)",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "wt+1\nis the local model update at client n, and mn represents"
+        },
+        {
+          "D. Local Model Training": "loss\nfor\nthe visual CNN and Gini\nimpurity for\nthe Random",
+          "G. Federated Aggregation": "n"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "the number of data samples at client n. The global model\nis"
+        },
+        {
+          "D. Local Model Training": "Forest). Each client\nindependently optimizes\nits model using",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "updated as a weighted average of the client models, with each"
+        },
+        {
+          "D. Local Model Training": "its local dataset and computes updates for both the CNN and",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "client’s update weighted by the size of\nits local dataset. This"
+        },
+        {
+          "D. Local Model Training": "RF models.",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "aggregation\nstrategy\nallows\nfor\npersonalization\nand\nensures"
+        },
+        {
+          "D. Local Model Training": "E. Local\nInference",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "that\nthe global model adapts to the data distributions at each"
+        },
+        {
+          "D. Local Model Training": "Once local models are trained, each client makes predictions",
+          "G. Federated Aggregation": "client while preserving data privacy."
+        },
+        {
+          "D. Local Model Training": "for both the visual and physiological modalities based on their",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "FedMultiEmo\nthus\nenables\nprivacy-preserving,\nreal-time"
+        },
+        {
+          "D. Local Model Training": "respective\nclassifiers. The final\npredictions\nare\nobtained\nby",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "emotion recognition by leveraging lightweight edge models,"
+        },
+        {
+          "D. Local Model Training": "passing the input\nthrough the trained models.",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "decision\nfusion,\nand\nfederated\noptimization\nacross multiple"
+        },
+        {
+          "D. Local Model Training": "a) Visual Prediction: For\nthe visual modality,\nthe input",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "sensing modalities."
+        },
+        {
+          "D. Local Model Training": "image I ′\nis passed through the CNN, and a softmax operation",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "is applied to obtain the predicted probabilities for each class:",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "IV. PROTOTYPE IMPLEMENTATION AND EXPERIMENTAL"
+        },
+        {
+          "D. Local Model Training": "(12)\npvisual = softmax (cid:0)CNNwn,vis (I ′)(cid:1) ,",
+          "G. Federated Aggregation": "RESULTS"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "We\ndescribe\nthe\nend-to-end\nimplementation\nof\nour\nin-"
+        },
+        {
+          "D. Local Model Training": "where pvisual ∈ R7 is the vector of predicted probabilities for",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "vehicle, multimodal emotion recognition prototype and report"
+        },
+        {
+          "D. Local Model Training": "the 7 emotion classes. The predicted emotion label\nis the class",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "its performance under practical FL settings. We first outline"
+        },
+        {
+          "D. Local Model Training": "with the highest probability:",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "the two deployment phases and the hardware setup, then detail"
+        },
+        {
+          "D. Local Model Training": "(13)\nyvisual = arg max\npvisual,k,",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "k",
+          "G. Federated Aggregation": "data collection and model architectures, finally presenting the"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "FL configuration\nand\nresulting\naccuracy,\nconvergence,\nand"
+        },
+        {
+          "D. Local Model Training": "where pvisual,k represents the predicted probability of class k.",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "efficiency metrics."
+        },
+        {
+          "D. Local Model Training": "b) Physiological\nPrediction:\nFor\nthe\nphysiological",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "modality,\nthe extracted feature vector fphysio is passed through",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "A.\nSystem Architecture and Hardware"
+        },
+        {
+          "D. Local Model Training": "the Random Forest model, which outputs a probability distri-",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "To validate both functionality and real-time performance, we"
+        },
+        {
+          "D. Local Model Training": "bution over\nthe 7 emotion classes:",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "developed the prototype in two phases.\nIn Phase I,\nrapid pro-"
+        },
+        {
+          "D. Local Model Training": "(14)\npphysio = RFwn,phy (fphysio).",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "totyping was performed on a single high-performance laptop"
+        },
+        {
+          "D. Local Model Training": "The predicted emotion label\nis again the class with the highest",
+          "G. Federated Aggregation": "hosting the Flower\nfederated server\n[29]\nand three Docker-"
+        },
+        {
+          "D. Local Model Training": "probability:",
+          "G. Federated Aggregation": "isolated\nclient\ninstances. Each\nclient\ningested\nprerecorded"
+        },
+        {
+          "D. Local Model Training": "(15)\nyphysio = arg max\npphysio,k.",
+          "G. Federated Aggregation": "facial video and physiological\ntraces\n(heart\nrate, EDA,\nand"
+        },
+        {
+          "D. Local Model Training": "k",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "skin temperature) from local storage, enabling us to debug the"
+        },
+        {
+          "D. Local Model Training": "F\n. Decision-Level Fusion",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "end-to-end pipeline and FedAvg aggregation without hardware"
+        },
+        {
+          "D. Local Model Training": "The final prediction is obtained through decision-level\nfu-",
+          "G. Federated Aggregation": "constraints."
+        },
+        {
+          "D. Local Model Training": "sion\nof\nthe\npredictions\nfrom both modalities. A majority",
+          "G. Federated Aggregation": "Phase\nII\ntransitioned\nto\na\ntrue\nedge\ndeployment. Three"
+        },
+        {
+          "D. Local Model Training": "voting mechanism is applied to select\nthe emotion class with",
+          "G. Federated Aggregation": "Raspberry Pi 4 devices\nserved as\nclients,\neach paired with"
+        },
+        {
+          "D. Local Model Training": "the highest aggregated probability across both the visual and",
+          "G. Federated Aggregation": "a USB camera and a Fitbit Versa 3 (via BLE) plus an I2C-"
+        },
+        {
+          "D. Local Model Training": "physiological modalities. The final prediction is computed as:",
+          "G. Federated Aggregation": "connected EDA sensor\nfor\nskin conductance. On each Pi, a"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "TensorFlow client performed real-time\nimage\ncapture,\nlocal"
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "CNN training/inference, physiological\nfeature extraction, and"
+        },
+        {
+          "D. Local Model Training": "(16)\nyfinal = arg max\n[1(ˆyvisual = c) + 1(ˆyphysio = c)] ,",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "c∈C",
+          "G. Federated Aggregation": "Random Forest\ntraining. Only model weight updates traversed"
+        },
+        {
+          "D. Local Model Training": "is\nan indicator\nfunction that\nreturns 1 if\nwhere 1(ˆyi = c)",
+          "G. Federated Aggregation": "the WiFi\nlink to the central\nlaptop running Flower."
+        },
+        {
+          "D. Local Model Training": "from modality i matches class c, and\nthe predicted class ˆyi",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "",
+          "G. Federated Aggregation": "B. Data Collection and Preprocessing"
+        },
+        {
+          "D. Local Model Training": "0 otherwise. This aggregation method reduces\nthe impact of",
+          "G. Federated Aggregation": ""
+        },
+        {
+          "D. Local Model Training": "modality-specific noise or occlusions, ensuring a more robust",
+          "G. Federated Aggregation": "We combined a public vision dataset with a controlled, self-"
+        },
+        {
+          "D. Local Model Training": "and reliable prediction.",
+          "G. Federated Aggregation": "collected physiological set\nto ensure robustness and privacy:"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "Fig. 2: Comparison of Confusion Matrices for Physiological,",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "Image, and Multimodal Data in 7-Emotion Classification."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "a) Visual Dataset: We\ntrained\nthe\nfacial\nexpression",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "server aggregates local updates with FedAvg and we executed"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "48 × 48\nmodel\non\nFER2013\n[30],\nconsisting\nof\n35,887",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "20 global\nrounds in both phases."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "grayscale\nimages\nover\nseven\nemotion\nlabels. To\nstrengthen",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "label quality, we adopted the FERPlus\nrelabeling [31]: each",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "E. Results"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "image was\nannotated\nby\nten\ncrowdworkers,\nand\nconsensus",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "Classification performance\nis\nevaluated for unimodal\nand"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "labels\nreplaced the original ones.\nImages were\nrescaled by",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "multimodal\ninputs;\ntraining\nefficiency\nis\ncompared\nacross"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "1/255,\nface-cropped to 48 × 48, and augmented with random",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "individual, centralized, and federated setups."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "horizontal flips and ±10◦ rotations.",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "b) Physiological\nDataset:",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "1) Classification Analysis: The evaluation covers both uni-"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "To\navoid\nindirect",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "modal and multimodal classification performance across three"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "valence–arousal\nproxies, we\ncollected\na\nbespoke\ndataset",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "learning\nconfigurations:\n(a)\nphysiological\nsignals,\n(b)\nfacial"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "in our\nlab. Subjects wore a Fitbit Versa 3 and an I2C EDA",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "images, and (c) multimodal\nfusion, as illustrated in Fig. 2."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "sensor while\nexposed to emotion-eliciting video clips. Raw",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "heart\nrate, HRV, and skin conductance streams were low-pass",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "Fig. 2(a) shows the confusion matrix for the Random Forest"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "filtered\n(4th-order\nButterworth,\n0.5\nHz\ncutoff),\nz-score",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "classifier\ntrained solely on physiological\nfeatures. The model"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "normalized,\nand smoothed via\na 5-sample moving average.",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "achieves a test accuracy of approximately 74%. Performance"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "Ground truth emotion labels were synchronized to the video",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "across\nemotion\nclasses\nis\nuneven,\nprimarily\ndue\nto\nclass"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "timeline.",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "imbalance. The disgust class (class 5) exhibits the lowest\ntrue"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "positive rate, reflecting its limited representation in the dataset."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "C. Model Architectures",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "Overall,\nthe physiological model achieves precision and recall"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "Two independent classifiers process each modality:",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "of 67% and 73%,\nrespectively."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "a) Facial Expression CNN:\nThe CNN comprises\nthree",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "Fig. 2(b) presents the results for\nfacial\nimage classification"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "convolutional blocks—(Conv + ReLU) → MaxPool—with",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "using\na CNN. This model\nachieves\na\nhigher\ntest\naccuracy"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "filter depths {32, 64, 128},\neach followed by dropout\n(p =",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "of 78% and demonstrates more balanced performance across"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "0.25). Flattened features feed a 1024-unit dense layer (ReLU,",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "classes. True\npositive\nrates\nincrease\nacross most\nemotions,"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "p = 0.5),\nthen a\nsoftmax output over\nseven emotions. The",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "although disgust\nremains challenging due to limited training"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "model\nis optimized with Adam (initial LR 10−4, exponential",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "samples and its\nsubtle facial cues. Still,\nthe visual modality"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "decay).",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "provides stronger generalization, with both precision and recall"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "b) Physiological Random Forest: Physiological features,",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "averaging around 77%, outperforming the physiological-only"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "notably HRV, EDA peak\nrate,\nand\ntemperature\nfluctuation",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "approach."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "over 5-second windows are classified by a 200-tree Random",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "Fig. 2(c) displays the confusion matrix for the decision-level"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "Forest (Gini criterion). This nonparametric ensemble is robust",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "fusion model, which combines outputs from both modalities."
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "to noisy signals and small\nsample sizes, producing per-class",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "This\nconfiguration achieves\nthe highest overall\naccuracy of"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "probability estimates.",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "87%. Notably,\nthe disgust class shows a marked improvement"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "in\ntrue\npositive\nrate,\nillustrating\nthe\ncomplementary\nnature"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "D. Federated Learning Setup",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": ""
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "of multimodal\ninput. Precision,\nrecall, and F1-scores average"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "We orchestrate decentralized training via Flower with the",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "87% across all classes. These findings confirm that multimodal"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "standard FedAvg algorithm. Each of the three clients performs",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "fusion not only mitigates\nindividual modality limitations but"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "four\nlocal epochs per\nround on its own data; model weight",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "also enhances robustness in real-world conditions such as poor"
+        },
+        {
+          "(a) Confusion Matrix of Physiological Model\n(b) Confusion Matrix of": "deltas and validation metrics are returned to the server. The",
+          "Image Model\n(c) Confusion Matrix of Multimodal Model": "lighting or sensor noise."
+        }
+      ],
+      "page": 6
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "(i)",
+          "raw data exchange.": "from hand-crafted"
+        },
+        {
+          "adapt global models without": "to learned temporal",
+          "raw data exchange.": "embeddings using models"
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": "to enhance decision-level voting;"
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        },
+        {
+          "adapt global models without": "",
+          "raw data exchange.": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "2) Training Efficiency and Time Analysis:": "analysis, we",
+          "In addition to": "training\nefficiency",
+          "• Edge-to-Cloud Deployment: A working": "Raspberry Pi clients and a Flower server, showing feasi-",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "setups:\nindividual,",
+          "In addition to": "and\nfederated",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "• Privacy-Preserving",
+          "prototype\non": "Personalization: A personalization"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "scheme based on FedAvg, using client data volume",
+          "prototype\non": "to"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "adapt global models without",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "Training\nTime",
+          "In addition to": "Across\nLearning",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "Looking ahead, we plan to advance FedMultiEmo in three",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "(i)\ntransitioning",
+          "prototype\non": "physiological"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "Individual",
+          "In addition to": "Federated",
+          "• Edge-to-Cloud Deployment: A working": "to learned temporal",
+          "prototype\non": "like"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "LSTMs or Transformers; (ii) developing adaptive, confidence-",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "430",
+          "In addition to": "4300",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "1",
+          "In addition to": "3",
+          "• Edge-to-Cloud Deployment: A working": "weighted fusion strategies",
+          "prototype\non": "to enhance decision-level voting;"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "4",
+          "In addition to": "10 rounds × 4 epochs",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "and (iii) addressing real-world deployment challenges,",
+          "prototype\non": "includ-"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "–",
+          "In addition to": "430",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "ing missing modalities, asynchronous client updates, and di-",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "110",
+          "In addition to": "110 (local/client)",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "verse hardware capabilities. Finally, validating the framework",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "range of",
+          "prototype\non": "strengthen its"
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "In the individual learning setup, a single client trains for four",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        },
+        {
+          "2) Training Efficiency and Time Analysis:": "epochs, requiring 430 seconds. Centralized learning aggregates",
+          "In addition to": "",
+          "• Edge-to-Cloud Deployment: A working": "",
+          "prototype\non": ""
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "epochs, requiring 430 seconds. Centralized learning aggregates"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "data from three clients and trains for 40 epochs, completing in"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "1350 seconds, with an average of 42 seconds per epoch. FL"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "involves 10 communication rounds, each consisting of 4 local"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "epochs per client. This setup takes the longest, approximately"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "4300\nseconds\nin\ntotal, with\neach\nround\nlasting\nabout\n430"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "seconds, driven by local computation (110 seconds per epoch"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "per\nclient)\nand\ncommunication\noverhead. All\ntimings\nare"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "relative to the time base maintained by the FL server, which is"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "periodically disciplined via Network Time Protocol\n(NTP)\nto"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "limit drift and provide a consistent\ntemporal baseline for\nthe"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "reported measurements\n[32]–[34]. While FL incurs a higher"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "time cost,\nit offers\nthe advantage of preserving data locality"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "and\nuser privacy. This\ntrade-off\nis\nappropriate\nin scenarios"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "with\nstrong\nprivacy\nrequirements,\nsuch\nas\nin-vehicle\ndriver"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "monitoring."
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "V. CONCLUSION AND FUTURE WORK"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "In\nthis\npaper, we\nintroduced FedMultiEmo,\na\nprivacy-"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "preserving multimodal\nfederated learning framework for\nreal-"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "time\nemotion\nrecognition\nin\nvehicle\ncabins. By\nintegrating"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "facial\nexpressions\nanalyzed\nthrough Convolutional Neural"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "Networks with physiological\nsignals processed via Random"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "Forest classifiers,\nthe framework addresses challenges related"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "to environmental variability, physiological diversity, and data"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "privacy. A decision-level\nfusion mechanism balances\nthese"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "modalities, while the federated averaging approach supports"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "scalable, personalized learning across clients without sharing"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "raw data."
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "Implemented on Raspberry Pi edge devices and a Flower"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "server, FedMultiEmo performs consistently, with the multi-"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "modal classifier attaining 87% accuracy, surpassing centralized"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "baselines while maintaining\ndata\nlocality\nand\nadhering\nto"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "strict\nresource\nconstraints. The\nsystem converges within 18"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "rounds, while keeping communication and memory require-"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "ments within practical\nlimits. The primary contributions of"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "this work are:"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "• Multimodal Fusion in FL: An in-vehicle system to fuse"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "CNN and RF predictions via decision-level voting in a"
+        },
+        {
+          "In the individual learning setup, a single client trains for four": ""
+        },
+        {
+          "In the individual learning setup, a single client trains for four": "federated setup."
+        }
+      ],
+      "page": 7
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "the AAAI Conference on\nemotion tracking technologies,” Proceedings of"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Artificial\nIntelligence, vol. 36, no. 1, pp. 4552–4561, 2022."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[18] R. Verma, N. Kumar, and A. Prakash, “Multimodal\nfusion of physio-"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "logical and visual cues for\nreal-time driver emotion detection,” Neural"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Computing and Applications, vol. 34, no. 5, pp. 12789–12805, 2022."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[19]\nJ. Healey, S. M. Sharma,\nand R. Picard,\n“Emotion recognition using"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "IEEE Trans. Pattern Anal. Mach.\nphysiological\nsignals: A review,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Intell., vol. 41, no. 12, pp. 2961–2982, 2019."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[20]\nZ. Zeng,\nJ. P. G. L. Hu, and S.\nJ. Ho, “Facial expression recognition:"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "A literature review,” IEEE Trans. Affective Computing, vol. 10, no. 3,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "pp. 313–327, 2019."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[21]\nS. Ghosh et al., “End-to-end deep learning for emotion recognition in"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "the wild,” IEEE Transactions on Affective Computing, vol. 11, no. 4,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "pp. 558–570, 2020."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "et\n[22]\nP. Gupta\nal.,\n“Deep\nconvolutional\nneural\nnetworks\nfor\nemotion"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "IEEE Transactions\non Neural Networks\nand\nrecognition: A survey,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Learning Systems, vol. 32, no. 5, pp. 1312–1325, 2021."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[23] K. Cui,\nJ. Li, Y. Liu, X. Zhang, Z. Hu, and M. Wang, “Physiosync:"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Temporal and cross-modal contrastive learning inspired by physiological"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "arXiv\npreprint\nsynchronization\nfor\neeg-based\nemotion\nrecognition,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "arXiv:2504.17163, 2025."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[24] G. Udahemuka, K. Djouani, and A. M. Kurien, “Multimodal emotion"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "recognition\nusing\nvisual,\nvocal\nand\nphysiological\nsignals:\na\nreview,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Applied Sciences, vol. 14, no. 17, p. 8071, 2024."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[25] B. McMahan, E. Moore, D. Ramage, S. Hampson, and B. A. y Arcas,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "“Communication-efficient\nlearning of deep networks from decentralized"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "data,”\nin Artificial\nintelligence and statistics, pp. 1273–1282, PMLR,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "2017."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[26] R. Sharma, A. Gupta, and M. Singh, “Fed-phyers: Federated learning-"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "based multi-modal\nemotion\nrecognition\nusing\nphysiological\nsignals,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Multimedia Tools and Applications, 2024."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[27] M. Zhou, X. Liu,\nand Y. Zhang,\n“Federated\nlearning\nfor\neeg-based"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "emotion recognition,” Electronics, vol. 11, no. 20, p. 3316, 2022."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[28]\nJ. Li, X. Wang, and H. Xu, “Fedcmd: Federated cross-modal distillation"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "the ACM on Interactive,\nfor driver emotion recognition,” Proceedings of"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Mobile, Wearable and Ubiquitous Technologies, vol. 8, no. 1, pp. 1–23,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "2024."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[29] D.\nJ. Beutel, T. Topal, A. Mathur, X. Qiu,\nJ.\nFernandez-Marques,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Y\n. Gao, L. Sani, K. H. Li, T. Parcollet, P. P. B. de Gusm˜ao,\net al.,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "arXiv\n“Flower: A friendly\nfederated\nlearning\nresearch\nframework,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "preprint arXiv:2007.14390, 2020."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[30]\nI.\nJ. Goodfellow, D. Erhan, P. Luc Carrier, A. Courville, M. Mirza,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "B. Hamner, W. Cukierski, Y. Tang, D. Thaler, D.-H. Lee, Y. Zhou,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "C. Ramaiah, F. Feng, R. Li, X. Wang, D. Athanasakis, J. Shawe-Taylor,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "M. Milakov,\nJ. Park, R.\nIonescu, M. Popescu, C. Grozea,\nJ. Bergstra,"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "J. Xie, L. Romaszko, B. Xu, Z. Chuang, and Y. Bengio, “Challenges in"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "representation learning: A report on three machine learning contests,”"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Neural Networks, vol. 64, pp. 59–63, 2015.\nSpecial\nIssue on “Deep"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Learning of Representations”."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[31]\nE. Barsoum, C. Zhang, C. C. Ferrer,\nand Z. Zhang,\n“Training deep"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "networks\nfor\nfacial\nexpression\nrecognition with\ncrowd-sourced\nlabel"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "the 18th ACM international conference\ndistribution,” in Proceedings of"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "on multimodal\ninteraction, pp. 279–283, 2016."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[32]\nS. Tziampazis, P. Hirmer, and M. Weyrich, “A hybrid framework for"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "latency compensation in remote testing of automotive electronic control"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "units,” Frontiers in the Internet of Things, vol. Volume 3 - 2024, 2024."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[33] B. C. G¨ul, S. Tziampazis, N. Jazdi, and M. Weyrich, “Syncfed: Time-"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "aware\nfederated learning through explicit\ntimestamping and synchro-"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "nization,” 2025."
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "[34]\nS. Tziampazis, O. Kopp, and M. Weyrich, “Distributed integration of"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "electronic\ncontrol units\nfor\nautomotive oems: Challenges, vision,\nand"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "research directions,”\nin 2023 IEEE 20th International Conference on"
+        },
+        {
+          "[17]\nJ. Smith, K. Li, and Y. Zhang, “Privacy and ethical concerns in in-vehicle": "Software Architecture Companion (ICSA-C), pp. 296–300, 2023."
+        }
+      ],
+      "page": 8
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Human-machine interaction and driver monitoring systems",
+      "year": "2023",
+      "venue": "Fraunhofer IIS"
+    },
+    {
+      "citation_id": "2",
+      "title": "Federated learning for comfort features in vehicles with collaborative sensing: A review",
+      "authors": [
+        "B Gül",
+        "D Dittler",
+        "N Jazdi",
+        "M Weyrich"
+      ],
+      "year": "2024",
+      "venue": "2024 IEEE 29th International Conference on Emerging Technologies and Factory Automation (ETFA)"
+    },
+    {
+      "citation_id": "3",
+      "title": "Personalized comfort features in software-defined vehicles using federated learning",
+      "authors": [
+        "B Gül",
+        "N Devarakonda",
+        "N Jazdi",
+        "M Weyrich"
+      ],
+      "year": "2024",
+      "venue": "2024 IEEE 29th International Conference on Emerging Technologies and Factory Automation (ETFA)"
+    },
+    {
+      "citation_id": "4",
+      "title": "Challenges in facial emotion recognition under real-world variability",
+      "authors": [
+        "Z Xu",
+        "J Li",
+        "Y Wang"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "5",
+      "title": "Privacy and security in emotion recognition systems: A review",
+      "authors": [
+        "R Sharma",
+        "S Singh",
+        "S Kaur"
+      ],
+      "year": "2020",
+      "venue": "Journal of Privacy and Confidentiality"
+    },
+    {
+      "citation_id": "6",
+      "title": "Federated learning for privacy-preserving emotion recognition from multimodal data",
+      "authors": [
+        "Q Li",
+        "X Yang"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Neural Networks and Learning Systems"
+    },
+    {
+      "citation_id": "7",
+      "title": "Decentralized online federated g-network learning for lightweight intrusion detection",
+      "authors": [
+        "M Nakip",
+        "B Gül",
+        "E Gelenbe"
+      ],
+      "year": "2023",
+      "venue": "2023 31st international symposium on modeling, analysis, and simulation of computer and telecommunication systems (MASCOTS)"
+    },
+    {
+      "citation_id": "8",
+      "title": "Using federated learning in the context of software-defined mobility systems for predictive quality of service",
+      "authors": [
+        "B Gül",
+        "N Devarakonda",
+        "D Dittler",
+        "N Jazdi",
+        "M Weyrich"
+      ],
+      "year": "2023",
+      "venue": "Using federated learning in the context of software-defined mobility systems for predictive quality of service"
+    },
+    {
+      "citation_id": "9",
+      "title": "Affectnet: A database for facial expression, valence, and arousal computing",
+      "authors": [
+        "A Mollahosseini",
+        "B Hasani",
+        "M Mahoor"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Multimodal emotion recognition using deep learning: A survey",
+      "authors": [
+        "S Ghosh",
+        "P Sharma",
+        "M Gupta"
+      ],
+      "year": "2019",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "11",
+      "title": "Fed-phyers: A federated learning approach for multimodal emotion recognition using physiological signals",
+      "authors": [
+        "M Sharma",
+        "R Gupta",
+        "S Agarwal"
+      ],
+      "year": "2024",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "12",
+      "title": "Automotive ai",
+      "authors": [
+        "Affectiva"
+      ],
+      "year": "2023",
+      "venue": "Automotive ai"
+    },
+    {
+      "citation_id": "13",
+      "title": "Seeing machines driver monitoring technology: A real-world application",
+      "authors": [
+        "A Tawari",
+        "H Martin",
+        "S Larsen"
+      ],
+      "year": "2021",
+      "venue": "SAE International Journal of Connected and Automated Vehicles"
+    },
+    {
+      "citation_id": "14",
+      "title": "Active health monitoring solutions",
+      "year": "2023",
+      "venue": "Active health monitoring solutions"
+    },
+    {
+      "citation_id": "15",
+      "title": "Real-world challenges in facial emotion recognition: A comprehensive survey",
+      "authors": [
+        "M Zhao",
+        "J Zhang",
+        "D Li",
+        "J Sun"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Physiological signal analysis for emotion recognition using random forest and feature selection",
+      "authors": [
+        "S Tripathi",
+        "A Agrawal",
+        "P Verma"
+      ],
+      "year": "2021",
+      "venue": "International Journal of Biomedical Engineering and Technology"
+    },
+    {
+      "citation_id": "17",
+      "title": "Privacy and ethical concerns in in-vehicle emotion tracking technologies",
+      "authors": [
+        "J Smith",
+        "K Li",
+        "Y Zhang"
+      ],
+      "year": "2022",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "18",
+      "title": "Multimodal fusion of physiological and visual cues for real-time driver emotion detection",
+      "authors": [
+        "R Verma",
+        "N Kumar",
+        "A Prakash"
+      ],
+      "year": "2022",
+      "venue": "Neural Computing and Applications"
+    },
+    {
+      "citation_id": "19",
+      "title": "Emotion recognition using physiological signals: A review",
+      "authors": [
+        "J Healey",
+        "S Sharma",
+        "R Picard"
+      ],
+      "year": "2019",
+      "venue": "IEEE Trans. Pattern Anal. Mach. Intell"
+    },
+    {
+      "citation_id": "20",
+      "title": "Facial expression recognition: A literature review",
+      "authors": [
+        "Z Zeng",
+        "J Hu",
+        "S Ho"
+      ],
+      "year": "2019",
+      "venue": "IEEE Trans. Affective Computing"
+    },
+    {
+      "citation_id": "21",
+      "title": "End-to-end deep learning for emotion recognition in the wild",
+      "authors": [
+        "S Ghosh"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "22",
+      "title": "Deep convolutional neural networks for emotion recognition: A survey",
+      "authors": [
+        "P Gupta"
+      ],
+      "year": "2021",
+      "venue": "IEEE Transactions on Neural Networks and Learning Systems"
+    },
+    {
+      "citation_id": "23",
+      "title": "Physiosync: Temporal and cross-modal contrastive learning inspired by physiological synchronization for eeg-based emotion recognition",
+      "authors": [
+        "K Cui",
+        "J Li",
+        "Y Liu",
+        "X Zhang",
+        "Z Hu",
+        "M Wang"
+      ],
+      "year": "2025",
+      "venue": "Physiosync: Temporal and cross-modal contrastive learning inspired by physiological synchronization for eeg-based emotion recognition",
+      "arxiv": "arXiv:2504.17163"
+    },
+    {
+      "citation_id": "24",
+      "title": "Multimodal emotion recognition using visual, vocal and physiological signals: a review",
+      "authors": [
+        "G Udahemuka",
+        "K Djouani",
+        "A Kurien"
+      ],
+      "year": "2024",
+      "venue": "Applied Sciences"
+    },
+    {
+      "citation_id": "25",
+      "title": "Communication-efficient learning of deep networks from decentralized data",
+      "authors": [
+        "B Mcmahan",
+        "E Moore",
+        "D Ramage",
+        "S Hampson",
+        "B Arcas"
+      ],
+      "year": "2017",
+      "venue": "Artificial intelligence and statistics"
+    },
+    {
+      "citation_id": "26",
+      "title": "Fed-phyers: Federated learningbased multi-modal emotion recognition using physiological signals",
+      "authors": [
+        "R Sharma",
+        "A Gupta",
+        "M Singh"
+      ],
+      "year": "2024",
+      "venue": "Fed-phyers: Federated learningbased multi-modal emotion recognition using physiological signals"
+    },
+    {
+      "citation_id": "27",
+      "title": "Federated learning for eeg-based emotion recognition",
+      "authors": [
+        "M Zhou",
+        "X Liu",
+        "Y Zhang"
+      ],
+      "year": "2022",
+      "venue": "Electronics"
+    },
+    {
+      "citation_id": "28",
+      "title": "Fedcmd: Federated cross-modal distillation for driver emotion recognition",
+      "authors": [
+        "J Li",
+        "X Wang",
+        "H Xu"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies"
+    },
+    {
+      "citation_id": "29",
+      "title": "Flower: A friendly federated learning research framework",
+      "authors": [
+        "D Beutel",
+        "T Topal",
+        "A Mathur",
+        "X Qiu",
+        "J Fernandez-Marques",
+        "Y Gao",
+        "L Sani",
+        "K Li",
+        "T Parcollet",
+        "P De Gusmão"
+      ],
+      "year": "2020",
+      "venue": "Flower: A friendly federated learning research framework",
+      "arxiv": "arXiv:2007.14390"
+    },
+    {
+      "citation_id": "30",
+      "title": "Challenges in representation learning: A report on three machine learning contests",
+      "authors": [
+        "I Goodfellow",
+        "D Erhan",
+        "P Carrier",
+        "A Courville",
+        "M Mirza",
+        "B Hamner",
+        "W Cukierski",
+        "Y Tang",
+        "D Thaler",
+        "D.-H Lee",
+        "Y Zhou",
+        "C Ramaiah",
+        "F Feng",
+        "R Li",
+        "X Wang",
+        "D Athanasakis",
+        "J Shawe-Taylor",
+        "M Milakov",
+        "J Park",
+        "R Ionescu",
+        "M Popescu",
+        "C Grozea",
+        "J Bergstra",
+        "J Xie",
+        "L Romaszko",
+        "B Xu",
+        "Z Chuang",
+        "Y Bengio"
+      ],
+      "year": "2015",
+      "venue": "Neural Networks"
+    },
+    {
+      "citation_id": "31",
+      "title": "Training deep networks for facial expression recognition with crowd-sourced label distribution",
+      "authors": [
+        "E Barsoum",
+        "C Zhang",
+        "C Ferrer",
+        "Z Zhang"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 18th ACM international conference on multimodal interaction"
+    },
+    {
+      "citation_id": "32",
+      "title": "A hybrid framework for latency compensation in remote testing of automotive electronic control units",
+      "authors": [
+        "S Tziampazis",
+        "P Hirmer",
+        "M Weyrich"
+      ],
+      "year": "2024",
+      "venue": "Frontiers in the Internet of Things"
+    },
+    {
+      "citation_id": "33",
+      "title": "Syncfed: Timeaware federated learning through explicit timestamping and synchronization",
+      "authors": [
+        "B Gül",
+        "S Tziampazis",
+        "N Jazdi",
+        "M Weyrich"
+      ],
+      "year": "2025",
+      "venue": "Syncfed: Timeaware federated learning through explicit timestamping and synchronization"
+    },
+    {
+      "citation_id": "34",
+      "title": "Distributed integration of electronic control units for automotive oems: Challenges, vision, and research directions",
+      "authors": [
+        "S Tziampazis",
+        "O Kopp",
+        "M Weyrich"
+      ],
+      "year": "2023",
+      "venue": "2023 IEEE 20th International Conference on Software Architecture Companion (ICSA-C)"
+    }
+  ]
+}

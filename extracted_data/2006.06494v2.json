@@ -1,0 +1,1144 @@
+{
+  "paper_id": "2006.06494v2",
+  "title": "Anti-Transfer Learning For Task Invariance In Convolutional Neural Networks For Speech Processing",
+  "published": "2020-06-11T15:03:29Z",
+  "authors": [
+    "Eric Guizzo",
+    "Tillman Weyde",
+    "Giacomo Tarroni"
+  ],
+  "keywords": [
+    "Audio Processing",
+    "Convolutional Neural Networks",
+    "Invariance Transfer",
+    "Transfer Learning 2010 MSC: 00-01",
+    "99-00"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "We introduce the novel concept of anti-transfer learning for speech processing with convolutional neural networks. While transfer learning assumes that the learning process for a target task will benefit from re-using representations learned for another task, anti-transfer avoids the learning of representations that have been learned for an orthogonal task, i.e., one that is not relevant and potentially misleading for the target task, such as speaker identity for speech recognition or speech content for emotion recognition. In anti-transfer learning, we penalize similarity between activations of a network being trained and another one previously trained on an orthogonal task, which yields more suitable representations. This leads to better generalization and provides a degree of control over correlations that are spurious or undesirable, e.g. to avoid social bias. We have implemented anti-transfer for convolutional neural networks in different configurations with several similarity metrics and aggregation functions, which we evaluate and analyze with several speech and audio tasks and settings, using six datasets. We show that antitransfer actually leads to the intended invariance to the orthogonal task and to more appropriate features for the target task at hand. Anti-transfer learning consistently improves classification accuracy in all test cases. While anti-transfer creates computation and memory cost at training time, there is relatively little computation cost when using pre-trained models for orthogonal tasks. Anti-transfer is widely applicable and particularly useful where a specific invariance is desirable or where trained models are available and labeled data for orthogonal tasks are difficult to obtain.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "Introduction",
+      "text": "In recent years, transfer learning has become a popular method in speech and audio processing to make use of existing deep learning models that have been trained on large datasets. The assumption underlying transfer learning is that the internal representations learned to solve one task will be relevant for another task. This can improve the performance of a model in terms of training time and overall accuracy even across tasks and domains, and has been proven to be particularly useful in cases when data availability for the target task is limited  [1, 2, 3, 4] .\n\nWe introduce here the concept of anti-transfer learning, which is based on the idea that if a neural network can be used to teach another network what to do, it may also be used to teach what not to do. Based on the observation that some tasks may be irrelevant and confounding or undesirable to influence the target task, we try to avoid representations learned for one task when learning to solve another. We call the task which should not influence the predictions an orthogonal task, as our intention is that the predictions of our target should be independent of it. What constitutes an orthogonal task depends on the nature of the tasks and the intention of the user. We see two main application scenarios: first, improving generalization by discouraging reliance on spurious associations, e.g., word recognition and speaker identity, and second, discouraging undesirable bias, e.g. that gender or ethnicity should not influence financial decisions.\n\nIn this paper we focus on the first scenario, and particularly on audio applications. Spurious correlations occur frequently in real-world data and are sometimes unavoidable. E.g., we expect the word 'joy' to be associated with a happy expression in natural speech. This association may be useful to resolve ambiguities, but a model overly reliant on this may not generalize in cases where the association does not hold, e.g. the word 'joy' pronounced with a sad expression. Similarly, the frequency of word use is not equally distributed between different speakers, genders or ethnicities, but we would prefer our models not to depend on these features when they recognize words, both in the interest of generalization and in avoidance of bias or stereotyping. This problem could be addressed by creating or collecting more data, that contains all variants of emotional expressions for all words, or all words uttered by all speakers but this not practical in general. However, with anti-trarnsfer we can discourage the use of emotional features for word recognition, or speaker identity for emotion recognition, respectively, and thus avoid that dependency and improve generalization from limited datasets.\n\nAnti-transfer can be used to address open research problems in speech and audio processing, such as speaker or context invariance in word or emotion recognition  [5, 6, 7, 8, 9, 10] . In our experiments, we compare anti-transfer learning to regular transfer learning and learning from scratch on speech and music audio tasks. A common approach for transfer learning with deep learning models is to use a pre-trained network as starting point through weight initialization, i.e. re-training a pre-trained network or part of it  [11] . Support for this ap-proach is built into popular machine learning libraries, such as Tensorflow 2  and PyTorch 3  , along with models pre-trained on disparate tasks. In anti-transfer learning, we penalize instead the use of features that have been learned for the orthogonal task when training for the target task. Our results show that this leads to greater invariance to the target predictions from the orthogonal task and improves the generalization of the models.\n\nThe specific contributions of this work are the following:\n\n• For the first time, to the best of our knowledge, we introduce the concept of anti-transfer learning to achieve task-invariance between a pre-trained network and a new one.\n\n• We implement anti-transfer learning for convolutional neural networks (CNNs) with a number of different similarity measures and aggregation functions. The source code is publicly available  4  .\n\n• We demonstrate the effectiveness of anti-transfer learning for speech and audio by evaluating it on two speech-related tasks and one music-audio task, using six different datasets in several configurations. We achieve improvements in all tasks over non-transfer and standard transfer learning.\n\n• We provide results of ablation studies and visualizations to analyze the properties of anti-transfer learning.\n\nThe remainder of this paper is organized as follows: Section 2 contains a review of relevant background literature, Section 3 introduces the concept and implementation of anti-transfer learning, Section 4 presents a performance evaluation of anti-transfer, followed by further analysis and discussion in Section 5 and Section 6 draws the conclusions from this paper.",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Related Work",
+      "text": "Transfer learning has been used with neural networks for a long time and in many different applications  [12, 13, 14, 15, 16] . Pre-training models has become standard practice in image classification and related tasks  [17, 18, 19]  and pretrained language models have become a common starting point in NLP  [20] . The transfer of knowledge from a trained network to a new task by re-using weights of a layer has been developed early on  [21, 22] .\n\nSelective representation transfer. The approach presented in this paper is inspired by the work of  [23]  on style transfer on images and re-uses elements of that work. Based on the assumption that features become increasingly taskspecific towards the last layer of a network  [24] , a strategy was developed by  [23]  to separate content and style of an image and to transfer the style alone to another image. The authors used a CNN that was pre-trained on object recognition as a feature extractor to estimate the style-related and the content-related information of an image in a CNN. The style of an image is represented by the Gram matrix computed on the initial layers, which contains information about texture, i.e. the co-occurrence of low-level features. The content is represented by the raw feature maps of the final layers. During the training of the style transfer network, the feature extractor separately extracts the style and the content from two different images and compares them to the corresponding features extracted from an image that is being generated, creating two deep feature loss values: style and content loss. The minimization of these losses promotes the generation of an image with the style of one image and the content of the other one. This idea received much attention in the computer vision community and has been further explored and improved  [25, 26] . It has also been applied in the audio domain to audio style transfer with MelGan  [27] , using both speech and music sources.\n\nDeep feature losses. Deep feature losses have been used in several computer vision tasks as texture synthesis  [28] , image super-resolution  [29]  and conditional image synthesis  [30, 31] . According to recent studies  [32, 33] , deep feature losses are highly correlated to human perceptual judgements and are well suited to solve tasks related to semantic properties of data. Deep feature losses have several successful applications also in the audio domain. They have been used by  [34]  to enhance the similarity between the deep representations of two networks and therefore transferring knowledge from one to the other, enhancing the networks' performance in several speech processing tasks. A deep feature loss was successfully used by  [35]  to perform audio source separation, obtaining a superior performance compared to spectrogram-based loss.  [36]  applied the same conceptual idea to speech enhancement, language identification, speech, noise and music classification, and speaker identification.\n\nThe majority of studies regarding deep feature losses are based on the idea of encouraging a network to develop similar deep representations of a pre-trained network in selected layers, e.g. in line with the work of  [23] . However, our main idea to perform the opposite. That is: discouraging specific deep representations that have been particularly useful for a task that is irrelevant for a target task and should thus be avoided when training for the target task, in order to not develop spurious correlations. We actually address similar problems with a similar approach as  [34]  and  [36]  but while they maximize the similarity with representation of a pre-trained network, our aim is to minimize it. There are also substantial differences in the implementation as we use Gram aggregation and a different similarity measure, as explained in Section 3.\n\nFeature diversity. Minimizing feature similarity has been shown earlier to improve robustness and generalization. In the context of ensemble models,  [37]  minimized mutual information between neural networks. More recently, the minimum hyperspherical energy (MHE) regularization was introduced by  [38]  and applied to audio source separation by  [39] . MHE encourages diverse weight vectors within a network to improve generalization, but it differs from our approach since we encourage dissimilarity of feature maps and with respect to another model.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Domain Adaptation.",
+      "text": "A common use case for transfer learning is domain adaptation, e.g. to different recording equipment or environments, and a common approach is to maximize the feature invariance to the domain of the data. Mutual Information Minimization is used in  [40]  to extract features independent from the domain of the data points by maximizing the feature invariance to their domain indicator. This is different from our approach in terms of applications, as we are training to transfer between tasks, within or between domains. However, when viewing the domains as orthogonal tasks, we can compare domain adaptation to anti-transfer. In Domain Adversarial Training (DAT)  [41] , a gradient reversal layer is introduced to maximize the loss on domain identification while minimizing the classification loss. A similar approach, but with a Siamese architecture, is introduced in  [42] . In  [43] , a more general framework is presented, including generative adversarial approaches, that is also applied in domain adaptation for acoustic scene classification using unlabeled data for the target domain  [44] . There are two notable differences between these approaches and ours: first, we directly compare the feature activations in our loss function as opposed to propagating gradients derived from domain labels, and second, most of these approaches require labeled data from the source domain (analog to our orthogonal task), while anti-transfer only requires a pre-trained model, which does not have to be trained on the same dataset.\n\nDisentanglement. The representation of independent properties of objects or processes has been recently explored in the literature and usually referred to as disentanglement  [45, 46, 47, 48] . Methods for achieving disentanglement include adversarial training  [49]  or specific architectures, such as partitioned or factorized variational autoencoders  [50, 51] . Anti-transfer can be considered a special case of disentanglement, aiming at the invariance to the internal representations of distinct orthogonal models.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Method",
+      "text": "The main idea of anti-transfer learning is to encourage dissimilarity of a model's deep representations with respect to another model with the same architecture but pre-trained on an orthogonal task. We focus here on CNNs which have been immensely popular in recent years and achieve state of the art results on many audio tasks, e.g.  [52, 53, 54] .",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Approach",
+      "text": "We achieve anti-transfer learning through the introduction of an anti-transfer loss term during training, that is a deep feature loss  [31] . The anti-transfer loss measures the similarity between the deep representations that the network is learning and a pre-trained network with the same architecture. By adding this term as a penalty to the loss function we encourage the trained network to develop deep representations that are different from the pre-trained network. In other words, we encourage the network being trained to develop feature representations that are good for its target task but different from those developed to solve the orthogonal task in the pre-trained network. This reduces the trained network's dependency on the orthogonal task's classes, e.g. the dependency of word recognition on speaker identity.\n\nFigure  1  depicts a block diagram of a generic CNN with anti-transfer learning applied. As the diagram shows, this architecture has two parallel networks: a pre-trained feature extractor (in the upper part), which is the convolutional part of the pre-trained network, with non-trainable weights and the CNN classifier that is currently being trained (in the lower part).\n\nOur implementation is based on the VGG16 Architecture  [55] , a deep CNN, with details shown in Table  1 . We selected this architecture since it has been proven to be effective in computing a deep feature loss in the audio domain  [34] . Nevertheless, the same concept and implementation can be translated to any other CNN design.",
+      "page_start": 5,
+      "page_end": 6
+    },
+    {
+      "section_name": "Anti-Transfer Loss",
+      "text": "The anti-transfer loss is computed in the forward pass. The input data, a spectrogram in our experiments, is forward propagated in parallel through both networks. The feature maps of the n th convolution layer in both networks are extracted and aggregated in the channel-wise Gram matrix G, which is computed for each network, similarly to the approach used by  [23]  to compute the style matrix of an image. The Gram matrix is computed as the inner product\n\nwhere i, j are the channel numbers. The Gram matrix correlates the information of each channel pair over all points x, y, consequently reducing the dimensionality of a feature map from 3 dimensions, (c, x, y), to 2, (c, c), where c, x, y are the number of channels, rows and columns, respectively. We then calculate the anti-transfer (AT) loss L AT as a scalar coefficient β multiplied by the squared cosine similarity of the vectorized Gram matrices G p (for the pre-trained net) and G t (for the net being trained):\n\n(\n\nThe aggregation with the Gram matrix serves to compare all possible channel combinations at once, using a limited amount of memory. This is essential for consistently measuring the similarity of the feature maps, where permutations can occur along the channel dimension. We choose the squared cosine similarity since it is naturally limited in the interval [0,1] and therefore it can have only a limited impact in the overall loss function. Moreover, we square it to apply a stronger penalty when the similarity is high and we re-scale by the coefficient β as an hyperparameter to fine-tune the performance of AT learning. The diagram in Figure  1  shows the AT loss calculated on the last convolution layer, but it is possible to apply the the AT loss to any of the convolution layers. Furthermore, it is possible to combine the AT loss of multiple layers in the same training, summing their AT loss values. The total AT loss is added to the standard loss function during the training of the network (cross entropy in our case, but AT can be used with any loss function).\n\nThe complete objective function we minimize per datapoint is therefore:\n\nwhere n is the number of classes, t i is 1 if i is the true class and 0 otherwise, p x is the predicted probability of class i, S AT is the set of convolution layers where anti-transfer is computed, and L AT s is the anti-transfer loss computed for convolution layer s.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Variations",
+      "text": "As we present in Section 5, we test several aggregation strategies and similarity measures. The best combination is Gram matrix aggregation and squared cosine similarity, which is detailed above. Different aggregation and similarity functions can be used by adapting equations 1 and 2.\n\nMoreover, we combine two orthogonal tasks in dual AT loss. To achieve this, we first train a model with anti-transfer for one orthogonal task. We use the result of that training to initialize the weights of a new model, which is then trained with anti-transfer on the second orthogonal task. It is worth noting that we apply the weight initialization to all convolution layers at once, while we apply anti-transfer to only one convolution layer per experiment.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Experimental Set-Up And Results",
+      "text": "We test anti-transfer learning on several audio classification tasks with 20 different combinations of training and pre-training tasks in order to evaluate the behavior of anti-transfer learning in a variety of set-ups. We have three main classification tasks: word recognition (WR), speech emotion recognition (SER) and sound goodness estimation (SGE) (i.e. how well musical notes are played by musicians  [56] ).\n\nSER and SGE tasks are evaluated with two types of splitting the dataset into training, validation and test set: random split and class split by speaker or instrument. The class split types provide a more challenging task than the random split. This is because these (orthogonal) classes reflect different data distributions in the random split the training, validation and test set distributions are the same. On the other hand, splitting by speaker or instrument presents a more realistic task for many applications. The class-split is based on labels used in the orthogonal tasks (see  Section 4.1) . This enables us to assess more directly the AT trained networks' invariance to the orthogonal task classes as discussed in Section 5.8. For WR, we use only random split, but we added different types of background noise to the audio samples to create more challenging classification tasks. We test 3 scenarios: noise-free, low noise and high noise (see below for details) Our experiments are set up to test the effectiveness of anti-transfer learning, comparing it to the most common transfer learning method of weight initialization (WI) and to a baseline method without any transfer learning. In this way we can compare anti-transfer to regular transfer learning in the specific case of pre-training on orthogonal tasks. In addition, we perform two further experiments (presented in Section 5.1). In the first one we freeze the convolution layers in the WI modality up to the same layer where we apply the AT loss. This avoid possible dissipation of prior knowledge when training. In the second experiment we invert β in the AT loss, so that similarity of feature activations is encouraged instead of dissimilarity, i.e. performing the opposite of regular AT. Figure  2  shows a diagram of the different training strategies we compared. We perform 3 consecutive training stages. First, we pre-train the models on the orthogonal tasks. Then, only for dual AT, we apply AT to train an intermediate model on the final task. The weights of the intermediate model are then used to initialize the final model. Finally, we train our final models, applying the different transfer learning strategies.",
+      "page_start": 8,
+      "page_end": 9
+    },
+    {
+      "section_name": "Datasets",
+      "text": "We use six different datasets overall. For our experiments, we extract subsets from larger datasets to reduce training times and adjust class imbalances. While this limits comparability to published results, it enabled us to perform a much broader range of experiments as reported in this and the following section.   [59] .\n\nTask: Single-word speech recognition. 100 hours of audio, 40 speakers, 1000 single-word labels. One-word excerpts from audio book recordings. 4. IEMOCAP : The Interactive Emotional Dyadic Motion Capture Database  [60] . Tasks: speech emotion recognition, speaker recognition. 7:30 hours of audio, 5 speakers, 4 emotion labels: neutral, angry, happy, sad. Actors perform semi-improvised or scripted scenarios on defined topics. 5. Nsynth: A large-scale, high-quality dataset of annotated musical sounds.  [61] . Task: instrument eecognition. 66 hours of audio. 11 different instrument macro-categories. One-note recordings of musical instruments. 6. Good-Sounds: A dataset to explore the quality of instrumental sounds (GS)  [56] . Tasks: sound goodness estimation, instrument recognition. 14 hours of audio. 12 different instruments, 5 different goodness rates. Onenote recordings of acoustic musical instruments, played by professional musicians.\n\nThe above descriptions refer to the subsets we extracted (or generated, for MS-SNSD), not to the original size and arrangement of these datasets. Please refer to the references above for the original specifications.\n\nFor each target task, we pre-train on two different tasks for transfer and antitransfer learning. For word recognition we train on GSC and we pre-train on speech emotion recognition (IEMOCAP) and on background noise type recognition (MS-SNSD). For speech emotion recognition we train on IEMOCAP and we pre-train on speaker recognition with the same training dataset (IEMOCAP) and on word recognition with a larger dataset (Librispeech). For sound goodness estimation we train on Good-Sounds, we pre-train on instrument recognition with the same training dataset (Good-Sounds) and with a larger dataset (Nsynth).",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "Processing Stages, Training Parameters And Training Strategies",
+      "text": "We paid particular attention to performimg all experiments (trainings and pre-trainings) in the same conditions, in order to isolate the influence of antitransfer and weight initialization in the results. All experiments are performed in a Python and PyTorch environment, using the VGG16 network architecture  [55]  (in the implementation from the torchvision library 5  ).\n\nWe apply two architectural modifications to the standard implementation: we reduce the channel number of the very first layer to 1 (since we use singlechannel magnitude spectrograms) and we vary the number of output neurons to match the classes to the task.\n\nWe apply the same pre-processing to all datasets:\n\n1. We first down-sample all audio data to 16KHz sampling rate.\n\n2. Then we zero-pad/segment all sounds in order to have data-vectors of the same length for each task. We segment the audio as follows:\n\n• In the word recognition target task, we use 1-second sound samples as provided in the GSC. For the orthogonal noise classification task, we first generate 20 hours of noisy speech from MS-SNSD and then we extract 1-second fragments with no overlap. For emotion recognition, we extract 1-seconds fragments from IEMOCAP.\n\n• In the speech emotion recognition target task, we use 4-seconds sound samples from IEMOCAP. For the orthogonal task of word recognition, we extract segments containing only one word  6  from Librispeech and then zero-pad them to 4-seconds.\n\n• In the sound goodness recognition target and the orthogonal instrument recognition task, we use 6-second sounds, applying zeropadding to both Nsynth and Good-Sounds sounds.\n\n3. Only for GSC, we add noise to the segmented speech sounds at 3 different levels: no noise, low noise (-40 to -20 dBfs) and high noise (0 to -10 dBfs). The noise sounds are from the MS-SNSD datasets. Like for MS-SNSD we use the MS-SNSD code 7  to perform this operation. 4. Next we compute the Short-Time-Fourier-Transform (STFT) using 16 ms sliding windows with 50% overlap, applying a Hamming window and discarding the phase information. 5. Finally, we normalize the magnitude spectra of each dataset to zero mean and unit standard deviation, based on the training set's mean and standard deviation.\n\nWe perform all neural network trainings and pre-trainings with the same parameters. We use a learning rate of 0.0005, a batch size of 13 and the ADAM optimizer  [62] . We apply dropout at 50% but neither L 1 nor L 2 regularization. We randomly initialize the weights of all networks, except in the case of weight initialization from a pre-trained network (for WI and dual AT). We train for a maximum of 50 epochs and apply early stopping by testing at the validation loss improvement with a patience of 5 epochs. We divide every dataset using subsets of approximately 70% of the data for training, 20% for validation and 10% for the test set. All of the above settings are kept constant for all datasets in all configurations: non-transfer, transfer, anti-transfer/dual anti-transfer and also for all pre-trainings. These experiments are not designed to produce to state of the art results on these datasets, because we want to focus on the impact of anti-transfer learning. Therefore we used specific subsets and we did not optimise network architectures and hyperparameters to the individual datasets in order to exclude any other sources of performance variation.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "Classification Results",
+      "text": "Table  2  shows the results of the pre-training in terms of classification accuracy. There is wide variation in performance on the different tasks, with the Good-Sounds and MS-SNSD saturating or almost saturating on the train and test set for instrument and background noise type recognition.\n\nTables 3, 4 and 5 show the results obtained on the target tasks of word recognition, speech emotion recognition and sound goodness estimation, respectively. These tables contain the baseline results without transfer learning (None), with standard transfer learning using weight initialization (WI) and with anti-transfer learning (AT) on 20 pre-task/actual-task combinations in total. While for SER and SGE we test only anti-transfer with one orthogonal task at a time, for WR we additionally test dual anti-transfer (Dual AT), applying two orthogonal tasks as described in Section 3.\n\nWe applied anti-transfer to one layer of the VGG16 network with each of the 13 convolution layers for each task. The reported anti-transfer test accuracy results reflect the choice of layer that reached the best validation accuracy. In all experiments, the coefficient β is fixed to 1 since, as further analyzed in Section 5.6, this provides the best accuracy results.\n\nTable  3 : Accuracy results for the word recognition (WR) target task pm the Google Speech Commands (GSC) dataset with 3 levels of background noise added: None, Low and High. We pre-train on noise type recognition (Nse) with MS-SNDS dataset (MSS) and speech emotion recognition (Emo) with IEMOCAP dataset (IEC). We compare between no transfer learning (None), regular transfer learning by weight initialization (WI), anti-transfer (AT) and dual anti-transfer (Dual AT, using two pre-training tasks). The order of the pre-training tasks is shown in the second column. The best results per column are highlighted in bold font.",
+      "page_start": 13,
+      "page_end": 14
+    },
+    {
+      "section_name": "Transfer",
+      "text": "Pre The results (Tables 3, 4 and 5) show that anti-transfer improves the test accuracy in all cases and interestingly improves also the training accuracy in all cases but one (sound goodness estimation with instrument-wise split dataset, Table  5 ), compared to both the baseline and weight initialization. We have a maximum improvement in the test accuracy of 11.5 percentage points (pp) (for sound goodness estimation with instrument-wise split dataset, Table  5 ) and a maximum improvement in the training accuracy of 6.7 pp (for speech emotion recognition with speaker-wise split dataset, Table  4 ). The overall average improvement is of 4.11 pp for the test accuracy and of 2.35 pp for the training accuracy. Figure  3  shows the average gain achieved by anti-transfer learning in the test accuracy for different tasks and settings. It has practical relevance that the improvement in the networks' generalization is higher when anti-transfer is applied with a feature extractor trained on an orthogonal task with the same dataset as opposed to a different but larger dataset (we tested this property only on SER and SGE: IEMOCAP pre-trained on speaker recognition vs IEMOCAP trained on speech emotion recognition and Good-Sounds pre-trained on instrument recognition vs Good-Sounds trained on sound goodness estimation).\n\nAnother interesting aspect is that using dual anti-transfer provides a higher accuracy boost compared to anti-transfer on a single orthogonal task (we tested this only on WR: GSG pre-trained on speech emotion recognition and background noise type recognition). This suggests that the task invariance effect of anti-transfer learning can be cumulative, opening the possibility of pre-training on multiple orthogonal tasks.",
+      "page_start": 15,
+      "page_end": 15
+    },
+    {
+      "section_name": "Analysis And Discussion",
+      "text": "The results in the previous section show a robust improvement resulting from the use of anti-transfer learning. Here we investigate various aspects of the method for understanding and optimizing its performance.",
+      "page_start": 14,
+      "page_end": 14
+    },
+    {
+      "section_name": "Ablation Study: Encouraging Similarity Vs. Dissimilarity",
+      "text": "As an ablation study, we performed additional experiments where we encourage the models to develop representations that are similar instead of dissimilar to the models pre-trained on orthogonal tasks. The results are shown in Figure  4 . We tested two methods for encouraging feature similarity. The first consists of inverting the sign of the β parameter to encourage similarity instead of dissimilarity through the AT loss. This operation can be considered as the opposite of the regular AT (in line with  [34] ). The second consists of weight initialization and freezing (i.e. setting as not trainable) all convolution layers from the input layer of the network up to the layer where we apply AT. This test is complementary to the comparison between AT and WI, since in regular WI the knowledge transferred from the pre-trained model may completely disappear during the training because of the catastrophic forgetting phenomenon  [63] . This experiment shows the model's performance when we avoid this phenomenon by freezing the initial layers. We performed these two experiments using the task/orthogonal-task/AT-layer combination that yielded the best performance in each case, which are:\n\n• Word recognition: GSC with no further noise added, background noise type recognition pre-training (MS-SNSD), layer 5.\n\n• Speech emotion recognition: IEMOCAP random split, word recognition pre-training (Librispeech), layer 5.\n\n• Sound goodness estimation: GS random split, instrument recognition pretraining (NSynth), layer 6. The results show that both inverse-Beta-AT and freeze-WI configurations lead to a decreased performance compared to regular AT and to the baseline (no transfer learning). These results support the motivating idea of anti-transfer learning: given a suitable choice of orthogonal tasks, avoiding similar representations can improve learning and generalization on the target task. Conversely, while transfer learning has proven efficient and effective in many settings, for orthogonal tasks like in our experiments it can actually be detrimental.",
+      "page_start": 14,
+      "page_end": 16
+    },
+    {
+      "section_name": "Convolutional Feature Activations",
+      "text": "In order to support a visual interpretation of the deep representations generated with anti-transfer learning, we applied the Grad-CAM technique  [64]  to our trained models.  8  In a CNN, Grad-CAM produces class-discriminative localization maps of a convolution layer using the gradient of the classification score with respect to the convolutional features present in that layer. This produces a heatmap of the same dimension as the input data, showing which parts of the input matrix are most important for classification. Please refer to the above mentioned paper  [64]  for an in-depth description of this technique.\n\nFor this visualization we used the GSC dataset with low noise added, where we apply dual AT. We selected this specific case to better assess the effectiveness of our approach in moving away from unwanted features, showing the behavior of AT with 2 simultaneous orthogonal tasks. Figure  5  shows the Grad-CAM activations obtained for a datapoint of the test set, containing a male voice saying the world \"eight\" with added \"office-like\" background noises at low volume. The voice appears as a in the center of the lower half of the spectrogram (approximately from 0.4 until 0.7 secs), while the background noise appears mainly as vertical spikes outside of the center (approximately at 0.12, 0.22, 0.38, 0.8 secs). The activations shown are obtained for the two models trained on the orthogonal tasks (background noise recognition and emotion recognition), the baseline model (no transfer learning) and the dual AT model with AT applied on the last convolution layer (pre-trained first on background noise recognition and then on emotion recognition). As expected, the background noise type recognition model focuses mostly on pixels outside the center, in particular on the spike at 0.8 secs. The emotion recognition model focuses instead mostly on the lower frequencies in the spectrum (approximately below 800 Hz), which is the normal range for the fundamental frequency of the human voice. The baseline model successfully focused on the speech signal in the center, although it slightly expands also towards the noise spike at 0.8 secs and it has a high activation in the low-frequency region where emotion information is more present (according both to our orthogonal model and our research experience). Similarly, the dual AT model is focused on the speech signal center, but it adjusted its attention towards the mid fequencies, where most format and consonant information is present, decreasing its activation on both the low-frequency area (emotion) and the spike at 0.8 secs (background noise). This example confirms that the dual AT model developed a certain degree of invariance to both orthogonal tasks (noise type and emotion recognition) when predicting the between the target task (word recognition), which underpins the observed effectiveness of anti-transfer learning in our experiments.",
+      "page_start": 16,
+      "page_end": 17
+    },
+    {
+      "section_name": "Layer Selection",
+      "text": "We tested all layers in all task/orthogonal task combinations and Figure  6  shows the average per-layer improvement in both train and test accuracy that we obtained in the speech emotion recognition task. In this case, computing the anti-transfer loss with layer 5 provides the best performance, although layers 7 and 13 yield comparable results. Moreover, in both training and test, layer 9 yields the lowest performance and it is the only one that leads to a slight training accuracy decrease. However, most other layers also lead to improvements and the situation may vary when using different architectures or datasets. Also for word recognition layer 5 yields the best results, but for sound goodness estimation we obtained the best performance with layer 6.\n\nIn summary, there is no overall unequivocal best choice for the layer to use for the anti-transfer loss. Our intuitive expectation was the last layers would be most effective, as they should be most task-specific according to  [24] . It is interesting to observe that these results of are not reflected in our layer-wise evaluation, but we don't currently have an explanation for this.\n\nBased on these results, we experimented with training using the anti-transfer loss on multiple layers at the same time. We tried to use three layers at once in three configurations: the first convolution layers, the last ones, the best ones according to the results above. These configurations yielded worse results than the baseline setting (non-transfer learning). However, this may be because we did not perform parameter optimization on this approach, therefore further exploration could potentially lead to positive results.",
+      "page_start": 18,
+      "page_end": 19
+    },
+    {
+      "section_name": "Learning Dynamics",
+      "text": "Figure  7  shows the development of the classification loss (cross-entropy) and the anti-transfer loss during training for speech emotion recognition (IEMOCAP random-split), with pre-training on word recognition (Librispeech) and antitransfer applied to the 5th convolution layer. Here it is evident that the network is actually learning to differentiate its deep representations from the pre-trained ones, as the anti-transfer loss is substantially reduced. Moreover, as we expected, the anti-transfer loss is already low from the first epoch because the randomly initialized feature maps start mostly uncorrelated to the ones of the pre-trained network. The relatively low magnitude of the anti-transfer loss with respect to the cross-entropy loss indicates that anti-transfer plays a \"preventive\" role during training, keeping the deep representations from becoming correlated.",
+      "page_start": 20,
+      "page_end": 20
+    },
+    {
+      "section_name": "Aggregation And Distance Functions",
+      "text": "Table  6  shows the results of experiments performed to select the best channel aggregation and similarity function to compute the anti-transfer loss. All aggregation types refer to a function applied pixel-by-pixel along the channel dimension. Comp Mul stands for compressed multiplication (feature activation values raised to the power of 0.001 and then multiplied along the channel dimension). The compression is necessary when multiplying pixel-by-pixel to avoid rounding to 0 during the multiplication of many small numbers.\n\nAs an alternative to Squared Cosine Similarity we used Sigmoid MSE Similarity, which we define as the negative standard Mean Squared Error with a sigmoid function applied to avoid excessive loss values. Without the sigmoid, the training led to very high absolute values in the feature maps, which minimizes the AT loss, but also drastically decreased the accuracy. We also tried several approaches to compute the similarity for all possible channel combinations without using any aggregation method, but all of them were too expensive in terms of computation or memory. We find that to aggregate the channel information using the Gram matrix and to compute the matrix similarity with squared cosine similarity gives the best results, which is why we used this combination in the experiments in the previous Section 4.",
+      "page_start": 21,
+      "page_end": 21
+    },
+    {
+      "section_name": "At Loss Weight",
+      "text": "The β parameter that determines the weight of the anti-transfer loss has a clear impact on the performance. As shown in Figure  8  for emotion recognition (IEMOCAP with random splitting) with pre-training on Librispeech and antitransfer applied to the 5th convolution layer, we get the best result using the squared cosine similarity with a β value of 1, obtaining a performance gain of approximately 3 percentage points. The performance gain is smaller for all other values and there is no improvement with a very high (20) β. For sigmoid MSE the performance gain is smaller, but less dependent on the β value. For practical purposes, β = 1 with cosine similarity seems to be a good default choice.",
+      "page_start": 20,
+      "page_end": 21
+    },
+    {
+      "section_name": "Computation And Memory Costs",
+      "text": "The improved accuracy comes at a cost of increased computational and memory demands at training time. The following considerations refer to our specific implementation and different strategies may different trade-offs. For instance, it is possible to pre-compute all needed Gram matrices in advance and avoid loading the pre-trained feature extractor into the GPU RAM. This would lead to lower memory demand and computation time during training, but it would be incompatible with in-place data augmentation and other online approaches.\n\nWith reference to our implementation, regarding computational time, training a network with anti-transfer learning takes on average approximately 2.8 times longer compared to the same network with standard training. This refers to the only training with anti-transfer applied, without taking into account the time needed to pre-train the feature extractor on the orthogonal task. Moreover, learning with AT loss requires more memory than standard training, since it requires to fit into memory the trained network, the pre-trained feature extractor, the feature maps and the Gram matrices to be compared. The size of these depends on the chosen architecture, the input data dimension and the the number of channels of the convolution layer(s) used to compute the anti-transfer loss.\n\nThe additional memory M t required to compute the anti-transfer loss using a network pre-trained on an orthogonal task t can be calculated as:\n\nwhere E t is the size of convolutional part of the pre-trained network, L is the set of layers used for anti-transfer, #G l is the size of the Gram matrix computed on the layer l , #F l is the size of the feature map of layer l. The term inside the summation is multiplied by 2 because we compute the above-described matrices both for the currently-trained and the pre-trained network. The term #G l is determined by batchSize×numChannels 2 , while #F l depends on all dimensions of the input data, on the network's architecture and on the layer parameters.\n\nThe bytes per number is 4 in our case. In our specific test case with the VGG16 network, the whole network occupies ∼1620 MB, while the feature extractor E t requires additional ∼1150 MB, The dimension of one batch with one single GSC data point pre-processed as described above is  [1, 1, 126, 129] . With this configuration the term G l + F l is ∼62 MB when anti-transfer is computed only on the first layer (shape  [1, 64, 126, 129] ) and is ∼714 MB when computed on the last layer (shape  [1, 512, 7, 8] ).",
+      "page_start": 21,
+      "page_end": 22
+    },
+    {
+      "section_name": "Discussion",
+      "text": "Results. Anti-transfer leads to a robust improvement in test results in all our experiments. The learning dynamics, data splits and the visualization show that the similarity between the pre-trained and the new network's representations is effectively reduced. It seems that avoiding features from orthogonal tasks is generally helpful. The improvement with anti-transfer is generally greater when the baseline accuracy is lower.\n\nTraining results are also improved in most cases. This is unexpected, as we assumed that learning from scratch would find a good fit for the training set and that anti-transfer would only benefit generalization, as in regularization. However, it seems that for suitably chosen orthogonal tasks avoiding the representation of the pre-trained network not only avoids fitting to confounding aspects of the data, but even leads to a better fit to the target task during training. This contravenes the common assumption that end-to-end learning with deep learning leads to a near-optimal fit to the training data. Instead it shows that the use of prior knowledge, here in the form of an orthogonal task, can help not just to improve generalization.\n\nIn some cases, the train/test split was separating classes that the network was aiming to recognise in the orthogonal pre-training task (speaker-wise split for emotion recognition vs speaker recognition, Table  4 , and instrument-wise split for sound goodness estimation vs instrument recognition, Table  5 ). When the orthogonal task was speaker or instrument recognition, we observed a significantly improved generalization to unseen speakers in the speaker-wise split and to new musical instruments in the instrument-wise split, respectively. This indicates that the models are actually developing a degree of invariance to the orthogonal tasks, which is also illustrated in the visualization example (Figure  5 ).\n\nThe results show that pre-training on the same dataset provides higher improvement on average, compared to pre-training on a different dataset, even a much bigger one (Figure  3 ). It is surprising that the larger dataset does not have a more positive effect. We hypothesize that a more specific separation of representations can be developed for the specific dataset with orthogonal task labels on the same dataset by more directly modelling the interactions between different tasks. Thus, anti-transfer is a well-suited approach to exploit datasets provided with multiple labels, but the use of models pre-trained on different data is still effective and both can also be combined.\n\nRelated Work. As mentioned in Section 2, when pre-training with an orthogonal label of the same dataset, AT is similar to Domain Adversarial Training (DAT)  [41]  if we consider an orthogonal task class as a domain. As mentioned, AT has the practical advantage of only needing a pre-trained model rather than requiring labeled data from the source domain. This makes it possible to use models pre-trained by third parties, which can be beneficial in the case of models pre-trained on very large or private datasets. Even though in our test cases AT with models pre-trained on the same dataset provided the best improvement, models pre-trained on bigger and different datasets (which is not possible with DAT) still provided a good improvement over the baseline.\n\nAs mentioned in Section 2, the idea of anti-transfer is related to Speech-VGG  [34] , which applies a deep feature loss to encourage similarity of deep representations, instead of dissimilarity as in anti-transfer. The experiments by  [34]  are comparable with our inverse-Beta experiment in Section 5.1, where we show that encouraging similarity causes a drop in performance for orthogonal tasks. However,  [34]  obtain a performance improvement with their approach applied to related target/pre-trained task combinations: word recognition vs. speech inpainting, language identification and speech/music classification. This confirms that the selection of orthogonal tasks for anti-transfer is important.\n\nAs we introduce in Section 2, anti-transfer falls into the broad category of disentanglement. Our method does not directly enable pinpointing specific disentangled components in the data, e.g. as in source separation, but in effect it leads to separate deep representations for different tasks, as visualized in Figure  5 . An advantage of anti-transfer is that it is a supervised training approach, which tends to be more efficient than adversarial or VAE methods.\n\nLimitations. Limitations of anti-transfer apply to: resources, orthogonal tasks, models and data availability, pre-trained model accuracy.\n\nAnti-transfer needs additional memory and computation resources at training time. Invariance to simple transformations can sometimes be achieved with simpler models, e.g.  [65, 66, 67] , but complex tasks, like speaker recognition justifies in our view the increased resources used. Memory demands can have an impact in practice as GPU memory is often a bottleneck. Since earlier layers are similarly effective as later layers, but use less memory, using them can offer a better ratio of cost to performance gain. To make anti-transfer more practical on GPUs with limited memory, other ways of reducing memory demand can be investigated.\n\nA practical limitation when using pre-trained networks, is that the target task network needs to have the same structure (up to the AT layer) as the orthogonal task network. This can be a limitation if the network structure is not well suited for the main task.\n\nAnti-transfer training is sensitive to the weight on the AT loss in our experiments, especially using the cosine similarity, although a value of β = 1 worked well in all our experiments. Still, some effort should be made to tune this hyper-parameter when using anti-transfer learning.\n\nA more conceptual limitation is the need for an orthogonal task. However, identifying the orthogonal task is often straightforward, as the elements that cause model performance to decrease are known, e.g. speaker identity, text, emotion, recording equipment, acoustical conditions. Finding or creating orthogonal task labels on the same or a similar dataset, or a model pre-trained on an orthogonal task, can be a limitation, depending on the application.\n\nIn addition to this, benefits of AT can only be expected if the pre-trained model is effective and even then there may be relevant representations that the pre-trained model has not learned. However, perfect avoidance of the representation learnt for the orthogonal task or perfect invariance to the orthogonal task is not required to improve performance and generalization, as our experiments have shown. The situation would be different for undesirable labels, where invariance to the orthogonal task in itself is an important target. Our measurement of this invariance has mainly been indirect through performance. Our visualization example was encouraging but to guarantee algorithmic fairness, more stringent measurements would be required.\n\nApplications. Anti-transfer is in principle applicable in all situations where suitable datasets are available, in particular when invariance to a specific task is desired. Even though we implemented AT for VGG16, it can be applied to other CNN designs. Also, it is directly applicable to feed-forward and to recurrent networks and it can be adapted to attention-based models. We have only tested classification tasks, but there is nothing in general to prevent the application of this method to regression, or more complex tasks (e.g. automatic speech recognition) or other domains (e.g. computer vision).\n\nAs mentioned, AT can have applications in areas such as algorithmic fairness, where model outputs should be independent of sensitive variables, e.g. financial decisions should not depend on gender or ethnicity. The variable is not necessarily explicit in the input data, e.g. the gender of a person could be not mentioned in their financial data, but models could estimate it and use that estimate as the basis for a decision. With more direct measurements of the degree of invariance to the sensitive variable, AT could be suitable to improve algorithmic fairness.\n\nThere are many pre-trained models available for many tasks, particularly in computer vision and natural language processing. These models can be used for anti-transfer in many tasks, with the limitation that the orthogonal task must be known to be independent of the target and the the network architecture must have sufficient overlap, i.e. the structure of the networks must be the same from the input up to the the layer(s) used in anti-transfer.",
+      "page_start": 22,
+      "page_end": 25
+    },
+    {
+      "section_name": "Conclusions",
+      "text": "In this study, we introduced anti-transfer learning for speech processing with neural networks, a novel method improving generalization by instilling invariance to an orthogonal task when training a network on a target task. When applying anti-transfer, we use a pre-trained network with the same structure as the target network. In training the target network we apply a deep feature loss that discourages similarity between convolutional layers in the pre-trained and target network to encourage the development of an internal representation that is independent of the orthogonal task. Our experiments with several classification tasks on speech and music audio in different configurations show improved results for all tasks. We observe a robust improvement over the learning form scratch and over transfer learning by weight initialization.\n\nOur analysis provides evidence that anti-transfer achieves a degree of invariance to the orthogonal tasks, e.g. speaker identity, when the network is applied to the target task, e.g. speech emotion recognition. While there is a cost of pre-training and of the anti-transfer learning itself, the improved generalization may often be worth it. Readily available trained models remove the cost of pretraining and there may be further optimizations possible to address memory and computation costs.\n\nWith the increasing availability of public datasets and pre-trained models chances grow that a suitable dataset or model can be found, but the selection of the orthogonal task needs careful consideration. Transfer learning is generally seen as a straightforward way to improve the performance of deep neural networks by using additional data. Our results show that taking into account the nature of the pre-training tasks is important and that treating related and orthogonal tasks differently can boost generalization significantly.\n\nApplications can benefit from improved generalization in many domains where there are natural changes to a signal that are independent of the target task, such as room acoustics, ambient noise, degradation through transmission, etc., as in the tasks we addressed in our experiments. A potential application of anti-transfer is to avoid the use of specific signal properties in areas such as algorithmic fairness, where being invariant to gender or ethnicity is a socially important goal. This will need further work on measuring and controlling the level of invariance as well as a discussion of the specific goals.\n\nThe positive results justify further investigation of this approach. An immediate research objective is to reduce the memory requirements of anti-transfer learning. Identifying more application areas and studying larger datasets in different domains will enable a better understanding of the performance an comparison to standard benchmarks. Further general goals for longer term research are a deeper understanding of how to measure invariance or achieve it across multiple tasks beyond dual anti-transfer and it will be interesting to apply anti-transfer learning to different Neural Network architectures, including non-convolutional ones.",
+      "page_start": 25,
+      "page_end": 26
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Block diagram of a CNN network with anti-transfer learning applied to a clas-",
+      "page": 6
+    },
+    {
+      "caption": "Figure 1: depicts a block diagram of a generic CNN with anti-transfer learning",
+      "page": 6
+    },
+    {
+      "caption": "Figure 1: shows the AT loss calculated on the last convolution",
+      "page": 7
+    },
+    {
+      "caption": "Figure 2: Block diagram of our training strategies. The color coding reﬂects 3 consecutive",
+      "page": 9
+    },
+    {
+      "caption": "Figure 2: shows a diagram of the diﬀerent training strategies we compared.",
+      "page": 9
+    },
+    {
+      "caption": "Figure 3: shows the average gain achieved by anti-transfer learning in",
+      "page": 13
+    },
+    {
+      "caption": "Figure 3: Average improvement by applying anti-transfer learning on diﬀerent applications",
+      "page": 15
+    },
+    {
+      "caption": "Figure 4: Comparison of regular AT (encouraging feature dissimilarity with the orthogonal",
+      "page": 16
+    },
+    {
+      "caption": "Figure 5: Grad-CAM convolutional feature activations of diﬀerent models for the same",
+      "page": 17
+    },
+    {
+      "caption": "Figure 5: shows the Grad-CAM",
+      "page": 17
+    },
+    {
+      "caption": "Figure 6: Mean per-layer improvement on speech emotion recognition (IEMOCAP random",
+      "page": 18
+    },
+    {
+      "caption": "Figure 6: shows the average per-layer improvement in both train and test accuracy that",
+      "page": 18
+    },
+    {
+      "caption": "Figure 7: Evolution of the train and validation cross-entropy loss and train and validation",
+      "page": 19
+    },
+    {
+      "caption": "Figure 7: shows the development of the classiﬁcation loss (cross-entropy) and",
+      "page": 19
+    },
+    {
+      "caption": "Figure 8: for emotion recognition",
+      "page": 20
+    },
+    {
+      "caption": "Figure 8: Variation of the test accuracy for diﬀerent β parameters (weight of the AT",
+      "page": 21
+    },
+    {
+      "caption": "Figure 3: ). It is surprising that the larger dataset does not",
+      "page": 23
+    },
+    {
+      "caption": "Figure 5: An advantage of anti-transfer is that it is a supervised training approach,",
+      "page": 23
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table 5: ), compared to both the baseline and weight initialization. We have a",
+      "data": [
+        {
+          "None": "WI\nWI",
+          "n/a": "MSS\nIEC",
+          "98.45": "98.33\n98.67",
+          "97.94": "97.85\n97.69",
+          "97.23": "96.34\n97.36",
+          "95.32": "94.83\n95.40",
+          "93.67": "93.97\n93.51",
+          "90.44": "90.51\n90.35"
+        },
+        {
+          "None": "AT\nAT",
+          "n/a": "MSS\nIEC",
+          "98.45": "99.57\n99.02",
+          "97.94": "99.11\n99.09",
+          "97.23": "98.42\n98.36",
+          "95.32": "95.70\n95.57",
+          "93.67": "94.81\n94.91",
+          "90.44": "90.99\n91.38"
+        },
+        {
+          "None": "Dual AT\nDual AT",
+          "n/a": "IEC +\nMSS\nMSS +\nIEC",
+          "98.45": "99.84\n99.31",
+          "97.94": "99.49\n99.17",
+          "97.23": "98.29\n98.89",
+          "95.32": "96.60\n95.64",
+          "93.67": "94.91\n95.20",
+          "90.44": "90.98\n90.67"
+        }
+      ],
+      "page": 13
+    },
+    {
+      "caption": "Table 4: Accuracy results for the speech emotion recognition (SER) target task on the",
+      "data": [
+        {
+          "None": "WI\nWI",
+          "n/a": "Librispeech\nIEMOCAP",
+          "69.0": "66.9\n70.7",
+          "67.8": "66.9\n66.9",
+          "63.7": "63.4\n64.8",
+          "57.2": "59.2\n58.5"
+        },
+        {
+          "None": "AT\nAT",
+          "n/a": "Librispeech\nIEMOCAP",
+          "69.0": "72.0\n75.5",
+          "67.8": "68.6\n74.5",
+          "63.7": "66.9\n66.5",
+          "57.2": "61.1\n61.3"
+        }
+      ],
+      "page": 14
+    },
+    {
+      "caption": "Table 4: Accuracy results for the speech emotion recognition (SER) target task on the",
+      "data": [
+        {
+          "None": "WI\nWI",
+          "n/a": "Nsynth\nGood-Sounds",
+          "91.8": "93.4\n93.3",
+          "42.2": "40.5\n42.3",
+          "83.8": "84.7\n84.9",
+          "22.8": "29.6\n23.9"
+        },
+        {
+          "None": "AT\nAT",
+          "n/a": "Nsynth\nGood-Sounds",
+          "91.8": "96.8\n93.9",
+          "42.2": "41.0\n36.4",
+          "83.8": "86.3\n85.7",
+          "22.8": "30.0\n34.3"
+        }
+      ],
+      "page": 14
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Transfer learning by supervised pre-training for audio-based music classification",
+      "authors": [
+        "A Van Den Oord",
+        "S Dieleman",
+        "B Schrauwen"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the 15th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "2",
+      "title": "Pre-training on high-resource speech recognition improves low-resource speech-to-text translation",
+      "authors": [
+        "S Bansal",
+        "H Kamper",
+        "K Livescu",
+        "A Lopez",
+        "S Goldwater"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, NAACL-HLT 2019",
+      "doi": "10.18653/v1/n19-1006"
+    },
+    {
+      "citation_id": "3",
+      "title": "Audio-based music classification with a pretrained convolutional network",
+      "authors": [
+        "S Dieleman",
+        "P Brakel",
+        "B Schrauwen"
+      ],
+      "year": "2011",
+      "venue": "Proceedings of the 12th International Society for Music Information Retrieval Conference, ISMIR 2011"
+    },
+    {
+      "citation_id": "4",
+      "title": "Understanding semantics from speech through pre-training",
+      "authors": [
+        "P Wang",
+        "L Wei",
+        "Y Cao",
+        "J Xie",
+        "Y Cao",
+        "Z Nie"
+      ],
+      "venue": "Understanding semantics from speech through pre-training",
+      "arxiv": "CoRRabs/1909.10924.arXiv:1909.10924"
+    },
+    {
+      "citation_id": "5",
+      "title": "Comparison of blstm-layer-specific affine transformations for speaker adaptation",
+      "authors": [
+        "M Kitza",
+        "R Schlüter",
+        "H Ney"
+      ],
+      "year": "2018",
+      "venue": "Interspeech 2018, 19th Annual Conference of the International Speech Communication Association",
+      "doi": "10.21437/Interspeech.2018-2022"
+    },
+    {
+      "citation_id": "6",
+      "title": "Unsupervised speech context embeddings",
+      "authors": [
+        "B Milde",
+        "C Biemann",
+        "Unspeech"
+      ],
+      "year": "2018",
+      "venue": "Interspeech 2018, 19th Annual Conference of the International Speech Communication Association",
+      "doi": "10.21437/Interspeech.2018-2194"
+    },
+    {
+      "citation_id": "7",
+      "title": "Speaker-independent speech emotion recognition based on CNN-BLSTM and multiple svms",
+      "authors": [
+        "Z Liu",
+        "P Xiao",
+        "D Li",
+        "M Hao",
+        "; Yu",
+        "J Liu",
+        "L Liu",
+        "Z Ju"
+      ],
+      "year": "2019",
+      "venue": "Intelligent Robotics and Applications -12th International Conference",
+      "doi": "10.1007/978-3-030-27535-8_43"
+    },
+    {
+      "citation_id": "8",
+      "title": "Hain, Spatio-temporal context modelling for speech emotion classification",
+      "authors": [
+        "M Jalal",
+        "R Moore"
+      ],
+      "year": "2019",
+      "venue": "IEEE Automatic Speech Recognition and Understanding Workshop",
+      "doi": "10.1109/ASRU46091.2019.9004037"
+    },
+    {
+      "citation_id": "9",
+      "title": "Comparison of speaker dependent and speaker independent emotion recognition",
+      "authors": [
+        "J Rybka",
+        "A Janicki"
+      ],
+      "year": "2013",
+      "venue": "Int. J. Appl. Math. Comput. Sci",
+      "doi": "10.2478/amcs-2013-0060"
+    },
+    {
+      "citation_id": "10",
+      "title": "Speaker dependent, speaker independent and cross language emotion recognition from speech using gmm and hmm",
+      "authors": [
+        "M Bhaykar",
+        "J Yadav",
+        "K Rao"
+      ],
+      "year": "2013",
+      "venue": "Speaker dependent, speaker independent and cross language emotion recognition from speech using gmm and hmm",
+      "doi": "10.1109/NCC.2013.6487998"
+    },
+    {
+      "citation_id": "11",
+      "title": "A survey on deep transfer learning",
+      "authors": [
+        "C Tan",
+        "F Sun",
+        "T Kong",
+        "W Zhang",
+        "C Yang",
+        "C Liu"
+      ],
+      "year": "2018",
+      "venue": "Artificial Neural Networks and Machine Learning -ICANN 2018 -27th International Conference on Artificial Neural Networks",
+      "doi": "10.1007/978-3-030-01424-7_27"
+    },
+    {
+      "citation_id": "12",
+      "title": "Learning many related tasks at the same time with backpropagation",
+      "authors": [
+        "R Caruana"
+      ],
+      "year": "1995",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "13",
+      "title": "Deep learning of representations for unsupervised and transfer learning",
+      "authors": [
+        "Y Bengio ; I. Guyon",
+        "G Dror",
+        "V Lemaire",
+        "G Taylor"
+      ],
+      "year": "2011",
+      "venue": "Unsupervised and Transfer Learning -Workshop held at ICML 2011"
+    },
+    {
+      "citation_id": "14",
+      "title": "Transfer learning in MIR: Sharing learned latent representations for music audio classification and similarity",
+      "authors": [
+        "P Hamel",
+        "M Davies",
+        "K Yoshii",
+        "M Goto"
+      ],
+      "year": "2013",
+      "venue": "Proceedings of the 14th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "15",
+      "title": "Deep convolutional neural networks for computer-aided detection: CNN architectures, dataset characteristics and transfer learning",
+      "authors": [
+        "H Shin",
+        "H Roth",
+        "M Gao",
+        "L Lu",
+        "Z Xu",
+        "I Nogues",
+        "J Yao",
+        "D Mollura",
+        "R Summers"
+      ],
+      "year": "2016",
+      "venue": "IEEE Trans. Medical Imaging",
+      "doi": "10.1109/TMI.2016.2528162"
+    },
+    {
+      "citation_id": "16",
+      "title": "A survey on deep transfer learning",
+      "authors": [
+        "C Tan",
+        "F Sun",
+        "T Kong",
+        "W Zhang",
+        "C Yang",
+        "C Liu"
+      ],
+      "year": "2018",
+      "venue": "Artificial Neural Networks and Machine Learning -ICANN 2018 -27th International Conference on Artificial Neural Networks",
+      "doi": "10.1007/978-3-030-01424-7_27"
+    },
+    {
+      "citation_id": "17",
+      "title": "A comprehensive study of imagenet pretraining for historical document image analysis",
+      "authors": [
+        "L Studer",
+        "M Alberti",
+        "V Pondenkandath",
+        "P Goktepe",
+        "T Kolonko",
+        "A Fischer",
+        "M Liwicki",
+        "R Ingold"
+      ],
+      "year": "2019",
+      "venue": "2019 International Conference on Document Analysis and Recognition, ICDAR 2019, Sydney",
+      "doi": "10.1109/ICDAR.2019.00120"
+    },
+    {
+      "citation_id": "18",
+      "title": "Pre-training on grayscale imagenet improves medical image classification",
+      "authors": [
+        "Y Xie",
+        "D Richmond"
+      ],
+      "year": "2018",
+      "venue": "Computer Vision -ECCV 2018 Workshops",
+      "doi": "10.1007/978-3-030-11024-6_37"
+    },
+    {
+      "citation_id": "19",
+      "title": "Pretraining convolutional neural networks for image-based vehicle classification",
+      "authors": [
+        "Y Han",
+        "T Jiang",
+        "Y Ma",
+        "C Xu"
+      ],
+      "year": "2018",
+      "venue": "Adv. Multim",
+      "doi": "10.1155/2018/3138278"
+    },
+    {
+      "citation_id": "20",
+      "title": "Pre-trained models for natural language processing: A survey",
+      "authors": [
+        "X Qiu",
+        "T Sun",
+        "Y Xu",
+        "Y Shao",
+        "N Dai",
+        "X Huang"
+      ],
+      "venue": "Pre-trained models for natural language processing: A survey",
+      "arxiv": "CoRRabs/2003.08271.arXiv:2003.08271"
+    },
+    {
+      "citation_id": "21",
+      "title": "Discriminability-based transfer between neural networks",
+      "authors": [
+        "L Pratt"
+      ],
+      "year": "1992",
+      "venue": "Advances in Neural Information Processing Systems 5, [NIPS Conference"
+    },
+    {
+      "citation_id": "22",
+      "title": "Knowledge transfer in deep convolutional neural nets",
+      "authors": [
+        "S Gutstein",
+        "O Fuentes"
+      ],
+      "year": "2007",
+      "venue": "Proceedings of the Twentieth International Florida Artificial Intelligence Research Society Conference"
+    },
+    {
+      "citation_id": "23",
+      "title": "Image style transfer using convolutional neural networks",
+      "authors": [
+        "L Gatys",
+        "A Ecker",
+        "M Bethge"
+      ],
+      "year": "2016",
+      "venue": "2016 IEEE Conference on Computer Vision and Pattern Recognition",
+      "doi": "10.1109/CVPR.2016.265"
+    },
+    {
+      "citation_id": "24",
+      "title": "How transferable are features in deep neural networks?",
+      "authors": [
+        "J Yosinski",
+        "J Clune",
+        "Y Bengio",
+        "H Lipson"
+      ],
+      "year": "2014",
+      "venue": "Advances in Neural Information Processing Systems 27: Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "25",
+      "title": "Texture networks: Feed-forward synthesis of textures and stylized images",
+      "authors": [
+        "D Ulyanov",
+        "V Lebedev",
+        "A Vedaldi",
+        "V Lempitsky"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the 33nd International Conference on Machine Learning, ICML 2016"
+    },
+    {
+      "citation_id": "26",
+      "title": "A learned representation for artistic style",
+      "authors": [
+        "V Dumoulin",
+        "J Shlens",
+        "M Kudlur"
+      ],
+      "year": "2017",
+      "venue": "th International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "27",
+      "title": "Melgan-vc: Voice conversion and audio style transfer on arbitrarily long samples using spectrograms",
+      "authors": [
+        "M Pasini"
+      ],
+      "venue": "Melgan-vc: Voice conversion and audio style transfer on arbitrarily long samples using spectrograms",
+      "arxiv": "arXiv:1910.03713"
+    },
+    {
+      "citation_id": "28",
+      "title": "Texture synthesis using convolutional neural networks",
+      "authors": [
+        "L Gatys",
+        "A Ecker",
+        "M Bethge"
+      ],
+      "year": "2015",
+      "venue": "Advances in Neural Information Processing Systems 28: Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "29",
+      "title": "Perceptual losses for real-time style transfer and super-resolution",
+      "authors": [
+        "J Johnson",
+        "A Alahi",
+        "L Fei-Fei"
+      ],
+      "year": "2016",
+      "venue": "Computer Vision -ECCV 2016 -14th European Conference, Amsterdam",
+      "doi": "10.1007/978-3-319-46475-6_43"
+    },
+    {
+      "citation_id": "30",
+      "title": "Photographic image synthesis with cascaded refinement networks",
+      "authors": [
+        "Q Chen",
+        "V Koltun"
+      ],
+      "year": "2017",
+      "venue": "IEEE International Conference on Computer Vision, ICCV 2017",
+      "doi": "10.1109/ICCV.2017.168"
+    },
+    {
+      "citation_id": "31",
+      "title": "Generating images with perceptual similarity metrics based on deep networks",
+      "authors": [
+        "A Dosovitskiy",
+        "T Brox"
+      ],
+      "year": "2016",
+      "venue": "Advances in Neural Information Processing Systems 29: Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "32",
+      "title": "The unreasonable effectiveness of deep features as a perceptual metric",
+      "authors": [
+        "R Zhang",
+        "P Isola",
+        "A Efros",
+        "E Shechtman",
+        "O Wang"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE Conference on Computer Vision and Pattern Recognition",
+      "doi": "10.1109/CVPR.2018.00068"
+    },
+    {
+      "citation_id": "33",
+      "title": "Unsupervised visual representation learning by context prediction",
+      "authors": [
+        "C Doersch",
+        "A Gupta",
+        "A Efros"
+      ],
+      "year": "2015",
+      "venue": "IEEE International Conference on Computer Vision, ICCV 2015",
+      "doi": "10.1109/ICCV.2015.167"
+    },
+    {
+      "citation_id": "34",
+      "title": "Speech-VGG: A deep feature extractor for speech processing",
+      "authors": [
+        "P Beckmann",
+        "M Kegler",
+        "H Saltini",
+        "M Cernak"
+      ],
+      "venue": "Speech-VGG: A deep feature extractor for speech processing",
+      "arxiv": "CoRRabs/1910.09909.arXiv:1910.09909"
+    },
+    {
+      "citation_id": "35",
+      "title": "Spectrogram feature losses for music source separation",
+      "authors": [
+        "A Sahai",
+        "R Weber",
+        "B Mcwilliams"
+      ],
+      "year": "2019",
+      "venue": "th European Signal Processing Conference",
+      "doi": "10.23919/EUSIPCO.2019.8903019"
+    },
+    {
+      "citation_id": "36",
+      "title": "Deep speech inpainting of timefrequency masks",
+      "authors": [
+        "M Kegler",
+        "P Beckmann",
+        "M Cernak"
+      ],
+      "venue": "Deep speech inpainting of timefrequency masks",
+      "arxiv": "arXiv:1910.09058"
+    },
+    {
+      "citation_id": "37",
+      "title": "Evolving neural network ensembles by minimization of mutual information",
+      "authors": [
+        "X Yao",
+        "Y Liu"
+      ],
+      "year": "2004",
+      "venue": "Int. J. Hybrid Intell. Syst"
+    },
+    {
+      "citation_id": "38",
+      "title": "Learning towards minimum hyperspherical energy",
+      "authors": [
+        "W Liu",
+        "R Lin",
+        "Z Liu",
+        "L Liu",
+        "Z Yu",
+        "B Dai",
+        "L Song"
+      ],
+      "year": "2018",
+      "venue": "Advances in Neural Information Processing Systems 31: Annual Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "39",
+      "title": "Improving singing voice separation with the wave-u-net using minimum hyperspherical energy",
+      "authors": [
+        "J Perez-Lapillo",
+        "O Galkin",
+        "T Weyde"
+      ],
+      "year": "2020",
+      "venue": "2020 IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP 2020",
+      "doi": "10.1109/ICASSP40776.2020.9053424"
+    },
+    {
+      "citation_id": "40",
+      "title": "Learning domain-independent deep representations by mutual information minimization",
+      "authors": [
+        "K Wang",
+        "J Liu",
+        "J Wang"
+      ],
+      "year": "2019",
+      "venue": "Comput. Intell. Neurosci",
+      "doi": "10.1155/2019/9414539"
+    },
+    {
+      "citation_id": "41",
+      "title": "Domain-adversarial training of neural networks",
+      "authors": [
+        "Y Ganin",
+        "E Ustinova",
+        "H Ajakan",
+        "P Germain",
+        "H Larochelle",
+        "F Laviolette",
+        "M Marchand",
+        "V Lempitsky"
+      ],
+      "year": "2016",
+      "venue": "J. Mach. Learn. Res"
+    },
+    {
+      "citation_id": "42",
+      "title": "Unified deep supervised domain adaptation and generalization",
+      "authors": [
+        "S Motiian",
+        "M Piccirilli",
+        "D Adjeroh",
+        "G Doretto"
+      ],
+      "year": "2017",
+      "venue": "IEEE International Conference on Computer Vision, ICCV 2017",
+      "doi": "10.1109/ICCV.2017.609"
+    },
+    {
+      "citation_id": "43",
+      "title": "Adversarial discriminative domain adaptation (workshop extended abstract",
+      "authors": [
+        "E Tzeng",
+        "J Hoffman",
+        "K Saenko",
+        "T Darrell"
+      ],
+      "year": "2017",
+      "venue": "5th International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "44",
+      "title": "Unsupervised adversarial domain adaptation based on the wasserstein distance for acoustic scene classification",
+      "authors": [
+        "K Drossos",
+        "P Magron",
+        "T Virtanen"
+      ],
+      "year": "2019",
+      "venue": "2019 IEEE Workshop on Applications of Signal Processing to Audio and Acoustics",
+      "doi": "10.1109/WASPAA.2019.8937231"
+    },
+    {
+      "citation_id": "45",
+      "title": "Learning disentangled representations for timber and pitch in music audio",
+      "authors": [
+        "Y Hung",
+        "Y Chen",
+        "Y Yang"
+      ],
+      "venue": "Learning disentangled representations for timber and pitch in music audio",
+      "arxiv": "arXiv:1811.03271"
+    },
+    {
+      "citation_id": "46",
+      "title": "Multi-target voice conversion without parallel data by adversarially learning disentangled audio representations",
+      "authors": [
+        "J Chou",
+        "C Yeh",
+        "H Lee",
+        "L Lee"
+      ],
+      "year": "2018",
+      "venue": "Interspeech 2018, 19th Annual Conference of the International Speech Communication Association",
+      "doi": "10.21437/Interspeech.2018-1830"
+    },
+    {
+      "citation_id": "47",
+      "title": "Disentangled speech embeddings using cross-modal self-supervision",
+      "authors": [
+        "A Nagrani",
+        "J Chung",
+        "S Albanie",
+        "A Zisserman"
+      ],
+      "year": "2020",
+      "venue": "2020 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP40776.2020.9054057"
+    },
+    {
+      "citation_id": "48",
+      "title": "Disentangled multidimensional metric learning for music similarity",
+      "authors": [
+        "J Lee",
+        "N Bryan",
+        "J Salamon",
+        "Z Jin",
+        "J Nam"
+      ],
+      "year": "2020",
+      "venue": "2020 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP40776.2020.9053442"
+    },
+    {
+      "citation_id": "49",
+      "title": "Adversarial learning of disentangled and generalizable representations for visual attributes",
+      "authors": [
+        "J Oldfield",
+        "Y Panagakis",
+        "M Nicolaou"
+      ],
+      "venue": "Adversarial learning of disentangled and generalizable representations for visual attributes",
+      "arxiv": "arXiv:1904.04772"
+    },
+    {
+      "citation_id": "50",
+      "title": "Disentangled sequential autoencoder",
+      "authors": [
+        "Y Li",
+        "S Mandt"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 35th International Conference on Machine Learning, ICML 2018, Stockholmsmässan"
+    },
+    {
+      "citation_id": "51",
+      "title": "Disentangling by partitioning: A representation learning framework for multimodal sensory data",
+      "authors": [
+        "W Hsu",
+        "J Glass"
+      ],
+      "venue": "Disentangling by partitioning: A representation learning framework for multimodal sensory data",
+      "arxiv": "arXiv:1805.11264"
+    },
+    {
+      "citation_id": "52",
+      "title": "Singing voice separation with deep u-net convolutional networks",
+      "authors": [
+        "A Jansson",
+        "E Humphrey",
+        "N Montecchio",
+        "R Bittner",
+        "A Kumar",
+        "T Weyde"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 18th International Society for Music Information Retrieval Conference"
+    },
+    {
+      "citation_id": "53",
+      "title": "Attentive convolutional neural network based speech emotion recognition: A study on the impact of input features, signal length, and acted speech",
+      "authors": [
+        "M Neumann",
+        "N Vu"
+      ],
+      "year": "2017",
+      "venue": "Interspeech 2017, 18th Annual Conference of the International Speech Communication Association"
+    },
+    {
+      "citation_id": "54",
+      "title": "Deep convolutional neural networks and data augmentation for environmental sound classification",
+      "authors": [
+        "J Salamon",
+        "J Bello"
+      ],
+      "year": "2017",
+      "venue": "IEEE Signal Process. Lett",
+      "doi": "10.1109/LSP.2017.2657381"
+    },
+    {
+      "citation_id": "55",
+      "title": "Very deep convolutional networks for largescale image recognition",
+      "authors": [
+        "K Simonyan",
+        "A Zisserman"
+      ],
+      "year": "2015",
+      "venue": "3rd International Conference on Learning Representations, ICLR 2015"
+    },
+    {
+      "citation_id": "56",
+      "title": "Good-sounds dataset",
+      "authors": [
+        "O Picas",
+        "H Rodriguez",
+        "D Dabiri",
+        "X Serra"
+      ],
+      "year": "2017",
+      "venue": "Good-sounds dataset",
+      "doi": "10.5281/zenodo.820937"
+    },
+    {
+      "citation_id": "57",
+      "title": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "authors": [
+        "P Warden"
+      ],
+      "venue": "Speech commands: A dataset for limited-vocabulary speech recognition",
+      "arxiv": "arXiv:1804.03209"
+    },
+    {
+      "citation_id": "58",
+      "title": "A scalable noisy speech dataset and online subjective test framework",
+      "authors": [
+        "C Reddy",
+        "E Beyrami",
+        "J Pool",
+        "R Cutler",
+        "S Srinivasan",
+        "J Gehrke"
+      ],
+      "year": "2019",
+      "venue": "Interspeech 2019, 20th Annual Conference of the International Speech Communication Association, Graz, Austria",
+      "doi": "10.21437/Interspeech.2019-3087"
+    },
+    {
+      "citation_id": "59",
+      "title": "Librispeech: An ASR corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP.2015.7178964"
+    },
+    {
+      "citation_id": "60",
+      "title": "IEMOCAP: interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Lang. Resour. Evaluation",
+      "doi": "10.1007/s10579-008-9076-6"
+    },
+    {
+      "citation_id": "61",
+      "title": "Neural audio synthesis of musical notes with wavenet autoencoders",
+      "authors": [
+        "J Engel",
+        "C Resnick",
+        "A Roberts",
+        "S Dieleman",
+        "M Norouzi",
+        "D Eck",
+        "K Simonyan"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the 34th International Conference on Machine Learning, ICML 2017"
+    },
+    {
+      "citation_id": "62",
+      "title": "A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "3rd International Conference on Learning Representations, ICLR 2015"
+    },
+    {
+      "citation_id": "63",
+      "title": "Continual lifelong learning with neural networks: A review",
+      "authors": [
+        "G Parisi",
+        "R Kemker",
+        "J Part",
+        "C Kanan",
+        "S Wermter"
+      ],
+      "year": "2019",
+      "venue": "Neural Networks",
+      "doi": "10.1016/j.neunet.2019.01.012"
+    },
+    {
+      "citation_id": "64",
+      "title": "Grad-CAM: Visual explanations from deep networks via gradient-based localization",
+      "authors": [
+        "R Selvaraju",
+        "M Cogswell",
+        "A Das",
+        "R Vedantam",
+        "D Parikh",
+        "D Batra"
+      ],
+      "year": "2020",
+      "venue": "Int. J. Comput. Vis",
+      "doi": "10.1007/s11263-019-01228-7"
+    },
+    {
+      "citation_id": "65",
+      "title": "Multi-time-scale convolution for emotion recognition from speech audio signals",
+      "authors": [
+        "E Guizzo",
+        "T Weyde",
+        "J Leveson"
+      ],
+      "year": "2020",
+      "venue": "2020 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP40776.2020.9053727"
+    },
+    {
+      "citation_id": "66",
+      "title": "ELASTIC: improving cnns with dynamic scaling policies",
+      "authors": [
+        "H Wang",
+        "A Kembhavi",
+        "A Farhadi",
+        "A Yuille",
+        "M Rastegari"
+      ],
+      "year": "2019",
+      "venue": "IEEE Conference on Computer Vision and Pattern Recognition",
+      "doi": "10.1109/CVPR.2019.00236"
+    },
+    {
+      "citation_id": "67",
+      "title": "Scale and shift invariant time/frequency representation using auditory statistics: Application to rhythm description",
+      "authors": [
+        "U Marchand",
+        "G Peeters"
+      ],
+      "year": "2016",
+      "venue": "26th IEEE International Workshop on Machine Learning for Signal Processing",
+      "doi": "10.1109/MLSP.2016.7738904"
+    }
+  ]
+}

@@ -1,0 +1,1295 @@
+{
+  "paper_id": "2312.06270v4",
+  "title": "Testing Correctness, Fairness, And Robustness Of Speech Emotion Recognition Models",
+  "published": "2023-12-11T10:15:35Z",
+  "authors": [
+    "Anna Derington",
+    "Hagen Wierstorf",
+    "Ali Özkil",
+    "Florian Eyben",
+    "Felix Burkhardt",
+    "Björn W. Schuller"
+  ],
+  "keywords": [],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Machine learning models for speech emotion recognition (SER) can be trained for different tasks and are usually evaluated based on a few available datasets per task. Tasks could include arousal, valence, dominance, emotional categories, or tone of voice. Those models are mainly evaluated in terms of correlation or recall, and always show some errors in their predictions. The errors manifest themselves in model behaviour, which can be very different along different dimensions even if the same recall or correlation is achieved by the model. This paper introduces a testing framework to investigate behaviour of speech emotion recognition models, by requiring different metrics to reach a certain threshold in order to pass a test. The test metrics can be grouped in terms of correctness, fairness, and robustness. It also provides a method for automatically specifying test thresholds for fairness tests, based on the datasets used, and recommendations on how to select the remaining test thresholds. We evaluated a xLSTM-based and nine transformerbased acoustic foundation models against a convolutional baseline model, testing their performance on arousal, valence, dominance, and emotional category classification. The test results highlight, that models with high correlation or recall might rely on shortcuts -such as text sentiment -, and differ in terms of fairness.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Machine learning models are developed to fulfill a given objective by presenting them examples. In speech emotion recognition (SER) we might have the prediction of arousal as objective and audio samples with an associated arousal value as examples. Development pipelines are restricted to certain model specifications and a limited amount of examples leading to non-perfect fulfillment of the objectives. This requires further evaluation steps to estimate the performance of the models. The evaluation can focus on tracking progress in a given field by specifying benchmarks in order to compare models  [1] . However, two models, showing the same accuracy performance, might have different general behaviour and properties, due to the underspecification of the applied development pipeline  [2] , which can lead to models containing spurious correlations or learnt shortcuts. For applications of models, therefore, it is important to understand their behaviour, robustness, and potential biases  [3, §4.4] , and communicate those to stakeholders  [4] .\n\nAs it is most often required that a model stays within a certain range of expected behaviour, testing is a valid evalu-ation approach, as it can detect differences between existing and required behaviour  [5] . Testing machine learning models provides a greater challenge compared to software testing  [6]  as the models provide answers to questions for which no previous answer -e. g., label -was available  [7] . This can be solved by changing available input samples from test sets in a way that labels are preserved  [8]  or with an expected change of labels  [9] . In addition, synthetic data with known labels might be generated  [10] .\n\nIn SER no general testing approach was proposed so far. The Computational Paralinguistics Challenges  [11]  tracked progress for SER and have led to rapid progress in the area. Scheidwasser-Clow et al.  [12]  have introduced a multi-dataset benchmark focusing on the evaluation of fine-tuned foundation models. Further, Jaiswal and Provost  [13]  have evaluated the robustness of a model that predicts categorical emotions under different data augmentations. Their model under test showed significant performance degradation for most of the applied augmentations. They also showed that some of the augmentations like change in pitch, adding laughter, crying, or speeding up the utterance can affect the underlying label as well. Triantafyllopoulos et al.  [14]  presented a framework to estimate how much the prediction of valence of a SER model depends on the extracted sentiment from text instead on the tone of voice. Schmitz et al.  [15]  addressed the topic of fairness  [16] , which is otherwise rarely addressed in the SER community so far.\n\nIn this paper, we follow Zhang et al.  [5]  and propose to implement the evaluation of model behaviour in the form of offline tests. The development of the tests is not driven by the concept of unit tests or coverage, but motivated by possible applications of the model, and how it should behave under certain conditions. We focus on SER models with the regression task of predicting emotional dimensions (arousal, dominance, valence) and the classification task of predicting emotional categories (anger, happiness, neutral, sadness). The tests focus on acoustic foundation models including Hu-BERT  [17] , wav2vec 2.0  [18] , wavLM  [19] , data2vec  [20] , and xLSTM  [21]  architectures. We test the model behaviour in terms of model correctness, fairness, and robustness.\n\nFor fairness tests we show how to select the most critical test thresholds possible, given the test datasets, and discuss for other tests how to select thresholds based on the desired model application. The implementations and detailed results of all tests are available at https://audeering.github.io/ser-tests/.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Method",
+      "text": "Zhang et al.  [5]  group testing properties for machine learning systems into the categories correctness, model relevance, robustness, security, data privacy, efficiency, fairness, and interpretability. In this work, we focus on the properties correctness, robustness, and fairness. Correctness tests measure the extent to which the model predicts the correct label under test, robustness tests investigate the model behaviour in the presence of perturbations, and fairness tests check whether the model has biases against certain attributes. We do not cover model relevance, i. e., whether the complexity of the model fits the data, interpretability, and data privacy, as they are most commonly covered by means of white-box and greybox testing and may be architecture specific, whereas we require our framework to include only universally applicable black-box tests. Security testing is often related to adversarial robustness, especially for tasks such as autonomous driving, where facing adversarial examples introduces high risks  [10] . For the task of speech emotion recognition, we assume that the model is only applied in scenarios with no or low risk and do not cover security in addition to robustness. We do not address efficiency with a dedicated set of tests, but the results of all tests can be used to compare smaller variants of a model  [22]  or models trained on a subset of the training data  [23]  of its original version.\n\nFor each test we propose a selection of evaluation metrics, and suggest a threshold that determines a passing or failing result. We propose a method to set the fairness test thresholds automatically based on numeric simulations and independent of the application. The suggested thresholds for correctness and robustness should be adjusted depending on the requirements of an application. For example, one could aim for a concordance correlation coefficient (CCC) of 0.6 for all included test sets before deploying a model and use the percentage of passed tests to track progress towards that goal. If no such requirement is defined, we recommend to only focus on the individual test results without enforcing thresholds instead. In general, we suggest to use these tests as tools to understand model behaviour instead of only looking at the final test scores, since in some cases a small change in a metric or threshold could be the difference between a passing and failing test.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "A. Datasets",
+      "text": "For our tests, we include a multitude of emotional datasets from various domains. In order to compare results between datasets, we map the categorical labels to a standardised set of names (e. g., anger, happiness, neutral, or sadness). We map samples labelled as joy to the category of happiness. On the dimensional labels we apply min-max scaling to scale them to the range of [0, 1]. If a dataset has enough speakers and data points, but does not contain a test split, we define one. This allows to include corresponding datasets in training, if desired.\n\nThe Crowd-sourced Emotional Multimodal Actors Dataset (CREMA-D)  [24]  is a dataset containing 7,442 samples from 91 actors (48 female, 43 male) between the ages of 20 and 74 years from various races and ethnicities. The actors were asked to portray a selection of 12 English sentences in different emotions (anger, disgust, fear, happiness, neutral, and sadness) in varying levels of intensity. Emotion ratings are available for the audio modality, the visual modality, and for the combined modalities. We use the ratings from the audio modality, removing samples with no agreement from the dataset. As there is no official test set, we define our own split of the dataset with the samples from 17 speakers (8 female, 9 male). The speakers were first grouped based on their gender, race, and ethnicity, and then each group was randomly split. Wierstorf and Derington  [25]  document the selected files.\n\nDanish Emotional Speech (DES)  [26]  is an approximately 30 minutes long dataset containing recordings in Danish from 4 actors (2 female, 2 male) who convey the emotions anger, happiness, neutral, sadness, and surprise. We use the entire dataset as the test set.\n\nBerlin Database of Emotional Speech (EmoDB)  [27]  is a German dataset in which 10 actors (5 female, 5 male) each portray 10 sentences in the emotions anger, boredom, disgust, fear, happiness, neutral, and sadness. Recordings took place in an anechoic chamber. We select randomly 2 female and 2 male speakers for our test split, with the constraint of having a similar distribution of emotional classes between the splits  [25] .\n\nItalian Emotional Speech Database (EMOVO)  [28]  is an Italian dataset with recordings of 6 actors (3 female, 3 male) tasked to portray 14 sentences in the emotional states anger, disgust, fear, joy, neutral, sadness, and surprise. We use the entire dataset for our tests.\n\nInteractive Emotional Dyadic Motion Capture (IEMO-CAP)  [29]  is a corpus collected by the Speech Analysis and Interpretation Laboratory (SAIL) at the University of Southern California (USC). 10 actors were recorded in dyadic sessions which include a scripted portion and an improvised portion, designed to elicit emotional data, resulting in approximately 12 hours of speech. Each of the 5 recorded sessions contains a male and a female speaker. The dataset has been annotated for the arousal, dominance, and valence dimensions as well as for categories (anger, disgust, excitement, fear, frustration, happiness, neutral, other, and sadness). We form a test split of the dataset from sessions 4 and 5, but use all sessions for certain tests where we require a higher number of speakers to gain relevant results  [25] .\n\nMultimodal EmotionLines Dataset (MELD)  [30]  is an enhancement on the EmotionLines dataset  [31]  that extends it to include audio and visual modalities. It contains about 13,000 utterances from the English TV-series Friends, and has been annotated with emotion and sentiment labels. The emotion categories are anger, disgust, fear, joy, neutral, sadness, and surprise. We use the official test set, but removed files shorter than 0.76 s or longer than 30 s  [25] .\n\nMSP-Podcast  [32]  is a large speech emotional dataset built from segments from English podcast recordings. The dataset is annotated using crowdsourcing for the arousal, dominance, and valence dimensions, and categorical labels (anger, contempt, disgust, fear, happiness, neutral, other, sadness, and surprise). We use version 1.7 of the dataset, which has roughly 100 hours of speech data. We evaluate our tests on both of the test sets: test set 1 with 30 male and 30 female speakers and test set 2 with approximately 3,500 segments from 100 podcasts not used in other partitions.\n\nPolish Emotional Speech Database (PESD)  [33]  comprises 240 recordings in Polish from 8 actors (4 female, 4 male). Each speaker utters 5 sentences with 6 types of emotional prompts: anger, boredom, fear, joy, neutral, and sadness. We use the combined set of samples as a test set.\n\nRyerson Audio-Visual Database of Emotional Speech and Song (RAVDESS)  [34]  contains audio and video recordings from 24 professional actors (12 female, 12 male) vocalising 2 English statements in speech and song. Speech samples are expressed in the emotions anger, calm, disgust, fear, happiness, neutral, sadness, and surprise. Each emotion except for the neutral expression is produced in a normal as well as a strong intensity. For our test set, we select randomly 2 female and 2 male speakers and only use their speech samples  [25] .\n\nSome tests might use additional datasets, e. g., to add background noise. In those cases, the dataset is introduced in the test definition.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Correctness Tests",
+      "text": "The correctness tests require that the model predictions follow the true labels as closely as possible. Correctness is a fundamental goal of most machine learning systems and as such rarely overlooked. However, special care is required to distinguish between different types of errors, some of which may matter more to a user than others. By looking at correctness from different viewpoints and with different metrics, more nuanced insights in model behaviour can be gained.\n\nTable  I  shows a summary of the discussed correctness tests. Furthermore, it lists the test sets we apply the test metrics on, as well as the passing conditions we apply for each test metric. The thresholds for the passing conditions provide only an example to present our testing framework and to show how the test results can be summarised into a percentage of passed tests. We suggest to adjust the thresholds to the needs of each individual application, or to compare the metric results directly without enforcing a binary result of passing or failing. An alternative option would be to base the thresholds for correctness on average human rater performance, e. g. by randomly selecting a rater for each sample, or by averaging all individual raters' performance. The number of correctness tests are 54 for arousal, 60 for dominance, 64 for valence, and 160 for categorical emotions. In the following, we discuss correctness tests that need additional information to what is presented in Table  I .\n\nThe Correctness Classification tests and Correctness Regression tests include standard metrics of correctness. We include unweighted average recall (UAR), unweighted average precision (UAP), recall per class (RPC), and precision per class (PPC) to evaluate classification models and concordance correlation coefficient (CCC), Pearson correlation coefficient (PCC), and mean absolute error (MAE) to evaluate regression models.\n\nThe Correctness Consistency tests check whether the models' predictions on dimensional tasks are consistent with the expected result for samples with certain categorical labels. For example, happiness is characterised by high valence and fear tends to coincide with low dominance. Based on comparing various literature results  [35, 36, 37, 38] , we expect a correspondence between dimensional values and emotional categories as presented in Table  II , where dimensional values ≥ 0.55 are counted to be in the high range, values between 0.3 and 0.6 in the neutral range, and values ≤ 0.45 in the low range. Note that the values we referenced in literature varied in range, and sometimes no clear correspondence was found. We use overlapping ranges to allow for some variance in results, and only penalize predictions that clearly lie outside the expected range.\n\nThe Correctness Distribution tests ensure that the distributions of the model predictions are very similar to the gold standard distributions. The Jensen-Shannon Distance, i. e., the square root of the Jensen-Shannon divergence measures the similarity between two random distributions  [39] . Values range from 0 to 1, with lower values indicating more similar distributions. We bin the distributions into 10 bins and then calculate the distance. In addition, we calculate the absolute difference between the two distributions' mean value. For categorical models, we test whether the number of samples per class is comparable between the model prediction and the gold standard. We measure the difference of the number of samples in relative terms compared to the overall number of samples, for each class.\n\nCertain applications of SER models may be interested in the average emotional value for each speaker. The Correctness Speaker Average tests check whether the models' estimate of the average speaker value is close to the truth. For regression, we measure the mean absolute error (MAE) between the true speaker average and the predicted speaker average, i. e., the average of all predictions of samples belonging to a speaker. For classification, as we cannot compute a single average value, we compare the proportions of samples that are assigned a certain class per speaker. We then calculate the MAE in the estimated proportion of samples for each class. We only consider speakers with at least 10 samples for regression, and with at least 8 samples per class for classification. We apply the tests on test sets for which six or more speakers remain that fit the criteria.\n\nWe test a potential ranking of speakers based on their average, for instance to spot outliers on either side of the ranking. This is covered in the Correctness Speaker Ranking tests. The average values (as computed in the Correctness Speaker Average tests) are used to create a ranking. For classification, we create a separate ranking for each class label, e. g., for the anger class, we rank speakers with a higher proportion of anger samples higher, and speakers with a lower proportion of anger samples lower. As a measure of the correctness of the ranking, we use Spearman's rank correlation coefficient (Spearmans rho).",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Fairness Tests",
+      "text": "Despite a long history of research in the field, a universal definition for fairness has not been established, neither in a general sense, nor when applied to machine learning  [40] . Many widely used definitions of fairness state that no bias should exist for certain protected attributes  [41] . In Mehrabi et al.  [40] , algorithmic fairness is grouped into three main types: individual fairness, which aims to give similar predictions to similar individuals, group fairness, which tries to treat different protected groups equally, and subgroup fairness, which combines the two previous approaches by selecting a group fairness constraint and checks whether the constraint applies across sets of combinations of protected attribute values. Individual fairness would require data with similar samples that differ only in the protected attribute, and subgroup fairness would require test sets with annotations for all types of fairness groups (e. g., accent or language) at the same time, both of which are not easily available. Thus, we employ different types of group fairness tests and distinguish between cases where the ground truth emotion label is known and where it is not. Note that the fairness tests should not be interpreted as proof that a model is fair when it passes the tests, but rather as an indicator that the model is likely not fair towards a certain protected group when it fails the tests. The tests in the following do not cover all relevant groups for which fairness should be considered, but they provide a start to be expanded on.\n\nStatistical parity (or demographic parity) is a group fairness criterion which enforces that the model function f (X, S), given the input data X and the protected group S, is statistically independent of S  [42] . For the classification of classes c ∈ C, this is given when for all s ∈ S\n\nwhere P(•) denotes the probability of an event.\n\nWe apply this to our tests for unlabelled data by comparing the class wise distributions of samples for the different group members, and require that the differences are below a given threshold. We refer to this metric as the relative difference per class. For a regression model with f (X, S) ∈ [0, 1], statistical independence requires that for all s ∈ S and z ∈ [0, 1]\n\nWe follow Agarwal et al.  [43]  and discretise this requirement by binning the model outputs into evenly spaced bins Z. We then require for the binned model output f bin (X, S) and for all s ∈ S and z ∈ Z P(f bin (X, s) ≥ z) = P(f bin (X, S) ≥ z|S = s).\n\n(\n\nIn order to get a clearer insight into which regions of the output space contain disparities, we reformulate the requirement to check the probability of the intervals corresponding to each individual bin. We refer to this metric as the relative difference per bin. In our tests, we use four bins. For statistical parity the distribution of the prediction should be independent of the protected group. That is why we also check whether the shift in mean value is below a threshold as an indicator of fairness.\n\nIf a dataset has ground truth labels for emotion, we test the correctness for each group member (similar to the bounded group loss in Agarwal et al.  [43] ) and require that the difference in overall performance is low in terms of concordance correlation coefficient (CCC) for regression and in terms of unweighted average recall (UAR) for classification.\n\nThe criterion of Equalised Odds  [40]  states that all members of a group should have equal rates for true positives and false positives in a binary classification scenario. We apply this to multi-class classification by comparing the difference in recall per class (RPC) and precision per class (PPC). For regression, we again map the model outputs into four evenly spaced bins and compare the difference in recall per bin and precision per bin.\n\nFor all fairness tests, we simulate models with random behaviour by generating random values and use their test results as reference for setting test thresholds. The motivation behind this approach is that a model that just samples values from a distribution has no bias towards certain groups. However, when the number of samples in the test set is small, the change in prediction for a protected group has a higher chance of being high, even for a random model. Thus, we simulate potential test outcomes for random models under different conditions. For regression tasks, we generate random model samples from a truncated Gaussian distribution with values between 0 and 1, a mean value of 0.5, and a standard deviation of 1  6 . For categories, our random model samples from a uniform categorical distribution with four categories. For test metrics where the ground truth values are taken into consideration, we also generate the ground truth values randomly by sampling values from a truncated Gaussian distribution for continuous values. For categories, we consider both a uniformly distributed ground truth, as well as a sparsely distributed ground truth (with class probabilities (0.05, 0.05, 0.3, 0.6)). Each simulation is repeated 1000 times and we use the maximum difference in prediction for a protected group as a reference value for our test threshold. The simulation results are shown for the difference in mean value as test metric in Fig.  1 . For example, if we have a test dataset with 3 protected groups and at least 600 samples per group, we can see that the maximum difference in mean value is below 0.025, and we can use this value as a threshold when applying the test on this dataset. For certain test sets, we encountered the issue that the distribution of the ground truth for certain groups varies considerably from the distribution of other groups. The maximum difference in prediction in the simulation increases when the ground truth labels show a bias for a particular group. In order to avoid this, we balance the test sets by selecting 1000 samples from the group with the fewest samples, and 1000 samples from each other group with similar truth values. For regression tasks, this may result in certain bins having very few samples. In these cases, we decided to skip bins with too few samples. Specifically, we set the minimum number of samples n bin to the expected number of samples in the first bin for a Gaussian distribution with a mean of 0.5 and a standard deviation of\n\nwhere n is the total number of samples, and the random variable X follows the aforementioned distribution. We take the same approach for the tests with unlabelled test sets in the case that a model has very few predictions in a certain bin for the combined test set. With this, we avoid that a change in prediction of only one sample in a certain bin for one group could result in a large difference in the test metric. This approach of setting thresholds for fairness test metrics can also be applied to other tasks by adjusting the distribution the random predictions are sampled from (e. g., using a uniform categorical distribution for 5 classes instead of 4 classes).\n\nTable  III  gives an overview of the discussed fairness tests, and also lists the applied test sets and passing conditions. All fairness thresholds are based on the previously described simulations with random models and depend on the number of protected groups in the used test, the number of samples per group, as well as whether the test data is distributed sparsely in case of categories. For some test sets certain regression bins may have fewer samples than expected for our assumption of a Gaussian distribution with a mean of 0.5 and a standard deviation of 1  6 of the ground truth in labelled sets, and of the prediction in unlabelled sets. Therefore, we also list the minimum number of samples per bin n bin (see Eq. 4) in parentheses behind the respective metrics. When possible, test sets with a large number of samples per protected group should be used, as the tests can lead to more meaningful conclusions. For instance, for the Fairness Accent tests, the thresholds are based on simulations with a random uniform categorical and random Gaussian model for 30 fairness groups and only 60 samples per group, and are thus relatively high. For all other tests, we can base our thresholds on simulations with at least 1000 samples per group. Note that for the Fairness Language tests, we increased the calculated thresholds slightly to accommodate for potential variations of the content and recording context across different languages in the database. The number of fairness tests are 348 for arousal, 352 for dominance, 344 for valence, and 307 for categorical emotions. In the following paragraphs, we provide additional information to the single tests, besides what is shown in Table  III .\n\nThe Fairness Accent tests use randomly selected samples from the speech accent archive  [44] , which contains more than 2000 speech samples from speakers of different nationalities and native languages. All speakers read the same paragraph in English, lasting a little over 3 minutes per recording for most cases. We use the recordings from 5 female and 5 male speakers for each accent (including native English). We compare the predictions of each of 31 accents to the predictions of the combined data.\n\nIn the Fairness Language tests we use 2000 randomly selected samples from Mozilla Common Voice  [45]  for each of the languages German, English, Spanish, French, Italian, and Mandarin Chinese. The prediction of each individual language is compared to the combined data.\n\nIt has been shown that pre-trained transformer models can use linguistic information to improve their predictions  [14] . The Fairness Linguistic Sentiment tests investigate the effect of linguistic content for different types of languages. If the textual content does have an influence on the model predictions, it should have the same influence for each language on a fair model. To this end, we follow Triantafyllopoulos et al.  [14]  and employ CHECKLIST  [46] , a toolkit for generating automatic tests for natural language processing (NLP) models, including sentiment models. We expand on this by not only synthesising the English sentiment testing suite, but also generating translated versions of the test sentences for the languages German, English, Spanish, French, Italian, Japanese, Portuguese, and Mandarin Chinese. We use an OPUS-MT  [47]  model 1 for translation of Mandarin Chinese and ARGOS TRANSLATE  [48]  for all other languages, followed by manual editing to correct obvious translation errors. For the synthesis of each language, a publicly available text-to-1 https://huggingface.co/Helsinki-NLP/opus-mt-en-zh, accessed 2023/12/04 speech model using both the libraries COQUI TTS  [49]  and ESPNET  [50] , version 0.10.6, generated the audio samples corresponding to the text. We investigate the tests for negative, neutral, and positive words in context. Up to 2000 random samples are selected for each test and each language. The prediction of the combined data is then compared to the prediction for each individual language. In this test, we only measure the influence of text sentiment for different languages rather than general language biases, which are addressed in the Fairness Language tests. Therefore, we compare the shift in prediction when filtering the samples for a specific sentiment. We denote all samples with sentiment s and language l as X l,s , and all combined samples of language l as X l . We compute the difference between the shift in prediction for a certain sentiment and language and the average of the shifts in prediction for that sentiment for all languages l i ,\n\nBy subtracting the average shift in prediction for a certain sentiment, we allow for both models that are not affected by sentiment at all and models that are affected by sentiment equally across all languages to pass the tests. For categorical emotion prediction, we compute the shift in class proportion, for negative, neutral, and positive sentiment. For each class label c, a fair model's behaviour in terms of class proportion shift for one sentiment in one language should be similar to the average behaviour observed across all languages. This is tested by inserting the function shift c , which is defined as\n\nin Eq. 5. shift c computes the proportion of samples that were predicted as class c among all samples with language l and sentiment s and subtracts the proportion of samples predicted as class c among all samples of language l (including all sentiments). We apply the same function for dimensional emotion values, by binning the model outputs and treating the four bins as classes c. We then compute the difference in bin proportion shift analogously to the difference in class proportion shift. Additionally, we consider the shift in terms of mean value for negative, neutral, and positive sentiment. Specifically, we insert the following function shift mean in Eq. 5:\n\nshift mean (X l,s ) =mean(prediction(X l,s )) mean(prediction(X l )).\n\nWe thus compute the difference between the shift in mean value for one language and the average shift in mean value across all languages.\n\nThe Fairness Pitch tests address the different levels of average pitch a speaker can have. Pitch is known to be correlated with emotion, for instance, it has been observed that a higher pitch leads to higher arousal  [13] . An SER model might use this correlation as a shortcut in its deductions, leading to a disparate treatment of speakers in certain pitch ranges. Consequently, we check the model behaviour for speakers of different average pitch groups on data with ground truth emotion labels and exclude speakers with fewer than 25 samples. For both categories and dimensions, we use the MSP-Podcast test set 1. We extract F0 frame-wise with PRAAT  [51]  and calculate a mean value for each segment, ignoring frames with a pitch value of 0 Hz. We exclude segments from the analysis that show an F0 below 50 Hz or above 350 Hz to avoid pitch estimation outliers to influence the tests. We then compute the average of all samples belonging to a speaker, and assign one of 3 pitch groups to that speaker. The low pitch group is assigned to speakers with an average pitch less than or equal to 145 Hz, the medium pitch group to speakers with an average pitch of more than 145 Hz but less than or equal to 190 Hz, and the high pitch group to speakers with an average pitch higher than 190 Hz. We compute the performance of each pitch group and compare it to the performance of the combined dataset.\n\nFor the Fairness Sex tests, we select test sets that have been labelled for the emotion task as well as for sex and compute the difference to the performance of the combined dataset.",
+      "page_start": 4,
+      "page_end": 7
+    },
+    {
+      "section_name": "D. Robustness Tests",
+      "text": "A robust machine learning model is resilient when facing perturbations in the input data. Robustness can be evaluated by analysing how much the model predictions are affected by changes such as noise. The subcategory of adversarial robustness specifically deals with perturbations that are designed to be hard to detect and change the model's prediction (adversarial examples)  [52] . We focus on applying perturbations that are likely to occur for non-malicious application scenarios rather than adversarial attacks.\n\nWhen ground truth labels are available, one way to evaluate robustness is to check the difference in correctness with and without added noise  [5] . For regression, we check the difference in CCC and for classification the difference in UAR. Another evaluation metric is to consider how often a perturbation changes the output, which is presented as adversarial frequency in Bastani et al.  [53] . We base our metric percentage of unchanged predictions on this concept. For classification, the percentage of unchanged predictions is simply the percentage of samples where the class label prediction does not change from the clean audio to the audio with perturbation. It is not as straightforward to define what counts as an unchanged prediction for continuous values. For our tests, we set a threshold of 0.05, i. e., two predictions are considered to be unchanged if their absolute difference is below 0.05. This metric can be used for labelled as well as for unlabelled datasets.\n\nTable  IV  gives an overview of the discussed robustness tests, their test sets, and suggested passing conditions if a binary test result is desired. As with the correctness tests, the thresholds for the passing conditions are application dependent, and the thresholds in the table are only an example to show how the test results can be summarised into a percentage of passed tests. The number of robustness tests are 64 each for arousal, dominance, and valence, and 148 for categorical emotions. In the following paragraphs, we provide additional information to the single tests, besides what is shown in Table  IV .\n\nSER models have been shown to be affected by background noises although the human perception of the emotion remains the same  [13] . The Robustness Background Noise tests investigate the robustness for various types of background noises. We simulate babble noise by mixing 4-7 speech samples from Music, Speech, and Noise Corpus (MUSAN)  [54]  and adding them with a signal-to-noise ratio (SNR) of 20 dB. MUSAN also contains technical and ambient sounds, as well as a music, from which one sample is added with an SNR of 20 dB for simulating environmental noise and music, respectively. We also check the effect of human coughing and sneezing sounds with samples collected by Amiriparian et al.  [55]  by adding a single cough or sneeze at a random position with an SNR of 10 dB. For artificial noise, we add white noise with an SNR of 20 dB.\n\nThe Robustness Low Quality Phone tests specifically target applications with audio from a low quality telephone connection. These types of recordings usually display a stronger compression, coding artifacts, and may show low pass behaviour. We mimic this by applying a dynamic range compressor, a lossy (narrow band) adaptive multi-rate (AMR) codec, and high pass filtered pink noise.\n\nDatabases such as the Singapore English National Speech Corpus (NSC)  [56]  contain multiple samples of the same audio recorded simultaneously with different recording devices. We use this data in the Robustness Recording Condition tests and compare the predictions of the baseline recording device to the predictions of audio from alternative devices. In the case of the NSC dataset, we randomly select 5000 samples from the headset recordings and compare them to their respective recordings using the boundary microphone, as well as to Another option to evaluate robustness for different recording conditions is to simulate them. The Robustness Simulated Recording Condition tests simulate audio recordings at different locations using impulse responses from the Multichannel Acoustic Reverberation Database at York (MARDY)  [57]  dataset, and different rooms using impulse responses from the Aachen Impulse Response (AIR)  [58]  dataset. We use the impulse response in the centre position at 1 meter distance as the baseline to test robustness to other positions. For the room test, we use the impulse response of a recording booth as reference and compare to impulse responses of other rooms recorded at similar distances as the reference. We apply the impulse responses to Italian Emotional Speech Database (EMOVO), to 5000 randomly selected headset recordings from the NSC dataset, and to 5000 randomly selected samples from the TIMIT Acoustic-Phonetic Continuous Speech Corpus (TIMIT)  [59] , which contains broadband recordings of 630 speakers reading ten sentences in American English. We select those three datasets as they provide dry speech recordings with a high SNR. Then, we measure the percentage of unchanged predictions.\n\nThe Robustness Small Changes tests apply very small transformations to the audio that were designed to be perceived as subtle to a person. Each of the small augmentations described in the following is compared to the baseline. The Additive Tone test adds a sinusoid with a randomly selected frequency between 5000 Hz and 7000 Hz with an SNR of 40 dB, 45 db, or 50 dB. The Append Zeros and Prepend Zeros tests add 100, 500, or 1000 samples containing zeros to the end of the signal, or respectively the beginning of the signal. The Clip test clips 0.1%, 0.2%, or 0.3% of the input sample. The Crop Beginning and Crop End tests remove 100, 500, or 1000 samples from the beginning or end of the signal respectively. The Gain test changes the gain of the signal by a value randomly selected from -2 dB, -1 dB, 1 dB, and The Robustness Spectral Tilt tests simulate the boosting of low or high frequencies in the spectrum. We simulate such spectral tilts by attenuating or emphasising the signal linearly, while ensuring that the overall signal level stays the same if possible without clipping.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Iii. Models",
+      "text": "Table V lists the eleven tested models, summarising their size in parameters, hours of speech and languages included during pre-training. The wavlm model  [19]  has 24 transformer layers, and was pre-trained on English data (Libri-Light  [60] , 10 k hour subset of GigaSpeech  [61] , 24 k hours English subset of VoxPopuli  [62] ). The data2vec model  [20]  consists of 24 transformer layers, and was pre-trained on English data (LibriSpeech corpus  [63] ). We further test all models trained by Wagner et al.  [64] , namely a 14-layer Convolutional Neural Network (CNN14), which was not pretrained; four models based on the HuBERT  [17]  and wav2vec 2.0  [18]  architectures, each pre-trained on English audiobooks, using 12 transformer layers (hubert-b and w2v2-b), or 24 transformer layers (hubert-L and w2v2-L), where hubert-L has been pre-trained on the Libri-Light corpus  [60]  and the other three have been pre-trained on the LibriSpeech corpus  [63] ; w2v2-L-robust, a model identical to w2v2-L, but instead pretrained on English recordings of audiobooks (Libri-Light  [60] ), Wikipedia sentences (Common Voice  [45] ), and telephone speech (Switchboard  [65]  and Fisher  [66] ); w2v2-L-vox, a model identical to w2v2-L but instead pre-trained on parliamentary speech in multiple languages (VoxPopuli  [62] ); and w2v2-L-xls-r, a model identical to w2v2-L but instead pre-trained on more than 400 k hours across all domains and multiple languages (VoxPopuli  [62] , MLS  [67] , Common Voice  [45] , VoxLingua107  [68] , and BABEL  [69] ). We test the axlstm model  [70]  as an alternative to transformer based models. We use the axlstm base model, which has 44 M parameters and was pre-trained on 5 k hours of different audio data from AudioSet  [71] , including 3 k of speech.\n\nWe fine-tuned all models on the MSP-Podcast corpus (v1.7)  [32]  with the multitask of arousal, dominance, and valence. For each, we also train a categorical counterpart with the four classes anger, happiness, neutral, and sadness. We start with the same pre-trained models and fine-tune them on the same MSP-Podcast data, but use the categorical labels as targets instead. All transformer based models are fine-tuned using a single random seed, the ADAM optimiser with CCC loss for dimensions and with weighted cross-entropy loss for categories. The learning rate is fixed to 1e -4 for all models except for data2vec and w2v2-L (categorical), which failed to learn with that learning rate, and are thus trained with a learning rate of 5e -5. We run for 5 epochs with an effective batch size of 32 and keep the checkpoint with the best performance on the development set. During fine-tuning, we freeze the CNN layers but fine-tune the transformer ones. An exception is wavlm, which we did not fine-tune ourselves but used the model fine-tuned on MSP-Podcast (v1.11)  [32]  with attentive statistics pooling from the MSP-Podcast challenge 2024  [72] , whereas for categorical emotions, we ignore the classes surprise, fear, disgust, and contempt. The CNN14  [73]  model is trained for 60 epochs with a learning rate of 1e -3, a batch size of 16, and for 5 random seeds. For the axlstm model, we follow the fine-tuning approach in  [70]  and freeze the whole pre-trained model, and use its fixed sized feature vectors to train a single hidden layer MLP classifier with 1024 wavlm passes the most tests for all tasks. All models pretrained on speech are ranked before the CNN14 baseline and the axlstm model, pre-trained on AudioSet.\n\nDetailed results with additional plots are available under https://audeering.github.io/ser-tests/. In the following subsections, we focus on a few interesting results.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "A. Correctness",
+      "text": "The test results for correctness indicate that the valence task is much harder for the models (see Figure  2 ). For arousal and dominance, a model passes on average 66% and 61% of the Correctness Regression tests, for valence the average is only 13%.\n\nFigure  2  shows a significant difference between Correctness Speaker Average and Correctness Speaker Rating tests for the valence task only. Upon closer inspection of the test data, this seems to be due to the fact that the ground truth speaker averages lie more closely together for valence than for the other tasks.\n\nThe Correctness Consistency tests estimate how well the models' arousal, dominance, and valence predictions fit for a sample with an assigned emotional category as ground truth. w2v2-L, w2v2-L-vox, w2v2-L-xls-r, and wavlm are the most consistent. hubert-L and w2v2-L-robust pass a similar number of tests for arousal and dominance, but are less consistent for valence, where they tend to predict the same valence value independent of the underlying categorical emotion. Results for hubert-L are shown in Figure  3 .",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B. Fairness",
+      "text": "All models pass at least 88% of the fairness tests for any task. The models passing the most tests are w2v2-L-vox, w2v2-L-vox and axlstm are the models least influenced by linguistic sentiment, both passing 99.4% of the Fairness Linguistic Sentiment tests. hubert-b, w2v2-b, hubert-L, w2v2-Lrobust, wavlm, and data2vec clearly show a strong influence by sentiment when predicting valence and categorical emotion for English. A positive sentiment leads to higher valence values, a higher number of happiness and a reduced number of sadness predictions, and vice versa. Interestingly, the same trend is observable with w2v2-L-robust, hubert-L, and data2vec for arousal and dominance as well.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "C. Robustness",
+      "text": "The robustness tests roughly group the models in three classes. w2v2-L-robust, wavlm, w2v2-L-vox, and hubert-L are more robust than all other models, CNN14 and axlstm are less robust than all other models, and the remaining models pass a similar number of robustness tests. data2vec is close to the first group and shows highest robustness for valence, but does not achieve a similar performance for arousal, dominance, and emotional categories. When comparing the models data2vec, w2v2-L, hubert-b, w2v2-b, which are all pre-trained on the same dataset, we see that larger models are more robust than smaller models.\n\nMost of the models fail more than 50% of all Robustness Background Noise tests, and are mainly affected by coughing, sneezing, and white noise. When adding sneezing or coughing sounds to the input signal when predicting emotional categories, the predictions of the models shifts towards the happiness class, see Figure  4  for results for hubert-L, indicating that coughing and sneezing might be confused with laughter by the models.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "V. Discussion",
+      "text": "Machine learning models for the speech emotion recognition tasks are usually benchmarked based on their performance in terms of CCC for dimensional tasks or UAR for categorical    Looking at the overall number of passed tests, wavlm is again placed at the top of the rankings. Triantafyllopoulos et al.  [14]  showed that some of the success in predicting valence can be attributed to the linguistic knowledge encoded in the self-attention layers of transformer based models. The results for the correctness tests for valence (Table  VI ) and the CCC values for valence (Table  VII ) indicate that wavlm, w2v2-L-robust, hubert-L, and data2vec are showing the best performance and hence might rely more on linguistic content. This hypothesis can be checked by evaluating how valence is influenced by the sentiment of the spoken text. This is measured as part of the Fairness Linguistic Sentiment test, which synthesises neutrally spoken words/sentences with negative, neutral, or positive sentiment. Table VIII lists the shift in average predicted valence for the different sentiment conditions for English. wavlm, hubert-L, data2vec, and w2v2-L-robust, are the models that show the largest shift towards lower valence for negative sentiment and towards higher valence for positive sentiment. Whereas the models w2v2-L, w2v2-L-xls-r, and w2v2-L-vox show no, or only a small shift. The results indicate that the best performing models for valence do indeed take sentiment into account. What seems to reduce the ability to learn linguistic information is the inclusion of different languages in the training data as is the case for w2v2-L-xls-r which was trained on ∼ 7 times the amount of data than w2v2-L-robust, but includes several different languages. Interestingly, w2v2-L did not learn to take sentiment into account, even though it was trained only on English data, and the results for w2v2-L-robust show that the w2v2 architecture is able to learn sentiment.\n\nThe average test results indicate a 19% lower robustness for w2v2-L-xls-r compared to w2v2-L-vox. While both models include VoxPopuli  [62]  in the pre-training data, w2v2-L-xlsr also includes other datasets, such as BABEL  [69] , which contains 17 African and Asian languages and which is the only dataset in the pre-training with telephone speech. This imbalance in recording conditions between languages may have led to a decrease in robustness for w2v2-L-xls-r. Whereas for w2v2-L-robust, a model with only English pre-training data, the datasets containing telephone speech seem to have helped it reach the highest number of passed robustness tests.\n\nAn advantage of tests in addition to benchmarks is that they are better at characterising model behaviour, and allow the exclusion of a model from application until it passes certain tests that might be critical for the application. Even though w2v2-L-robust is the best model regarding robustness, it fails several robustness tests, that add background noise or use different recording conditions. Hence, it might not be suited for real world applications without further augmentations during pre-training, fine-tuning, or knowledge distillation  [74] .",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Vi. Conclusion",
+      "text": "We proposed a large set of 2,029 different tests to judge the behaviour of speech emotion recognition models in terms of correctness, fairness, and robustness on the tasks of predicting arousal, dominance, valence, and categorical emotions like anger. The tests allow to request a certain amount of correctness or robustness depending on the desired application of the models. We further provided an approach to estimate test thresholds automatically for testing model fairness.\n\nWhen applying the test suite to a selection of eleven models all trained on MSP-Podcast, the results show that the number of overall passed tests of the models relates to rankings on classical speech emotion recognition benchmarks based on CCC and UAR, but also shows important differences and highlights potential shortcuts a model might take. For example, the four best performing models in terms of accuracy, were relying on sentiment of the spoken English text to boost their valence results. Whereas the model, that topped the test ranking, showed lower correctness for valence.\n\nThe test results also show that most models have slight biases for language, and that they are not robust enough for applications that involve different microphones or background noise. Hence, the tests directly indicate how to further improve those models.",
+      "page_start": 12,
+      "page_end": 12
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: For example, if we have a",
+      "page": 5
+    },
+    {
+      "caption": "Figure 1: Maximum difference in mean value among 1000 simulations with a",
+      "page": 5
+    },
+    {
+      "caption": "Figure 2: Percentage of passed tests averaged over all models presented",
+      "page": 10
+    },
+    {
+      "caption": "Figure 2: ). For arousal and",
+      "page": 10
+    },
+    {
+      "caption": "Figure 2: shows a significant difference between Correctness",
+      "page": 10
+    },
+    {
+      "caption": "Figure 3: B. Fairness",
+      "page": 10
+    },
+    {
+      "caption": "Figure 4: for results for hubert-L, indicating",
+      "page": 10
+    },
+    {
+      "caption": "Figure 3: Predictions of hubert-L for arousal (left), dominance (centre), valence (right) on the RAVDESS test set, split by the categorical emotions the samples",
+      "page": 11
+    },
+    {
+      "caption": "Figure 4: Confusion matrices for the prediction of emotional categories by hubert-L on the clean MSP-Podcast test set 1 comparing to the MSP-Podcast test",
+      "page": 11
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "Number o",
+          "f groups": "f groups",
+          "Column_9": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "f groups": "2\n3",
+          "Column_9": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "f groups": "6\n8",
+          "Column_9": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "f groups": "20\n30",
+          "Column_9": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "",
+          "Column_9": "",
+          "Column_10": "",
+          "Column_11": "ce",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "",
+          "Column_16": "",
+          "Column_17": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "a\nd",
+          "Column_9": "rou\nomi",
+          "Column_10": "sal\nnan",
+          "Column_11": "",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "",
+          "Column_16": "",
+          "Column_17": ""
+        },
+        {
+          "Column_1": "",
+          "Column_2": "",
+          "Column_3": "",
+          "Column_4": "",
+          "Column_5": "",
+          "Column_6": "",
+          "Column_7": "",
+          "Column_8": "v",
+          "Column_9": "alen",
+          "Column_10": "ce",
+          "Column_11": "",
+          "Column_12": "",
+          "Column_13": "",
+          "Column_14": "",
+          "Column_15": "",
+          "Column_16": "",
+          "Column_17": ""
+        }
+      ],
+      "page": 10
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "74%\n(742)": "1%\n(40)",
+          "24%\n(241)": "98%\n(2.7k)",
+          "2%\n(17)": "1%\n(23)",
+          "1%\n(7)": "0%\n(5)"
+        },
+        {
+          "74%\n(742)": "2%\n(72)",
+          "24%\n(241)": "37%\n(1.3k)",
+          "2%\n(17)": "60%\n(2.1k)",
+          "1%\n(7)": "1%\n(33)"
+        },
+        {
+          "74%\n(742)": "3%\n(25)",
+          "24%\n(241)": "36%\n(340)",
+          "2%\n(17)": "13%\n(119)",
+          "1%\n(7)": "49%\n(460)"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "77%\n(774)": "2%\n(56)",
+          "22%\n(218)": "96%\n(2.7k)",
+          "1%\n(11)": "1%\n(30)",
+          "0%\n(4)": "0%\n(12)"
+        },
+        {
+          "77%\n(774)": "4%\n(127)",
+          "22%\n(218)": "34%\n(1.2k)",
+          "1%\n(11)": "61%\n(2.1k)",
+          "0%\n(4)": "1%\n(51)"
+        },
+        {
+          "77%\n(774)": "4%\n(39)",
+          "22%\n(218)": "32%\n(301)",
+          "1%\n(11)": "13%\n(120)",
+          "0%\n(4)": "51%\n(484)"
+        }
+      ],
+      "page": 11
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "66%\n(666)": "1%\n(32)",
+          "6%\n(60)": "79%\n(2.2k)",
+          "18%\n(184)": "15%\n(410)",
+          "10%\n(97)": "5%\n(143)"
+        },
+        {
+          "66%\n(666)": "0%\n(2)",
+          "6%\n(60)": "0%\n(12)",
+          "18%\n(184)": "95%\n(3.3k)",
+          "10%\n(97)": "5%\n(172)"
+        },
+        {
+          "66%\n(666)": "0%\n(4)",
+          "6%\n(60)": "0%\n(4)",
+          "18%\n(184)": "7%\n(68)",
+          "10%\n(97)": "92%\n(868)"
+        }
+      ],
+      "page": 11
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Scientific machine learning benchmarks",
+      "authors": [
+        "J Thiyagalingam",
+        "M Shankar",
+        "G Fox",
+        "T Hey"
+      ],
+      "year": "2022",
+      "venue": "Nature Reviews Physics"
+    },
+    {
+      "citation_id": "2",
+      "title": "Underspecification presents challenges for credibility in modern machine learning",
+      "authors": [
+        "A D'amour"
+      ],
+      "year": "2022",
+      "venue": "Journal of Machine Learning Research"
+    },
+    {
+      "citation_id": "3",
+      "title": "On the opportunities and risks of foundation models",
+      "authors": [
+        "R Bommasani",
+        "D Hudson",
+        "E Adeli",
+        "R Altman",
+        "S Arora",
+        "S Arx",
+        "M Bernstein",
+        "J Bohg",
+        "A Bosselut",
+        "E Brunskill"
+      ],
+      "year": "2021",
+      "venue": "On the opportunities and risks of foundation models",
+      "arxiv": "arXiv:2108.07258"
+    },
+    {
+      "citation_id": "4",
+      "title": "Model cards for model reporting",
+      "authors": [
+        "M Mitchell",
+        "S Wu",
+        "A Zaldivar",
+        "P Barnes",
+        "L Vasserman",
+        "B Hutchinson",
+        "E Spitzer",
+        "I Raji",
+        "T Gebru"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the Conference on Fairness, Accountability, and Transparency",
+      "doi": "10.1145/3287560.3287596"
+    },
+    {
+      "citation_id": "5",
+      "title": "Machine learning testing: Survey, landscapes and horizons",
+      "authors": [
+        "J Zhang",
+        "M Harman",
+        "L Ma",
+        "Y Liu"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Software Engineering",
+      "doi": "10.1109/TSE.2019.2962027"
+    },
+    {
+      "citation_id": "6",
+      "title": "Introduction to software testing",
+      "authors": [
+        "P Ammann",
+        "J Offutt"
+      ],
+      "year": "2016",
+      "venue": "Introduction to software testing"
+    },
+    {
+      "citation_id": "7",
+      "title": "An approach to software testing of machine learning applications",
+      "authors": [
+        "C Murphy",
+        "G Kaiser",
+        "M Arias"
+      ],
+      "year": "2007",
+      "venue": "Proceedings of the Nineteenth International Conference on Software Engineering & Knowledge Engineering (SEKE)"
+    },
+    {
+      "citation_id": "8",
+      "title": "Deeptest: Automated testing of deep-neural-network-driven autonomous cars",
+      "authors": [
+        "Y Tian",
+        "K Pei",
+        "S Jana",
+        "B Ray"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 40th international conference on software engineering"
+    },
+    {
+      "citation_id": "9",
+      "title": "Beyond accuracy: Behavioral testing of nlp models with checklist",
+      "authors": [
+        "M Ribeiro",
+        "T Wu",
+        "C Guestrin",
+        "S Singh"
+      ],
+      "year": "2020",
+      "venue": "Beyond accuracy: Behavioral testing of nlp models with checklist"
+    },
+    {
+      "citation_id": "10",
+      "title": "Deepbillboard: Systematic physical-world testing of autonomous driving systems",
+      "authors": [
+        "H Zhou",
+        "W Li",
+        "Z Kong",
+        "J Guo",
+        "Y Zhang",
+        "B Yu",
+        "L Zhang",
+        "C Liu"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the ACM/IEEE 42nd International Conference on Software Engineering"
+    },
+    {
+      "citation_id": "11",
+      "title": "Affective and behavioural computing: Lessons learnt from the first computational paralinguistics challenge",
+      "authors": [
+        "B Schuller",
+        "F Weninger",
+        "Y Zhang",
+        "F Ringeval",
+        "A Batliner",
+        "S Steidl",
+        "F Eyben",
+        "E Marchi",
+        "A Vinciarelli",
+        "K Scherer"
+      ],
+      "year": "2019",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "12",
+      "title": "Serab: A multi-lingual benchmark for speech emotion recognition",
+      "authors": [
+        "N Scheidwasser-Clow",
+        "M Kegler",
+        "P Beckmann",
+        "M Cernak"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022 -2022 IEEE International Conference on Acoustics, Speech and Signal Processing",
+      "doi": "10.1109/ICASSP43922.2022.9747348"
+    },
+    {
+      "citation_id": "13",
+      "title": "Best practices for noise-based augmentation to improve the performance of emotion recognition \"in the wild",
+      "authors": [
+        "E Provost"
+      ],
+      "year": "2021",
+      "venue": "Best practices for noise-based augmentation to improve the performance of emotion recognition \"in the wild",
+      "arxiv": "arXiv:2104.08806"
+    },
+    {
+      "citation_id": "14",
+      "title": "Probing speech emotion recognition transformers for linguistic knowledge",
+      "authors": [
+        "A Triantafyllopoulos",
+        "J Wagner",
+        "H Wierstorf",
+        "M Schmitt",
+        "U Reichel",
+        "F Eyben",
+        "F Burkhardt",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Interspeech 2022",
+      "doi": "10.21437/interspeech.2022-10371"
+    },
+    {
+      "citation_id": "15",
+      "title": "Bias and fairness on multimodal emotion detection algorithms",
+      "authors": [
+        "M Schmitz",
+        "R Ahmed",
+        "J Cao"
+      ],
+      "year": "2022",
+      "venue": "Bias and fairness on multimodal emotion detection algorithms",
+      "arxiv": "arXiv:2205.08383"
+    },
+    {
+      "citation_id": "16",
+      "title": "Ai fairness 360: An extensible toolkit for detecting, understanding, and mitigating unwanted algorithmic bias",
+      "authors": [
+        "R Bellamy",
+        "K Dey",
+        "M Hind",
+        "S Hoffman",
+        "S Houde",
+        "K Kannan",
+        "P Lohia",
+        "J Martino",
+        "S Mehta",
+        "A Mojsilovic"
+      ],
+      "year": "2018",
+      "venue": "Ai fairness 360: An extensible toolkit for detecting, understanding, and mitigating unwanted algorithmic bias",
+      "arxiv": "arXiv:1810.01943"
+    },
+    {
+      "citation_id": "17",
+      "title": "Hubert: Self-supervised speech representation learning by masked prediction of hidden units",
+      "authors": [
+        "W.-N Hsu",
+        "B Bolte",
+        "Y.-H Tsai",
+        "K Lakhotia",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "18",
+      "title": "Wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems (NeurIPS)"
+    },
+    {
+      "citation_id": "19",
+      "title": "Wavlm: Large-scale self-supervised pretraining for full stack speech processing",
+      "authors": [
+        "S Chen",
+        "C Wang",
+        "Z Chen",
+        "Y Wu",
+        "S Liu",
+        "Z Chen",
+        "J Li",
+        "N Kanda",
+        "T Yoshioka",
+        "X Xiao"
+      ],
+      "year": "2022",
+      "venue": "IEEE Journal of Selected Topics in Signal Processing"
+    },
+    {
+      "citation_id": "20",
+      "title": "Data2vec: A general framework for self-supervised learning in speech, vision and language",
+      "authors": [
+        "A Baevski",
+        "W.-N Hsu",
+        "Q Xu",
+        "A Babu",
+        "J Gu",
+        "M Auli"
+      ],
+      "year": "2022",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "21",
+      "title": "Xlstm: Extended long short-term memory",
+      "authors": [
+        "M Beck",
+        "K Pöppel",
+        "M Spanring",
+        "A Auer",
+        "O Prudnikova",
+        "M Kopp",
+        "G Klambauer",
+        "J Brandstetter",
+        "S Hochreiter"
+      ],
+      "year": "2024",
+      "venue": "Xlstm: Extended long short-term memory",
+      "arxiv": "arXiv:2405.04517"
+    },
+    {
+      "citation_id": "22",
+      "title": "Fast yet effective speech emotion recognition with self-distillation",
+      "authors": [
+        "Z Ren",
+        "T Nguyen",
+        "Y Chang",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Fast yet effective speech emotion recognition with self-distillation",
+      "arxiv": "arXiv:2210.14636"
+    },
+    {
+      "citation_id": "23",
+      "title": "Towards testing of deep learning systems with training set reduction",
+      "authors": [
+        "H Spieker",
+        "A Gotlieb"
+      ],
+      "year": "2019",
+      "venue": "Towards testing of deep learning systems with training set reduction",
+      "arxiv": "arXiv:1901.04169"
+    },
+    {
+      "citation_id": "24",
+      "title": "Crema-d: Crowd-sourced emotional multimodal actors dataset",
+      "authors": [
+        "H Cao",
+        "D Cooper",
+        "M Keutmann",
+        "R Gur",
+        "A Nenkova",
+        "R Verma"
+      ],
+      "year": "2014",
+      "venue": "IEEE transactions on affective computing"
+    },
+    {
+      "citation_id": "25",
+      "title": "Test splits for crema-d, emodb, iemocap, meld, ravdess",
+      "authors": [
+        "H Wierstorf",
+        "A Derington"
+      ],
+      "year": "2023",
+      "venue": "Test splits for crema-d, emodb, iemocap, meld, ravdess",
+      "doi": "10.5281/zenodo.10229583"
+    },
+    {
+      "citation_id": "26",
+      "title": "Design, recording and verification of a danish emotional speech database",
+      "authors": [
+        "I Engberg",
+        "A Hansen",
+        "O Andersen",
+        "P Dalsgaard"
+      ],
+      "year": "1997",
+      "venue": "Proc. 5th European Conference on Speech Communication and Technology",
+      "doi": "10.21437/Eurospeech.1997-482"
+    },
+    {
+      "citation_id": "27",
+      "title": "A database of German emotional speech",
+      "authors": [
+        "F Burkhardt",
+        "A Paeschke",
+        "M Rolfes",
+        "W Sendlmeier",
+        "B Weiss"
+      ],
+      "year": "2005",
+      "venue": "Proceedings of the Annual Conference of the International Speech Communication Association (INTERSPEECH)"
+    },
+    {
+      "citation_id": "28",
+      "title": "Emovo corpus: An italian emotional speech database",
+      "authors": [
+        "G Costantini",
+        "I Iaderola",
+        "A Paoloni",
+        "M Todisco"
+      ],
+      "year": "2014",
+      "venue": "Proceedings of the ninth international conference on language resources and evaluation (LREC'14)"
+    },
+    {
+      "citation_id": "29",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "30",
+      "title": "Meld: A multimodal multi-party dataset for emotion recognition in conversations",
+      "authors": [
+        "S Poria",
+        "D Hazarika",
+        "N Majumder",
+        "G Naik",
+        "E Cambria",
+        "R Mihalcea"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "31",
+      "title": "Emotionlines: An emotion corpus of multi-party conversations",
+      "authors": [
+        "C.-C Hsu",
+        "S.-Y Chen",
+        "C.-C Kuo",
+        "T.-H Huang",
+        "L.-W Ku"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the Eleventh International Conference on Language Resources and Evaluation (LREC 2018)"
+    },
+    {
+      "citation_id": "32",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "33",
+      "title": "Polish emotional speech database",
+      "year": "2020",
+      "venue": "Polish emotional speech database"
+    },
+    {
+      "citation_id": "34",
+      "title": "The ryerson audio-visual database of emotional speech and song (ravdess): A dynamic, multimodal set of facial and vocal expressions in north american english",
+      "authors": [
+        "S Livingstone",
+        "F Russo"
+      ],
+      "year": "2018",
+      "venue": "PloS one"
+    },
+    {
+      "citation_id": "35",
+      "title": "The world of emotions is not two-dimensional",
+      "authors": [
+        "J Fontaine",
+        "K Scherer",
+        "E Roesch",
+        "P Ellsworth"
+      ],
+      "year": "2007",
+      "venue": "Psychological Science",
+      "doi": "10.1111/j.1467-9280.2007.02024.x"
+    },
+    {
+      "citation_id": "36",
+      "title": "Mapping emotion terms into affective space",
+      "authors": [
+        "C Gillioz",
+        "J Fontaine",
+        "C Soriano",
+        "K Scherer"
+      ],
+      "year": "2016",
+      "venue": "Swiss Journal of Psychology"
+    },
+    {
+      "citation_id": "37",
+      "title": "Mapping discrete emotions into the dimensional space: An empirical approach",
+      "authors": [
+        "H Hoffmann",
+        "A Scheck",
+        "T Schuster",
+        "S Walter",
+        "K Limbrecht",
+        "H Traue",
+        "H Kessler"
+      ],
+      "year": "2012",
+      "venue": "2012 IEEE International Conference on Systems, Man, and Cybernetics"
+    },
+    {
+      "citation_id": "38",
+      "title": "Affect representation and recognition in 3d continuous valence-arousal-dominance space",
+      "authors": [
+        "G Verma",
+        "U Tiwary"
+      ],
+      "year": "2017",
+      "venue": "Multimedia Tools and Applications"
+    },
+    {
+      "citation_id": "39",
+      "title": "A new metric for probability distributions",
+      "authors": [
+        "D Endres",
+        "J Schindelin"
+      ],
+      "year": "2003",
+      "venue": "IEEE Transactions on Information theory"
+    },
+    {
+      "citation_id": "40",
+      "title": "A survey on bias and fairness in machine learning",
+      "authors": [
+        "N Mehrabi",
+        "F Morstatter",
+        "N Saxena",
+        "K Lerman",
+        "A Galstyan"
+      ],
+      "year": "2021",
+      "venue": "ACM Comput. Surv",
+      "doi": "10.1145/3457607"
+    },
+    {
+      "citation_id": "41",
+      "title": "The measure and mismeasure of fairness: A critical review of fair machine learning",
+      "authors": [
+        "S Corbett-Davies",
+        "S Goel"
+      ],
+      "year": "2018",
+      "venue": "The measure and mismeasure of fairness: A critical review of fair machine learning",
+      "arxiv": "arXiv:1808.00023"
+    },
+    {
+      "citation_id": "42",
+      "title": "Review of mathematical frameworks for fairness in machine learning",
+      "authors": [
+        "E Del Barrio",
+        "P Gordaliza",
+        "J.-M Loubes"
+      ],
+      "year": "2020",
+      "venue": "Review of mathematical frameworks for fairness in machine learning",
+      "arxiv": "arXiv:2005.13755"
+    },
+    {
+      "citation_id": "43",
+      "title": "Fair regression: Quantitative definitions and reduction-based algorithms",
+      "authors": [
+        "A Agarwal",
+        "M Dudík",
+        "Z Wu"
+      ],
+      "year": "2019",
+      "venue": "International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "44",
+      "title": "Speech accent archive",
+      "authors": [
+        "S Weinberger"
+      ],
+      "year": "2015",
+      "venue": "Speech accent archive"
+    },
+    {
+      "citation_id": "45",
+      "title": "Common voice: A massively-multilingual speech corpus",
+      "authors": [
+        "R Ardila",
+        "M Branson",
+        "K Davis",
+        "M Henretty",
+        "M Kohler",
+        "J Meyer",
+        "R Morais",
+        "L Saunders",
+        "F Tyers",
+        "G Weber"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 12th Conference on Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "46",
+      "title": "Beyond accuracy: Behavioral testing of nlp models with checklist",
+      "authors": [
+        "M Ribeiro",
+        "T Wu",
+        "C Guestrin",
+        "S Singh"
+      ],
+      "year": "2020",
+      "venue": "Beyond accuracy: Behavioral testing of nlp models with checklist"
+    },
+    {
+      "citation_id": "47",
+      "title": "OPUS-MT -Building open translation services for the World",
+      "authors": [
+        "J Tiedemann"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the 22nd Annual Conferenec of the European Association for Machine Translation (EAMT)"
+    },
+    {
+      "citation_id": "48",
+      "title": "Argos translate",
+      "authors": [
+        "P Finlay",
+        "C Translate"
+      ],
+      "year": "2023",
+      "venue": "Argos translate"
+    },
+    {
+      "citation_id": "49",
+      "title": "Coqui-ai/TTS, version 0.6.1",
+      "authors": [
+        "G Eren",
+        "T Team"
+      ],
+      "year": "2021",
+      "venue": "Coqui-ai/TTS, version 0.6.1",
+      "doi": "10.5281/zenodo.6334862"
+    },
+    {
+      "citation_id": "50",
+      "title": "Espnet-TTS: Unified, reproducible, and integratable open source end-to-end text-to-speech toolkit",
+      "authors": [
+        "T Hayashi",
+        "R Yamamoto",
+        "K Inoue",
+        "T Yoshimura",
+        "S Watanabe",
+        "T Toda",
+        "K Takeda",
+        "Y Zhang",
+        "X Tan"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "51",
+      "title": "Praat: Doing phonetics by computer",
+      "authors": [
+        "P Boersma"
+      ],
+      "year": "2023",
+      "venue": "Praat: Doing phonetics by computer"
+    },
+    {
+      "citation_id": "52",
+      "title": "Intriguing properties of neural networks",
+      "authors": [
+        "C Szegedy",
+        "W Zaremba",
+        "I Sutskever",
+        "J Bruna",
+        "D Erhan",
+        "I Goodfellow",
+        "R Fergus"
+      ],
+      "year": "2013",
+      "venue": "Intriguing properties of neural networks",
+      "arxiv": "arXiv:1312.6199"
+    },
+    {
+      "citation_id": "53",
+      "title": "Measuring neural net robustness with constraints",
+      "authors": [
+        "O Bastani",
+        "Y Ioannou",
+        "L Lampropoulos",
+        "D Vytiniotis",
+        "A Nori",
+        "A Criminisi"
+      ],
+      "year": "2016",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "54",
+      "title": "MUSAN: A Music, Speech, and Noise Corpus",
+      "authors": [
+        "D Snyder",
+        "G Chen",
+        "D Povey"
+      ],
+      "venue": "MUSAN: A Music, Speech, and Noise Corpus",
+      "arxiv": "arXiv:1510.08484v1,2015.eprint:1510.08484"
+    },
+    {
+      "citation_id": "55",
+      "title": "CAST a database: Rapid targeted large-scale big data acquisition via small-world modelling of social media platforms",
+      "authors": [
+        "S Amiriparian",
+        "S Pugachevskiy",
+        "N Cummins",
+        "S Hantke",
+        "J Pohjalainen",
+        "G Keren",
+        "B Schuller"
+      ],
+      "year": "2017",
+      "venue": "2017 Seventh International Conference on Affective Computing and Intelligent Interaction (ACII)",
+      "doi": "10.1109/ACII.2017.8273622"
+    },
+    {
+      "citation_id": "56",
+      "title": "Building the Singapore English National Speech Corpus",
+      "authors": [
+        "J Koh",
+        "A Mislan",
+        "K Khoo",
+        "B Ang",
+        "W Ang",
+        "C Ng",
+        "Y.-Y Tan"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech",
+      "doi": "10.21437/Interspeech.2019-1525"
+    },
+    {
+      "citation_id": "57",
+      "title": "Evaluation of speech dereverberation algorithms using the mardy database",
+      "authors": [
+        "J Wen",
+        "N Gaubitch",
+        "E Habets",
+        "T Myatt",
+        "P Naylor"
+      ],
+      "year": "2006",
+      "venue": "Proceedings of the International Workshop on Acoustic Echo and Noise Control (IWAENC)"
+    },
+    {
+      "citation_id": "58",
+      "title": "A binaural room impulse response database for the evaluation of dereverberation algorithms",
+      "authors": [
+        "M Jeub",
+        "M Schäfer",
+        "P Vary"
+      ],
+      "year": "2009",
+      "venue": "Proceedings of International Conference on Digital Signal Processing"
+    },
+    {
+      "citation_id": "59",
+      "title": "Timit acoustic-phonetic continuous speech corpus",
+      "authors": [
+        "J Garofolo",
+        "L Lamel",
+        "W Fisher",
+        "J Fiscus",
+        "D Pallett",
+        "N Dahlgren"
+      ],
+      "year": "1983",
+      "venue": "Timit acoustic-phonetic continuous speech corpus",
+      "doi": "10.35111/17gk-bn40"
+    },
+    {
+      "citation_id": "60",
+      "title": "Libri-light: A benchmark for asr with limited or no supervision",
+      "authors": [
+        "J Kahn",
+        "M Rivière",
+        "W Zheng",
+        "E Kharitonov",
+        "Q Xu",
+        "P Mazaré",
+        "J Karadayi",
+        "V Liptchinsky",
+        "R Collobert",
+        "C Fuegen",
+        "T Likhomanenko",
+        "G Synnaeve",
+        "A Joulin",
+        "A Mohamed",
+        "E Dupoux"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020 -2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "61",
+      "title": "Gigaspeech: An evolving, multi-domain asr corpus with 10,000 hours of transcribed audio",
+      "authors": [
+        "G Chen"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "62",
+      "title": "VoxPopuli: A large-scale multilingual speech corpus for representation learning, semi-supervised learning and interpretation",
+      "authors": [
+        "C Wang",
+        "M Riviere",
+        "A Lee",
+        "A Wu",
+        "C Talnikar",
+        "D Haziza",
+        "M Williamson",
+        "J Pino",
+        "E Dupoux"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing"
+    },
+    {
+      "citation_id": "63",
+      "title": "Librispeech: An asr corpus based on public domain audio books",
+      "authors": [
+        "V Panayotov",
+        "G Chen",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "2015 IEEE international conference on acoustics, speech and signal processing (ICASSP)"
+    },
+    {
+      "citation_id": "64",
+      "title": "Dawn of the transformer era in speech emotion recognition: Closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "65",
+      "title": "Switchboard-1 release 2 ldc97s62",
+      "authors": [
+        "J Godfrey",
+        "E Holliman"
+      ],
+      "year": "1993",
+      "venue": "Switchboard-1 release 2 ldc97s62"
+    },
+    {
+      "citation_id": "66",
+      "title": "Fisher english training speech part 1 transcripts",
+      "authors": [
+        "C Cieri",
+        "D Graff",
+        "O Kimball",
+        "D Miller",
+        "K Walker"
+      ],
+      "year": "2004",
+      "venue": "Fisher english training speech part 1 transcripts"
+    },
+    {
+      "citation_id": "67",
+      "title": "Mls: A large-scale multilingual dataset for speech research",
+      "authors": [
+        "V Pratap",
+        "Q Xu",
+        "A Sriram",
+        "G Synnaeve",
+        "R Collobert"
+      ],
+      "year": "2020",
+      "venue": "Mls: A large-scale multilingual dataset for speech research"
+    },
+    {
+      "citation_id": "68",
+      "title": "Voxlingua107: A dataset for spoken language recognition",
+      "authors": [
+        "J Valk",
+        "T Alumäe"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE Spoken Language Technology Workshop (SLT)"
+    },
+    {
+      "citation_id": "69",
+      "title": "Speech recognition and keyword spotting for low-resource languages: Babel project research at cued",
+      "authors": [
+        "M Gales",
+        "K Knill",
+        "A Ragni",
+        "S Rath"
+      ],
+      "year": "2014",
+      "venue": "Fourth International workshop on spoken language technologies for under-resourced languages"
+    },
+    {
+      "citation_id": "70",
+      "title": "Audio xlstms: Learning self-supervised audio representations with xlstms",
+      "authors": [
+        "S Yadav",
+        "S Theodoridis",
+        "Z.-H Tan"
+      ],
+      "year": "2024",
+      "venue": "Audio xlstms: Learning self-supervised audio representations with xlstms",
+      "arxiv": "arXiv:2408.16568"
+    },
+    {
+      "citation_id": "71",
+      "title": "Audio set: An ontology and human-labeled dataset for audio events",
+      "authors": [
+        "J Gemmeke",
+        "D Ellis",
+        "D Freedman",
+        "A Jansen",
+        "W Lawrence",
+        "R Moore",
+        "M Plakal",
+        "M Ritter"
+      ],
+      "year": "2017",
+      "venue": "Proc. IEEE ICASSP 2017"
+    },
+    {
+      "citation_id": "72",
+      "title": "Odyssey2024 -speech emotion recognition challenge: Dataset, baseline framework, and results",
+      "authors": [
+        "L Goncalves",
+        "A Salman",
+        "A Reddy Naini",
+        "L Moro-Velazquez",
+        "T Thebaud",
+        "L Garcia",
+        "N Dehak",
+        "B Sisman",
+        "C Busso"
+      ],
+      "year": "2024",
+      "venue": "Odyssey 2024: The Speaker and Language Recognition Workshop)",
+      "doi": "10.21437/odyssey.2024-44"
+    },
+    {
+      "citation_id": "73",
+      "title": "Panns: Large-scale pretrained audio neural networks for audio pattern recognition",
+      "authors": [
+        "Q Kong",
+        "Y Cao",
+        "T Iqbal",
+        "Y Wang",
+        "W Wang",
+        "M Plumbley"
+      ],
+      "year": "2020",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "74",
+      "title": "Distilling the knowledge in a neural network",
+      "authors": [
+        "G Hinton",
+        "O Vinyals",
+        "J Dean"
+      ],
+      "year": "2015",
+      "venue": "NIPS 2014 Deep Learning Workshop",
+      "arxiv": "arXiv:1503.02531"
+    }
+  ]
+}

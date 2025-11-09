@@ -1,0 +1,995 @@
+{
+  "paper_id": "2208.05445v1",
+  "title": "Non-Contrastive Self-Supervised Learning For Utterance-Level Information Extraction From Speech",
+  "published": "2022-08-10T16:56:39Z",
+  "authors": [
+    "Jaejin Cho",
+    "Jes'us Villalba",
+    "Laureano Moro-Velazquez",
+    "Najim Dehak"
+  ],
+  "keywords": [
+    "self-supervised learning",
+    "transfer learning",
+    "speaker verification",
+    "emotion recognition",
+    "Alzheimer's disease",
+    "distillation",
+    "non-contrastive"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "In recent studies, self-supervised pre-trained models tend to outperform supervised pre-trained models in transfer learning. In particular, self-supervised learning of utterance-level speech representation can be used in speech applications that require discriminative representation of consistent attributes within an utterance: speaker, language, emotion, and age. Existing frame-level self-supervised speech representation, e.g., wav2vec, can be used as utterance-level representation with pooling, but the models are usually large. There are also self-supervised learning techniques to learn utterance-level representation. One of the most successful is a contrastive method, which requires negative sampling: selecting alternative samples to contrast with the current sample (anchor). However, this does not ensure that all the negative samples belong to classes different from the anchor class without labels. This paper applies a non-contrastive self-supervised method to learn utterance-level embeddings. We adapted DIstillation with NO labels (DINO) from computer vision to speech. Unlike contrastive methods, DINO does not require negative sampling. We compared DINO to x-vector trained in a supervised manner. When transferred to downstream tasks (speaker verification, speech emotion recognition, and Alzheimer's disease detection), DINO outperformed x-vector. We studied the influence of several aspects during transfer learning such as dividing the fine-tuning process into steps, chunk lengths, or augmentation. During fine-tuning, tuning the last affine layers first and then the whole network surpassed fine-tuning all at once. Using shorter chunk lengths, although they generate more diverse inputs, did not necessarily improve performance, implying speech segments at least with a specific length are required for better performance per application. Augmentation was helpful in speech emotion recognition.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "As larger scale computation becomes possible, systems based on deep learning started to outperform the systems with classical machine learning algorithms in many applications. In deep learning, however, training a well-performing network from scratch usually requires a lot of data with labels. Getting labels for large data requires a lot of time and cost, accompanying human annotators most of the times. Thus, much larger amount of data are left without labels. To adapt to this situation, an increasing number of studies have started to propose new techniques to exploit unlabeled data during the last few years. Self-supervised learning (SSL) is one of the techniques, which learns from the structure of the data itself, not relying on labels. In  [1] -  [6] , fine-tuned/post-processed SSL models outperformed supervised methods when the same amount of labeled data is used.\n\nIn the speech processing field, we can divide SSL largely into two groups regarding scale of interest to extract representation: frame-level and utterance-level SSL. The framelevel SSL techniques aim to learn representation in an unsupervised way mainly to solve sequence prediction problems such as automatic speech recognition (ASR) and phoneme recognition  [3] ,  [7] -  [12] . However, the learned frame-level representations also can be used as an utterance-level representation with a pooling layer, possibly with a fine-tuning process to generate better utterance-level embeddings  [13] .\n\nAlthough this frame-level SSL are flexible in its usages for speech applications, they are usually large in the model sizes. The utterance-level SSL learns a representational vector per utterance to tackle problems such as language/accent/speaker identification/verification, and emotion recognition  [14] -  [20] . Although the models trained with the utterance-level SSL cannot be used in frame-level, they usually have smaller model sizes compared to the frame-level SSL models.\n\nIn utterance-level SSL, contrastive losses are the most popular  [18] -  [20] . The loss guides the model to make the current sample (anchor) closer to an augmented version of the current sample (positive sample) in the embedding space while pushing the positive sample farther from the negative ones. Here, the negative samples are those desired to be different semantically from the positive sample. Since the samples are unlabeled, most works compose negative samples by picking random samples different from the anchor. In this way of random sampling, however, we cannot be sure if all the negative samples belong to the classes different from the positive sample's class. For example, when the anchor, thus also the positive sample, is an utterance from speaker A, there is a chance that some of the randomly picked negative utterances also come from speaker A. This could adversely affect the model training since the contrastive loss pushes the positive sample and negative sample farther to each other in the embedding space.\n\nOn the other hand, non-contrastive methods, do not require negative samples, so they are free from the issue above. Moreover, non-contrastive methods have shown similar or better performance compared to contrastive methods  [5] ,  [6] . Considering these, in this study we adapt a non-contrastive SSL method originally proposed in computer vision to speech, DIstillation with NO labels (DINO)  [6] , that outperformed the previous SSL methods in many computer vision tasks.\n\nSeveral works train supervised models to use their hidden representations in target tasks that usually suffer from data scarcity. In  [21] , the authors used a pre-trained ASR model as a feature extractor for emotion recognition tasks. In  [22] -  [24] , the authors utilized a pre-trained speaker classification models that trained on large data for speaker emotion recognition (SER). Especially in  [22] ,  [24] , three x-vector models were trained from scratch to distinguish different emotion classes, and evaluated on three different emotion corpora. However, the models performances were always worse than the models fine-tuned from the pre-trained x-vector models trained to distinguish speakers using a lot of speaker-labeled data. We think this is because the x-vector model has too many parameters to train only with an emotion corpus, which usually have far less samples compared to the number of samples in speaker ID corpus. Using a multitask objective, e.g., emotion classification loss plus Alzheimer's disease (AD) classification loss, can be one way to increase the total number of samples, but an AD dataset as a medical data also usually has a small number of samples, thus making the multitask objective training still not solving the data scarcity problem better than transfer learning. In  [25] ,  [26] , the authors used pre-trained speaker classification, and encoder-decoder ASR models for AD detection.\n\nIn this paper, we compared a self-supervised and supervised pre-trained model in three speech applications, speaker verification (SV), SER, and AD detection through extensive experiments. In the pre-training stage, we adapted a noncontrastive self-supervised learning technique, DINO, first proposed in computer vision, to the speech domain for the self-supervised pre-trained model, and used additive angular margin (AAM)  [27]  loss-based speaker classification model for the supervised pre-trained model. Once the pre-training is done, we transferred the two models to each speech application either by using them as a feature extractor or fine-tuning them with a newly added linear layer. The contributions of this paper are following:\n\n• We adapted DINO to the speech domain, showing promising results throughout the experiments. • We studied how the ratio of short segment length to long segment length affects the DINO embedding learning. • We studied the effect of principal component analysis (PCA) when pre-trained models are used as feature extractors and classifiers are trained on a small amount of the data. • We took 2 steps in fine-tuning a pre-trained model with a newly added affine layer for a target task: first tuning the affine layers and then the whole network together. This 2-stage fine-tuning worked better than fine-tuning the whole network at once, possibly reducing deviation of parameters from the pre-trained model, which aids to utilize knowledge from pre-training with large data.  Through the series of experiments above, we found that DINO enables building SV systems without speaker labels, and given the fixed amount of the speaker-labeled data, it improves xvector for SV by providing a better initialized model. When transferred to SER and AD detection tasks, DINO outperformed x-vector. The findings suggest that DINO effectively learns general utterance-level embedding that includes not only speaker information but also emotion and AD-related information without any labels. The organization of this paper is as follows: We first introduce x-vectors, which were used as a baseline in our experiments (Section II). Then, we describe the DINO with how it was adapted to the speech domain (Section III). We explain how to transfer the pre-trained models in Section IV. The SV back-ends and an iterative process to build an SV system without labels explained in Section V and VI, respectively. Section VII presents our experimental setup, which is followed by the results and analyses from three speech applications (Section VIII, IX, X). Finally, we conclude the paper in Section XI with the following discussion in Section XII.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. X-Vectors",
+      "text": "In this paper, we used the x-vector embedding as a baseline  [28] ,  [29] . The x-vector network is trained with speaker ID labels to classify speakers. The network is composed of mainly three parts: frame-level encoder, pooling layer, and classification head. The frame-level encoder processes the given input utterance sequence, e.g., MFCC or Mel filter banks, into frame-level representations. This frame-level features are fed into a pooling layer that aggregates the features into a fixdimensional vector. Finally, the classification head processes the fix-dimensional vector to calculate speaker class logit. The network was trained with cross entropy loss in the past but nowadays its variant, the AAM softmax loss  [27] , is popular, showing better performance in speaker verification task. The AAM softmax loss aims to cluster embeddings of the same class, and separate embeddings of the different classes in a hyper-sphere with an additive angular margin. We used the AAM softmax loss in all experiments unless otherwise mentioned.\n\nx-vectors usually correspond to the hidden vector representations extracted from the penultimate layer in the classifi-cation head. There has been many variation proposed over the years regarding x-vector network architectures  [30] -  [33] . In this paper, we used a light version of ResNet34 (LRes-Net34) proposed in  [32]  with small modification considering limited computation resources. Table  I  shows the configuration excluding the final layer, which we call LResNet34 encoder throughout the paper. The final layer we used for x-vector was an affine layer that projects the LResNet34 encoder output into the logit vector with its dimension equal to the number of speakers used in training. DINO was proposed in computer vision to maximize the similarity between feature distributions of differently augmented images from an original image  [6] . This technique assumes that augmented images from an image keep the same semantic information. For example, after cropping two different portions from a dog image and transform one to monochrome while applying jitters to the other, they are still dog images. This idea can be similarly applied to the speech domain. Assuming that one utterance only contains the speech from one speaker, different segments extracted from that utterance and transformed with noise augmentation, have the same characteristics that are maintained within the utterance, such as speaker information, accent/language, emotion, speech pathology, and age.\n\nDINO loss uses a knowledge distillation concept, where outputs of a teacher network are used as ground truths to optimize a student network. DINO, however, trains both networks in parallel differently from typical knowledge distillation that uses a pre-trained teacher network. Fig.  1  depicts DINO's training scheme. First, a given utterance is augmented into a set of differently transformed segments, S. In detail, each segment is extracted at random position from the given utterance as either a short or long segment. Then, a noise such as babbling, music, environmental noise, or room impulse response effect is applied to each segment differently. The set S includes two long augmented segments, x l 1 and x l 2 , and multiple short augmented segments, e.g., four in our experiments. All the augmented segments go through the student branch, while only the long augmented segments go through the teacher branch. The network in each branch first encodes information in the corresponding augmented segments into the embedding vectors. Then, the following module called projection head in the network outputs a K dimensional feature which will be normalized with a temperature softmax over the feature dimension as shown in Eq. 1.\n\nwhere i is an index for an element in the softmax vector, g θs is a student network, and τ s is student temperature parameter that controls smoothness of the softmax in the student branch. The same equation holds for p 2 with τ t for the teacher branch.\n\nThe student network θ s is trained by minimizing the loss,\n\nwhere H(a, b) = -a • log b is cross-entropy, and p 1 (.) and p 2 (.) are the softmax output of the student and teacher branch respectively. This loss makes the embeddings of all augmented versions of the utterance close. This is a form of Mean Teacher self-distillation  [34] , which relies on two assumptions. First, the long segments, used as teacher network inputs, will produce better representations than the short segments. Second, the teacher network is always better than the student during the training, as explained below.\n\nThe neural network architecture g for student and teacher models is composed of a backbone f followed by a projection head h: g = h • f . The backbone can be any encoder that converts a sequence of vectors into a fixed-dimensional vector, e.g., using a pooling layer, while the projection head consists of fully connected layers with non-linear activations, which outputs a K dimensional feature. In our work, we used LResNet34 encoder in Table  I  for the backbone, which was also used for x-vector. The student and teacher networks have the same architecture, initialized with the same parameters while they are updated in different ways during training. The student network is updated by gradient descent while the teacher network is updated by an exponential moving average on the student parameters, i.e., θ t ← λθ t + (1 -λ)θ s where λ is a teacher momentum hyper-parameter. Parameter averaging is known to produce a better model  [34] ,  [35] , and this is also the case with the teacher network to be better than the student network during the training. The student model aims at the distribution from the teacher network to improve.\n\nTo avoid a model to find trivial solutions, i.e., having distributions where one dimension is dominant or having uniform distributions, centering and sharpening are applied. centering prevents one dimension from dominating by calculating a center, as in Eq. 3, and subtracting it from the logit before the softmax in the teacher network as g θt (x) ← g θt (x) -c where g θt is the teacher network.\n\nwhere m is a center momentum, and B is batch size. However, centering encourages a uniform distribution, and thus sharpening is also applied to encourage peaky distributions. This is done by setting a low value for the temperature τ t in the teacher softmax normalization.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Iv. Transfer Learning",
+      "text": "Transfer learning is a type of learning that utilizes knowledge, gained from solving one problem, to other related problems. In our work, we could make use of the pretrained models, e.g., by x-vector or DINO training, to several speech applications such as speech emotion recognition or AD detection. This is because the ability of the pre-trained models that summarize information in a given utterance could be useful to those applications. We explore 2 ways in this paper: 1) using the pre-trained models as utterance-level embedding extractors, and 2) fine-tuning the models with a newly added affine layer that is task-specific.\n\nFor the first method, a pre-trained model is frozen to extract utterance-level embeddings from the target domain data. Then, the embeddings are used to train a new model that can solve the problem of interest. Comparing different pre-trained models in this setup could measure which model generates better embeddings that characterize relevant information for the problem of interest. However, this method has limitation in that the pre-trained models cannot be tuned anymore.\n\nIn contrast, the fine-tuning method can also tune the parameters of the pre-trained model, expecting the embeddings to improve as well as the classifier. In fine-tuning, an additional module that is specific to the target task is added to a part of the pre-trained model. In our experiments, for example, we only kept the LResNet34 encoders in Table I from both x-vector and DINO pre-trained models and added an affine layer after the encoder that projects the embedding into a logit vector with its dimension as the number of classes in the target domain. One important goal of the fine-tuning is tuning the parameters of the pre-trained model for the target task while utilizing the knowledge gained from the pre-training stage the most. In other words, if the parameters in the pre-trained model change too much during the tuning, the final model could not exploit the knowledge learned in the pre-training stage. To keep the parameters of the pre-trained model from changing too much, we take 2-steps during the fine-tuning stage by first tuning only the affine layers, i.e., the last embedding layer in the LResNet34 encoder in Table  I  and the newly added affine layer, and then tuning the whole part together. In this way, it prevents large gradients of the newly added layer from propagating back to the previous layers that causes the parameters to change largely.",
+      "page_start": 4,
+      "page_end": 5
+    },
+    {
+      "section_name": "V. Speaker Verification Back-Ends",
+      "text": "When enrollment and test utterances are given in a trial, the speaker verification system calculates the score to determine whether the pair comes from the same speaker or not, with a threshold. To do this, the front-end system, e.g., x-vector and DINO networks, extracts a fixed dimensional embedding vector per utterance from its encoder. Then, the embeddings of the enrollment and test utterances are given to a back-end to calculate the score. In this section, we explain two main back-ends based on cosine scoring and probabilistic linear discriminant analysis (PLDA)  [36] .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Cosine Scoring",
+      "text": "Given a pair of embeddings extracted from enrollment and test utterances, cosine scoring calculates the cosine similarity of the pair. This does not require any training to score a given pair.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Plda",
+      "text": "PLDA is a generative model. A speaker embedding w ij from the session i of the speaker j is written as below:\n\nwhere µ, V, y i , and ij is a speaker-independent term, lowrank matrix of eigen-voices, speaker factor vector, and offset vector, respectively. y i ∼ N (0, I) and carries the speaker information. ij ∼ N (0, S W ), which describes the variability between different sessions of the same speaker. S W is the within-class covariance while the between-class covariance is calculated as S b = VV T PLDA is scored by computing the ratio between the likelihood of the trial embeddings given the target hypothesis and the corresponding likelihood given the non-target hypothesis. If the speaker in the enrollment and test embeddings is the same, both embeddings have the same speaker factor y but different channel offsets. If the the enrollment and test embeddings are from different speakers, they have different speaker factors and different channel offsets. The PLDA training requires speaker labeled data.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Vi. Iterative Pseudo-Labeling And Fine-Tuning In Sv",
+      "text": "Iterative pseudo-labeling and fine-tuning is first proposed in  [37] . This is a unsupervised learning pipeline that trains a x-vector model that is continually updated with refined pseudo speaker labels over cycles. The process starts from a initial model trained in a self-supervised manner. In our paper, DINO was used for the initial model. Then, the new larger model is trained based on pseudo speaker labels generated from the initial model. In detail, the labels are generated by clustering the embeddings extracted from the initial model, after which assigning pseudo speaker IDs to the clusters. Then, the trained new larger model is used to extract embeddings for another turn of clustering followed by pseudo-labeling. This process is repeated until the speaker verification performance converged on a validation data. There is a last stage called the robust training stage where a new bigger model is trained with a larger margin in the AAM loss than the margin in the last cycle. This stage uses the pseudo labels generated from the model in the last cycle.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Vii. Experimental Setup",
+      "text": "A. Datasets 1) Model pre-training data: VoxCeleb2 dev was used to pre-train two models, x-vector and DINO. VoxCeleb2 dev set has 1,092,009 utterances from 5,994 speakers  [38] . It consists of conversational speech utterances with moderate noise, which were processed from interview videos of 5,994 celebrities uploaded on Youtube, covering diverse ethnicity.\n\n2) Transfer learning data: For transfer learning, we used the VoxCeleb subset, IEMOCAP  [39] , and ADReSSo2021  [40]  for SV, SER, and AD detection, respectively.\n\nVoxCeleb subset: We used VoxCeleb1  [41] , VoxcSRC-21 1 val and test trials. VoxCeleb1 dev of the verification split was used for fine-tuning pre-trained models or training PLDA back-ends while VoxCeleb1 test was employed to validate the developed speaker verification systems. The Voxceleb1 corpus was collected similarly as Voxceleb2. VoxCeleb1 dev has 148,642 utterances from 1,211 speakers and VoxCeleb1 test trials were generated from 4,874 utterances from 40 speakers. VoxcSRC-21 val and test trials are from VoxCeleb Speaker Recognition Challenge2021(VoxSRC-21), where the challenge has a special focus on multi-lingual verification. These two trials, in addition to the VoxCeleb1 test trials, were used to evaluate a progressively updated model during iterative pseudo-labeling and fine-tuning.\n\nIEMOCAP: In SER transfer learning experiments, IEMO-CAP was employed. IEMOCAP dataset is composed of utterances which were processed from 5 multi-modal dyadic conversational sessions. 5 female and 5 male actors participated, and in each session, one male and female actor acted for emotional conversations about pre-defined topics. Sessions were segmented into utterances manually, after which each utterance was annotated by at least 3 annotators for one of 8 emotion classes. Conversations were either scripted or improvisational. In this work, we chose a subset of data consisting of 4 emotions: angry, sad, happy, and neutral. The total number of utterances was 4490. As the number utterances in this data is small, we ran 5-fold cross validation (CV) where 1 https://www.robots.ox.ac.uk/ vgg/data/voxceleb/competition2021.html each fold is composed of one session to avoid speakers in common between folds. The selection of the subset and the fold division follows what's employed in  [24] .\n\nADReSSo2021: For Alzheimer's disease (AD) detection transfer learning experiments, we used the training subset of the dataset provided for the ADReSSo2021 challenge where the labels represent whether participants have AD or not. The recordings employed in this study include a picture description, used for AD detection. In general, each recording contains an interaction between a participant and an investigator with different types of background noises. The used subset has 87 recordings from speakers with AD and 79 from control subjects. Considering the small amount of the utterances in the data, we ran 10-fold CV as used in  [26]  where each fold has class-balanced distribution.\n\n3) Utterance duration: We provide the sample duration histograms for two corpora, IEMOCAP, and ADReSSo2021 used for SER and AD detection, respectively. The average duration of samples are much longer in ADReSSo2021 since one sample is one recording session in ADReSSo2021 rather than one utterance as in IEMOCAP.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "B. Feature Extraction",
+      "text": "Throughout the experiments, the speech waveform was sampled 16 kHz rate. Before feeding the samples to the models, we first removed silence portions using an energy-based voice activity detector (VAD), and extracted 80-dimensional log Mel filter bank features with 25 ms frame length at every 10 ms. Mean and variance normalization with its moving window of 150-frame length was applied to the log Mel filter bank sequence.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Model Pre-Training",
+      "text": "We pre-trained a x-vector and DINO models on Voxceleb2, later to transfer them into three down-stream tasks. The LResnet34 encoder in Table  I  was used within both models. The x-vector model was trained using speaker labels while the DINO model did not use any labels.\n\nIn x-vector, the AAM loss  [27]  was followed after the LResnet34 encoder with feature scale s and margin µ set to 30 and 0.3, respectively. The margin value warmed up linearly from 0 to 0.3 during first 20 epochs. The training ran over 70 epochs with the effective batch size as 512. We used the Adam optimizer  [42]  with its learning rate of 0.05, betas=(0.9,0.95), weight decay=1e-5, and amsgrad=True. The learning rate warmed up for 1000 steps to 0.05 and kept the value for 40000 steps, after which it started to reduce exponentially with 0.5 decay rate, 8000 decay steps, and 1e-5 learning rate lower bound. For the training inputs, we used 4 s chunks extracted from the utterances at random positions.\n\nIn DINO, the LResnet34 encoder f outputs 256-dimensional embedding vector given an input speech segment. The output embedding is fed into a projection head h, which comprised three 2048-dimensional affine layers and the following l 2 normalization and a weight normalized affine layer with 65536 output dimension. The student and teacher networks have this same architecture, initialized with the same parameters while they are updated in different manners as explained in Section III. Finally, the 65536-dimensional output logit is normalized with a temperature softmax  [6] . The training ran for 70 epochs with its effective batch size 128 while the last layer was frozen for the first epoch. The Adam optimizer was used with learning rate of 0.0025, betas=(0.9,0.95), weight decay=1e-4, and amsgrad=True. The learning rate was linearly increased for the first 10 epochs to 0.0025. After this, it decayed with a cosine schedule with the minimum learning rate as 1e-6. Student temperature τ s and teacher temperature τ t were set to 0.1 and 0.04, respectively. The teacher momentum λ was cosine-scheduled from 0.996 to 1. The center momentum m in centering was set to 0.9. We extracted four 2 s and two 4 s chunks from a given utterance for short and long segments, respectively. The utterances shorter than 4 s after VAD were removed to avoid padding, which discarded 6.4% of the original samples.\n\nFor both models, the same data augmentation policy was applied on the fly to the extracted chunks. First, reverberation was applied with 0.45 probability using an impulse response randomly selected from small, medium, and real rooms 2  [43] . Then, we used three noise types from the MUSAN corpus: babble, music and generic noise. A randomly selected noise type among the three was added to the whole part of a given chunk with 0.7 probability. SNR-level was contr olled when a noise is added within 3 to 18, 3 to 18, and 0 to 18 dB for babble, music and generic noise, respectively.\n\n2 http://www.openslr.org/resources/28/rirs noises.zip D. Speaker verification 1) Frozen: In this experiment, we freezed the LResNet34 encoders of two pre-trained models and extracted embeddings from VoxCeleb1 test. The embeddings were fed to two backend systems with the trial list for verification. We compared two back-ends: PLDA trained on VoxCeleb1 dev, and cosine scoring that did not require any training.\n\n2) Fine-tuning: In fine-tuning, we added to the LResNet34 encoder of each pre-trained model, an affine layer as the last layer that projects the embedding into a logit where its dimension is the number of speakers in VoxCeleb1 dev, 1211. Cross entropy or AAM loss were used for the loss. We compared two ways of fine-tuning: 1) fine-tuning the pretrained LResNet34 encoder with the added affine layer at once (FT1), 2) fine-tuning only the affine layers first, and then finetuning the whole parts further (FT2).\n\nThe fine-tuning ran for 50 epochs with learning rate 0.0001 and the effective batch size of 128. The number of epochs and learning rate were less than the ones used in the pre-training stage. The Adam optimizer was used with betas=(0.9,0.95), weight decay=1e-5, and amsgrad=True. The learning rate decreased by a factor of 10 if the validation loss does not decrease after 10 epochs. In the FT2 case, this optimization policy was employed in each stage. When the pre-trained models were fine-tuned with FT2 using the AAM loss (FT2 AAM ), the same optimization policy was used as in the x-vector pretraining except the less number of epoch and less learning rate as 50 and 0.0001, respectively and 128 batch size. The stage 2 of FT2 AAM started from the margin µ set to 30.\n\n3) Iterative pseudo-labeling and fine-tuning: The training data was fixed as VoxCeleb2 dev without speaker labels for the whole pipeline. We used the pre-trained DINO model as our initial model. For pseudo-labeling, we used k-means clustering with 50k means, followed by agglomerative hierarchical clustering (AHC) with the number of clusters as 7500, which was heuristically determined for VoxCeleb2 dev  [37] . The k-means clustering was used to make AHC computationally viable. Indices of the clusters were used as pseudo speaker labels for the supervised x-vector model training. We trained a new larger xvector model, ResNet34  [30] , with the AAM  [27]  loss based on pseudo speaker labels generated using the initial DINO model. The newly trained model was then used for a new turn of pseudo-labeling and fine-tuning where the process repeated twice until the speaker verification performance converged. A 2-second segment was extracted per utterance to be used as a training sample.\n\nFinally, in the robust training stage, we used a new model, even larger than ResNet34, Res2Net50  [44]  with 26 for the width of filters (in the first residual bottleneck block) and 4 for the scale. The model was trained in a supervised way with pseudo labels generated from the ResNet34 model trained over the 3 cycles above. After the first 30 epochs of training, the post-pooling layers of the model were fine-tuned with a larger margin, 0.5, in the AAM loss. A 2-second segment was extracted from each utterance for a training sample, while 3second segments were used in the large margin fine-tuning.\n\nThe learned embedding in each stage was evaluated for speaker verification on VoxCeleb1 test (VoxCeleb1 test o), VoxSRC-21 val, or VoxSRC-21 test trials.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "E. Speech Emotion Recognition And Ad Detection 1) Frozen:",
+      "text": "In this experiment, we freezed the two pretrained models and extracted embeddings from the encoders. The embeddings were used to train three classifiers: logistic regression (LR), support vector machine (SVM) with a RBF kernel, and PLDA classifiers. We also experimented with PCA to reduce embedding dimension before feeding it to classifiers. We did grid search for the PCA dimension from 15 to 75 with step size of 5.\n\n2) Fine-tuning: We added an affine layer as a last layer to the pre-trained LResNet34 encoder of each pre-trained model. The added layer projects the embedding into a logit with the dimension as the number of classes, 4 and 2 for SER and AD detection, respectively. Cross entropy was used for the loss. We compared two fine-tuning methods, FT1 and FT2.\n\nThe number of epochs, the optimizer setting, learning rate, and learning rate scheduling were the same as used in Section VII-D2 while the effective batch size was set to 64 and 16 for SER and AD, respectively. In the FT2 case, this optimization policy was applied in each stage.\n\nIn the fine-tuning experiments, we explored several hyperparameters to see how they influence the training results. First one is how different chunk lengths affect the finetuning performance. This could be considered a type of data augmentation. In emotion recognition, for example, if there is a labeled utterance of 7 s, we might predict the same emotion from only a 4 s chunk of it, which can be sampled multiple times within the utterance. Next, we compared zero-padding and repeating for short utterances when using chunks of a fixed length during training. In detail, if we set a chunk length as T during training, the utterance shorter than the length T need to be padded in some way for batch processing. In our experiments, we compared two methods, padding them with zeros and padding them by repeating the utterances. Lastly, we checked if noise data augmentation helps in fine-tuning using the same data augmentation policy explained in Section VII-C.",
+      "page_start": 6,
+      "page_end": 7
+    },
+    {
+      "section_name": "Viii. Speaker Verification Results",
+      "text": "",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "A. Dependency Of A Ratio Of Long And Short Segment Lengths",
+      "text": "In this experiment, we examined two aspects in DINO embedding learning: 1) length of long augmented segment inputs (TABLE  II ) and 2) ratio of long and short augmented segment inputs (TABLE  III ). The evaluation was done for SV on VoxCeleb1 test in equal error rate (EER)(%).\n\nAs shown in TABLE  II , when the long segment length is 2 s, it performed worse than 3 s or 4 s. This suggests that the long segment needs to be longer than some length, e.g., 2s in our case. As the long segment length goes from 3 to 4 s, the performance gain gets smaller.\n\nTo check if changing the ratio of long segment length to short segment length helps when the long segment length is short, e.g., 2s, we also ran (2 s, 1 s) whose result is shown in the last row in TABLE II. However, it performed worse compared to (2 s, 2 s). This tells that in case the long segment were to be short, e.g., 2 s, short segments are better to be at least longer than 1 s.\n\nIn TABLE  III , we can observe that having shorter segments decreases the performance with the cosine scoring back-end while increasing the performance with the PLDA back-end. The decrease in cosine scoring could happen due to the sample length mismatch during the training and testing, e.g., the average utterance length in VoxCeleb1 test is about 8.27 s. However, the mismatch seems to be compensated by the PLDA back-end training that uses the in-domain VoxCeleb1 dev, resulting in the better performances than cosine scoring. The reason for the slight gains with PLDA when using shorter lengths in the short augmented segments could be adding more diversity in training samples with shorter lengths. In other words, given an utterance, more diverse training segments can be extracted using a shorter segment length.\n\nFinally, we summarize findings in TABLE II and III: 1) Long segments are better to be at least longer than 2 s. 2) In case the long segment were to be short, e.g., 2 s, short segments are better to be at least longer than 1 s. 3) When the long segment is 4 s, cosine scoring performs better in general as the short segment length increases while PLDA performs better as the short segments get shorter.\n\nIn later experiments, we use 4 s and 2 s for long and short segments, respectively.",
+      "page_start": 7,
+      "page_end": 8
+    },
+    {
+      "section_name": "B. Data Augmentation",
+      "text": "In this experiment, we checked the importance of data augmentation following the policy in Section VII-C during the DINO training. The comparison result between with and without augmentation is shown in Table  IV  based on EER(%), where we found that the noise augmentation led to significant performance improvement. The effectiveness of the noise augmentation was observed in the past for both supervised  [29]  and self-supervised speaker embedding training  [19] .\n\nThe possible reason for the improved performance with augmentation is that adding noise to the segments from the same utterance encourages the model to focus more on information unaffected after noise addition, e.g., speaker information. In contrast, the model might learn channel or noise information when noise augmentation is not applied.  8.65 MoCo (ProtoNCE)  [19]  8.23 CSSL w/ Lap + L ch(mse)  [20]  8.28\n\nFirst, we compared DINO as a non-contrastive embedding learning method to three contrastive learning methods in the previous works. The SV systems using the learned embeddings and cosine scoring were compared in Table  V . Embedding learning in all the models used the VoxCeleb2 dev data with data augmentation but without the speaker labels. The systems were evaluated on VoxCeleb1 test. As shown in the table, DINO outperformed all the previous systems based on the contrastive embedding learning.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "D. Frozen",
+      "text": "In this experiment, we compared embeddings from x-vector and DINO pre-trained models without any fine-tuning for SV. Row 1, 2 and 7 to 10 in Table  VI  show the results. Firstly, the SV system with DINO without any labels (row 1) shows 4.83 EER (%). This can be considered a low EER given that no speaker labels were used to build the SV system.\n\nWhen we replaced the cosine scoring back-end with PLDA trained on VoxCeleb1 dev (row 2), it gives a large improvement to 2.38 EER (%). Compared to the pre-trained x-vector models in row 7 and 8, which uses the same amount of the labeled data, DINO with PLDA performs better. When we compare DINO followed by PLDA to the x-vector models trained on labeled VoxCeleb2 dev (row 9 and 10), x-vector outperforms DINO. However, DINO used only about 1/7 of the labeled data used in the x-vector model. This is a simulated scenario that is practical, where a large amount of data exist without labels while only a small amount of data is available with labels.\n\nVoxCeleb1 dev used for PLDA also can be used to fine-tune the DINO pre-trained model, whose improved results will be explained in the following section.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "E. Fine-Tuned",
+      "text": "In Table VI, the 2nd, 4th and 6th rows show that using VoxCeleb1 dev also for fine-tuning the pre-trained DINO model further improves the results. The AAM loss was more helpful than the cross entropy loss in fine-tuning. When only VoxCeleb1 dev was used as labeled data, the best DINO-based system (row 6) outperforms the x-vector system (row 8) by 0.74 in EER(%)\n\nThe x-vector models fine-tuned on VoxCeleb1 dev from the x-vector pre-trained on VoxCeleb2 dev (row 11 to 14) outperformed the best x-vector model trained on VoxCeleb1 dev from scratch (row 8). The best fine-tuned x-vector model (row 12) was 0.03 better than the best fine-tuned DINO model (row 6) in EER(%). However, the fine-tuned DINO model only used about 1/7 of the labeled data used in the fine-tuned xvector model, during the whole training process (pre-training + fine-tuning).\n\nFine-tuning the pre-trained x-vector (row 11-14) actually worsened the performance slightly, compared to using the pretrained x-vector as it is (row 9 and 10). This might be because the pre-training and fine-tuning data are in-domain where both are used to train speaker classification models while the finetuning data has less speakers than the pre-training data. Thus, in the x-vector case, simply using both labeled data together would perform better than dividing them into pre-training and fine-tuning. An experiment that confirms this is not carried out since this is not the focus of this paper.\n\nTable  VII  shows the results over different fine-tuning configurations from DINO. We observed that when cosine scoring back-ends were used, using AAM during fine-tuning improves performances. This is probably because the AAM loss tries to reduce intra-class distances while increasing inter-class distances in terms of cosine distance. However, when PLDA was used for back-end, the performances only improved in FT1-2s with softmax loss, and all FT2-2s systems. This shows that when fine-tuning from the DINO model, it is important not to directly fine-tune the whole model with a newly added last affine layer, but rather first fine-tune only a few layers after the pooling layer including the newly added layer, and then fine-tune the whole network together. This could prevent the parameters from deviating too much from the pre-trained model's parameters during fine-tuning. Using 2s chunks was better than 4s chunks during fine-tuning for most of the case in FT1. Thus, we only experimented FT2 with 2s chunks.",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "F. Iterative Pseudo-Labeling And Fine-Tuning",
+      "text": "The experimental results are shown in Table  VIII  along the iterative process. In the iterative pseudo-labeling and finetuning before the robust training stage, the speaker verification performance is saturated around the 3 rd iteration. This number of iterations until convergence is less than the one reported in  [37]   3  , possibly due to starting from a better initial model. Thus, we generated the pseudo labels from the model after the 3 rd iteration (ResNet34 (iter3)) to use them for the last model training in the robust training stage, which improved further to 1.89 in EER(%) on VoxCeleb1 test o. This speaker verification system did not use any speaker labels in the development, and the supervised counterpart trained on about 2600 hours of speaker labeled data showed 0.93. Finally, the large-margin fine-tuning did not improve on the VoxCeleb1 test o trial list, while it improved on VoxSRC-21 val and test trial lists.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Ix. Emotion Recognition Results",
+      "text": "A. Frozen The results for the experiments are shown in Fig.  3 . The SVM without PCA provides the highest accuracy among three classifiers for both x-vector and DINO frozen models, showing 0.6160 and 0.6788 in accuracy respectively. This implies that the emotion classes are not linearly separable in the embedding spaces, thus making the SVM with a RBF kernel work the best. PCA works only when it was used with DINO embeddings followed by the LR classifier where it gives improvements at all the PCA dimensions. Comparing the x-vector to DINO embeddings, the latter was better in general. This suggests DINO retains more information related to emotion.",
+      "page_start": 10,
+      "page_end": 10
+    },
+    {
+      "section_name": "B. Fine-Tuned",
+      "text": "Firstly, we compared the direct fine-tuning with a newly added layer (FT1) with the 2-stage fine-tuning (FT2), whose results are shown in Table  IX . In the DINO cases, FT2 outperformed FT1 by large margin. This trend is the same as we observed in SV fine-tuning experiments. When compared to the 2-stage fine-tuning of the x-vector (xvector-FT2), DINO-FT2 performs better, suggesting that the DINO model is adapted better to process emotion-related information than x-vector. Next, The left graph in Fig.  4  shows the results from the experiments over different training chunk lengths. We could observe that the performance consistently degraded as training chunk length increased. In the experiments, the higher the chunk length is, the more zero-padding happens since the number of utterances shorter than the chunk length increases. In other words, padding shorter utterances simply with zeros can harm the training further as it happens more. To fix this zero-padding correctly, masking the affected parts by the padded zeros is required, which entails a more complicated implementation.\n\nAs a simpler alternative implementation while not degrading the performance, we instead repeated the short utterances, expecting emotion in the processed utterances to remain the   same. The graph comparing the two methods is shown at the left of Fig.  5 . In all chunk lengths, repeating short utterances outperformed zero-padding them, especially giving more improvement when zero-padding happens more frequently, i.e., as the training chunk length increases. One interesting to note with repeating short utterances (the orange dotted line) is that using short chunk length, e.g., 2s and 3s, does not necessarily work better than using longer chunks. This implies that although the short chunk length has more various samples during training, it needs to be long enough to preserve the emotion information in the chunks.\n\nFinally, we compared how noise data augmentation using the data augmentation policy in Section VII-C affects the finetuning. As the results are shown in the left plot in Fig.  6 , the augmentation helped to improve the results in general. Next, the results on AD detection are shown in Fig.  7 . Here, PLDA with PCA using the 30 principal components and SVM with 75-dimensional PCA worked best for x-vector and DINO embeddings with 0.7355 and 0.7943 in accuracy, respectively. Using PCA led to improvement in many cases and to the larger degree compared to when used for SER. DINO embeddings work better than x-vector embeddings for AD detection in general, implying DINO retains more information related to AD detection.",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "X. Ad Detection Results",
+      "text": "",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "A. Frozen",
+      "text": "",
+      "page_start": 11,
+      "page_end": 11
+    },
+    {
+      "section_name": "B. Fine-Tuned",
+      "text": "As shown in the AD detection (ADReSSo2021) column in Table  IX , the 2-stage fine-tuning outperformed fine-tuning at once from the DINO model, possibly for the same reason that we explained in the SER experiment. Also, fine-tuning the DINO model showed a better result compared to fine-tuning the x-vector model.\n\nThe results from experiments with different chunk lengths are shown in the right graph of Fig.  4 . Our hypothesis is that there were performance drops for 2 reasons. First, in 5s, 10s, and 20s, the lengths are too short for a model to extract information relative to AD, that is related to articulatory rate, speech/pause rate, or presence of hesitations, among others. In 60s, zero-padding happens more due to increase in the number of utterances shorter than 60s, according to the ADReSSo2021 length duration histogram in 2 . This was observed similarly in the SER experiments.\n\nAs it is done in the SER experiments, we replaced the zeropadding by repeating the utterances. The results are shown in the right graph in Fig.  5 . Different from observation in the SER experiments, repeating did not help much in general except at several lengths. Our hypothesis is that this observation is more related to that 5s, 10s, and 20s-length chunks are too short for a model to detect AD, than the padding option.\n\nLastly, we compared how noise data augmentation affects the fine-tuning in AD detection. As the results are shown in the right graph in Fig.  6 , the augmentation worsened the performance in general. One possible reason is that ADReSSo2021 is already noisy and adding more noise could be lowering the quality of the recordings.",
+      "page_start": 10,
+      "page_end": 11
+    },
+    {
+      "section_name": "Xi. Conclusion",
+      "text": "In this work, we applied DINO, a non-contrastive selfsupervised learning method first proposed in computer vision, to speech domain. We compared a model pre-trained with this method to an x-vector model trained in a supervised manner, w.r.t transfer learning to three speech applications: SV, SER, and AD detection. In SV, DINO enabled building SV systems without speaker labels, and improved x-vector by providing a better initialized model for the training. This implies that DINO effectively learns speaker information without labels. In SER and AD detection, DINO outperformed x-vector in most of the experiments, suggesting that DINO learns embedding that includes more information related to emotion and AD than x-vector. From these findings, we conclude that the DINO embedding is more general and transferable utterance-level embedding than x-vector for speech applications that require the corresponding utterance-level information.\n\nIn the SV experiments, when the DINO embedding without fine-tuning and x-vector were compared, DINO outperformed x-vector given the same amount of labeled data during their training. When the initial DINO model was fine-tuned based on the iterative pseudo-labeling and fine-tuning process, it improved further to 1.89 in EER(%). This is noteworthy, considering that the whole training pipeline did not use any speaker labels. The initial DINO model also can be finetuned with a small amount of labeled data using the x-vector training scheme, which can be applied in frequent real-world scenarios where only a small portion of the large amount of data is labeled. The results showed that the x-vector model trained from the DINO initialized weights outperformed the x-vector model trained from scratch given the same amount of labeled data. These findings suggest that DINO learns speaker information effectively without speaker ID labels.\n\nIn the experiments that transfer DINO or x-vector model to SER and AD detection tasks, the best performing models over all experiments were DINO-based models, suggesting DINO learns more transferable representation to those speech applications. When using pre-trained models as feature extractors, we found that PCA improves the performance in the AD detection task. In other experiments that fine-tune the whole pre-trained models with a newly added affine layer per speech task, we found that fine-tuning affine layers first and then the whole network works (FT2) better than fine-tuning the whole network in one step. We think that when the pre-trained model is fine-tuned together with the newly added affine layer that is randomly initialized, large gradients from the new layer flow back to the whole networks to possibly change the parameters much than needed. As a result, this might not utilize the knowledge in the pre-trained model learned from a lot of data, and FT2 could resolve the problem.\n\nAlso, we studied several aspects to analyze how each aspect affects the fine-tuning. First, we checked the chunk length in fine-tuning a model using a specified-length segments extracted at a random position of a given utterance. We found that although shorter chunk length makes training samples more diverse, it did not necessarily improve the performance. In the AD detection task, performance started to improve from 30-second of chunk length, suggesting that at least 30second of speech segment is required to capture the relevant information. Along the experiments, we found that simply zero-padding utterances shorter than specified chunk length could degrade the performance as it happens more, thus replacing them by repeating utterances for the shorter ones. In noise data augmentation experiments, the augmentation only improved the performance in SER task, but not in AD detection.",
+      "page_start": 11,
+      "page_end": 12
+    },
+    {
+      "section_name": "Xii. Discussion",
+      "text": "Although we applied noise data augmentation following the same policy to all speech applications, it would be interesting to analyze which types of data augmentation is helpful depending on speech application, among augmentation methods more diverse than ones introduced in this paper such as speed perturbation, VTLP, and specaugmentation. Another possible future work is to see how a larger model, longer epoch, or more data in DINO pre-training is related to the performance of DINO in fine-tuning. As another future work, we could keep the DINO training design for fine-tuning. In SER, for example, we can concatenate all the utterances in an emotion class to get short and long segments from the long concatenated sequence. Then, DINO can maximize the similarity between feature distributions of the segments because they are all from the same emotion. DINO can be also evaluated on other tasks that require utterance-level information such as age estimation and language/accent classification. Finally, we could multitask learn a speaker ID + emotion (or + AD) classifier to reduce data scarcity problem, which uses a large amount of data with speaker labels in addition to a small amount of the labeled data for a target application.",
+      "page_start": 11,
+      "page_end": 11
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: DINO diagram. EMA stands for exponential moving average. SG",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: Histogram of sample duration after VAD",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: Frozen SER. Dotted lines are accuracies when PCA is not used",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: Fine-tuning with different chunk length for inputs",
+      "page": 9
+    },
+    {
+      "caption": "Figure 4: shows the results from the",
+      "page": 9
+    },
+    {
+      "caption": "Figure 5: 2 types of padding experiment in ﬁne-tuning. The orange dotted",
+      "page": 10
+    },
+    {
+      "caption": "Figure 5: In all chunk lengths, repeating short utterances",
+      "page": 10
+    },
+    {
+      "caption": "Figure 6: Augmentation experiment in ﬁne-tuning. The green dotted and the",
+      "page": 10
+    },
+    {
+      "caption": "Figure 7: Frozen AD detection. Dotted lines are accuracies when PCA is not",
+      "page": 10
+    },
+    {
+      "caption": "Figure 4: Our hypothesis is",
+      "page": 10
+    },
+    {
+      "caption": "Figure 5: Different from observation in the SER",
+      "page": 11
+    },
+    {
+      "caption": "Figure 6: , the augmentation worsened the perfor-",
+      "page": 11
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Frame-level\nconv blocks": "",
+          "3 × 3, 16": "(cid:21)\n(cid:20)3 × 3, 16\n× 3\n3 × 3, 16",
+          "T × 80": "T × 80"
+        },
+        {
+          "Frame-level\nconv blocks": "",
+          "3 × 3, 16": "(cid:21)\n(cid:20)3 × 3, 32\n× 4, stride 2\n3 × 3, 32",
+          "T × 80": "T2\n× 40"
+        },
+        {
+          "Frame-level\nconv blocks": "",
+          "3 × 3, 16": "(cid:21)\n(cid:20)3 × 3, 64\n× 6, stride 2\n3 × 3, 64",
+          "T × 80": "T4\n× 20"
+        },
+        {
+          "Frame-level\nconv blocks": "",
+          "3 × 3, 16": "(cid:21)\n(cid:20)3 × 3, 128\n× 3, stride 2\n3 × 3, 128",
+          "T × 80": "T8\n× 10"
+        },
+        {
+          "Frame-level\nconv blocks": "Pooling",
+          "3 × 3, 16": "global mean + standard deviation",
+          "T × 80": "2560"
+        },
+        {
+          "Frame-level\nconv blocks": "Embedding",
+          "3 × 3, 16": "fully connected",
+          "T × 80": "256"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "1\n2": "3\n4",
+          "DINO": "DINO-FT2",
+          "none, none": "none, VoxCeleb1 dev",
+          "CS\nPLDA": "CS\nPLDA",
+          "none\nVoxCeleb1 dev": "none\nVoxCeleb1 dev",
+          "4.83\n2.38": "3.41\n2.20",
+          "0.463\n0.289": "0.373\n0.278"
+        },
+        {
+          "1\n2": "5\n6",
+          "DINO": "DINO-FT2AAM",
+          "none, none": "none, VoxCeleb1 dev",
+          "CS\nPLDA": "CS\nPLDA",
+          "none\nVoxCeleb1 dev": "none\nVoxCeleb1 dev",
+          "4.83\n2.38": "2.51\n2.01",
+          "0.463\n0.289": "0.241\n0.255"
+        },
+        {
+          "1\n2": "7\n8",
+          "DINO": "x-vector\n(-)",
+          "none, none": "VoxCeleb1 dev, none",
+          "CS\nPLDA": "CS\nPLDA",
+          "none\nVoxCeleb1 dev": "none\nVoxCeleb1 dev",
+          "4.83\n2.38": "3.32\n2.75",
+          "0.463\n0.289": "0.345\n0.290"
+        },
+        {
+          "1\n2": "9\n10",
+          "DINO": "x-vector",
+          "none, none": "VoxCeleb2 dev, none",
+          "CS\nPLDA": "CS\nPLDA",
+          "none\nVoxCeleb1 dev": "none\nVoxCeleb1 dev",
+          "4.83\n2.38": "2.18\n1.87",
+          "0.463\n0.289": "0.205\n0.211"
+        },
+        {
+          "1\n2": "11\n12",
+          "DINO": "x-vector-FT2",
+          "none, none": "VoxCeleb2 dev, VoxCeleb1 dev",
+          "CS\nPLDA": "CS\nPLDA",
+          "none\nVoxCeleb1 dev": "none\nVoxCeleb1 dev",
+          "4.83\n2.38": "2.46\n1.98",
+          "0.463\n0.289": "0.298\n0.215"
+        },
+        {
+          "1\n2": "13\n14",
+          "DINO": "x-vector-FT2AAM",
+          "none, none": "VoxCeleb2 dev, VoxCeleb1 dev",
+          "CS\nPLDA": "CS\nPLDA",
+          "none\nVoxCeleb1 dev": "none\nVoxCeleb1 dev",
+          "4.83\n2.38": "2.21\n1.98",
+          "0.463\n0.289": "0.215\n0.250"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "No FT": "FT1-4s",
+          "-": "softmax\nAAM",
+          "CS\nPLDA": "CS\nPLDA\nCS\nPLDA",
+          "4.83\n2.38": "3.57\n2.54\n2.72\n2.47",
+          "0.463\n0.289": "0.358\n0.290\n0.281\n0.282"
+        },
+        {
+          "No FT": "FT1-2s",
+          "-": "softmax\nAAM",
+          "CS\nPLDA": "CS\nPLDA\nCS\nPLDA",
+          "4.83\n2.38": "3.30\n2.37\n2.65\n2.48",
+          "0.463\n0.289": "0.383\n0.267\n0.278\n0.301"
+        },
+        {
+          "No FT": "FT2-2s",
+          "-": "softmax\nAAM",
+          "CS\nPLDA": "CS\nPLDA\nCS\nPLDA",
+          "4.83\n2.38": "3.41\n2.20\n2.51\n2.01",
+          "0.463\n0.289": "0.373\n0.278\n0.241\n0.255"
+        }
+      ],
+      "page": 9
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "",
+          "DINO": "momentum contrast\n(MoCo)",
+          "LResNet34": "ECAPA [37]",
+          "4.83": "7.3",
+          "13.96": "-",
+          "-": "-"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "Iterative clustering",
+          "DINO": "AAM loss\n(margin=0.3)",
+          "LResNet34": "ResNet34 (iter1)",
+          "4.83": "2.56",
+          "13.96": "8.59",
+          "-": "-"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "",
+          "DINO": "",
+          "LResNet34": "ResNet34 (iter2)",
+          "4.83": "2.13",
+          "13.96": "7.35",
+          "-": "-"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "",
+          "DINO": "",
+          "LResNet34": "ResNet34 (iter3)",
+          "4.83": "2.13",
+          "13.96": "6.97",
+          "-": "-"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "",
+          "DINO": "",
+          "LResNet34": "ResNet34 (iter4)",
+          "4.83": "2.14",
+          "13.96": "6.88",
+          "-": "-"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "",
+          "DINO": "",
+          "LResNet34": "ECAPA (iter7)\n[37]",
+          "4.83": "2.1",
+          "13.96": "-",
+          "-": "-"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "Robust\ntraining\n+ larg-margin ﬁne-tuning",
+          "DINO": "AAM loss\n(margin=0.5)",
+          "LResNet34": "Res2Net50",
+          "4.83": "1.89",
+          "13.96": "6.50",
+          "-": "6.88"
+        },
+        {
+          "Initial model\ntraining\n(self-supervised learning)": "",
+          "DINO": "",
+          "LResNet34": "",
+          "4.83": "1.91",
+          "13.96": "6.32",
+          "-": "6.64"
+        }
+      ],
+      "page": 10
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "BERT: Pretraining of deep bidirectional transformers for language understanding",
+      "authors": [
+        "J Devlin",
+        "M.-W Chang",
+        "K Lee",
+        "K Toutanova"
+      ],
+      "year": "2019",
+      "venue": "NAACL"
+    },
+    {
+      "citation_id": "2",
+      "title": "BioBERT: a pre-trained biomedical language representation model for biomedical text mining",
+      "authors": [
+        "J Lee",
+        "W Yoon",
+        "S Kim",
+        "D Kim",
+        "S Kim",
+        "C So",
+        "J Kang"
+      ],
+      "year": "2020",
+      "venue": "Bioinformatics"
+    },
+    {
+      "citation_id": "3",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "venue": "wav2vec 2.0: A framework for self-supervised learning of speech representations"
+    },
+    {
+      "citation_id": "4",
+      "title": "Big self-supervised models are strong semi-supervised learners",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "K Swersky",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "5",
+      "title": "Bootstrap your own latenta new approach to self-supervised learning",
+      "authors": [
+        "J.-B Grill",
+        "F Strub",
+        "F Altché",
+        "C Tallec",
+        "P Richemond",
+        "E Buchatskaya",
+        "C Doersch",
+        "B Avila Pires",
+        "Z Guo",
+        "M Azar",
+        "B Piot",
+        "R Munos",
+        "M Valko"
+      ],
+      "year": "2020",
+      "venue": "Bootstrap your own latenta new approach to self-supervised learning"
+    },
+    {
+      "citation_id": "6",
+      "title": "Emerging properties in self-supervised vision transformers",
+      "authors": [
+        "M Caron",
+        "H Touvron",
+        "I Misra",
+        "H Jégou",
+        "J Mairal",
+        "P Bojanowski",
+        "A Joulin"
+      ],
+      "year": "2021",
+      "venue": "ICCV"
+    },
+    {
+      "citation_id": "7",
+      "title": "Multi-task self-supervised learning for robust speech recognition",
+      "authors": [
+        "M Ravanelli",
+        "J Zhong",
+        "S Pascual",
+        "P Swietojanski",
+        "J Monteiro",
+        "J Trmal",
+        "Y Bengio"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "8",
+      "title": "An unsupervised autoregressive model for speech representation learning",
+      "authors": [
+        "Y.-A Chung",
+        "W.-N Hsu",
+        "H Tang",
+        "J Glass"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "9",
+      "title": "Mockingjay: Unsupervised speech representation learning with deep bidirectional transformer encoders",
+      "authors": [
+        "A Liu",
+        "S -W. Yang",
+        "P.-H Chi",
+        "P.-C Hsu",
+        "H.-Y Lee"
+      ],
+      "year": "2020",
+      "venue": "ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Non-Autoregressive Predictive Coding for Learning Speech Representations from Local Dependencies",
+      "authors": [
+        "A Liu",
+        "Y.-A Chung",
+        "J Glass"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "11",
+      "title": "TERA: Self-supervised learning of transformer encoder representation for speech",
+      "authors": [
+        "A Liu",
+        "S.-W Li",
+        "H.-Y Lee"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "12",
+      "title": "HuBERT: How much can a bad teacher benefit ASR pre-training?",
+      "authors": [
+        "W.-N Hsu",
+        "Y.-H Tsai",
+        "B Bolte",
+        "R Salakhutdinov",
+        "A Mohamed"
+      ],
+      "year": "2021",
+      "venue": "ICASSP 2021 -2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "13",
+      "title": "SUPERB: Speech Processing Universal PERformance Benchmark",
+      "authors": [
+        "S Yang",
+        "P.-H Chi",
+        "Y.-S Chuang",
+        "C.-I Lai",
+        "K Lakhotia",
+        "Y Lin",
+        "A Liu",
+        "J Shi",
+        "X Chang",
+        "G.-T Lin",
+        "T.-H Huang",
+        "W.-C Tseng",
+        "K Lee",
+        "D.-R Liu",
+        "Z Huang",
+        "S Dong",
+        "S.-W Li",
+        "S Watanabe",
+        "A Mohamed",
+        "H Yi Lee"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "14",
+      "title": "Unsupervised learning of disentangled and interpretable representations from sequential data",
+      "authors": [
+        "W.-N Hsu",
+        "Y Zhang",
+        "J Glass"
+      ],
+      "year": "2017",
+      "venue": "Unsupervised learning of disentangled and interpretable representations from sequential data"
+    },
+    {
+      "citation_id": "15",
+      "title": "Selfsupervised speaker embeddings",
+      "authors": [
+        "T Stafylakis",
+        "A Rohdin",
+        "O Plchot",
+        "P Mizera",
+        "L Burget"
+      ],
+      "year": "2019",
+      "venue": "Selfsupervised speaker embeddings"
+    },
+    {
+      "citation_id": "16",
+      "title": "Learning Speaker Embedding from Text-to-Speech",
+      "authors": [
+        "J Cho",
+        "P Żelasko",
+        "J Villalba",
+        "S Watanabe",
+        "N Dehak"
+      ],
+      "venue": "Learning Speaker Embedding from Text-to-Speech"
+    },
+    {
+      "citation_id": "17",
+      "title": "Mixture factorized auto-encoder for unsupervised hierarchical deep factorization of speech signal",
+      "authors": [
+        "Z Peng",
+        "S Feng",
+        "T Lee"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "18",
+      "title": "Augmentation adversarial training for unsupervised speaker recognition",
+      "authors": [
+        "J Huh",
+        "H Heo",
+        "J Kang",
+        "S Watanabe",
+        "J Chung"
+      ],
+      "year": "2020",
+      "venue": "Augmentation adversarial training for unsupervised speaker recognition"
+    },
+    {
+      "citation_id": "19",
+      "title": "Self-supervised text-independent speaker verification using prototypical momentum contrastive learning",
+      "authors": [
+        "W Xia",
+        "C Zhang",
+        "C Weng",
+        "M Yu",
+        "D Yu"
+      ],
+      "year": "2021",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "20",
+      "title": "Contrastive self-supervised learning for text-independent speaker verification",
+      "authors": [
+        "H Zhang",
+        "Y Zou",
+        "H Wang"
+      ],
+      "year": "2021",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "21",
+      "title": "ASR-based features for emotion recognition: A transfer learning approach",
+      "authors": [
+        "N Tits",
+        "K Haddad",
+        "T Dutoit"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of Grand Challenge and Workshop on Human Multimodal Language"
+    },
+    {
+      "citation_id": "22",
+      "title": "x-vectors meet emotions: A study on dependencies between emotion and speaker recognition",
+      "authors": [
+        "R Pappagari",
+        "T Wang",
+        "J Villalba",
+        "N Chen",
+        "N Dehak"
+      ],
+      "year": "2020",
+      "venue": "ICASSP"
+    },
+    {
+      "citation_id": "23",
+      "title": "Improved speech emotion recognition using transfer learning and spectrogram augmentation",
+      "authors": [
+        "S Padi",
+        "S Sadjadi",
+        "R Sriram",
+        "D Manocha"
+      ],
+      "year": "2021",
+      "venue": "Proceedings of the 2021 International Conference on Multimodal Interaction"
+    },
+    {
+      "citation_id": "24",
+      "title": "Copypaste: An augmentation method for speech emotion recognition",
+      "authors": [
+        "R Pappagari",
+        "J Villalba",
+        "P Żelasko",
+        "L Moro-Velazquez",
+        "N Dehak"
+      ],
+      "year": "2021",
+      "venue": "ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "25",
+      "title": "Using state of the art speaker recognition and natural language processing technologies to detect alzheimer's disease and assess its severity",
+      "authors": [
+        "R Pappagari",
+        "J Cho",
+        "L Moro-Velazquez",
+        "N Dehak"
+      ],
+      "year": "2020",
+      "venue": "Using state of the art speaker recognition and natural language processing technologies to detect alzheimer's disease and assess its severity"
+    },
+    {
+      "citation_id": "26",
+      "title": "Automatic Detection and Assessment of Alzheimer Disease Using Speech and Language Technologies in Low-Resource Scenarios",
+      "authors": [
+        "R Pappagari",
+        "J Cho",
+        "S Joshi",
+        "L Moro-Velázquez",
+        "P Żelasko",
+        "J Villalba",
+        "N Dehak"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "27",
+      "title": "Arcface: Additive angular margin loss for deep face recognition",
+      "authors": [
+        "J Deng",
+        "J Guo",
+        "N Xue",
+        "S Zafeiriou"
+      ],
+      "year": "2019",
+      "venue": "CVPR"
+    },
+    {
+      "citation_id": "28",
+      "title": "Deep neural network embeddings for text-independent speaker verification",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2017",
+      "venue": "Deep neural network embeddings for text-independent speaker verification"
+    },
+    {
+      "citation_id": "29",
+      "title": "X-vectors: Robust DNN embeddings for speaker recognition",
+      "authors": [
+        "D Snyder",
+        "D Garcia-Romero",
+        "G Sell",
+        "D Povey",
+        "S Khudanpur"
+      ],
+      "year": "2018",
+      "venue": "2018 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "30",
+      "title": "Deep residual learning for image recognition",
+      "authors": [
+        "K He",
+        "X Zhang",
+        "S Ren",
+        "J Sun"
+      ],
+      "year": "2016",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "31",
+      "title": "Attention is all you need",
+      "authors": [
+        "A Vaswani",
+        "N Shazeer",
+        "N Parmar",
+        "J Uszkoreit",
+        "L Jones",
+        "A Gomez",
+        "Ł Kaiser",
+        "I Polosukhin"
+      ],
+      "year": "2017",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "32",
+      "title": "State-of-the-art speaker recognition with neural network embeddings in NIST SRE18 and speakers in the wild evaluations",
+      "authors": [
+        "J Villalba",
+        "N Chen",
+        "D Snyder",
+        "D Garcia-Romero",
+        "A Mccree",
+        "G Sell",
+        "J Borgstrom",
+        "L García-Perera",
+        "F Richardson",
+        "R Dehak",
+        "P Torres-Carrasquillo",
+        "N Dehak"
+      ],
+      "year": "2020",
+      "venue": "Comput. Speech Lang"
+    },
+    {
+      "citation_id": "33",
+      "title": "S-vectors and TESA: Speaker embeddings and a speaker authenticator based on transformer encoder",
+      "authors": [
+        "M Nj",
+        "S Umesh",
+        "S Katta"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "34",
+      "title": "Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning results",
+      "authors": [
+        "A Tarvainen",
+        "H Valpola"
+      ],
+      "year": "2017",
+      "venue": "NeurIPS"
+    },
+    {
+      "citation_id": "35",
+      "title": "Acceleration of stochastic approximation by averaging",
+      "authors": [
+        "B Polyak",
+        "A Juditsky"
+      ],
+      "year": "1992",
+      "venue": "SIAM journal on control and optimization"
+    },
+    {
+      "citation_id": "36",
+      "title": "Probabilistic linear discriminant analysis",
+      "authors": [
+        "S Ioffe"
+      ],
+      "year": "2006",
+      "venue": "European Conference on Computer Vision"
+    },
+    {
+      "citation_id": "37",
+      "title": "The IDLAB VoxCeleb speaker recognition challenge 2020 system description",
+      "authors": [
+        "J Thienpondt",
+        "B Desplanques",
+        "K Demuynck"
+      ],
+      "year": "2020",
+      "venue": "The IDLAB VoxCeleb speaker recognition challenge 2020 system description",
+      "arxiv": "arXiv:2010.12468"
+    },
+    {
+      "citation_id": "38",
+      "title": "VoxCeleb2: Deep speaker recognition",
+      "authors": [
+        "J Chung",
+        "A Nagrani",
+        "A Zisserman"
+      ],
+      "year": "2018",
+      "venue": "VoxCeleb2: Deep speaker recognition"
+    },
+    {
+      "citation_id": "39",
+      "title": "IEMOCAP: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "40",
+      "title": "Detecting cognitive decline using speech only: The ADReSSo challenge",
+      "authors": [
+        "S Luz",
+        "F Haider",
+        "S De La Fuente",
+        "D Fromm",
+        "B Macwhinney"
+      ],
+      "year": "2021",
+      "venue": "medRxiv"
+    },
+    {
+      "citation_id": "41",
+      "title": "VoxCeleb: a large-scale speaker identification dataset",
+      "authors": [
+        "A Nagrani",
+        "J Chung",
+        "A Zisserman"
+      ],
+      "year": "2017",
+      "venue": "VoxCeleb: a large-scale speaker identification dataset"
+    },
+    {
+      "citation_id": "42",
+      "title": "Adam: A method for stochastic optimization",
+      "authors": [
+        "D Kingma",
+        "J Ba"
+      ],
+      "year": "2015",
+      "venue": "ICLR (Poster)"
+    },
+    {
+      "citation_id": "43",
+      "title": "A study on data augmentation of reverberant speech for robust speech recognition",
+      "authors": [
+        "T Ko",
+        "V Peddinti",
+        "D Povey",
+        "M Seltzer",
+        "S Khudanpur"
+      ],
+      "year": "2017",
+      "venue": "2017 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "44",
+      "title": "Res2net: A new multi-scale backbone architecture",
+      "authors": [
+        "S Gao",
+        "M.-M Cheng",
+        "K Zhao",
+        "X.-Y Zhang",
+        "M.-H Yang",
+        "P Torr"
+      ],
+      "year": "2019",
+      "venue": "IEEE transactions on pattern analysis and machine intelligence"
+    }
+  ]
+}

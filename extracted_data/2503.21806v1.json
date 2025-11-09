@@ -1,0 +1,652 @@
+{
+  "paper_id": "2503.21806v1",
+  "title": "Large Language Models Meet Contrastive Learning: Zero-Shot Emotion Recognition Across Languages",
+  "published": "2025-03-25T05:58:18Z",
+  "authors": [
+    "Heqing Zou",
+    "Fengmao Lv",
+    "Desheng Zheng",
+    "Eng Siong Chng",
+    "Deepu Rajan"
+  ],
+  "keywords": [
+    "multimodal large language models",
+    "speech emotion recognition",
+    "audio understanding"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Multilingual speech emotion recognition aims to estimate a speaker's emotional state using a contactless method across different languages. However, variability in voice characteristics and linguistic diversity poses significant challenges for zero-shot speech emotion recognition, especially with multilingual datasets. In this paper, we propose leveraging contrastive learning to refine multilingual speech features and extend large language models for zero-shot multilingual speech emotion estimation. Specifically, we employ a novel two-stage training framework to align speech signals with linguistic features in the emotional space, capturing both emotion-aware and language-agnostic speech representations. To advance research in this field, we introduce a large-scale synthetic multilingual speech emotion dataset, M5SER. Our experiments demonstrate the effectiveness of the proposed method in both speech emotion recognition and zero-shot multilingual speech emotion recognition, including previously unseen datasets and languages. Our introduced dataset and related code will be available on GitHub 1 .",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Unlike monolingual speech emotion recognition (SER)  [1] -  [3] , which focuses on a single language, multilingual speech emotion recognition (MSER)  [4]  leverages multiple languages, making it suitable for a wide range of multilingual humancomputer interaction systems. A common approach to MSER involves training and testing a classifier on a specific humanannotated corpus  [5] ,  [6] . However, these frameworks are often tailored to the characteristics of the training datasets, including languages, speakers, and emotion categories, limiting their generalizability to other datasets  [7] . Zero-shot MSER, with its ability to estimate emotions on unseen datasets and languages, is crucial for direct in-the-wild applications, especially for languages with limited audio training resources  [8] .\n\nIn recent years, cross-corpus SER  [9]  has been explored to assess its performance across multiple datasets. Some methods train SER models on a specific dataset and evaluate their performance on other datasets with the same language, while others assess datasets in different languages. Although performance significantly decreases during cross-corpus evaluations  [10] , these approaches provide valuable insights into learning voice-independent, emotion-aware speech representations  [11] . Multilingual SER aims to estimate a speaker's emotions across multiple corpora in different languages. These multilingual systems can typically be applied directly to various 1 https://github.com/Vincent-ZHQ/MSER speech resources using the same model. However, their performance often falls short compared to corresponding monolingual recognition methods. Additionally, MSER methods still struggle with limited generalization to unseen languages  [8] .\n\nThe challenges of zero-shot MSER are complex and multifaceted. Individual voice variability among speakers can significantly impact emotion interpretation, as distinct vocal characteristics convey emotional cues differently  [12] . Additionally, the diversity of languages adds complexity, as emotional expressions are influenced by linguistic and cultural contexts, leading to variations in articulation. The scarcity of data for minority languages exacerbates these challenges, limiting the model's ability to learn robust emotion representations  [7] .\n\nRecent advancements in audio-conditioned large language models (AcLLMs), such as QWen-Audio  [13] , have demonstrated exceptional multilingual speech reasoning capabilities by integrating continuous speech representations into large language models (LLMs). Most AcLLMs focus on general speech understanding, either performing audio analysis or generating textual responses. These models typically leverage speech foundation models, like Whisper  [14] , to capture speech features and train on extensive audio-text pairs. Some other methods extend AcLLMs for emotion estimation  [15] . For instance, SECap  [16]  introduces a novel speech emotion captioning framework that effectively describes speech emotions using natural language, while SELM  [17]  incorporates automatic speech recognition (ASR) to enhance SER performance. Despite these advances, these methods remain limited to end-to-end fine-tuning on specific target datasets, and they lack the capability to perform zero-shot emotion estimation across diverse datasets or languages.\n\nIn this paper, we propose a two-stage framework to contrastively align multilingual speech representations with the target language space, capturing emotion-aware and languageagnostic speech information for zero-shot multilingual speech emotion recognition (MSER). Our framework comprises a multilingual audio encoder, a speech connector, and a large language model (LLM). We reformulate the speech emotion classification task as an emotion word prediction task, leveraging the LLM's zero-shot reasoning capabilities. In our twostage training pipeline, we first contrastively train the speech emotion decoding task using public, cleaner English speech datasets, aligning emotion-related language information with emotion-aware speech representations. To address the scarcity of MSER datasets, we introduce M5SER, a large-scale syn-thetic speech emotion corpus generated by emotion-preserving speech foundation models with self-annotated emotion labels. In the second stage, we refine the model through contrastive fine-tuning with the introduced multilingual sources, enabling it to capture language-agnostic, emotion-aware speech information for zero-shot MSER from synthetic data. Our method achieves state-of-the-art performance in both traditional SER and zero-shot MSER evaluations on datasets with previously unseen languages. In summary, our contributions are:\n\n• To facilitate zero-shot MSER, we propose a novel training framework that contrastively aligns multilingual speech information with shared emotion-aware language features. • We introduce a large-scale MSER dataset, M5SER, generated using emotion-preserving speech foundation models to advance research on multilingual speech emotion estimation.\n\n• Extensive experiments on traditional SER and zero-shot MSER benchmarks demonstrate the effectiveness of our proposed method.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Related Works",
+      "text": "A. Speech Emotion Recognition (SER)\n\nSER systems estimate a speaker's emotional state from audio. Traditional SER follows an end-to-end approach on a single dataset  [3] ,  [18] . Beyond this, cross-dataset SER  [9]  trains on one or multiple datasets and evaluates on different ones, often facing performance drops due to distribution shifts. Multilingual SER  [6] ,  [7]  extends SER to multiple languages within the same datasets. Cross-lingual SER  [8]  tackles both dataset and language shifts, requiring models to learn language-agnostic speech representations for robust emotional understanding across languages.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "B. Speech Large Language Models",
+      "text": "The evolution from LLMs to Multimodal Large Language Models (MM-LLMs) has revolutionized speech and audio processing. Early LLMs like GPT-3  [19]  were text-only, whereas MM-LLMs integrate speech and text  [13] , leveraging connectors to align audio and textual features  [14] ,  [16] . This enables advanced tasks such as emotion recognition, audio reasoning, and cross-modal understanding. In the realm of SER, this multimodal approach allows for deeper contextual comprehension, as MM-LLMs can now jointly analyze verbal and acoustic signals, capturing emotional nuances that were previously missed by text-only models.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "C. Contrastive Learning",
+      "text": "Contrastive learning has emerged as a powerful selfsupervised technique for representation learning  [20] ,  [21] . It captures informative features by bringing similar data points closer and pushing dissimilar ones apart, reducing reliance on labeled data. The core idea is to bring positive sample pairs (e.g., different augmentations of the same data) closer in the feature space while pushing negative pairs (e.g., unrelated data points) further apart. Early successes in models like SimCLR  [22]  revolutionized image and vision tasks by effectively learning from large unlabeled datasets. This approach has been extended to various modalities, including speech, text, and multimodal data  [23] . Recent advances use contrastive learning for speech emotion recognition, aligning emotionaware speech features across languages and datasets. This improves generalization to unseen tasks, including zero-shot learning, making it vital for modern representation learning.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Iii. M5Ser: Multilingual Ser Dataset",
+      "text": "In this section, we introduce the synthetic multilingual Speech Emotion Recognition (SER) dataset, M5SER, which comprises emotional audio recordings in five languages.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Overview Of M5Ser",
+      "text": "M5SER is a large-scale multilingual speech emotion dataset, consisting of emotional audio signals in five languages, covering seven basic emotions: neutral, happy, sad, angry, surprise, disgust, and fear. In total, it contains over 1009 hours of generated emotional audio signals. As shown in Fig.  1 , the audio signals in various languages are balanced across both the generated M5SER dataset and raw English audios.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Construction Of M5Ser",
+      "text": "To form a large-scale speech emotion dataset, first, we gather data with human-annotated emotion labels from existing English-based SER datasets, including IEMOCAP  [1] , MELD  [24] , MAED  [25] , CMU-MOSEI  [26] , and MSP-Podcast  [27] . These emotional audio signals serve as source to synthesize emotion-preserving audios in various languages.\n\nData Generation: In the second step, we employ the foundation model SeamlessExpressive  [28]  as an audio translator to generate new audio signals. It comprises of two main modules: Prosody UnitY2, a prosody-aware speech-to-unit translation model based on the UnitY2 architecture, and PRETSSEL, a unit-to-speech model that preserves cross-lingual expressivity. These modules excel in emotion-aware speech translation. We use the emotion-annotated audio signals as the speech source to generate new speech in five additional languages: French, German, Italian, Mandarin, and Spanish.\n\nData Filtering: In the third step, we sample and remove low-quality generated audio signal using two criteria: duration and size. Audios with duration shorter than 0.5 seconds are removed. Due to the typically smaller size of audios in IEMOCAP and MELD, we remove audio signals from these datasets if they are smaller than 20KB. For MAED, MOSEI, and MSP, we remove audios smaller than 50KB.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "C. Analysis Of M5Ser",
+      "text": "To evaluate the consistency of emotion-aware speech translation, we analyze the mean spectrograms of audio samples representing various emotions across multiple datasets and languages. If the generated audio samples for the same emotion across different languages cluster closely in the spectrogram mean space, it indicates that the multilingual audio effectively retains the emotional distribution of the original speech. This is based on the widely accepted premise that spectrogram features are reliable indicators of emotional content in speech  [29] . As illustrated in Fig.  2 , we visualize the distributions of the mean spectrograms from both the generated M5SER dataset and the original English-based SER dataset. The results show that the mean spectrograms of audio samples with the same emotion exhibit consistent distributions across different languages and datasets. This demonstrates the high quality and emotion-preserving capability of our generated emotion-aware multilingual speech emotion dataset.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iv. Method",
+      "text": "Given the success of audio understanding tasks in existing audio-conditioned large language models (LLMs), we formulate the zero-shot MSER task as a zero-shot speech emotion word generation task in this work.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Model Architecture",
+      "text": "Following the design of audio-integrated LLMs for general audio understanding, we employ an encoder-decoder architecture. As shown in Fig.  3 , we utilize an audio encoder, an LLM decoder, and a cross-modal connector that facilitates the alignment between audio and language representations. Audio Encoder. As shown in Fig.  3 , we employ the Whisper model as the audio encoder to extract speech features from multilingual audio sources. It is pretrained with multitasking learning on multilingual resources and can be used for multilingual speech recognition, speech translation, and language identification. Following previous works, the parameters of the audio encoder are frozen to avoid heavy computational costs. Modality Interface. The extracted features are then passed through a cross-modal connector, which aligns the audio representations with the language model's latent space, enabling seamless integration of audio and text modalities for comprehensive audio-language understanding. To achieve both cross-modal alignment and audio feature compression, we employ the Emotion Q-Former as the connector. The parameters of the Emotion Q-Former are initialized from BERT, incorporating self-attention, cross-attention, and linear layers. Learnable query embeddings are used to extract emotionaware speech representations, enhancing the model's capacity to capture emotional nuances from the speech input. Large Language Models. Finally, we utilize LLaMA 3, a state-of-the-art LLM, as the emotion estimator. It is used to generate the corresponding emotion words from the audio input. Considering the input format of LLaMA 3, we set our input as [bos, audio, prompt, [emo]], starting with sign of bos.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Multilingual Speech Representation Learning",
+      "text": "We propose to utilize contrastive learning to learn multilingual emotion-aware speech representations to endow LLMs for zero-shot MSER. This process contains two stages: emotion-aware speech representation learning and multilingual emotion-aware speech representation learning.\n\n1) Emotion-Aware Speech Representation Learning: To address the high dimensionality of encoded speech representations, which often include irrelevant information like background noise, we introduce the Emotion Q-Former to extract emotion-specific features while compressing the speech data. We leverage an emotion-aware contrastive learning approach combined with the Emotion Q-Former to enhance the LLM decoder's performance in speech emotion decoding. This stage of training relies on human-annotated English speech emotion datasets, which include various speakers and speech contents and are used to learn emotion-aware, speaker-independent speech representations through a contrastive design.\n\nTo mitigate the impact of speaker and content variability in audio signals, we use emotion labels as the primary discriminative factor during training. Cosine similarity is employed to quantify the distance between speech features. Audio samples sharing the same emotion label are treated as positive pairs, with the objective of maximizing the similarity between their speech representations. Conversely, audio samples with differing emotion labels are considered negative pairs, and we aim to minimize the similarity between their speech representations.\n\nwhere b is the batch size, S is the similarity between audio utterances, y ij is the result of the different or different labels of sample i and j and m is the margin.\n\n2) Emotion-Aware Multilingual Speech Enhancement: Large-scale multilingual speech emotion datasets are crucial for capturing cross-lingual and language-agnostic emotionaware speech representations, yet they remain absent in the existing MSER field. In this paper, we introduce a large-scale multilingual speech emotion dataset and use it for multilingual speech emotion recognition learning. Compared to humanannotated datasets, those generated by large foundation models can be much larger at a fraction of the cost. These datasets are increasingly used to train multimodal large language models, and we are the first to introduce large-scale synthetic speech data for MSER training.\n\n3) Language-Agnostic Emotion-Aware Speech Representation Learning: Following the stage of emotion-aware speech representation learning, we also apply contrastive loss during the emotion words decoding process. The difference in the contrastive design between the second stage and the first stage is the variety of data resources. Compared with the human-annotated English SER datasets in the first stage, the synthetic multilingual SER datasets are used in the second stage. Audio with different languages help to capture the language-agnostic emotion-aware speech information under the contrastive design.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "C. Training Process",
+      "text": "As mentioned above, we introduce two stages of training to contrastively align speech signals with language features for zero-shot MSER. To save the computing costs, we freeze both the audio encoder and the LLM during these two stages. In the first stage, we combine the emotion-aware contrastive (EC) loss with the LLM decoding loss for collaborative training. Specifically, the training loss is\n\nIn the second stage, we combine the language-agnostic emotion-aware contrastive (LEC) with the LLM decoding loss for collaborative training. Specifically, the training loss is\n\nV. EXPERIMENTS\n\nIn this section, we present the datasets and setup used for our training and evaluation process. We also outline the baseline models and evaluation metrics employed in the subsequent section for performance comparison and results analysis.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "A. Datasets",
+      "text": "For the first-stage training, we utilize the previously mentioned human-annotated English SER datasets (see Sec. III) and our synthetic multilingual dataset, M5SER. In addition to basic SER evaluation on the unseen samples of the IEMOCAP and MELD, we also focus on zero-shot MSER evaluation. The extra unseen datasets used for zero-shot MSER evaluation include AESDD  [34]  (Greek, 5 emotions), RAVDESS  [2]  (English, 7 emotions), RESD  [35]  (Russian, 7 emotions), and ShEMO  [36]  (Persian, 6 emotions).",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Experimental Settings",
+      "text": "For the multilingual speech emotion recognition model, we fine-tune only the parameters of the modality connectors, keeping the parameters of both the modality encoders and the LLM fixed. We adopt the AdamW optimization algorithm with  a learning rate of 1 × 10 -5 , and to mitigate overfitting, we employ a weight decay of 1 × 10 -6 . The Q-Former structure uses a query embedding size of 256, regardless of whether the parameters are initialized from BERT. To compare performance, we employ commonly used metrics including weighted accuracy (WA), unweighted accuracy (UA), weighted F1 score (WF1), and precision. Higher values for these metrics indicate better model performance.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Vi. Results And Analysis A. Main Results",
+      "text": "In Table  I  (a), our approach achieves a WA of 70.3% and 68.5% for four-class and seven-class tasks on the IEMO-CAP dataset, respectively, which is comparable to the bestperforming method (71.8% WA for four-class and 70.8% WA for seven-class). On the MELD dataset, our method achieves a WA of 61.4% for four-class and 54.9% for seven-class tasks, demonstrating competitive performance. In Table I (b), our zero-shot MSER method also shows competitive performance with the current SOTA SER method that is pretrained on multiple SER sources and then fine-tuned on the corresponding dataset  [33] . This demonstrates the effectiveness and generality of our approach on unseen datasets and even unseen languages.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "B. Ablation Study",
+      "text": "The ablation study in Table II systematically evaluates the contributions of the proposed multilingual dataset and contrastive loss. Training solely on the original English dataset achieves a WA of 59.7%, while incorporating L ec improves WA to 64.7%. When trained on the multilingual dataset, performance increases significantly, achieving a WA of 62.2%, further enhanced to 68.6% with L lec . Notably, the two-stage training strategy, initial training on English data followed by multilingual fine-tuning, achieves a WA of 66.0%, further boosted to 69.0% when L lec . These results validate the effectiveness of the multilingual dataset and contrastive loss, as well as the two-stage training approach, in improving model performance on speech emotion recognition tasks.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Analysis",
+      "text": "The t-SNE plots in Fig.  4  illustrate the benefits of incorporating the language-agnostic emotion-aware contrastive loss L lec in the audio embeddings of the AEDSS dataset. In plot (a), without the contrastive loss, the emotion categories are more dispersed and intermixed, indicating less distinct separation between different emotions. In contrast, plot (b) shows the audio embeddings with the contrastive loss L ec , where the emotion categories are more clearly clustered and separated. This demonstrates that the contrastive loss helps in better distinguishing between different emotion categories, leading to more distinct and meaningful embeddings.",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Vii. Conclusion",
+      "text": "In this paper, we propose a novel framework for zeroshot multilingual speech emotion recognition (MSER), leveraging contrastive alignment between multilingual speech and emotion-aware language representations. By introducing a large-scale synthetic MSER dataset and integrating a multilingual audio encoder with a LLM, our method achieves stateof-the-art performance on both commonly SER and the zeroshot MSER tasks on unseen datasets and languages. These results highlight the framework's ability to generalize across languages and datasets, advancing the field of multi-lingual speech emotion recognition.",
+      "page_start": 5,
+      "page_end": 5
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: M5SER: (a) Emotion distribution, (b) Language distribution.",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: Comparison of emotional audio distribution among English and languages in M5SER.",
+      "page": 3
+    },
+    {
+      "caption": "Figure 2: , we visualize the distributions",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: , we utilize an audio encoder, an",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: , we employ the Whisper",
+      "page": 3
+    },
+    {
+      "caption": "Figure 3: Overview of multilingual speech emotion recognition framework.",
+      "page": 4
+    },
+    {
+      "caption": "Figure 4: Audio distribution with t-SNE embedding.",
+      "page": 5
+    },
+    {
+      "caption": "Figure 4: illustrate the benefits of in-",
+      "page": 5
+    }
+  ],
+  "tables": [],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Iemocap: Interactive emotional dyadic motion capture database",
+      "authors": [
+        "C Busso",
+        "M Bulut",
+        "C.-C Lee",
+        "A Kazemzadeh",
+        "E Mower",
+        "S Kim",
+        "J Chang",
+        "S Lee",
+        "S Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language resources and evaluation"
+    },
+    {
+      "citation_id": "2",
+      "title": "The ryerson audio-visual database of emotional speech and song (ravdess): A dynamic, multimodal set of facial and vocal expressions in north american english",
+      "authors": [
+        "S Livingstone",
+        "F Russo"
+      ],
+      "year": "2018",
+      "venue": "PloS one"
+    },
+    {
+      "citation_id": "3",
+      "title": "Vesper: A compact and effective pretrained model for speech emotion recognition",
+      "authors": [
+        "W Chen",
+        "X Xing",
+        "P Chen",
+        "X Xu"
+      ],
+      "year": "2024",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "4",
+      "title": "Transformer-based multilingual speech emotion recognition using data augmentation and feature fusion",
+      "authors": [
+        "B Al-Onazi",
+        "M Nauman",
+        "R Jahangir",
+        "M Malik",
+        "E Alkhammash",
+        "A Elshewey"
+      ],
+      "year": "2022",
+      "venue": "Applied Sciences"
+    },
+    {
+      "citation_id": "5",
+      "title": "Cross corpus multi-lingual speech emotion recognition using ensemble learning",
+      "authors": [
+        "W Zehra",
+        "A Javed",
+        "Z Jalil",
+        "H Khan",
+        "T Gadekallu"
+      ],
+      "year": "2021",
+      "venue": "Complex & Intelligent Systems"
+    },
+    {
+      "citation_id": "6",
+      "title": "Multi-lingual multi-task speech emotion recognition using wav2vec 2.0",
+      "authors": [
+        "M Sharma"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "7",
+      "title": "Emobox: Multilingual multi-corpus speech emotion recognition toolkit and benchmark",
+      "authors": [
+        "Z Ma",
+        "M Chen",
+        "H Zhang",
+        "Z Zheng",
+        "W Chen",
+        "X Li",
+        "J Ye",
+        "X Chen",
+        "T Hain"
+      ],
+      "year": "2024",
+      "venue": "Emobox: Multilingual multi-corpus speech emotion recognition toolkit and benchmark",
+      "arxiv": "arXiv:2406.07162"
+    },
+    {
+      "citation_id": "8",
+      "title": "Zeroshot emotion transfer for cross-lingual speech synthesis",
+      "authors": [
+        "Y Li",
+        "X Zhu",
+        "Y Lei",
+        "H Li",
+        "J Liu",
+        "D Xie",
+        "L Xie"
+      ],
+      "year": "2023",
+      "venue": "2023 IEEE Automatic Speech Recognition and Understanding Workshop"
+    },
+    {
+      "citation_id": "9",
+      "title": "Adversarial domain generalized transformer for cross-corpus speech emotion recognition",
+      "authors": [
+        "Y Gao",
+        "L Wang",
+        "J Liu",
+        "J Dang",
+        "S Okada"
+      ],
+      "year": "2023",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "10",
+      "title": "Exploring corpusinvariant emotional acoustic feature for cross-corpus speech emotion recognition",
+      "authors": [
+        "H Lian",
+        "C Lu",
+        "Y Zhao",
+        "S Li",
+        "T Qi",
+        "Y Zong"
+      ],
+      "year": "2024",
+      "venue": "Expert Systems with Applications"
+    },
+    {
+      "citation_id": "11",
+      "title": "Emotion-aware contrastive adaptation network for source-free crosscorpus speech emotion recognition",
+      "authors": [
+        "Y Zhao",
+        "J Wang",
+        "C Lu",
+        "S Li",
+        "B Schuller",
+        "Y Zong",
+        "W Zheng"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "12",
+      "title": "Speech emotion recognition from voice messages recorded in the wild",
+      "authors": [
+        "L Gómez-Zaragozá",
+        "Ó Valls",
+        "R Del Amor",
+        "M Castro-Bleda",
+        "V Naranjo",
+        "M Raya",
+        "J Marín-Morales"
+      ],
+      "year": "2024",
+      "venue": "Speech emotion recognition from voice messages recorded in the wild",
+      "arxiv": "arXiv:2403.02167"
+    },
+    {
+      "citation_id": "13",
+      "title": "Qwen-audio: Advancing universal audio understanding via unified large-scale audio-language models",
+      "authors": [
+        "Y Chu",
+        "J Xu",
+        "X Zhou",
+        "Q Yang",
+        "S Zhang",
+        "Z Yan",
+        "C Zhou",
+        "J Zhou"
+      ],
+      "year": "2023",
+      "venue": "Qwen-audio: Advancing universal audio understanding via unified large-scale audio-language models",
+      "arxiv": "arXiv:2311.07919"
+    },
+    {
+      "citation_id": "14",
+      "title": "Robust speech recognition via large-scale weak supervision",
+      "authors": [
+        "A Radford",
+        "J Kim",
+        "T Xu",
+        "G Brockman",
+        "C Mcleavey",
+        "I Sutskever"
+      ],
+      "year": "2023",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "15",
+      "title": "Large language modelbased emotional speech annotation using context and acoustic feature for speech emotion recognition",
+      "authors": [
+        "J Santoso",
+        "K Ishizuka",
+        "T Hashimoto"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "16",
+      "title": "Secap: Speech emotion captioning with large language model",
+      "authors": [
+        "Y Xu",
+        "H Chen",
+        "J Yu",
+        "Q Huang",
+        "Z Wu",
+        "S.-X Zhang",
+        "G Li",
+        "Y Luo",
+        "R Gu"
+      ],
+      "year": "2024",
+      "venue": "Proceedings of the AAAI Conference on Artificial Intelligence"
+    },
+    {
+      "citation_id": "17",
+      "title": "Selm: Enhancing speech emotion recognition for out-of-domain scenarios",
+      "authors": [
+        "H Bukhari",
+        "S Deshmukh",
+        "H Dhamyal",
+        "B Raj",
+        "R Singh"
+      ],
+      "year": "2024",
+      "venue": "Selm: Enhancing speech emotion recognition for out-of-domain scenarios",
+      "arxiv": "arXiv:2407.15300"
+    },
+    {
+      "citation_id": "18",
+      "title": "Speech emotion recognition with co-attention based multi-level acoustic information",
+      "authors": [
+        "H Zou",
+        "Y Si",
+        "C Chen",
+        "D Rajan",
+        "E Chng"
+      ],
+      "year": "2022",
+      "venue": "ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "19",
+      "title": "Gpt-3: Its nature, scope, limits, and consequences",
+      "authors": [
+        "L Floridi",
+        "M Chiriatti"
+      ],
+      "year": "2020",
+      "venue": "Minds and Machines"
+    },
+    {
+      "citation_id": "20",
+      "title": "Self-supervised representation learning: Introduction, advances, and challenges",
+      "authors": [
+        "L Ericsson",
+        "H Gouk",
+        "C Loy",
+        "T Hospedales"
+      ],
+      "year": "2022",
+      "venue": "IEEE Signal Processing Magazine"
+    },
+    {
+      "citation_id": "21",
+      "title": "Unismmc: Multimodal classification via unimodality-supervised multimodal contrastive learning",
+      "authors": [
+        "H Zou",
+        "M Shen",
+        "C Chen",
+        "Y Hu",
+        "D Rajan",
+        "E Chng"
+      ],
+      "year": "2023",
+      "venue": "Unismmc: Multimodal classification via unimodality-supervised multimodal contrastive learning",
+      "arxiv": "arXiv:2305.09299"
+    },
+    {
+      "citation_id": "22",
+      "title": "A simple framework for contrastive learning of visual representations",
+      "authors": [
+        "T Chen",
+        "S Kornblith",
+        "M Norouzi",
+        "G Hinton"
+      ],
+      "year": "2020",
+      "venue": "International conference on machine learning"
+    },
+    {
+      "citation_id": "23",
+      "title": "Crossmodality and within-modality regularization for audio-visual deepfake detection",
+      "authors": [
+        "H Zou",
+        "M Shen",
+        "Y Hu",
+        "C Chen",
+        "E Chng",
+        "D Rajan"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "24",
+      "title": "Meld: A multimodal multi-party dataset for emotion recognition in conversations",
+      "authors": [
+        "S Poria",
+        "D Hazarika",
+        "N Majumder",
+        "G Naik",
+        "E Cambria",
+        "R Mihalcea"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "25",
+      "title": "Mead: A large-scale audio-visual dataset for emotional talking-face generation",
+      "authors": [
+        "K Wang",
+        "Q Wu",
+        "L Song",
+        "Z Yang",
+        "W Wu",
+        "C Qian",
+        "R He",
+        "Y Qiao",
+        "C Loy"
+      ],
+      "year": "2020",
+      "venue": "European Conference on Computer Vision"
+    },
+    {
+      "citation_id": "26",
+      "title": "Multimodal language analysis in the wild: Cmu-mosei dataset and interpretable dynamic fusion graph",
+      "authors": [
+        "A Zadeh",
+        "P Liang",
+        "S Poria",
+        "E Cambria",
+        "L.-P Morency"
+      ],
+      "year": "2018",
+      "venue": "Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics"
+    },
+    {
+      "citation_id": "27",
+      "title": "Building naturalistic emotionally balanced speech corpus by retrieving emotional speech from existing podcast recordings",
+      "authors": [
+        "R Lotfian",
+        "C Busso"
+      ],
+      "year": "2017",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "28",
+      "title": "Seamless: Multilingual expressive and streaming speech translation",
+      "authors": [
+        "L Barrault",
+        "Y.-A Chung",
+        "M Meglioli",
+        "D Dale",
+        "N Dong",
+        "M Duppenthaler",
+        "P.-A Duquenne",
+        "B Ellis",
+        "H Elsahar",
+        "J Haaheim"
+      ],
+      "year": "2023",
+      "venue": "Seamless: Multilingual expressive and streaming speech translation",
+      "arxiv": "arXiv:2312.05187"
+    },
+    {
+      "citation_id": "29",
+      "title": "Emotion recognition from speech: a review",
+      "authors": [
+        "S Koolagudi",
+        "K Rao"
+      ],
+      "year": "2012",
+      "venue": "International journal of speech technology"
+    },
+    {
+      "citation_id": "30",
+      "title": "Speech emotion recognition via multi-level cross-modal distillation",
+      "authors": [
+        "R Li",
+        "J Zhao",
+        "Q Jin"
+      ],
+      "year": "2021",
+      "venue": "Interspeech"
+    },
+    {
+      "citation_id": "31",
+      "title": "Foundation model assisted automatic speech emotion recognition: Transcribing, annotating, and augmenting",
+      "authors": [
+        "T Feng",
+        "S Narayanan"
+      ],
+      "year": "2024",
+      "venue": "ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing"
+    },
+    {
+      "citation_id": "32",
+      "title": "Speechformer++: A hierarchical efficient framework for paralinguistic speech processing",
+      "authors": [
+        "W Chen",
+        "X Xing",
+        "X Xu",
+        "J Pang",
+        "L Du"
+      ],
+      "year": "2023",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "33",
+      "title": "emotion2vec: Self-supervised pre-training for speech emotion representation",
+      "authors": [
+        "Z Ma",
+        "Z Zheng",
+        "J Ye",
+        "J Li",
+        "Z Gao",
+        "S Zhang",
+        "X Chen"
+      ],
+      "year": "2023",
+      "venue": "emotion2vec: Self-supervised pre-training for speech emotion representation",
+      "arxiv": "arXiv:2312.15185"
+    },
+    {
+      "citation_id": "34",
+      "title": "Speech emotion recognition for performance interaction",
+      "authors": [
+        "N Vryzas",
+        "R Kotsakis",
+        "A Liatsou",
+        "C Dimoulas",
+        "G Kalliris"
+      ],
+      "year": "2018",
+      "venue": "Journal of the Audio Engineering Society"
+    },
+    {
+      "citation_id": "35",
+      "title": "Resd (russian emotional speech dialogs with annotated text)",
+      "authors": [
+        "N Artem Amentes",
+        "I Lubenets"
+      ],
+      "year": "2022",
+      "venue": "Resd (russian emotional speech dialogs with annotated text)"
+    },
+    {
+      "citation_id": "36",
+      "title": "Shemo: a large-scale validated database for persian speech emotion detection",
+      "authors": [
+        "O Nezami",
+        "P Lou",
+        "M Karami"
+      ],
+      "year": "2019",
+      "venue": "Language Resources and Evaluation"
+    }
+  ]
+}

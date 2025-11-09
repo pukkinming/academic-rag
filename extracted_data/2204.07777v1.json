@@ -1,0 +1,2220 @@
+{
+  "paper_id": "2204.07777v1",
+  "title": "Exploiting Multiple Eeg Data Domains With Adversarial Learning",
+  "published": "2022-04-16T11:09:20Z",
+  "authors": [
+    "David Bethge",
+    "Philipp Hallgarten",
+    "Ozan Özdenizci",
+    "Ralf Mikut",
+    "Albrecht Schmidt",
+    "Tobias Grosse-Puppendahl"
+  ],
+  "keywords": [
+    "adversarial learning",
+    "domain invariance",
+    "EEG"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Electroencephalography (EEG) is shown to be a valuable data source for evaluating subjects' mental states. However, the interpretation of multi-modal EEG signals is challenging, as they suffer from poor signal-to-noise-ratio, are highly subject-dependent, and are bound to the equipment and experimental setup used, (i.e. domain). This leads to machine learning models often suffer from poor generalization ability, where they perform significantly worse on real-world data than on the exploited training data. Recent research heavily focuses on cross-subject and cross-session transfer learning frameworks to reduce domain calibration efforts for EEG signals. We argue that multi-source learning via learning domain-invariant representations from multiple data-sources is a viable alternative, as the available data from different EEG data-source domains (e.g., subjects, sessions, experimental setups) grow massively. We propose an adversarial inference approach to learn data-source invariant representations in this context, enabling multi-source learning for EEG-based braincomputer interfaces. We unify EEG recordings from different source domains (i.e., emotion recognition datasets SEED, SEED-IV, DEAP, DREAMER), and demonstrate the feasibility of our invariant representation learning approach in suppressing datasource-relevant information leakage by 35% while still achieving stable EEG-based emotion classification performance.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "I. Introduction",
+      "text": "Electroencephalogram (EEG) based brain-computer interface (BCI) systems aim to identify users' intentions from brain recordings with potential uses in neurorehabilitation systems  [1] . However, moderate decoding accuracies have limited the practical use of BCIs  [2] ,  [3] . Due to the high data collection efforts and costs, EEG datasets highly diverge in their recording environment (e.g., stimulus), the equipment and devices, and the ground truths derived. Shortage of large and homogeneous BCI datasets limits the choice of applicable models and causes a high effort if individual models are to be used for each domain. Imbalance of EEG data source domains for classification is therefore prevalent and posing important challenges for EEG-based BCIs.\n\nTransfer learning across different data domains as such has been extensively studied over the past decades in computer vision  [4] ,  [5] , proposing convolutional neural networks (CNNs) to extract domain-invariant features for image search and classification across domains. Subsequently, transfer learning on neurophysiological recording datasets (e.g., EEG) is becoming an active research field  [6] . Generalized neural decoder learning for across recording modalities (multi-corpus) on electrocorticography data has been recently proposed by  [7] . Their approach was shown to generalize to new participants and recording modalities, robustly handle variations in electrode placement, and allow participantspecific fine-tuning with minimal data. Also recently,  [2]  discussed an online pre-alignment strategy for aligning the motor imagery EEG recording distributions of different subjects before training and inference processes, and showed to significantly improve generalization across datasets. Towards a similar goal,  [8] ,  [9]  proposed an invariant representation learning scheme using adversarial inference to enable crossnuisance transfer learning in EEG signal classification with deep neural networks. Empirical assessments on EEG decoding tasks revealed that cross-subject  [8]  or cross-session  [9]  representations can be learned with such models. Crosssubject EEG transfer learning have been also explored for emotion recognition to generalize existing models to new subjects, and thereby reducing the demand for the calibration data amount effectively for new subjects  [10] .\n\nIn light of recent work on enabling multi-corpus learning from neurophysiological data  [2] ,  [11] ,  [12] ,  [13] , we propose an adversarial machine learning approach to unify different raw EEG time-series and pre-process them accordingly. Unlike previous work that has focused on learning scenarios across subjects or sessions, we explore datasetinvariant representations via an adversarial learning framework that can be used in EEG multi-label settings. Our approach aims at expressing robust task-relevant EEG features in a latent representation for emotion recognition across several datasets, by limiting the representation to not learn nuisances specific to these datasets, hence being dataset invariant. We evaluate our framework against the competing baseline of a state-of-the-art deep learning encoder-classifier network trained on the unified set of all data sources.\n\nOur contributions in this work are as follows: (1) We present a unifying EEG pre-processing framework for fusing different raw EEG time-series datasets and associated emotion state labels for transfer learning.  (2)  We propose an adversarial machine learning framework on multivariate EEG time-series to learn dataset-invariant representations to predict EEG class labels.  (3)  We present an experimental study on assembling four publicly-available EEG datasets in the field of emotion recognition, and show that our approach can learn dataset-invariant representations i.e., transfer emotionrelevant EEG signals across datasets containing data from different subjects and measurement conditions.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Methods A. Notation And Problem Statement",
+      "text": "Let {(X i , y i , s i , d i )} n i=1 denote the data samples consisting observations from a data generation process with X ∼ p(X|y, s, d), y ∼ p(y), s ∼ p(s), and d ∼ p(d), where X i ∈ R Ci×Ti is the raw trial EEG data from data-source d i during trial i recorded from C i channels for T i discretized time samples, y i is the corresponding emotion label, that can either be a discrete state y i ∈ {1, .., Y } or a vector y i ∈ R Y depending on the data-source, and s i ∈ {1, 2, . . . , S} denotes the subject identification (ID) number for the participant that the trial EEG data is recorded from. Since the subject IDs and emotional labels are defined and used differently within different data-sources, it is necessary to pre-process the data, as described in more detail in Sec. III-C. To describe the datasource origin of a particular EEG epoch, d i ∈ {1, . . . , D} specifies the data-source ID of X i . Note that for our problem of interest, the underlying assumption here is s and y as well as d and y being marginally independent, i.e. the probability of a certain emotion is the same for all subjects and across all data-sources. We achieve this by balancing the samples with respect to the subject IDs and the data-source IDs, as further described in Sec. III-D.\n\nWe can distinguish two approaches to combine multiple data-sources in a learning pipeline: (1) pre-processing the samples and labels of the data-sources, so that they can be processed by the same encoder framework, and (2) training individual encoder frameworks for each data-source, while ensuring a consistent latent representation among all frameworks. For the scope of this paper, we will investigate the first approach, whereas our adversarial training pipeline is applicable to both. Given training data the aim is to learn a discriminative model that predicts y from observations X. For such a model to be generalizable across datasets, ideally, the predictions should be invariant to d, which will be unknown at test time. Herein, we regard d as nuisance parameters involved in the EEG data generation process and aim to learn a parametric model that can be generalized across different data sources and learns robust representations.",
+      "page_start": 1,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Adversarially Learned Invariant Eeg Representations",
+      "text": "We train a deterministic encoder with parameters θ enc to learn representations h = f (X; θ enc ) given the training data. We discuss the encoder network specifications in detail in Sec. II-C. Obtained representations h are used as input\n\nseparately to both a classifier network with parameters θ clf to estimate y, as well as an adversary network with parameters θ adv , which aims to recover the data-source variable d. Respectively, the classifier and adversary networks estimate the likelihoods q clf (y|h) and q adv (d|h).\n\nWe aim to filter factors of variation caused by d within h. To achieve this, we propose an adversarial learning scheme. The adversary network is trained to predict d by maximizing the likelihood q adv (d|h). At the same time, the encoder is trying to conceal information regarding d that is embedded in h by minimizing that likelihood, as well as retaining sufficient discriminative information for the classifier to estimate y by maximizing q clf (y|h). Overall, we simultaneously train these networks towards the following objective:\n\nwith θ enc represented through h = f (X; θ enc ). A higher adversarial regularization weight λ > 0 enforces stronger invariance from d trading-off with discriminative performance. We use stochastic gradient descent (or ascent) alternatingly for the adversary and the encoder-classifier networks to optimize Eq. (  1 ). Note that setting the regularization parameter λ = 0 indicates training a regular neural network.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "C. Neural Network Architecture And Training",
+      "text": "Proposed model is illustrated in Figure  1 . The encoder network maps each input sample X i to a latent representation vector h i , which is used as input to two separate single dense layer classifiers. The first classifier, i.e. emotion classifier, predicts an EEG class label y i , i.e., an emotional label. The second classifier, i.e. adversary network, serves as an EEG domain classifier and predicts the data-source ID d i of the current training data sample. To solve the objective in Eq. 1, we update the parameters of the adversary network (i.e., domain classifier) and the encoder-emotion classifier network pair alternatingly on each batch. Our model training pipeline is outlined in Algorithm 1. While the proposed architecture is not restrictive to any neural network specification, during our evaluations, for the encoder we used the state-of-the-art convolutional DeepConvNet EEG encoder backbone  [14] .",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Experimental Study Design",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Datasets",
+      "text": "We regard four commonly-used and open-source EEGbased emotion recognition experiment datasets as our datasources, namely SEED  [15] , SEED-IV  [16] , DEAP  [17] , and DREAMER  [18] . All datasets contain EEG signals recorded from multiple subjects that were exposed to audio-visual stimuli such as music videos. The EEG signals are labeled with the emotion, that the subject is assumed to have felt during recordings. The datasets mainly differ from each other in three points. First, the experimental setup used for recording, including the number of sessions performed per subject or the used emotional stimuli. Second, the characteristics of the EEG signals, including the number of electrodes (channels) used or the sampling rate. And third, the emotion representation model used to determine the ground truth for the signals. An overview over the specifications of the used datasets can be found in Table  I .",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Eeg Pre-Processing",
+      "text": "We use only channels C i which are within all datasets, i.e., C = {'AF3', 'AF4', 'F3', 'F4', 'F7', 'F8', 'FC5', 'FC6', 'O1', 'O2', 'P7', 'P8', 'T7', 'T8'}. Furthermore, we downsample all recordings to the minimum sampling rate of the datasets, i.e., 128 Hz. This downsampling procedure ensures that the model can analyze the EEG time-frequency patterns coherently with the same encoder architecture. The non-zero averages of some of the EEG Signals would lead to increased activation within the neural network. Therefore we calculate the mean value of each channel during the first three seconds of each experiment and subtract it from the whole time series. As some of the EEG signals provided to us are already bandpass filtered using different cut-off frequencies, we bandpass-filter the signals again, using a Butterworth bandpass filter, preserving the smallest common frequency-band all examples contain, i.e., 4 Hz to 45 Hz.\n\nFinally, all the time series are cut into 2 seconds nonoverlapping windows, resulting in a data sample space of dimension R n×14×256 where n is the number of window segments  [19] . Note that in doing so, we make a rather weak assumption that the emotion representation in EEG is stable throughout the experiment, which makes the problem harder for us with the presence of noisy labels.\n\nOverall, we note that through the downsampling and channel selection (least common divisor approach), we discard valuable (high-frequency) EEG information, which poses a limitation of our model's classification performance.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Emotion Category Label Conversion",
+      "text": "To date, no unified emotion model across datasets exists, and the various established models can often only be partially compared or mapped into one another. Among the datasets we used, two (SEED and SEED IV) employ a discrete state emotion model. In contrast, DEAP and DREAMER used a dimensional model by assessing each emotion by a quantitative expression in several dimensions. The three established dimensions Valence, Arousal, and Dominance are used in both DEAP and DREAMER.\n\nFor our experimental studies, we transformed the different emotion representations into a common representation. Since the discrete states are not differentiated enough to be reasonably mapped into a dimensional model, we converted all representations into a discrete emotion model with three states (negative, neutral, positive). As the SEED dataset already uses these states, no transformation was necessary. By assuming that in the dimensional emotion models of DEAP and DREAMER there are four clusters associated with the states sad, fear, happy, and neutral we first transferred these representations into a discrete emotion representation model using k-means clustering. To map the states of SEED-IV to our emotion label representation, we made the rather reasonable assumption that fear and sad are negative emotions and happy is a positive emotion. Merging the two negative states, we were then able to transform the label representation into the required emotion state model.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "D. Balancing The Samples Across Data Sources",
+      "text": "As described in Sec. II-A, we assume y i and s i as well as y i and d i to be marginally independent. To obtain the same distributions p(y|s i ) for all subjects s i and p(y|d i ) for all data-source IDs d i , we balanced the samples X i with respect to the emotion label first for all subjects individually and later for all data-sources individually. We also took the same number of subjects with the same data-source IDs, giving us a fully-balanced dataset. Using a fully balanced and stratified dataset as such allows us to eliminate biased predictions due to imbalanced samples and ensures that our approach is enforced to not biased on certain participants, data-sources or emotion class labels.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "E. Experimental Configurations",
+      "text": "We evaluated our model using (1) pre-processed EEG time series in conjunction with the deep neural network (DNN) architecture, and (2) manually extracted power spectral density (PSD) features from the preprocessed time series as input  [16] .  1  In order to also test binary classification performance, in a different set of experiments we omitted the observations with a neutral emotion label and evaluated binary classification using the same time-series DNN architecture.\n\nWe performed five repetitions of each experiment by using 60% of the preprocessed dataset as the training set, 20% as the validation set, and 20% as the test set. We ensured that the specified requirements from Sec. III-D was held for each of these sets. Maximum number of epochs was always set to 500 with validation loss based early stopping (which generally resulted in completion around 50 epochs).",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iv. Experimental Results",
+      "text": "",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Investigating Domain-Specific Leakage During Training",
+      "text": "For preliminary verification purposes, we monitored the dataset domain specific information leakage throughout training. We assess this by observing (1) the predictions made by the adversary network throughout epochs, as well as (2) an independent naïve Bayes classifier that is fitted per epoch on the current latent representation to predict the dataset ID.\n\nFigure  2 (a) illustrates the prediction accuracies of the adversary network during training. Note that for the baseline model with λ = 0, an adversary was still trained alongside the classifier to simply monitor d i -relevant information leakage, without impacting the total loss or gradient-based parameters updates of parameters. We observe that adversarially censored models yield chance-level dataset prediction accuracies, whereas the baseline models show undesired dataset-relevant information leakage throughout training.\n\nWe present the results of the independently epoch-wise fitted naïve Bayes classifier in Figure  2 (b). We observe that for higher λ values (hence imposing stronger domaininvariance) estimated leakage starts to decrease with trained epochs, which again implies that our approach leads the encoder to reduce the d-relevant leakage in the latent space.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "B. Impact Of Adversarial Learning On Classification",
+      "text": "The classification performance of the emotion classifier depends on the choice of the hyperparameter λ, due to the revealed influence of the d-invariance imposing optimization scheme. Figure  3  shows final test set accuracies of the two classifier ends (emotion and dataset ID classification) of the overall architecture for different λ choices. We consistently observe that the accuracy of the emotion classifier is not significantly impacted with increasing λ, however then starting to decrease due to high adversarial censoring leading to loss of emotion-relevant discriminative information in the latent representations. Regarding the accuracy of the domain (datasource ID) classifier, censoring accordingly with λ > 0 leads to the data-source no longer be meaningfully decoded by the adversary network, while there was an observed >50% datasource ID classification accuracy by the domain classifier for λ = 0 baseline models, i.e., regular CNNs.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "C. Eeg Classification Results",
+      "text": "Our method works on a very restricted dataset as described in Sec. III to test representation transfer capabilities across four emotion recognition datasets. Since in our experiments we utilize intersecting subsets of channels in each datasource and filter accordingly, as well as discard observations from specific classes for stratified sampling, the actual emotion classification task becomes highly challenging.\n\nTable  II  shows averaged accuracies for the adversarially learned model, as well as the baseline global model. Our models achieve an above-chance classification performance for emotion recognition across all four datasets. We further showed that invariant models can be learned by reducing the leakage and maintaining a similar emotional classification quality to λ cases (cf. Figure  3 ).",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "V. Discussion & Conclusion",
+      "text": "In this paper we explore robustly transferable patterns across multiple EEG emotion recognition data-sources. We present an adversarial learning framework to unify different EEG data-sources and labels for multi-source transfer learning by finding data-source-invariant shareable information for multiple EEG-related tasks. Our approach makes significant pre-processing steps to unify the data basis for multi-source transfer learning. Thereby, the results indicate that the pre-processing comes at the cost of classifier performance overall. However our adversarial censoring approach achieves the same classification performance as simply pooling the data domains together (i.e., training regular CNNs with pooled datasets with λ = 0) while giving us the opportunity to restrict the representation to be highly data-invariant (35% leakage). Our implementations are publicly available at: https://github.com/ philipph77/ACSE-Framework.\n\nOur work can be extended by adapting the encoder framework to be able to use different EEG input shapes according to the specified data-source, and as a result, different number of channels and sampling frequencies can be learned. We envision an adversarial shared-private model similar to  [20]  where some channels are shared among data-sources (as in our approach) but private (data-source-specific) input can be incorporated. Our approach can also easily be adapted to learn representations that are invariant corresponding to other EEG variation factors e.g., participant ID, by adding an additional adversarial classifier  [21] ,  [22] .",
+      "page_start": 5,
+      "page_end": 5
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Overview of the network architecture proposed for adversarial",
+      "page": 2
+    },
+    {
+      "caption": "Figure 1: The encoder",
+      "page": 2
+    },
+    {
+      "caption": "Figure 2: (a) illustrates the prediction accuracies of the",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: (b). We observe",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: shows ﬁnal test set accuracies of the two",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Domain-relevant leakage throughout training by (a) observing",
+      "page": 4
+    },
+    {
+      "caption": "Figure 3: Comparison of the mean emotion classiﬁcation and data-source",
+      "page": 5
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Ralf Mikut3, Albrecht Schmidt2, Tobias Grosse-Puppendahl1"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Abstract— Electroencephalography (EEG)\nis\nshown to be a\n(e.g., EEG) is becoming an active research ﬁeld [6]. General-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "valuable\ndata\nsource\nfor\nevaluating\nsubjects’ mental\nstates."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "ized neural decoder learning for across recording modalities"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "However,\nthe\ninterpretation\nof multi-modal EEG signals\nis"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "(multi-corpus) on electrocorticography data has been recently"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "challenging, as they suffer from poor signal-to-noise-ratio, are"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "proposed by [7]. Their approach was shown to generalize to"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "highly subject-dependent, and are bound to the equipment and"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "new participants and recording modalities,\nrobustly handle\nexperimental\nsetup used,\n(i.e. domain). This\nleads\nto machine"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "learning models often suffer from poor generalization ability,\nvariations\nin\nelectrode\nplacement,\nand\nallow participant-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "where\nthey\nperform signiﬁcantly worse\non\nreal-world\ndata"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "speciﬁc ﬁne-tuning with minimal\ndata. Also\nrecently,\n[2]"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "than on the\nexploited training data. Recent\nresearch heavily"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "discussed an online pre-alignment\nstrategy for aligning the"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "focuses\non\ncross-subject\nand\ncross-session\ntransfer\nlearning"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "motor imagery EEG recording distributions of different sub-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "frameworks\nto\nreduce\ndomain\ncalibration\nefforts\nfor EEG"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "jects before training and inference processes, and showed to\nsignals. We\nargue\nthat multi-source\nlearning\nvia\nlearning"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "domain-invariant\nrepresentations\nfrom multiple\ndata-sources\nsigniﬁcantly improve generalization across datasets. Towards"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "is\na\nviable\nalternative,\nas\nthe\navailable\ndata\nfrom different"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "a similar goal,\n[8],\n[9] proposed an invariant\nrepresentation"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "EEG data-source domains (e.g., subjects, sessions, experimental"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "learning scheme using adversarial\ninference to enable cross-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "setups) grow massively. We propose an adversarial\ninference"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "nuisance transfer\nlearning in EEG signal classiﬁcation with"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "approach to learn data-source invariant representations in this"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "deep neural networks. Empirical assessments on EEG decod-\ncontext, enabling multi-source learning for EEG-based brain-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "computer interfaces. We unify EEG recordings\nfrom different\ning tasks revealed that cross-subject\n[8] or cross-session [9]"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "source domains (i.e., emotion recognition datasets SEED, SEED-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "representations\ncan\nbe\nlearned with\nsuch models. Cross-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "IV, DEAP, DREAMER), and demonstrate the feasibility of our"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "subject EEG transfer\nlearning have been also explored for"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "invariant representation learning approach in suppressing data-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "emotion recognition to generalize\nexisting models\nto new"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "source-relevant information leakage by 35% while still achieving"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "subjects, and thereby reducing the demand for the calibration\nstable EEG-based emotion classiﬁcation performance."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Index Terms— adversarial learning, domain invariance, EEG.\ndata amount effectively for new subjects [10]."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "In light of\nrecent work on enabling multi-corpus\nlearn-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "I.\nINTRODUCTION\ning from neurophysiological data\n[2],\n[11],\n[12],\n[13], we"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "propose an adversarial machine learning approach to unify"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Electroencephalogram (EEG) based brain-computer\ninter-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "different raw EEG time-series and pre-process them accord-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "face\n(BCI)\nsystems\naim to identify users’\nintentions\nfrom"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "ingly. Unlike previous work that has\nfocused on learning"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "brain recordings with potential uses\nin neurorehabilitation"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "scenarios\nacross\nsubjects\nor\nsessions, we\nexplore\ndataset-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "systems\n[1]. However, moderate decoding accuracies have"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "invariant\nrepresentations via an adversarial\nlearning frame-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "limited the practical use of BCIs\n[2],\n[3]. Due to the high"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "work\nthat\ncan\nbe\nused\nin EEG multi-label\nsettings. Our"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "data collection efforts and costs, EEG datasets highly diverge"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "approach aims at expressing robust\ntask-relevant EEG fea-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "in their recording environment (e.g., stimulus), the equipment"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "tures in a latent representation for emotion recognition across"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "and\ndevices,\nand\nthe\nground\ntruths\nderived.\nShortage\nof"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "several datasets, by limiting the representation to not\nlearn"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "large\nand homogeneous BCI datasets\nlimits\nthe\nchoice of"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "nuisances\nspeciﬁc\nto\nthese\ndatasets,\nhence\nbeing\ndataset"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "applicable models\nand\ncauses\na\nhigh\neffort\nif\nindividual"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "invariant. We evaluate our framework against\nthe competing"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "models are to be used for each domain.\nImbalance of EEG"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "baseline of a state-of-the-art deep learning encoder-classiﬁer"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "data source domains for classiﬁcation is therefore prevalent"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "network trained on the uniﬁed set of all data sources."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "and posing important challenges for EEG-based BCIs."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Our\ncontributions\nin\nthis work\nare\nas\nfollows:\n(1) We"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Transfer\nlearning across different data domains\nas\nsuch"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "present a unifying EEG pre-processing framework for\nfus-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "has been extensively studied over\nthe past decades in com-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "ing different\nraw EEG time-series datasets\nand associated"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "puter\nvision\n[4],\n[5],\nproposing\nconvolutional\nneural\nnet-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "emotion state labels for transfer learning. (2) We propose an"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "works\n(CNNs)\nto extract domain-invariant\nfeatures\nfor\nim-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "adversarial machine learning framework on multivariate EEG"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "age search and classiﬁcation across domains. Subsequently,"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "time-series\nto learn dataset-invariant\nrepresentations\nto pre-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "transfer\nlearning\non\nneurophysiological\nrecording\ndatasets"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "dict EEG class labels. (3) We present an experimental study"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "on assembling four publicly-available EEG datasets\nin the\n1 Dr.\nIng. h.c. F. Porsche AG, Stuttgart, Germany."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "2 Ludwig-Maximilians University, Munich, Germany.\nﬁeld of emotion recognition, and show that our approach can"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "3 Karlsruhe Institute of Technology, Karlsruhe, Germany."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "learn dataset-invariant\nrepresentations i.e.,\ntransfer emotion-"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "4 Institute of Theoretical Computer Science, TU Graz, Austria."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "relevant EEG signals\nacross datasets\ncontaining data\nfrom"
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "5 TU Graz-SAL DES Lab, Silicon Austria Labs, Graz, Austria."
+        },
+        {
+          "David Bethge1,2, Philipp Hallgarten1,3, Ozan\nOzdenizci4,5,": "Corresponding author: P. Hallgarten (philipp.hallgarten1@porsche.de).\ndifferent subjects and measurement conditions."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "end": ""
+        },
+        {
+          "end": "end"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "separately to both a classiﬁer network with parameters θclf to"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "estimate y, as well as an adversary network with parameters"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "aims\nto\nrecover\nthe\ndata-source\nvariable\nd.\nθadv, which"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "Respectively,\nthe classiﬁer and adversary networks estimate"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "the likelihoods qclf (y|h) and qadv(d|h)."
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "We aim to ﬁlter factors of variation caused by d within h."
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "To achieve this, we propose an adversarial\nlearning scheme."
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "The adversary network is trained to predict d by maximizing"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "the same time,\nthe encoder\nis\nthe likelihood qadv(d|h). At"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "trying to conceal\ninformation regarding d that\nis embedded"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "in h by minimizing that\nlikelihood, as well as retaining sufﬁ-"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "cient discriminative information for the classiﬁer to estimate"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "y by maximizing qclf (y|h). Overall, we simultaneously train"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "these networks towards the following objective:"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "min\nmax\n(1)\nE[− log qθclf (y|h) + λ log qθadv (d|h)]"
+        },
+        {
+          "end": "θenc,θclf\nθadv"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "with θenc\nrepresented through h = f (X; θenc). A higher"
+        },
+        {
+          "end": "adversarial regularization weight λ > 0 enforces stronger in-"
+        },
+        {
+          "end": "variance from d trading-off with discriminative performance."
+        },
+        {
+          "end": "We use stochastic gradient descent\n(or ascent) alternatingly"
+        },
+        {
+          "end": "for\nthe adversary and the encoder-classiﬁer networks to op-"
+        },
+        {
+          "end": "timize Eq. (1). Note that setting the regularization parameter"
+        },
+        {
+          "end": "λ = 0 indicates training a regular neural network."
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "C. Neural Network Architecture and Training"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "Proposed model\nis\nillustrated in Figure 1. The\nencoder"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "to a latent representation\nnetwork maps each input sample Xi"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "vector hi, which is used as input to two separate single dense"
+        },
+        {
+          "end": "i.e.\nlayer\nclassiﬁers. The ﬁrst\nclassiﬁer,\nemotion classiﬁer,"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "i.e., an emotional\nlabel. The\npredicts an EEG class label yi,"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "second classiﬁer,\ni.e. adversary network,\nserves as an EEG"
+        },
+        {
+          "end": ""
+        },
+        {
+          "end": "domain classiﬁer and predicts\nthe\nthe data-source ID di of"
+        },
+        {
+          "end": "current\ntraining data sample. To solve the objective in Eq. 1,"
+        },
+        {
+          "end": "we\nupdate\nthe\nparameters\nof\nthe\nadversary\nnetwork\n(i.e.,"
+        },
+        {
+          "end": "domain classiﬁer) and the encoder-emotion classiﬁer network"
+        },
+        {
+          "end": "pair alternatingly on each batch. Our model\ntraining pipeline"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "output": "emotion label y"
+        },
+        {
+          "output": "encoder network\nclassifier network"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "output"
+        },
+        {
+          "output": "data-source d"
+        },
+        {
+          "output": "adversary network\nlatent representation h"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "Fig. 1.\nOverview of\nthe network architecture proposed for\nadversarial"
+        },
+        {
+          "output": "domain adaptation across multiple EEG datasets, consisting of an encoder"
+        },
+        {
+          "output": "and\ntwo\nseparate\ndense\nlayer\nclassiﬁers\n(i.e.,\na\nclassiﬁer\nnetwork\nfor"
+        },
+        {
+          "output": "emotions and an adversary network that\nidentiﬁes the EEG data-source ID)."
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "II. METHODS"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "A. Notation and Problem Statement"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "Let {(Xi, yi, si, di)}n\ni=1 denote the data samples consist-"
+        },
+        {
+          "output": "ing observations\nfrom a data generation process with X ∼"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "p(X|y, s, d), y ∼ p(y),\ns ∼ p(s),\nand d ∼ p(d), where"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "Xi ∈ RCi×Ti\nis the raw trial EEG data from data-source di"
+        },
+        {
+          "output": "i\nduring trial\nchannels\nrecorded from Ci\nfor Ti discretized"
+        },
+        {
+          "output": "is the corresponding emotion label,\nthat can\ntime samples, yi"
+        },
+        {
+          "output": "either be a discrete state yi ∈ {1, .., Y } or a vector yi ∈ RY"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "depending on the data-source, and si ∈ {1, 2, . . . , S} denotes"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "the subject\nidentiﬁcation (ID) number for the participant\nthat"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "the trial EEG data is\nrecorded from. Since the subject\nIDs"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "and emotional\nlabels are deﬁned and used differently within"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "different data-sources,\nit\nis necessary to pre-process the data,"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "as described in more detail in Sec. III-C. To describe the data-"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "source origin of a particular EEG epoch, di ∈ {1, . . . , D}"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "speciﬁes the data-source ID of Xi. Note that for our problem"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "of interest, the underlying assumption here is s and y as well"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "i.e.\nas d and y being marginally independent,\nthe probability"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "of a certain emotion is the same for all subjects and across"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "all data-sources. We achieve this by balancing the samples"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "with respect\nto the subject\nIDs and the data-source IDs, as"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "further described in Sec.\nIII-D."
+        },
+        {
+          "output": "We can distinguish two approaches\nto combine multiple"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "data-sources\nin a\nlearning pipeline:\n(1) pre-processing the"
+        },
+        {
+          "output": "samples\nand\nlabels\nof\nthe\ndata-sources,\nso\nthat\nthey\ncan"
+        },
+        {
+          "output": "be\nprocessed\nby\nthe\nsame\nencoder\nframework,\nand\n(2)"
+        },
+        {
+          "output": "training individual encoder frameworks for each data-source,"
+        },
+        {
+          "output": "while ensuring a consistent\nlatent\nrepresentation among all"
+        },
+        {
+          "output": "frameworks. For\nthe scope of\nthis paper, we will\ninvestigate"
+        },
+        {
+          "output": "the ﬁrst approach, whereas our adversarial\ntraining pipeline"
+        },
+        {
+          "output": "is applicable to both. Given training data the aim is to learn"
+        },
+        {
+          "output": "y\na\ndiscriminative model\nthat\npredicts\nfrom observations"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "X. For\nsuch a model\nto be generalizable\nacross datasets,"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "ideally, the predictions should be invariant to d, which will be"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "unknown at test time. Herein, we regard d as nuisance param-"
+        },
+        {
+          "output": "eters involved in the EEG data generation process and aim"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "to learn a parametric model\nthat can be generalized across"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "different data sources and learns robust\nrepresentations."
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "B. Adversarially Learned Invariant EEG Representations"
+        },
+        {
+          "output": ""
+        },
+        {
+          "output": "We\ntrain\na\ndeterministic\nencoder with\nparameters\nθenc"
+        },
+        {
+          "output": "to learn representations h = f (X; θenc) given the training"
+        },
+        {
+          "output": "data. We discuss the encoder network speciﬁcations in detail"
+        },
+        {
+          "output": "in Sec.\nII-C. Obtained representations h are used as\ninput"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "is not\nrestrictive to any neural network speciﬁcation, during",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "state\nemotion model.\nIn\ncontrast, DEAP and DREAMER"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "our evaluations,\nfor\nthe encoder we used the state-of-the-art",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "used\na\ndimensional model\nby\nassessing\neach\nemotion\nby"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "convolutional DeepConvNet EEG encoder backbone [14].",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "a quantitative\nexpression in several dimensions. The\nthree"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "established dimensions Valence, Arousal, and Dominance are"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "III. EXPERIMENTAL STUDY DESIGN",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "used in both DEAP and DREAMER."
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "A. Datasets",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "For our experimental\nstudies, we transformed the differ-"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "ent emotion representations\ninto a common representation."
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "We\nregard\nfour\ncommonly-used\nand\nopen-source EEG-",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "Since\nthe\ndiscrete\nstates\nare\nnot\ndifferentiated\nenough\nto"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "based emotion recognition experiment datasets as our data-",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "be reasonably mapped into a dimensional model, we\ncon-"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "sources, namely SEED [15], SEED-IV [16], DEAP [17], and",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "verted\nall\nrepresentations\ninto\na\ndiscrete\nemotion model"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "DREAMER [18]. All datasets contain EEG signals recorded",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "with three states (negative, neutral, positive). As the SEED"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "from multiple\nsubjects\nthat were\nexposed\nto\naudio-visual",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "dataset\nalready\nuses\nthese\nstates,\nno\ntransformation was"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "stimuli such as music videos. The EEG signals are labeled",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "necessary. By\nassuming\nthat\nin\nthe\ndimensional\nemotion"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "with the emotion,\nthat\nthe subject\nis assumed to have felt",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "models of DEAP and DREAMER there\nare\nfour\nclusters"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "during\nrecordings. The\ndatasets mainly\ndiffer\nfrom each",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "associated with the states\nsad,\nfear, happy, and neutral we"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "other\nin three points. First,\nthe experimental setup used for",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "ﬁrst\ntransferred these representations into a discrete emotion"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "recording,\nincluding the number of\nsessions performed per",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "representation model using k-means clustering. To map the"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "subject or the used emotional stimuli. Second,\nthe character-",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "states of SEED-IV to our emotion label\nrepresentation, we"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "istics of the EEG signals,\nincluding the number of electrodes",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "made the rather reasonable assumption that\nfear and sad are"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "(channels) used or the sampling rate. And third,\nthe emotion",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "negative emotions and happy is a positive emotion. Merging"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "representation model used to determine the ground truth for",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "the two negative states, we were then able to transform the"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "the signals. An overview over\nthe speciﬁcations of\nthe used",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "label\nrepresentation into the required emotion state model."
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "datasets can be found in Table I.",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "D. Balancing the Samples Across Data Sources"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "B. EEG Pre-Processing",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "As described in Sec.\nas well\nII-A, we assume yi\nand si"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "We use only channels Ci which are within all datasets,",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "to be marginally independent. To obtain the\nas yi\nand di"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "i.e., C = {’AF3’,\n’AF4’,\n’F3’,\n’F4’,\n’F7’,\n’F8’,\n’FC5’,",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "’FC6’,\n’O1’,\n’O2’,\n’P7’,\n’P8’,\n’T7’,\n’T8’}. Furthermore, we",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "same distributions p(y|si) for all subjects si and p(y|di) for"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "all data-source\nIDs di, we balanced the\nsamples Xi with"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "downsample\nall\nrecordings\nto the minimum sampling rate",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "respect\nto the emotion label ﬁrst for all subjects individually"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "of\nthe datasets,\ni.e., 128 Hz. This downsampling procedure",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "and later\nfor all data-sources individually. We also took the"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "ensures that\nthe model can analyze the EEG time-frequency",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "same\nnumber\nof\nsubjects with\nthe\nsame\ndata-source\nIDs,"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "patterns coherently with the same encoder architecture. The",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "giving us\na\nfully-balanced dataset. Using a\nfully balanced"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "non-zero averages of\nsome of\nthe EEG Signals would lead",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "and stratiﬁed dataset as\nsuch allows us\nto eliminate biased"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "to increased activation within the neural network. Therefore",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "predictions due to imbalanced samples and ensures that our"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "we calculate the mean value of each channel during the ﬁrst",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "approach is enforced to not biased on certain participants,"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "three seconds of each experiment and subtract\nit\nfrom the",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "data-sources or emotion class labels."
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "whole\ntime\nseries. As\nsome of\nthe EEG signals provided",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "to us\nare\nalready bandpass ﬁltered using different\ncut-off",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "E. Experimental Conﬁgurations"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "frequencies, we\nbandpass-ﬁlter\nthe\nsignals\nagain,\nusing\na",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "We evaluated our model using (1) pre-processed EEG time"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "Butterworth bandpass ﬁlter, preserving the smallest common",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "series\nin conjunction with the deep neural network (DNN)"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "frequency-band all examples contain,\ni.e., 4 Hz to 45 Hz.",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "architecture, and (2) manually extracted power spectral den-"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "Finally,\nall\nthe\ntime\nseries\nare\ncut\ninto 2 seconds non-",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "sity (PSD) features from the preprocessed time series as input"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "overlapping windows,\nresulting in a data\nsample\nspace of",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "[16]. 1 In order to also test binary classiﬁcation performance,"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "dimension Rn×14×256 where n is\nthe number of window",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "in a different set of experiments we omitted the observations"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "segments [19]. Note that\nin doing so, we make a rather weak",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "with a neutral emotion label and evaluated binary classiﬁca-"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "assumption that\nthe emotion representation in EEG is stable",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "tion using the same time-series DNN architecture."
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "throughout\nthe experiment, which makes the problem harder",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "We performed ﬁve repetitions of each experiment by using"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "for us with the presence of noisy labels.",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "60% of\nthe preprocessed dataset\nas\nthe\ntraining set, 20%"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "Overall, we note that through the downsampling and chan-",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "as\nthe validation set, and 20% as\nthe test\nset. We ensured"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "nel\nselection (least common divisor approach), we discard",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "that\nthe speciﬁed requirements from Sec. III-D was held for"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "valuable (high-frequency) EEG information, which poses a",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "each of these sets. Maximum number of epochs was always"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "limitation of our model’s classiﬁcation performance.",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "set\nto 500 with validation loss based early stopping (which"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "C. Emotion Category Label Conversion",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "generally resulted in completion around 50 epochs)."
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "To date, no uniﬁed emotion model across datasets exists,",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "1PSD features were\ncalculated within the delta\ntheta\n(1 Hz\nto 4 Hz),"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "and the various established models can often only be partially",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": ""
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "(4 Hz to 7 Hz), alpha (8 Hz to 13 Hz), beta (13 Hz to 30 Hz), and gamma"
+        },
+        {
+          "is outlined in Algorithm 1. While the proposed architecture": "compared or mapped into one another. Among the datasets",
+          "we\nused,\ntwo\n(SEED and\nSEED IV)\nemploy\na\ndiscrete": "individually.\n(> 30 Hz) band for each sample and channel"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE I": "DETAILS ON THE USED FOUR DATASET SPECIFICATIONS."
+        },
+        {
+          "TABLE I": "SEED-IV [16]"
+        },
+        {
+          "TABLE I": "15 (7/8)"
+        },
+        {
+          "TABLE I": "3"
+        },
+        {
+          "TABLE I": "24"
+        },
+        {
+          "TABLE I": "ﬁlm clips"
+        },
+        {
+          "TABLE I": "∼2 min"
+        },
+        {
+          "TABLE I": "62"
+        },
+        {
+          "TABLE I": "200 Hz"
+        },
+        {
+          "TABLE I": "1 Hz to 75 Hz"
+        },
+        {
+          "TABLE I": "-"
+        },
+        {
+          "TABLE I": "discrete"
+        },
+        {
+          "TABLE I": "No"
+        },
+        {
+          "TABLE I": "discrete"
+        },
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": "Sad, Fear, Neutral, Happy"
+        },
+        {
+          "TABLE I": ""
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "IV. EXPERIMENTAL RESULTS": "A.\nInvestigating Domain-Speciﬁc Leakage during Training",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "For preliminary veriﬁcation purposes, we monitored the",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "dataset domain speciﬁc information leakage throughout train-",
+          "60 %": "40 %"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "ing. We assess this by observing (1) the predictions made by",
+          "60 %": "Accuracy of the adversary network"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "the adversary network throughout epochs, as well as (2) an",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "independent na¨ıve Bayes classiﬁer that\nis ﬁtted per epoch on",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "20 %"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "the current\nlatent\nrepresentation to predict\nthe dataset\nID.",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "Figure\n2(a)\nillustrates\nthe\nprediction\naccuracies\nof\nthe",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "adversary network during training. Note that for the baseline",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "0 %"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "model with λ = 0,\nan adversary was\nstill\ntrained along-",
+          "60 %": "20 %\n40 %\n60 %\n80 %\n100 %"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "side the classiﬁer\ninformation\nto simply monitor di-relevant",
+          "60 %": "Training Progress"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "leakage, without\nimpacting the total\nloss or gradient-based",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "(a)"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "parameters updates of parameters. We observe that adversar-",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "ially censored models yield chance-level dataset prediction",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "60%"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "accuracies, whereas\nthe\nbaseline models\nshow undesired",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "dataset-relevant\ninformation leakage throughout\ntraining.",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "We present\nthe\nresults of\nthe\nindependently epoch-wise",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "40%"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "ﬁtted\nna¨ıve Bayes\nclassiﬁer\nin\nFigure\n2(b). We\nobserve",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "that\nfor higher λ values\n(hence imposing stronger domain-",
+          "60 %": "DatasetIDClassiﬁcationAccuracy"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "invariance) estimated leakage starts to decrease with trained",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "epochs, which\nagain\nimplies\nthat\nour\napproach\nleads\nthe",
+          "60 %": "20%"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "encoder to reduce the d-relevant\nleakage in the latent space.",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "λ = 0\nλ = 0.40"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "B.\nImpact of Adversarial Learning on Classiﬁcation",
+          "60 %": "λ = 0.05\nλ = 1.00"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "The\nclassiﬁcation performance of\nthe\nemotion classiﬁer",
+          "60 %": "0%"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "20%\n40%\n60%\n80%\n100%"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "depends on the choice of\nthe hyperparameter λ, due to the",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "Training Progress"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "revealed inﬂuence of the d-invariance imposing optimization",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "(b)"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "scheme. Figure 3 shows ﬁnal\ntest set accuracies of\nthe two",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "classiﬁer ends (emotion and dataset\nID classiﬁcation) of\nthe",
+          "60 %": "Fig.\n2.\nDomain-relevant\nleakage\nthroughout\ntraining\nby\n(a)\nobserving"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "accuracy of\nthe\nadversary network,\n(b) ﬁtting Na¨ıve Bayes\nclassiﬁers\nto"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "overall architecture for different λ choices. We consistently",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "predict d from h, for different adversarial censoring hyperparameter choices"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "observe that\nthe accuracy of the emotion classiﬁer is not sig-",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "λ. The training progress is normalized to percentage by the early stopping"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "niﬁcantly impacted with increasing λ, however then starting",
+          "60 %": "end epoch. The black line indicates the chance level."
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "to decrease due to high adversarial censoring leading to loss",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "of emotion-relevant discriminative information in the latent",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "",
+          "60 %": "C. EEG Classiﬁcation Results"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "representations. Regarding the accuracy of the domain (data-",
+          "60 %": ""
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "source ID) classiﬁer, censoring accordingly with λ > 0 leads",
+          "60 %": "Our method works on a very restricted dataset as described"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "to the data-source no longer be meaningfully decoded by the",
+          "60 %": "in Sec.\nIII\nto test\nrepresentation transfer capabilities across"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "adversary network, while there was an observed >50% data-",
+          "60 %": "four emotion recognition datasets. Since in our experiments"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "source ID classiﬁcation accuracy by the domain classiﬁer for",
+          "60 %": "we\nutilize\nintersecting\nsubsets\nof\nchannels\nin\neach\ndata-"
+        },
+        {
+          "IV. EXPERIMENTAL RESULTS": "λ = 0 baseline models,\ni.e.,\nregular CNNs.",
+          "60 %": "source and ﬁlter accordingly, as well as discard observations"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "60 %": "",
+          "TABLE II": "MEAN EMOTION CLASSIFICATION ACCURACY BY THE ADVERSARIALLY"
+        },
+        {
+          "60 %": "50 %",
+          "TABLE II": "LEARNED MODEL AND A BASELINE GLOBAL MODEL TRAINED WITHOUT"
+        },
+        {
+          "60 %": "",
+          "TABLE II": "ADVERSARIAL CENSORING, AVERAGED OVER 5 RUNS."
+        },
+        {
+          "60 %": "40 %",
+          "TABLE II": ""
+        },
+        {
+          "60 %": "",
+          "TABLE II": "Time-Series DNN"
+        },
+        {
+          "60 %": "",
+          "TABLE II": "Time-Series DNN\nPSD Features MLP"
+        },
+        {
+          "60 %": "30 %",
+          "TABLE II": "(binary)"
+        },
+        {
+          "60 %": "",
+          "TABLE II": "Global\n40.37%(±0.65%)\n40.26%(±0.36%)\n57.63%(±0.77%)"
+        },
+        {
+          "60 %": "",
+          "TABLE II": "Adversarial\n40.48%(±0.70%)\n38.74%(±0.65%)\n58.17%(±1.63%)"
+        },
+        {
+          "60 %": "20 %",
+          "TABLE II": ""
+        },
+        {
+          "60 %": "10 %",
+          "TABLE II": ""
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "¨\n[8] O.\nOzdenizci et al., “Learning invariant representations from EEG via"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "adversarial\ninference,” IEEE Access, vol. 8, pp. 27 074–27 085, 2020."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "IEEE Signal\n[9] ——,\n“Adversarial deep learning in EEG biometrics,”"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "Processing Letters, vol. 26, no. 5, pp. 710–714, 2019."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "et\n[10]\nJ. Li\nal.,\n“Multisource\ntransfer\nlearning\nfor\ncross-subject EEG"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "IEEE Transactions\nemotion\nrecognition,”\non Cybernetics,\nvol.\n50,"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "no. 7, pp. 3281–3293, 2019."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[11] K. Ross et al., “Unsupervised multi-modal representation learning for"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "affective computing with multi-corpus wearable data,” arXiv preprint"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "arXiv:2008.10726, 2020."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[12]\nP. Rodrigues et al., “Dimensionality transcending: a method for merg-"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "ing BCI datasets with different dimensionalities,” IEEE Transactions"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "on Biomedical Engineering, 2020."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[13] D. Bethge et al., “Domain-invariant representation learning from EEG"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "with private encoders,” arXiv preprint arXiv:2201.11613, 2022."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[14] R. T. Schirrmeister et al., “Deep learning with convolutional neural"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "networks\nfor EEG decoding and visualization,” Human Brain Map-"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "ping, vol. 38, no. 11, pp. 5391–5420, 2017."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[15] R.-N. Duan et al., “Differential entropy feature for EEG-based emotion"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "classiﬁcation,” in 6th International IEEE/EMBS Conference on Neural"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "Engineering, 2013, pp. 81–84."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "et\n[16] W.-L. Zheng\nal.,\n“Emotionmeter: A multimodal\nframework\nfor"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "IEEE Transactions\nrecognizing\nhuman\nemotions,”\non Cybernetics,"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "vol. 49, no. 3, pp. 1110–1122, 2018."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[17]\nS. Koelstra\net al.,\n“DEAP: A database\nfor\nemotion analysis using"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "IEEE Transactions\nphysiological\nsignals,”\non Affective Computing,"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "vol. 3, no. 1, pp. 18–31, 2011."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[18]\nS. Katsigiannis and N. Ramzan, “DREAMER: A database for emo-"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "tion recognition through EEG and ECG signals\nfrom wireless\nlow-"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "cost off-the-shelf devices,” IEEE Journal of Biomedical and Health"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "Informatics, vol. 22, no. 1, pp. 98–107, 2017."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "et\n[19] H. Candra\nal.,\n“Investigation\nof window size\nin\nclassiﬁcation"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "of EEG-emotion\nsignal with wavelet\nentropy\nand\nsupport\nvector"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "37th\nAnnual\nInternational Conference\nof\nthe\nIEEE\nmachine,”\nin"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "Engineering in Medicine and Biology Society, 2015, pp. 7250–7253."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[20]\nP. Liu et al., “Adversarial multi-task learning for\ntext classiﬁcation,”"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "arXiv preprint arXiv:1704.05742, 2017."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "et\n[21] M. Han\nal.,\n“Disentangled\nadversarial\nautoencoder\nfor\nsubject-"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "IEEE Signal Processing\ninvariant\nphysiological\nfeature\nextraction,”"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "Letters, vol. 27, pp. 1565–1569, 2020."
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": ""
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "[22] ——,\n“Universal\nphysiological\nrepresentation\nlearning with\nsoft-"
+        },
+        {
+          "Neural Engineering, vol. 18, no. 2, p. 026014, 2021.": "disentangled rateless autoencoders,” IEEE Journal of Biomedical and"
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "10 %": "0 %"
+        },
+        {
+          "10 %": "Emotion Classifier\nDomain Classifier"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "Fig. 3.\nComparison of\nthe mean emotion classiﬁcation and data-source"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "identiﬁcation accuracies\nfor different hyperparameters λ, averaged over 5"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "runs. Horizontal dashed lines represent\nthe chance-level accuracy, and black"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "solid lines show the empirical standard deviation."
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "from speciﬁc classes for stratiﬁed sampling,\nthe actual emo-"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "tion classiﬁcation task becomes highly challenging."
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "Table II\nshows averaged accuracies\nfor\nthe adversarially"
+        },
+        {
+          "10 %": "learned model,\nas well\nas\nthe baseline global model. Our"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "models achieve an above-chance classiﬁcation performance"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "for emotion recognition across all\nfour datasets. We further"
+        },
+        {
+          "10 %": "showed that\ninvariant models can be learned by reducing the"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "leakage\nand maintaining a\nsimilar\nemotional\nclassiﬁcation"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "quality to λ = 0 cases (cf. Figure 3)."
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "V. DISCUSSION & CONCLUSION"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "In\nthis\npaper we\nexplore\nrobustly\ntransferable\npatterns"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "across multiple EEG emotion recognition data-sources. We"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "present\nan adversarial\nlearning framework to unify differ-"
+        },
+        {
+          "10 %": "ent EEG data-sources\nand labels\nfor multi-source\ntransfer"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "learning by ﬁnding data-source-invariant shareable informa-"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "tion for multiple EEG-related\ntasks. Our\napproach makes"
+        },
+        {
+          "10 %": "signiﬁcant pre-processing steps\nto unify the data basis\nfor"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "multi-source\ntransfer\nlearning.\nThereby,\nthe\nresults\nindi-"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "cate\nthat\nthe\npre-processing\ncomes\nat\nthe\ncost\nof\nclassi-"
+        },
+        {
+          "10 %": "ﬁer performance overall. However our adversarial censoring"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "approach\nachieves\nthe\nsame\nclassiﬁcation\nperformance\nas"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "simply\npooling\nthe\ndata\ndomains\ntogether\n(i.e.,\ntraining"
+        },
+        {
+          "10 %": "regular CNNs with\npooled\ndatasets with λ = 0) while"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "giving\nus\nthe\nopportunity\nto\nrestrict\nthe\nrepresentation\nto"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "be\nhighly\ndata-invariant\n(35% leakage). Our\nimplementa-"
+        },
+        {
+          "10 %": "tions are publicly available at: https://github.com/"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "philipph77/ACSE-Framework."
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "Our work can be extended by adapting the encoder frame-"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "work to be able to use different EEG input shapes according"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "to the speciﬁed data-source, and as a result, different number"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "of\nchannels\nand sampling frequencies\ncan be\nlearned. We"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "envision an adversarial shared-private model similar\nto [20]"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "where some channels are shared among data-sources (as in"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "our\napproach)\nbut\nprivate\n(data-source-speciﬁc)\ninput\ncan"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "be\nincorporated. Our\napproach can also easily be\nadapted"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "to learn representations\nthat are invariant corresponding to"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "other EEG variation factors e.g., participant\nID, by adding"
+        },
+        {
+          "10 %": ""
+        },
+        {
+          "10 %": "an additional adversarial classiﬁer\n[21],\n[22]."
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "EEG-based brain-computer interfaces: an overview of basic concepts and clinical applications in neurorehabilitation",
+      "authors": [
+        "S Machado"
+      ],
+      "year": "2010",
+      "venue": "Reviews in the Neurosciences"
+    },
+    {
+      "citation_id": "2",
+      "title": "Cross-dataset variability problem in EEG decoding with deep learning",
+      "authors": [
+        "L Xu"
+      ],
+      "year": "2020",
+      "venue": "Frontiers in Human Neuroscience"
+    },
+    {
+      "citation_id": "3",
+      "title": "Information theoretic feature transformation learning for brain interfaces",
+      "authors": [
+        "O Özdenizci",
+        "D Erdogmus"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Biomedical Engineering"
+    },
+    {
+      "citation_id": "4",
+      "title": "Adversarial discriminative domain adaptation",
+      "authors": [
+        "E Tzeng"
+      ],
+      "year": "2017",
+      "venue": "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"
+    },
+    {
+      "citation_id": "5",
+      "title": "A comprehensive survey on transfer learning",
+      "authors": [
+        "F Zhuang"
+      ],
+      "year": "2020",
+      "venue": "Proceedings of the IEEE"
+    },
+    {
+      "citation_id": "6",
+      "title": "A review on transfer learning in EEG signal analysis",
+      "authors": [
+        "Z Wan"
+      ],
+      "year": "2021",
+      "venue": "Neurocomputing"
+    },
+    {
+      "citation_id": "7",
+      "title": "Generalized neural decoders for transfer learning across participants and recording modalities",
+      "authors": [
+        "S Peterson"
+      ],
+      "year": "2021",
+      "venue": "Journal of Neural Engineering"
+    },
+    {
+      "citation_id": "8",
+      "title": "Learning invariant representations from EEG via adversarial inference",
+      "authors": [
+        "O Özdenizci"
+      ],
+      "year": "2020",
+      "venue": "IEEE Access"
+    },
+    {
+      "citation_id": "9",
+      "title": "Adversarial deep learning in EEG biometrics",
+      "year": "2019",
+      "venue": "IEEE Signal Processing Letters"
+    },
+    {
+      "citation_id": "10",
+      "title": "Multisource transfer learning for cross-subject EEG emotion recognition",
+      "authors": [
+        "J Li"
+      ],
+      "year": "2019",
+      "venue": "IEEE Transactions on Cybernetics"
+    },
+    {
+      "citation_id": "11",
+      "title": "Unsupervised multi-modal representation learning for affective computing with multi-corpus wearable data",
+      "authors": [
+        "K Ross"
+      ],
+      "year": "2020",
+      "venue": "Unsupervised multi-modal representation learning for affective computing with multi-corpus wearable data",
+      "arxiv": "arXiv:2008.10726"
+    },
+    {
+      "citation_id": "12",
+      "title": "Dimensionality transcending: a method for merging BCI datasets with different dimensionalities",
+      "authors": [
+        "P Rodrigues"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Biomedical Engineering"
+    },
+    {
+      "citation_id": "13",
+      "title": "Domain-invariant representation learning from EEG with private encoders",
+      "authors": [
+        "D Bethge"
+      ],
+      "year": "2022",
+      "venue": "Domain-invariant representation learning from EEG with private encoders",
+      "arxiv": "arXiv:2201.11613"
+    },
+    {
+      "citation_id": "14",
+      "title": "Deep learning with convolutional neural networks for EEG decoding and visualization",
+      "authors": [
+        "R Schirrmeister"
+      ],
+      "year": "2017",
+      "venue": "Human Brain Mapping"
+    },
+    {
+      "citation_id": "15",
+      "title": "Differential entropy feature for EEG-based emotion classification",
+      "authors": [
+        "R.-N Duan"
+      ],
+      "year": "2013",
+      "venue": "6th International IEEE/EMBS Conference on Neural Engineering"
+    },
+    {
+      "citation_id": "16",
+      "title": "Emotionmeter: A multimodal framework for recognizing human emotions",
+      "authors": [
+        "W.-L Zheng"
+      ],
+      "year": "2018",
+      "venue": "IEEE Transactions on Cybernetics"
+    },
+    {
+      "citation_id": "17",
+      "title": "DEAP: A database for emotion analysis using physiological signals",
+      "authors": [
+        "S Koelstra"
+      ],
+      "year": "2011",
+      "venue": "IEEE Transactions on Affective Computing"
+    },
+    {
+      "citation_id": "18",
+      "title": "DREAMER: A database for emotion recognition through EEG and ECG signals from wireless lowcost off-the-shelf devices",
+      "authors": [
+        "S Katsigiannis",
+        "N Ramzan"
+      ],
+      "year": "2017",
+      "venue": "IEEE Journal of Biomedical and Health Informatics"
+    },
+    {
+      "citation_id": "19",
+      "title": "Investigation of window size in classification of EEG-emotion signal with wavelet entropy and support vector machine",
+      "authors": [
+        "H Candra"
+      ],
+      "year": "2015",
+      "venue": "37th Annual International Conference of the IEEE Engineering in Medicine and Biology Society"
+    },
+    {
+      "citation_id": "20",
+      "title": "Adversarial multi-task learning for text classification",
+      "authors": [
+        "P Liu"
+      ],
+      "year": "2017",
+      "venue": "Adversarial multi-task learning for text classification",
+      "arxiv": "arXiv:1704.05742"
+    },
+    {
+      "citation_id": "21",
+      "title": "Disentangled adversarial autoencoder for subjectinvariant physiological feature extraction",
+      "authors": [
+        "M Han"
+      ],
+      "year": "2020",
+      "venue": "IEEE Signal Processing Letters"
+    },
+    {
+      "citation_id": "22",
+      "title": "Universal physiological representation learning with softdisentangled rateless autoencoders",
+      "year": "2021",
+      "venue": "IEEE Journal of Biomedical and Health Informatics"
+    }
+  ]
+}

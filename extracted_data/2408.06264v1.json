@@ -1,0 +1,1091 @@
+{
+  "paper_id": "2408.06264v1",
+  "title": "Audio Enhancement For Computer Audition -An Iterative Training Paradigm Using Sample Importance",
+  "published": "2024-08-12T16:23:58Z",
+  "authors": [
+    "Manuel Milling",
+    "Shuo Liu",
+    "Andreas Triantafyllopoulos",
+    "Ilhan Aslan",
+    "Björn W. Schuller"
+  ],
+  "keywords": [
+    "audio enhancement",
+    "computer audition",
+    "joint optimisation",
+    "multi-task learning",
+    "voice suppression"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Neural network models for audio tasks, such as automatic speech recognition (ASR) and acoustic scene classification (ASC), are susceptible to noise contamination for real-life applications. To improve audio quality, an enhancement module, which can be developed independently, is explicitly used at the front-end of the target audio applications. In this paper, we present an end-to-end learning solution to jointly optimise the models for audio enhancement (AE) and the subsequent applications. To guide the optimisation of the AE module towards a target application, and especially to overcome difficult samples, we make use of the sample-wise performance measure as an indication of sample importance. In experiments, we consider four representative applications to evaluate our training paradigm, i.e., ASR, speech command recognition (SCR), speech emotion recognition (SER), and ASC. These applications are associated with speech and non-speech tasks concerning semantic and non-semantic features, transient and global information, and the experimental results indicate that our proposed approach can considerably boost the noise robustness of the models, especially at low signal-to-noise ratios (SNRs), for a wide range of computer audition tasks in everyday-life noisy environments.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Introduction",
+      "text": "Computer audition (CA) is one of the most prominent fields currently being revolutionised by the advent of deep learning (DL), with deep neural networks (DNNs) increasingly becoming the state-of-theart in a multitude of applications, such as the ones discussed in this work: speech command recognition (SCR)  [De Andrade et al., 2018] , automatic speech recognition (ASR)  [Baevski et al., 2020] , speech emotion recognition (SER)  [Wagner et al., 2022] , and acoustic scene classification (ASC)  [Ren et al., 2019] . However, these applications are susceptible to different heterogeneities present in real-life conditions. Taking ASR * Corresponding Author\n\nas an example, this may include amongst other withinand cross-speaker variations, for instance, disfluencies, differences in language, and recording devices and setups.\n\nOne of the most prominent causes that impedes the practical application of CA models is the innumerable types of ambient noises or interference that deteriorate the audio recording, including environmental background noise, interfering speakers, reverberation, etc.\n\nThe sound of these noises can be stationary or nonstationary, instantaneous or continuous, and can be of different intensities (stable or variable), all of which have audio models confronting diverse and very complex situations. Meanwhile, in practical applications, multiple interfering sources can be present at the same time, each affecting the effectiveness of such audio models to a different extent. Hence, while considerable performance improvements are leading to the continuous adoption of CA modules in several artificial intelligence (AI) pipelines, robustness to noise remains a critical consideration for most of them. This has led to an accompanying rise of audio enhancement (AE) methods, which typically also fall under the auspices of DL  [Liu et al., 2021a] .\n\nTo that end, we present a novel framework for general audio enhancement targeted towards increased robustness of different computer audition tasks. In this framework, the cascaded AE and CA models perform two iterative training steps, strengthening the interplay between the different components of a DL pipeline to minimise potential mismatches and benefit from potential synergies. The motivation is that the computer audition task (CAT) model can guide the AE frontend to preserve those signal components that are particularly important for the task at hand; for instance, an AE frontend for ASR might be optimised to improve the intelligibility of the signal, whilst a SER frontend might focus on the preservation of prosody instead, as this property is more important for the identification of emotional information. Contrary to conventional joint optimisation, samples are not treated equally, but we utilise the loss of the target CAT model as an indica-tion of difficulty in order to guide the training of AE towards harder samples.\n\nWe hypothesise that the proposed training framework utilises the symbiotic and interdependent nature between the AE and CAT models, and thus counterbalances and mutually promotes the models to reach an optimal performance of the entire system. The technique is experimentally assessed using four relevant target CA applications, aiming to cover a broad spectrum from linguistic speech content in the case of automatic speech recognition and speech command recognition, to acoustic speech content in the case of speech emotion recognition, to ambient audio in the case of acoustic scene classification.\n\nThe remainder of the paper is organised as follows.\n\nIn Section 3, we provide an overview of our methodology, including the U-Net-based SE model, as well as the different CAT models. Then, we detail the utilised datasets and experiments and report our results in Section 4, before putting said results in perspective in Section 5. Finally, we conclude our work and point towards future research directories in Section 6.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Related Work",
+      "text": "At its core, the task of AE aims at the separation of the audio of interest from other interfering sounds, i. e., it aims at the preservation of the target signal while reducing the uncertainties in audio. The unwanted interference can be the result of several phenomena which affect different steps of the typical CA pipeline: a) additive noise, b) reverberation, c) encoding noise, and, d) package loss. From these, additive noise has been most thoroughly studied in previous work, due to its ubiquitous presence in CA applications and its detrimental effects on performance  [Spille et al., 2018 , Triantafyllopoulos et al., 2019] .\n\nWithin AE, particular attention has traditionally been paid to speech enhancement (SE), as a typical CAT is mostly focused on extracting information from the human voice. ASR, being the flagship task of computer audition, is the primary testbed for most SE methods, with other tasks such as SER and SCR following closely. However, enhancement of audio signals beyond speech is needed in a number of CATs, such as ASC and sound event detection (SED). In contrast to the purpose of speech enhancement, the presence of speech is often deemed as the noise that can considerably affect the identification of surrounding environments  [Liu et al., 2020] . To tackle this problem, voice suppression, as another type of audio enhancement task, has the goal to eliminate the human voice from ambient recordings. These contradicting definitions of target audio signal and confounding noise show that a single one-shoe-fits-all solution for AE systems seems rather difficult to achieve.\n\nUtilising enhancement frontends, i. e., separately developed enhancement modules (typically based on DNNs), can enhance the input for the subsequent CA models, which can explicitly be empowered using data augmentation techniques, such as SpecAugment  [Park et al., 2019]  or additive noise  [Triantafyllopoulos et al., 2019]  for their better robustness against expected perturbations. This is typically performed for ASR tasks  Weninger et al. [2015] ,  Kinoshita et al. [2020] ,  Sivasankaran et al. [2015] ,  Zorilȃ et al. [2019] . However, in practice, such independent enhancement can introduce unwanted distortions and artefacts  Iwamoto et al. [2022]  in the enhanced audio, yielding limited improvements or even worsen the performance of cascaded ASR models. In order to improve the tolerance to these distortions, the ASR model can be trained based on the enhanced audio, which is sometimes referred to as joint training  Wang and Wang [2016] ,  Narayanan et al. [2015] .\n\nWhen optimising the ASR, the parameters of its frontend SE model can be either frozen or trainable.\n\nIn the case of trainable parameters, the loss of the [2019],  Zhou et al. [2020]  and  ASC Liu et al. [2020] .",
+      "page_start": 2,
+      "page_end": 3
+    },
+    {
+      "section_name": "Methodologies",
+      "text": "At the core of our methodology we put two hypotheses, which are already partly supported by the literature, but have not yet been validated on a wide range of applications: 1) the enhancement of audio signals, which contain highly relevant information for a given computer audition task, as part of a processing pipeline, can improve the performance on the target task, and 2) a training procedure, which optimises the audio enhancement and the CAT jointly can specialise the audio enhancement module for task-specific signals and therefore lead to better performance on the CAT.\n\nIn order to further explore the hypotheses men-",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Comparison Methods",
+      "text": "To assess the performance of our proposed iterative optimisation approach, we compare it with a wide range of methods commonly applied in the context of audio enhancement, which will be introduced in the following.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Baseline",
+      "text": "The general baseline for all experiments is a CATspecific model taken from related literature, which is not trained on any noise-specific data and does not use an AE component. The model is not specifically designed for robustness towards noise and we thus expect a noticeable performance drop-off when confronted with noisy data.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Data Augmentation",
+      "text": "In a first attempt to make the baseline model more robust, we train it on noise-augmented data. For this purpose, we artificially add noise with different SNR ratios to the mostly clean audio recordings. With data augmentation being one of the most common machine learning practices to increase robustness, we expect the model to perform better on the noisy test data, which was generated in the same manner as the train data.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Cold Cascade",
+      "text": "The simplest training paradigm with an AE component is a cold cascade of U-Net, as described in section 3.3\n\nand CAT-specific model. Cold cascade means in this context that both models are being optimised independently. First, the U-Net is trained to achieve a good AE performance, then, the CAT model is trained based on clean data and then stacked on top of the U-Net.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Cold Cascade + Data Augmentation",
+      "text": "We further combine the cold cascade and data augmentation approach, i. e., first, the U-Net is trained to achieve a good AE performance, and then, we train the cold cascade architecture with augmented, noisy data.\n\nThis approach promises decent noise robustness, as the model has previously seen noisy data and it includes a powerful AE component.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "State-Of-The-Art",
+      "text": "To further evaluate the effectiveness of our methods against the state-of-the-art, we additionally utilise two recent denoising methods; this we only do for one of the CA tasks (SCR) due to space limitations.\n\nSpecifically, we use MetricGAN+  [Fu et al., 2021]  and DeepFilterNet-3 (DFNet-3)  [Schröter et al., 2023] .\n\nMetricGAN+ is a bLSTM model trained in generativeadversarial fashion to optimise perceptual losses;\n\nthe training set is VoiceBank-DEMAND  [Valentini-Botinhao et al., 2016] . DFNet-3, on the other hand, follows a two-stage approach with ERB-based enhancement followed by deep filtering to enhance the periodicity of the output signal and has been trained with a multi-spectral loss on DNS-4  [Dubey et al., 2022] ,\n\nwhich is closer to our current setup (i. e., the noise data partially comes from AudioSet). Both models are used to enhance the noisy mixtures of SCR on which we evaluate the baseline model trained without data augmentation on the original data; they thus simulate the scenario of using an off-the-shelf denoising model before evaluation. This setup is essentially equivalent to Cold Cascade, only this time using different models.",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Multi-Task Learning",
+      "text": "We finally compare our method to an implementation of multi-task learning, i. e., an optimisation of both the AE task and the CAT at the same time with an additive loss function\n\nwhere L AE is the loss of the speech enhancement task as presented in (5) and L CA is the loss of the computer audition task.\n\nIn contrast to common applications of multi-task learning, the two models do not only share a certain set of layers but the AE and CA models are put in sequence of each other, i. e., the AE loss is derived from an intermediate layer of the overall system. Thus, minimising the AE loss has no effect on the parameters of the CA model, while the CA loss back-propagates through the AE model. Consequently, the AE and the CA losses, whilst working as mutual regularisation terms, introduce a bias towards the update of the AE parameters.\n\nSimilar ideas have been explored for the structure of a supervised auto-encoder  Le et al. [2018] .",
+      "page_start": 5,
+      "page_end": 5
+    },
+    {
+      "section_name": "Iterative Optimisation",
+      "text": "Similar to the concept of multitask learning, the main motivation behind an iterative optimisation approach is a joint view of the two models. At its core, hypothesise that both optimisation steps need to be performed iteratively to gradually approach an optimal solution.\n\nIn order to implement the latter idea, we calculate a weight for each sample in a given batch when optimising the AE model. The weight for each sample i is defined as\n\nwith the target t i and the predicted target ti . The weights therefore give an indication of how difficult a given sample is for the CAT. We choose a linear relationship between the sample weight and the loss for the CAT as the most straightforward implementation, even though other approaches, such as softmax normalisation, are possible. This choice does not add any new hyperparameters, as linear scaling would only affect the training in the same way as changing the learning rate.\n\nIn practice, we normalise the weights by dividing by their sum within one batch. The loss of the AE component is then defined as",
+      "page_start": 6,
+      "page_end": 6
+    },
+    {
+      "section_name": "Audio Enhancement Model",
+      "text": "The audio enhancement is based on U-net  Ronneberger et al. [2015] ,  Choi et al. [2018] , an autoencoder architecture, operating in the frequency domain, with feed-forward layers that stack the encoder layers to their corresponding decoder layers, as seen in\n\nwhere n = y -x and n = y -x represent the true and estimated noise signal, and\n\nas well as\n\nIn order to capture the advantages of enhanced audio signals from U-Net some slight architectural changes need to be applied in order to make it compatible in a cascading fashion with any of the abovementioned application scenarios. For this purpose, we set the max-pooling along the time-axis equal to 1, while the pooling along the frequency-axis stays unchanged. The main motivation of this step is to allow the U-Net to process audio segments of different lengths, which is a crucial ability for some of the application tasks, like for instance ASR.",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Computer Audition Tasks",
+      "text": "In the following, we will introduce the four differ-",
+      "page_start": 7,
+      "page_end": 7
+    },
+    {
+      "section_name": "Speech Emotion Recognition",
+      "text": "Speech emotion recognition is a cornerstone technology for the development of successful HMI applications  [Schuller, 2018] . It involves the development of algorithms that can understand human emotions from * The language model can be found at https://www.openslr.org/11/.\n\nvocalisations and is typically formulated as a classification (of 'basic' emotions) or a regression task (of emotional dimensions)  [Schuller, 2018]  and studies often focus on specific contexts, such as to recognise acted emotions  Busso et al. [2008] , emotions in pub- and additive noise  [Triantafyllopoulos et al., 2019 , Wagner et al., 2022] . Of those, additive noise is the more insidious, as it is beyond the control of the application designer (unlike encoding errors and packet loss which can be fixed by other means) and needs to be addressed with audio enhancement methods.\n\nIn recent years, SER research has transitioned to the use of DL models like convolutional neural networks (CNNs)  [Triantafyllopoulos et al., 2021] , an approach we follow here as well. In particular, we use a 4-layered CNN, where each layer consists of a sequence of convolution, batch normalisation, ReLU activation, max-pooling, and dropout. Its input consists of the Mel spectrogram, computed with 32 Mel-scale filters, a window length of 20 ms, and a step size of 10 ms. This architecture has been shown to be effective in previous works. Its output is projected to emotion labels using a dense layer, as depicted in Fig.  3c .",
+      "page_start": 8,
+      "page_end": 8
+    },
+    {
+      "section_name": "Acoustic Scene Classification",
+      "text": "Our final audio application, ASC, is concerned with the classification of soundscapes in discrete categories that characterise their content (e. g., a park or a shopping mall). This application departs from the standard assumption that speech is the signal to be preserved. Instead, speech is now considered a contaminating source which needs to be removed. There are two primary motivating factors for this unorthodox formulation: a) improving the robustness of ASC classifi-cation in the presence of speech  [Liu et al., 2020] , and b) enforcing privacy regulations in the case of largescale, monitoring applications  [Bajovic et al., 2021] . In fact, the two factors have a strong overlap as data collection for ASC applications typically takes mitigating steps to avoid the capturing of speech (e. g., filtering out segments where a VAD is triggered  [Bajovic et al., 2021] ) resulting in datasets that do not violate privacy requirements, but will have trouble generalising to realworld environments where human speech is ubiquitous.\n\nTo that end, we propose to enhance ASC signals by removing speech -a form of voice suppression  [Liu et al., 2020] .\n\nAs The baseline of the SCR model without additive noise achieves an accuracy of 85.07 % (cf. Table  1 ). Intuitively, the performance of the same system decreases monotonically with increasing noise levels, dropping to 33.12 % with 0 dB SNR. All of the suggested approaches aim at increased robustness to help mitigate said drop-off. This effect becomes more noticeable with lower SNR values as, at 0 dB, even the worst improvement compared to the baseline alleviates the accuracy to more than 50 %. The suggested iterative optimisation and MTL training paradigms outperform competing approaches in every instance, with the MTL achieving slightly better performance at high SNRs and the iterative optimisation performing better on low SNRs.\n\nAt 0 dB, the iterative optimisation allows for an accuracy more than twice as high as the baseline. Noticeably, at 25 dB, MTL and iterative optimisation even outperform the baseline without additive noise. One possible explanation for this effect is that the AE filters small levels of inherent noise in the \"clean\" data itself. However, this claim is hard to verify, as quantitative measures of noise levels without completely noisefree ground-truths to compare against are difficult to obtain, making a deeper analysis necessary.\n\nOur iterative optimisation and MTL methods also perform favourably with respect to the state-of-theart. DFNet-3 denoising achieves an average accuracy of 74.37, %, which is substantially lower than our 79.97%.\n\nThe same is true for MetricGAN+, which ranks lower even than the baseline model at 63.00%; this failure particularly illustrates how difficult the task is, and how a simple denoising frontend can fail. Both models underperform the baseline at higher SNRs, which indicates that they introduce some unwanted distortion into the signal -something that our methods avoid. We also note that DFNet-3 is only marginally better than our own Cold Cascade method, even though the DNS-4 dataset is vastly bigger and more diverse than ours, which shows that our model is competitive in terms of enhancement performance. Overall, the comparison to state-of-the-art illustrates that iterative optimisation is crucial for bridging the gap to downstream performance between clean and noisy audio.  iterative training approach, we train an AE and ASR system on CHiME-4 as described in Section 3, but evaluate the SE system in combination with the provided ASR systems GMM-HMM and DNN-HMM.\n\nTable  3  shows the results for simulated (simu) and real test set with the two provided ML approaches GMM-HMM and DNN-HMM, as introduced in Section 3. The iterative optimisation achieves the lowest WER in all cases with MTL being the follow-up. The cross-corpus approach cold cascade 1 consistently performs worse than cold cascade 2, however, still outperforming the baseline. Overall, the WERs are compa- In our experiments, we use all of the emotional sam-      Furthermore, our iterative optimisation is also consistently superior to MTL; it is only outperformed in very few of the high SNR conditions for speech command recognition and acoustic scene classification. In most cases, it is able to recover a substantial percentage of the performance loss incurred by noise, even at 0 dB: ∽ 69 % for SCR, ∽ 60 % for ASR, ∽ 89% for SER, ∽ 71% for ASC. Since the audio applications we selected to test our method are associated with a broad range of real-life audio environments, we are optimistic that the system can be used in a wide range of other applications.\n\nHowever, some limitations are attached to this study, as some baseline models have a performance lower than recent state-of-the-art methods when considering only training and testing on clean data. For instance, an ASR model can take advantage of selfsupervised learning  [Zhu et al., 2022] , which allows them to scale up the amount of data and reap the benefits that this entails. However, an SSL framework is agnostic to the task; thus, it cannot adjust the importance of individual samples based on downstream performance, which was found highly beneficial in our work. This leads us to conclude that using joint SSL and enhancement pre-training on larger amounts of data, followed by fine-tuning with our iterative optimisation on the target downstream task is a promising avenue of future research.\n\nFurthermore, beyond preliminary experiments, we have chosen to focus on only one type of denoising architecture (U-Net), which raises some concerns as to how well our approach would generalise to other models. Nevertheless, as the proposed methods are agnostic to the underlying architectures, we expect them to show similar improvements when combined with other state-of-the-art models.",
+      "page_start": 9,
+      "page_end": 9
+    },
+    {
+      "section_name": "Conclusion",
+      "text": "In this work, we focused on single-channel audio enhancement adapted to specific computer audition downstream tasks under low signal-to-noise-ratio (SNR) conditions. In particular, we considered the downstream tasks of speech command recognition",
+      "page_start": 10,
+      "page_end": 16
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: All data for AE and CATs is resampled",
+      "page": 4
+    },
+    {
+      "caption": "Figure 2: Given a noisy audio y and its corresponding clean",
+      "page": 6
+    },
+    {
+      "caption": "Figure 3: a provides a visu-",
+      "page": 8
+    },
+    {
+      "caption": "Figure 4: For the ASC task",
+      "page": 14
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "L Output\nCAT L Output L\nCAT CAT\nCAT\nCAT\nFeature Extraction\nFeature Extraction\nL\nenhanced audio enhanced audio AE en\nAE\nAE\nnoisy audio\nnoisy audio\nnoise\nnoise\nLabel\nLabel Label\n(a)Coldcascade+dataaugmenta-\n(b)Multi-tasklearning (c)\ntion\nig.1. Diagrams showing the methodologies used. The red arrows demonstrate the back-propagation th\nithrespecttothelossesLoftheAEandtheCAT.Ina)onlytheCATlossisoptimisedwithafrozenA\n)isbasedontheCATandtheAElosswiththeAEparametersbeingaffectedthroughbothlosses. Inou\narametersoftheCATandtheAEareonlyaffectedthroughtheirrespectivelosswiththeAEincludinga\nntrasttothepreviousapproaches.": "",
+          "Column_2": "L Output\nCAT\nCAT\nFeature Extraction\nL\nenhanced audio AE\nAE\nnoisy audio\nnoise\nLabel\n(b)Multi-tasklearning\n. The red arrows demonstrate the back-propaga\nT.Ina)onlytheCATlossisoptimisedwithafr\nAEparametersbeingaffectedthroughbothlosse\nedthroughtheirrespectivelosswiththeAEincl",
+          "Column_3": "L\nCAT\nen\nLabel\n(c)\ntion th\nozenA\ns. Inou\nudinga"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "FCs\nDropout\nBiGRU\nGeLU\nLayer norm\n3× conv block\nconv block\nconv\n)AutomaticSpeech\nRecognition\ntures for downstream co": "",
+          "FC\navg. pool\nmax\npooling\nConv\n4×\n(c)SpeechEmotion\nRecognition\nmputer audition tasks.": "ared to the architectures\npply1Dconvolutionalan",
+          "c\n4× c\nThe": ""
+        }
+      ],
+      "page": 7
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "Deep speech 2 : End-to-end speech recognition in english and mandarin",
+      "authors": [
+        "Dario Amodei",
+        "Rishita Sundaram Ananthanarayanan",
+        "Jingliang Anubhai",
+        "Eric Bai",
+        "Carl Battenberg",
+        "Jared Case",
+        "Bryan Casper",
+        "Qiang Catanzaro",
+        "Guoliang Cheng",
+        "Jie Chen",
+        "Jingdong Chen",
+        "Zhijie Chen",
+        "Mike Chen",
+        "Adam Chrzanowski",
+        "Greg Coates",
+        "Ke Diamos",
+        "Niandong Ding",
+        "Erich Du",
+        "Jesse Elsen",
+        "Weiwei Engel",
+        "Linxi Fang",
+        "Christopher Fan",
+        "Liang Fougner",
+        "Caixia Gao",
+        "Awni Gong",
+        "Tony Hannun",
+        "Lappi Han",
+        "Bing Johannes",
+        "Cai Jiang",
+        "Billy Ju",
+        "Patrick Jun",
+        "Libby Legresley",
+        "Junjie Lin",
+        "Yang Liu",
+        "Weigao Liu",
+        "Xiangang Li",
+        "Dongpeng Li",
+        "Sharan Ma",
+        "Andrew Narang",
+        "Sherjil Ng",
+        "Yiping Ozair",
+        "Ryan Peng",
+        "Sheng Prenger",
+        "Zongfeng Qian",
+        "Jonathan Quan",
+        "Vinay Raiman",
+        "Sanjeev Rao",
+        "David Satheesh",
+        "Shubho Seetapun",
+        "Kavya Sengupta",
+        "Anuroop Srinet",
+        "Haiyuan Sriram",
+        "Liliang Tang",
+        "Chong Tang",
+        "Jidong Wang",
+        "Kaifu Wang",
+        "Yi Wang",
+        "Zhijian Wang",
+        "Zhiqian Wang",
+        "Shuang Wang",
+        "Likai Wu",
+        "Bo Wei",
+        "Wen Xiao",
+        "Yan Xie",
+        "Dani Xie",
+        "Bin Yogatama",
+        "Jun Yuan",
+        "Zhenyao Zhan",
+        "Zhu"
+      ],
+      "year": "2016",
+      "venue": "Proc. 33rd International Conference on Machine Learning"
+    },
+    {
+      "citation_id": "2",
+      "title": "XLS-R: Self-supervised crosslingual speech representation learning at scale",
+      "authors": [
+        "Arun Babu",
+        "Changhan Wang",
+        "Andros Tjandra",
+        "Kushal Lakhotia",
+        "Qiantong Xu",
+        "Naman Goyal",
+        "Kritika Singh",
+        "Yatharth Patrick Von Platen",
+        "Juan Saraf",
+        "Alexei Pino",
+        "Alexis Baevski",
+        "Michael Conneau",
+        "Auli"
+      ],
+      "year": "2021",
+      "venue": "XLS-R: Self-supervised crosslingual speech representation learning at scale",
+      "arxiv": "arXiv:2111.09296"
+    },
+    {
+      "citation_id": "3",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "Alexei Baevski",
+        "Yuhao Zhou",
+        "Abdelrahman Mohamed",
+        "Michael Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "4",
+      "title": "Emotion recognition in public speaking scenarios utilising an lstm-rnn approach with attention",
+      "authors": [
+        "Alice Baird",
+        "Shahin Amiriparian",
+        "Manuel Milling",
+        "Björn Schuller"
+      ],
+      "year": "2021",
+      "venue": "2021 IEEE Spoken Language Technology Workshop (SLT)",
+      "doi": "10.1109/SLT48900.2021.9383542"
+    },
+    {
+      "citation_id": "5",
+      "title": "MARVEL: Multimodal extreme scale data analytics for smart cities environments",
+      "authors": [
+        "Dragana Bajovic",
+        "Arian Bakhtiarnia",
+        "George Bravos",
+        "Alessio Brutti",
+        "Felix Burkhardt",
+        "Daniel Cauchi",
+        "Antony Chazapis",
+        "Claire Cianco",
+        "Nicola Dall Ásen",
+        "Vlado Delic"
+      ],
+      "year": "2021",
+      "venue": "2021 International Balkan Conference on Communications and Networking (BalkanCom)"
+    },
+    {
+      "citation_id": "6",
+      "title": "Analysis of representations for domain adaptation",
+      "authors": [
+        "Shai Ben-David",
+        "John Blitzer",
+        "Koby Crammer",
+        "Fernando Pereira"
+      ],
+      "year": "2006",
+      "venue": "Advances in neural information processing systems"
+    },
+    {
+      "citation_id": "7",
+      "title": "IEMOCAP: interactive emotional dyadic motion capture database",
+      "authors": [
+        "Carlos Busso",
+        "Murtaza Bulut",
+        "Chi-Chun Lee",
+        "Abe Kazemzadeh",
+        "Emily Provost",
+        "Samuel Kim",
+        "Jeannette Chang",
+        "Sungbok Lee",
+        "Shrikanth Narayanan"
+      ],
+      "year": "2008",
+      "venue": "Language Resources and Evaluation"
+    },
+    {
+      "citation_id": "8",
+      "title": "TASE: Task-aware speech enhancement for wake-up word detection in voice assistants",
+      "authors": [
+        "Guillermo Cámbara",
+        "Fernando López",
+        "David Bonet",
+        "Pablo Gómez",
+        "Carlos Segura",
+        "Mireia Farrús",
+        "Jordi Luque"
+      ],
+      "year": "1974",
+      "venue": "Applied Sciences"
+    },
+    {
+      "citation_id": "9",
+      "title": "Speech enhancement and recognition using multi-task learning of long short-term memory recurrent neural networks",
+      "authors": [
+        "Zhuo Chen",
+        "Shinji Watanabe",
+        "Hakan Erdogan",
+        "John Hershey"
+      ],
+      "year": "2015",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "10",
+      "title": "Phaseaware speech enhancement with deep complex u-net",
+      "authors": [
+        "Hyeong-Seok Choi",
+        "Jang-Hyun Kim",
+        "Jaesung Huh",
+        "Adrian Kim",
+        "Jung-Woo Ha",
+        "Kyogu Lee"
+      ],
+      "venue": "Phaseaware speech enhancement with deep complex u-net"
+    },
+    {
+      "citation_id": "11",
+      "title": "Proc. ICLR",
+      "year": "2018",
+      "venue": "Proc. ICLR"
+    },
+    {
+      "citation_id": "12",
+      "title": "Very deep convolutional neural networks for raw waveforms",
+      "authors": [
+        "Wei Dai",
+        "Chia Dai",
+        "Shuhui Qu",
+        "Juncheng Li",
+        "Samarjit Das"
+      ],
+      "year": "2017",
+      "venue": "Proc. ICASSP 2017"
+    },
+    {
+      "citation_id": "13",
+      "title": "A neural attention model for speech command recognition",
+      "authors": [
+        "Douglas Coimbra",
+        "De Andrade",
+        "Sabato Leo",
+        "Martin Loesener Da",
+        "Silva Viana",
+        "Christoph Bernkopf"
+      ],
+      "year": "2018",
+      "venue": "A neural attention model for speech command recognition",
+      "arxiv": "arXiv:1808.08929"
+    },
+    {
+      "citation_id": "14",
+      "title": "Icassp 2022 deep noise suppression challenge",
+      "authors": [
+        "Harishchandra Dubey",
+        "Vishak Gopal",
+        "Ross Cutler",
+        "Ashkan Aazami",
+        "Sergiy Matusevych",
+        "Sebastian Braun",
+        "Sefik Eskimez",
+        "Manthan Thakker",
+        "Takuya Yoshioka",
+        "Hannes Gamper"
+      ],
+      "year": "2022",
+      "venue": "Proc. ICASSP 2022"
+    },
+    {
+      "citation_id": "15",
+      "title": "Metricgan+: An improved version of metricgan for speech enhancement",
+      "authors": [
+        "Szu-Wei Fu",
+        "Cheng Yu",
+        "Tsun-An Hsieh",
+        "Peter Plantinga",
+        "Mirco Ravanelli",
+        "Xugang Lu",
+        "Yu Tsao"
+      ],
+      "year": "2021",
+      "venue": "Metricgan+: An improved version of metricgan for speech enhancement",
+      "arxiv": "arXiv:2104.03538"
+    },
+    {
+      "citation_id": "16",
+      "title": "Connectionist temporal classification: Labelling unsegmented sequence data with recurrent neural networks",
+      "authors": [
+        "Alex Graves",
+        "Santiago Fernández",
+        "Faustino Gomez",
+        "Jürgen Schmidhuber"
+      ],
+      "year": "2006",
+      "venue": "Proc. ICML"
+    },
+    {
+      "citation_id": "17",
+      "title": "A monaural speech enhancement method for robust small-footprint keyword spotting",
+      "authors": [
+        "Yue Gu",
+        "Zhihao Du",
+        "Hui Zhang",
+        "Xueliang Zhang"
+      ],
+      "year": "2019",
+      "venue": "A monaural speech enhancement method for robust small-footprint keyword spotting",
+      "arxiv": "arXiv:1906.08415"
+    },
+    {
+      "citation_id": "18",
+      "title": "Deep speech: Scaling up end-to-end speech recognition",
+      "authors": [
+        "Awni Hannun",
+        "Carl Case",
+        "Jared Casper",
+        "Bryan Catanzaro",
+        "Greg Diamos",
+        "Erich Elsen",
+        "Ryan Prenger",
+        "Sanjeev Satheesh",
+        "Shubho Sengupta",
+        "Adam Coates"
+      ],
+      "year": "2014",
+      "venue": "Deep speech: Scaling up end-to-end speech recognition",
+      "arxiv": "arXiv:1412.5567"
+    },
+    {
+      "citation_id": "19",
+      "title": "Acoustic scene classification in dcase 2020 challenge: generalization across devices and low complexity solutions",
+      "authors": [
+        "Toni Heittola",
+        "Annamaria Mesaros",
+        "Tuomas Virtanen"
+      ],
+      "year": "2020",
+      "venue": "Proc. Detection and Classification of Acoustic Scenes and Events 2020 Workshop (DCASE2020)"
+    },
+    {
+      "citation_id": "20",
+      "title": "No. representation learning by masked prediction of hidden units",
+      "authors": [
+        "Wei Hsu",
+        "Benjamin Bolte",
+        "Hung Yao",
+        "Kushal Tsai",
+        "Ruslan Lakhotia",
+        "Abdelrahman Salakhutdinov",
+        "Mohamed",
+        "Hubert"
+      ],
+      "year": "2021",
+      "venue": "J. Comput. Sci. & Technol",
+      "arxiv": "arXiv:2106.07447"
+    },
+    {
+      "citation_id": "21",
+      "title": "How bad are artifacts?: Analyzing the impact of speech enhancement errors on asr",
+      "authors": [
+        "Kazuma Iwamoto",
+        "Tsubasa Ochiai",
+        "Marc Delcroix",
+        "Rintaro Ikeshita",
+        "Hiroshi Sato",
+        "Shoko Araki",
+        "Shigeru Katagiri"
+      ],
+      "year": "2022",
+      "venue": "How bad are artifacts?: Analyzing the impact of speech enhancement errors on asr",
+      "arxiv": "arXiv:2201.06685"
+    },
+    {
+      "citation_id": "22",
+      "title": "Self-supervised visual feature learning with deep neural networks: A survey",
+      "authors": [
+        "Longlong Jing",
+        "Yingli Tian"
+      ],
+      "year": "2020",
+      "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+    },
+    {
+      "citation_id": "23",
+      "title": "Streaming endto-end speech recognition with jointly trained neural feature enhancement",
+      "authors": [
+        "Chanwoo Kim",
+        "Abhinav Garg",
+        "Dhananjaya Gowda",
+        "Seongkyu Mun",
+        "Changwoo Han"
+      ],
+      "year": "2021",
+      "venue": "Proc. ICASSP 2021"
+    },
+    {
+      "citation_id": "24",
+      "title": "Bridgenets: Student-teacher transfer learning based on recursive neural networks and its application to distant speech recognition",
+      "authors": [
+        "Jaeyoung Kim",
+        "Mostafa El-Khamy",
+        "Jungwon Lee"
+      ],
+      "year": "2018",
+      "venue": "Proc. ICASSP 2018"
+    },
+    {
+      "citation_id": "25",
+      "title": "Improving noise robust automatic speech recognition with single-channel timedomain enhancement network",
+      "authors": [
+        "Keisuke Kinoshita",
+        "Tsubasa Ochiai",
+        "Marc Delcroix",
+        "Tomohiro Nakatani"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICASSP 2020"
+    },
+    {
+      "citation_id": "26",
+      "title": "Supervised autoencoders: Improving generalization performance with unsupervised regularizers",
+      "authors": [
+        "Lei Le",
+        "Andrew Patterson",
+        "Martha White"
+      ],
+      "year": "2018",
+      "venue": "Proc. Conference on Neural Information Processing Systems"
+    },
+    {
+      "citation_id": "27",
+      "title": "Visualizing the loss landscape of neural nets",
+      "authors": [
+        "Hao Li",
+        "Zheng Xu",
+        "Gavin Taylor",
+        "Christoph Studer",
+        "Tom Goldstein"
+      ],
+      "year": "2018",
+      "venue": "Proc. NeurIPS"
+    },
+    {
+      "citation_id": "28",
+      "title": "Adversarial joint training with self-attention mechanism for robust end-to-end speech recognition",
+      "authors": [
+        "Lujun Li",
+        "Yikai Kang",
+        "Yuchen Shi",
+        "Ludwig Kürzinger",
+        "Tobias Watzel",
+        "Gerhard Rigoll"
+      ],
+      "year": "2021",
+      "venue": "EURASIP Journal on Audio, Speech, and Music Processing"
+    },
+    {
+      "citation_id": "29",
+      "title": "Jointly Adversarial Enhancement Training for Robust End-to-End Speech Recognition",
+      "authors": [
+        "Bin Liu",
+        "Shuai Nie",
+        "Shan Liang",
+        "Wenju Liu",
+        "Meng Yu",
+        "Lianwu Chen",
+        "Shouye Peng",
+        "Changliang Li"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech 2019",
+      "doi": "10.21437/Interspeech.2019-1242"
+    },
+    {
+      "citation_id": "30",
+      "title": "Towards speech robustness for acoustic scene classification",
+      "authors": [
+        "Shuo Liu",
+        "Andreas Triantafyllopoulos",
+        "Björn Zhao Ren",
+        "Schuller"
+      ],
+      "year": "2020",
+      "venue": "Proc. Interspeech 2020"
+    },
+    {
+      "citation_id": "31",
+      "title": "A neural network-based toolkit for in-the-wild audio enhancement. Multimedia Tools and Applications",
+      "authors": [
+        "Shuo Liu",
+        "Gil Keren",
+        "Emilia Parada-Cabaleiro",
+        "Björn Schuller",
+        "Hans"
+      ],
+      "year": "2021",
+      "venue": "A neural network-based toolkit for in-the-wild audio enhancement. Multimedia Tools and Applications"
+    },
+    {
+      "citation_id": "32",
+      "title": "Towards selection of text-to-speech data to augment asr training",
+      "authors": [
+        "Shuo Liu",
+        "Leda Sarı",
+        "Chunyang Wu",
+        "Gil Keren",
+        "Yuan Shangguan",
+        "Jay Mahadeokar",
+        "Ozlem Kalinli"
+      ],
+      "year": "2023",
+      "venue": "Towards selection of text-to-speech data to augment asr training",
+      "arxiv": "arXiv:2306.00998"
+    },
+    {
+      "citation_id": "33",
+      "title": "Self-supervised learning: Generative or contrastive",
+      "authors": [
+        "Xiao Liu",
+        "Fanjin Zhang",
+        "Zhenyu Hou",
+        "Li Mian",
+        "Zhaoyu Wang",
+        "Jing Zhang",
+        "Jie Tang"
+      ],
+      "year": "1920",
+      "venue": "IEEE Transactions on Knowledge and Data Engineering"
+    },
+    {
+      "citation_id": "34",
+      "title": "Multitask-based joint learning approach to robust asr for radio communication speech",
+      "authors": [
+        "Duo Ma",
+        "Nana Hou",
+        "Haihua Xu",
+        "Eng Siong Chng"
+      ],
+      "year": "2021",
+      "venue": "2021 Asia-Pacific Signal and Information Processing Association Annual Summit and Conference (APSIPA ASC)"
+    },
+    {
+      "citation_id": "35",
+      "title": "Acoustic scene classification using deep residual networks with late fusion of separated high and low frequency paths",
+      "authors": [
+        "D Mark",
+        "Wei Mcdonnell",
+        "Gao"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICASSP 2020"
+    },
+    {
+      "citation_id": "36",
+      "title": "Domain adaptation via teacher-student learning for end-to-end speech recognition",
+      "authors": [
+        "Zhong Meng",
+        "Jinyu Li",
+        "Yashesh Gaur",
+        "Yifan Gong"
+      ],
+      "year": "2019",
+      "venue": "bookti-tle=2019 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU)"
+    },
+    {
+      "citation_id": "37",
+      "title": "Evaluating the impact of voice activity detection on speech emotion recognition for autistic children",
+      "authors": [
+        "Manuel Milling",
+        "Alice Baird",
+        "D Katrin",
+        "Shuo Bartl-Pokorny",
+        "Alyssa Liu",
+        "Jie Alcorn",
+        "Teresa Shen",
+        "Eloise Tavassoli",
+        "Elizabeth Ainger",
+        "Maja Pellicano",
+        "Nicholas Pantic",
+        "Björn Cummins",
+        "Schuller"
+      ],
+      "year": "2022",
+      "venue": "Frontiers in Computer Science",
+      "doi": "10.3389/fcomp"
+    },
+    {
+      "citation_id": "39",
+      "title": "Concealnet: An end-to-end neural network for packet loss concealment in deep speech emotion recognition",
+      "authors": [
+        "M Mostafa",
+        "Björn Mohamed",
+        "Schuller"
+      ],
+      "year": "2020",
+      "venue": "Concealnet: An end-to-end neural network for packet loss concealment in deep speech emotion recognition",
+      "arxiv": "arXiv:2005.07777"
+    },
+    {
+      "citation_id": "40",
+      "title": "Large-scale, sequence-discriminative, joint adaptive training for masking-based robust ASR",
+      "authors": [
+        "Arun Narayanan",
+        "Ananya Misra",
+        "Kean Chin"
+      ],
+      "year": "2015",
+      "venue": "Proc. Interspeech 2015",
+      "doi": "10.21437/Interspeech.2015-708"
+    },
+    {
+      "citation_id": "41",
+      "title": "Robust speech emotion recognition under different encoding conditions",
+      "authors": [
+        "Christopher Oates",
+        "Andreas Triantafyllopoulos",
+        "Ingmar Steiner",
+        "Björn Schuller"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "42",
+      "title": "Librispeech: an ASR corpus based on public domain audio books",
+      "authors": [
+        "Vassil Panayotov",
+        "Guoguo Chen",
+        "Daniel Povey",
+        "Sanjeev Khudanpur"
+      ],
+      "year": "2015",
+      "venue": "Proc. ICASSP 2015"
+    },
+    {
+      "citation_id": "43",
+      "title": "DEMoS: An Italian emotional speech corpus: Elicitation methods, machine learning, and perception. Language, Resources, and Evaluation",
+      "authors": [
+        "Emilia Parada-Cabaleiro",
+        "Giovanni Costantini",
+        "Anton Batliner",
+        "Maximilian Schmitt",
+        "Björn Schuller"
+      ],
+      "year": "2020",
+      "venue": "DEMoS: An Italian emotional speech corpus: Elicitation methods, machine learning, and perception. Language, Resources, and Evaluation"
+    },
+    {
+      "citation_id": "44",
+      "title": "A simple augmentation method for automatic speech recognition",
+      "authors": [
+        "Daniel Park",
+        "William Chan",
+        "Yu Zhang",
+        "Chung-Cheng Chiu",
+        "Barret Zoph",
+        "Ekin Dogus Cubuk",
+        "V Quoc",
+        "Le",
+        "Specaugment"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "45",
+      "title": "Attention-based atrous convolutional neural networks: Visualisation and understanding perspectives of acoustic scenes",
+      "authors": [
+        "Qiuqiang Zhao Ren",
+        "Jing Kong",
+        "Mark Han",
+        "Björn Plumbley",
+        "Schuller"
+      ],
+      "year": "2019",
+      "venue": "Proc. ICASSP 2019"
+    },
+    {
+      "citation_id": "46",
+      "title": "Generating and protecting against adversarial attacks for deep speech-based emotion recognition models",
+      "authors": [
+        "Alice Zhao Ren",
+        "Jing Baird",
+        "Zixing Han",
+        "Björn Zhang",
+        "Schuller"
+      ],
+      "year": "2020",
+      "venue": "Proc. ICASSP 2020"
+    },
+    {
+      "citation_id": "47",
+      "title": "U-Net: Convolutional networks for biomedical image segmentation",
+      "authors": [
+        "O Ronneberger",
+        "P Fischer",
+        "T Brox"
+      ],
+      "year": "2015",
+      "venue": "Proc. MICCAI"
+    },
+    {
+      "citation_id": "48",
+      "title": "DeepFilterNet: Perceptually motivated real-time speech enhancement",
+      "authors": [
+        "Hendrik Schröter",
+        "Tobias Rosenkranz",
+        "Alberto Escalante-B",
+        "Andreas Maier"
+      ],
+      "year": "2023",
+      "venue": "Proc. Interspeech 2023"
+    },
+    {
+      "citation_id": "49",
+      "title": "Speech emotion recognition: Two decades in a nutshell, benchmarks, and ongoing trends",
+      "authors": [
+        "Björn Schuller"
+      ],
+      "year": "2018",
+      "venue": "Communications of the ACM"
+    },
+    {
+      "citation_id": "50",
+      "title": "Robust asr using neural network based speech enhancement and feature simulation",
+      "authors": [
+        "Sunit Sivasankaran",
+        "Aditya Nugraha",
+        "Emmanuel Vincent",
+        "Juan Morales-Cordovilla",
+        "Siddharth Dalmia",
+        "Irina Illina",
+        "Antoine Liutkus"
+      ],
+      "year": "2015",
+      "venue": "on Automatic Speech Recognition and Understanding (ASRU)"
+    },
+    {
+      "citation_id": "51",
+      "title": "Comparing human and automatic speech recognition in simple and complex acoustic scenes",
+      "authors": [
+        "Constantin Spille",
+        "Birger Kollmeier",
+        "Bernd Meyer"
+      ],
+      "year": "2018",
+      "venue": "Computer Speech & Language"
+    },
+    {
+      "citation_id": "52",
+      "title": "Wave-u-net: A multi-scale neural network for endto-end audio source separation",
+      "authors": [
+        "Daniel Stoller",
+        "Sebastian Ewert",
+        "Simon Dixon"
+      ],
+      "year": "2018",
+      "venue": "Wave-u-net: A multi-scale neural network for endto-end audio source separation",
+      "arxiv": "arXiv:1806.03185"
+    },
+    {
+      "citation_id": "53",
+      "title": "Towards robust speech emotion recognition using deep residual networks for speech enhancement",
+      "authors": [
+        "Andreas Triantafyllopoulos",
+        "Gil Keren",
+        "Johannes Wagner",
+        "Ingmar Steiner",
+        "Björn Schuller"
+      ],
+      "year": "2019",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "54",
+      "title": "Multistage linguistic conditioning of convolutional layers for speech emotion recognition",
+      "authors": [
+        "Andreas Triantafyllopoulos",
+        "Uwe Reichel",
+        "Shuo Liu",
+        "Stephan Huber",
+        "Florian Eyben",
+        "Björn Schuller"
+      ],
+      "year": "2021",
+      "venue": "Multistage linguistic conditioning of convolutional layers for speech emotion recognition",
+      "arxiv": "arXiv:2110.06650"
+    },
+    {
+      "citation_id": "55",
+      "title": "Investigating RNN-based speech enhancement methods for noise-robust Textto-Speech",
+      "authors": [
+        "Cassia Valentini-Botinhao",
+        "Xin Wang",
+        "Shinji Takaki",
+        "Junichi Yamagishi"
+      ],
+      "year": "2016",
+      "venue": "Proc. 9th ISCA Workshop on Speech Synthesis Workshop",
+      "doi": "10.21437/SSW.2016-24"
+    },
+    {
+      "citation_id": "56",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "Johannes Wagner",
+        "Andreas Triantafyllopoulos",
+        "Hagen Wierstorf",
+        "Maximilian Schmitt",
+        "Florian Eyben",
+        "Björn Schuller"
+      ],
+      "year": "2022",
+      "venue": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "arxiv": "arXiv:2203.07378"
+    },
+    {
+      "citation_id": "57",
+      "title": "An overview of end-to-end automatic speech recognition",
+      "authors": [
+        "Dong Wang",
+        "Xiaodong Wang",
+        "Shaohe Lv"
+      ],
+      "year": "2019",
+      "venue": "Symmetry"
+    },
+    {
+      "citation_id": "58",
+      "title": "Zhong-Qiu Wang and DeLiang Wang. A joint training framework for robust automatic speech recognition",
+      "authors": [
+        "Shanshan Wang",
+        "Annamaria Mesaros",
+        "Toni Heittola",
+        "Tuomas Virtanen"
+      ],
+      "year": "2016",
+      "venue": "Proc. ICASSP 2021"
+    },
+    {
+      "citation_id": "59",
+      "title": "Speech commands: A dataset for limitedvocabulary speech recognition",
+      "authors": [
+        "Pete Warden"
+      ],
+      "year": "2018",
+      "venue": "Speech commands: A dataset for limitedvocabulary speech recognition",
+      "arxiv": "arXiv:1804.03209"
+    },
+    {
+      "citation_id": "60",
+      "title": "Speech enhancement with lstm recurrent neural networks and its application to noise-robust asr",
+      "authors": [
+        "Felix Weninger",
+        "Hakan Erdogan",
+        "Shinji Watanabe",
+        "Emmanuel Vincent",
+        "Jonathan Roux",
+        "John Hershey",
+        "Björn Schuller"
+      ],
+      "year": "2015",
+      "venue": "Proc. International conference on latent variable analysis and signal separation"
+    },
+    {
+      "citation_id": "61",
+      "title": "Noisy training for deep neural networks in speech recognition",
+      "authors": [
+        "Chao Shi Yin",
+        "Zhiyong Liu",
+        "Yiye Zhang",
+        "Dong Lin",
+        "Javier Wang",
+        "Fang Tejedor",
+        "Yinguo Zheng",
+        "Li"
+      ],
+      "year": "2015",
+      "venue": "EURASIP Journal on Audio, Speech, and Music Processing"
+    },
+    {
+      "citation_id": "62",
+      "title": "Effects of skip connections in CNN-based architectures for speech enhancement",
+      "authors": [
+        "Nengheng Zheng",
+        "Yupeng Shi",
+        "Weicong Rong",
+        "Yuyong Kang"
+      ],
+      "year": "2020",
+      "venue": "Journal of Signal Processing Systems"
+    },
+    {
+      "citation_id": "63",
+      "title": "Using speech enhancement preprocessing for speech emotion recognition in realistic noisy conditions",
+      "authors": [
+        "Hengshun Zhou",
+        "Jun Du",
+        "Yan-Hui Tu",
+        "Chin-Hui Lee"
+      ],
+      "year": "2020",
+      "venue": "Proc. Interspeech"
+    },
+    {
+      "citation_id": "64",
+      "title": "Joint training of speech enhancement and selfsupervised model for noise-robust asr",
+      "authors": [
+        "Qiu-Shi Zhu",
+        "Jie Zhang",
+        "Zi-Qiang Zhang",
+        "Li-Rong Dai"
+      ],
+      "year": "2022",
+      "venue": "Joint training of speech enhancement and selfsupervised model for noise-robust asr",
+      "arxiv": "arXiv:2205.13293"
+    },
+    {
+      "citation_id": "65",
+      "title": "An investigation into the effectiveness of enhancement in asr training and test for chime-5 dinner party transcription",
+      "authors": [
+        "Cȃtȃlin Zorilȃ",
+        "Christoph Boeddeker",
+        "Rama Doddipatla",
+        "Reinhold Haeb-Umbach"
+      ],
+      "year": "2019",
+      "venue": "2019 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU)"
+    }
+  ]
+}

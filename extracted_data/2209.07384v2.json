@@ -1,0 +1,1732 @@
+{
+  "paper_id": "2209.07384v2",
+  "title": "Self-Supervised Attention Networks And Uncertainty Loss Weighting For Multi-Task Emotion Recognition On Vocal Bursts",
+  "published": "2022-09-15T15:50:27Z",
+  "authors": [
+    "Vincent Karas",
+    "Andreas Triantafyllopoulos",
+    "Meishu Song",
+    "Björn W. Schuller"
+  ],
+  "keywords": [
+    "-multi-task learning",
+    "wav2vec2",
+    "uncertainty loss",
+    "classifier chain",
+    "task attention network"
+  ],
+  "sections": [
+    {
+      "section_name": "Abstract",
+      "text": "Vocal bursts play an important role in communicating affect, making them valuable for improving speech emotion recognition. Here, we present our approach for classifying vocal bursts and predicting their emotional significance in the ACII Affective Vocal Burst Workshop & Challenge 2022 (A-VB). We use a large self-supervised audio model as shared feature extractor and compare multiple architectures built on classifier chains and attention networks, combined with uncertainty loss weighting strategies. Our approach surpasses the challenge baseline by a wide margin on all four tasks. Index Terms-multi-task learning, wav2vec2, uncertainty loss, classifier chain, task attention network \n I. INTRODUCTION Vocal bursts, such as laughs, sobs, or sighs, are vital indicators of affect, oftentimes more informative than prosody for the recognition of emotions [1],  [2] . Recent work attempts to shed more light on how much emotional information, and of what kind, humans are capable of expressing and comprehending based on vocal bursts [3],  [4] . It has shown that emotional (or affective) vocal bursts carry information for over ten emotional dimensions that can be reliably understood across different cultures. This lays the theoretical foundation for using this information to more robustly and more holistically understand emotional reactions to external stimuli, and is gaining steam as a novel research direction in the crucifix of machine learning and affective computing. This is being increasingly utilised by approaches seeking to improve speech emotion recognition (SER) performance that work by identifying and analysing vocal bursts separately from speech signals [5], [6]. The recent ICML Expressive Vocalisations Workshop & Competition 2022 (EXVO) [7] and the ongoing ACII Affective Vocal Burst Workshop & Challenge 2022 (A-VB) [8] present a new front for further This research received funding from the BMW Group.",
+      "page_start": 1,
+      "page_end": 1
+    },
+    {
+      "section_name": "Ii. Methodology",
+      "text": "Our method is based on using large models pre-trained on speech with self-supervised learning (SSL). Specifically, we make use of wav2vec2  [18] , which processes raw audio and combines a CNN with a stack of transformer encoder layers. It is trained by masking the input sequence to the transformer and solving a contrastive learning task over quantised latent representations. There is a wide selection of wav2vec2-like models available, which differ in the architecture and the corpus used for fine-tuning, e.g. Librispeech. For this paper, we use the wav2vec2-base architecture 2 , without additional training on a speech corpus. This choice is motivated by the competition dataset, as there is likely no significant benefit for vocal bursts from fine-tuning towards speech. Wav2vec2-base has 12 transformer layers, which yield representations of size 768. Its CNN features have a size of 512. With wav2vec2base as backbone, we construct three architectures, which are described in the following sections and illustrated in fig.  1 .",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "A. Vanilla Model",
+      "text": "For our basic multitask model, we process the features in parallel networks to predict the tasks. The networks are shallow, with each having one hidden fully connected (FC) layer and one output layer.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "B. Classifier Chain Model",
+      "text": "This model uses a chain of classifiers, similar to the one proposed in  [12] . We use the features returned by WAV2VEC2.0 as the starting point for the first task, then concatenate them with the predictions for each task as input to the next task network. At training time, we use the ground truth as input instead of the predictions to avoid confusing the model with inaccurate guesses at the start of the training. The order of the four tasks is chosen based on the assumption that the model will benefit by learning from low to high complexity. Thus, we begin with A-VB-TYPE, which should be easier than recognising emotional content, proceed with A-VB-TWO as 1 https://github.com/VincentKaras/a-vb-emotions 2 https://huggingface.co/facebook/wav2vec2-base a general representation of affective state, then continue with predicting specific emotions in A-VB-HIGH, and end with culture specific A-VB-CULTURE.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "C. Branching Multi-Head Attention Model",
+      "text": "For this model, the hidden activations of the transformer block of WAV2VEC2.0 are used as inputs to the task networks. This is based on the assumption that for each task, activations at different layers may contain useful information, which was also used for the CNN model in  [15] . However, instead of separate networks branching off individual layers in the backbone net, we use attention to combine the features from multiple layers. A similar approach was proposed in  [19]  with a multi-task attention network (MTAN). For each task, we construct a network of multi-head attention (MHA) layers, where the outputs of each MHA layer are used as key, and value pairs for the next block, while the hidden states of WAV2VEC2.0 form the queries.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "D. Losses And Metrics",
+      "text": "For A-VB-TYPE, categorical cross entropy is used as the loss function, and unweighted average recall (UAR) as metric. The emotion regression tasks use the concordance correlation coefficient (CCC)  [20]  and Pearson's correlation coefficient ρ as metrics. They are defined in eq. (  1 ) and eq. (  2 ), respectively. We also use CCC as our objective function in the form 1 -CCC.",
+      "page_start": 2,
+      "page_end": 2
+    },
+    {
+      "section_name": "Ccc(X, Y)",
+      "text": "where cov(x, y) = (x -µ x ) (y -µ y ) .\n\n(1)\n\nWhile multi-task learning can achieve superior results by exploiting relationships between the labels, there is a challenge in guiding the training such that all tasks achieve good performance, instead of just the easier ones  [19] . Thus, the losses need to be balanced, but choosing weights for a large number of tasks requires extensive tuning. Instead, we opt for three adaptive loss weighting strategies, with fixed equal weights as comparison.\n\n1) Dynamic Weight Averaging: Dynamic Weight Averaging (DWA)  [21]  adapts the task weights over time based on the rate of change of the loss in previous steps. The weight is defined in eq. (  3 ):\n\nwhich is essentially a temperature softmax function, with increasing values of the temperature T smoothing the weights. The factor K scales the weights such that they sum to the number of tasks K. The total loss then becomes a weighted sum as in eq. (  4 ):\n\n2) Restrained Revised Uncertainty Loss: The restrained revised uncertainty loss (RRUW) was proposed by Song et al.  [15]  as a modification to  [22] . It uses trainable parameters α to scale the task weights, which are constrained to avoid trivial solutions. The RRUW is defined in eq. (  5 )\n\nwhere α i are the trainable weights, and ϕ is a positive value that the sum of weights is driven towards.\n\n3) Dynamic Restrained Uncertainty Weighting: Dynamic Restrained Uncertainty Weighting (DRUW) combines the dynamic and uncertainty weights of DWA and RRUW. Thus, the final loss becomes:",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "Iii. Experiments",
+      "text": "We describe the dataset and preprocessing, as well as our experimental settings and results in this section.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "A. Dataset",
+      "text": "For all our experiments, we use the HUME-VB dataset as specified in the A-VB challenge. The dataset contains over 59 000 instances for a total of over 36 hours of audio material, almost equally split into training, validation, and test sets. The data comes from 1702 speakers from four backgrounds: USA, China, South Africa, and Venezuela. It contains seven different types of vocal bursts: cry, gasp, groan, grunt, laugh, pant, and scream -with data that did not fall under any of those types being labelled as 'other'. Each instance has been annotated on a [1-100] scale for each of the ten high-level emotional dimensions of: amusement, awe, awkwardness, distress, excitement, fear, horror, sadness, surprise, and triumph. An average of 85.2 raters have annotated each instance, and their individual ratings have been averaged to produce a gold standard annotation (which is then normalised to a [0 -1] range). These gold standard annotations are used to derive arousal and valence values based on the circumplex model of affect  [23] . The four tasks of the A-VB challenge are then defined as follows  [8] : Predict the ten high-level emotional dimensions for A-VB-HIGH; Predict arousal and valence for A-VB-TWO; Predict a different high-level emotional dimension for each culture (a total of 40 outputs) for A-VB-CULTURE; Predict the type of vocal burst for A-VB-TYPE.",
+      "page_start": 3,
+      "page_end": 3
+    },
+    {
+      "section_name": "B. Training",
+      "text": "We train our models for 30 epochs using a batch size of 8. AdamW  [24]  is chosen as the optimiser, with a learning rate of 10 -5 for the feature extractor and 10 -3 for the task networks. The rate is halved once the performance fails to improve for 5 epochs. All audio clips are clipped or zero-padded to 2.5 s length. For data augmentation, we use SpecAugment  [25] , applying it to the input of the transformer part of WAV2VEC2.0. Both time steps and features are masked with a probability of 0.05. We implement our models in PyTorch 3 and train them on Nvidia RTX3090 and A40 GPUs. Each model is run with multiple random initialisations.",
+      "page_start": 3,
+      "page_end": 4
+    },
+    {
+      "section_name": "C. Results",
+      "text": "We report the performance in terms of UAR for A-VB-TYPE and the mean CCC and ρ for each of A-VB-TWO, A-VB-HIGH, A-VB-CULTURE on the validation set. Our model architectures are designated VANILLA, CHAIN, and BRANCH. Results are summarised in Tab. I. We achieve a UAR of .5686 for A-VB-TYPE and a mean CCCs of .7068, .7276, and .6072 for A-VB-TWO, A-VB-HIGH and A-VB-CULTURE respectively. We also present the test set results of our best models in Tab. II.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "Iv. Discussion",
+      "text": "We base our discussion on the validation set results, since the test set is hidden and the number of evaluations limited. All 3 https://pytorch.org/ of our models surpass the baseline by a wide margin, demonstrating the efficacy of our approach using WAV2VEC2.0 as shared network for multi-task learning. Comparing the results shows that the simple VANILLA architecture is competitive or even superior to the others for the emotions tasks, while being inferior for A-VB-TYPE. We interpret this as another indicator for the power of the WAV2VEC2.0 features. Using classifier chains led to the best overall results for all tasks, but in some cases degraded performance in later parts of the chain, indicating issues with error accumulation. Hyperparameter optimisation will likely improve the more complex attention architecture. For the different loss weighting strategies, it can be seen that uniform weighting generally performs worst, which is expected since it is the least flexible approach and the weights were not tuned. The uncertainty-based strategies yield an improvement, with DRUW outperforming RRUW. Finally, DWA tends to perform best in the great majority of evaluations, demonstrating its efficacy. We note that for DRUW, further balancing of the contributions of DWA and RRUW may give even better results.",
+      "page_start": 4,
+      "page_end": 4
+    },
+    {
+      "section_name": "V. Conclusion",
+      "text": "This paper presented a multi-task approach for predicting type and emotions of vocal bursts. Following previous work, we constructed models based on a large self-supervised feature extractor and investigated several architectures including classifier chains and task-specific multi-head attention networks. We combined these with loss balancing strategies based on uncertainty. Extensive experiments showed that our method far surpassed the shallow end-2-end baseline, demonstrating the effectiveness of self-supervised features and adaptive loss strategies for analysing vocal bursts. Future work could focus on optimal ordering of the classifier chains and experimentation with other self-supervised models.",
+      "page_start": 4,
+      "page_end": 4
+    }
+  ],
+  "figures": [
+    {
+      "caption": "Figure 1: Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.",
+      "page": 3
+    }
+  ],
+  "tables": [
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Augsburg, Germany / London, UK": "bjoern.schuller@uni-a.de"
+        },
+        {
+          "Augsburg, Germany / London, UK": "Abstract—Vocal bursts play an important role in communicat-"
+        },
+        {
+          "Augsburg, Germany / London, UK": "ing affect, making them valuable for improving speech emotion"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "recognition. Here, we present our approach for classifying vocal"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "bursts and predicting their\nemotional\nsigniﬁcance\nin the ACII"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "Affective Vocal Burst Workshop & Challenge 2022 (A-VB). We"
+        },
+        {
+          "Augsburg, Germany / London, UK": "use a large self-supervised audio model as shared feature extrac-"
+        },
+        {
+          "Augsburg, Germany / London, UK": "tor and compare multiple architectures built on classiﬁer chains"
+        },
+        {
+          "Augsburg, Germany / London, UK": "and attention networks, combined with uncertainty loss weighting"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "strategies. Our approach surpasses\nthe challenge baseline by a"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "wide margin on all\nfour tasks."
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "Index Terms—multi-task learning, wav2vec2, uncertainty loss,"
+        },
+        {
+          "Augsburg, Germany / London, UK": "classiﬁer chain,\ntask attention network"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "I.\nINTRODUCTION"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "Vocal bursts, such as laughs, sobs, or sighs, are vital\nindica-"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "tors of affect, oftentimes more informative than prosody for the"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "recognition of emotions [1], [2]. Recent work attempts to shed"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "more light on how much emotional\ninformation, and of what"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "kind, humans are capable of expressing and comprehending"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "based on vocal bursts [3], [4]. It has shown that emotional (or"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "affective) vocal bursts carry information for over ten emotional"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "dimensions\nthat\ncan be\nreliably understood across different"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "cultures. This\nlays\nthe\ntheoretical\nfoundation for using this"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "information to more robustly and more holistically understand"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "emotional reactions to external stimuli, and is gaining steam as"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "a novel\nresearch direction in the cruciﬁx of machine learning"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "and affective computing."
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "This\nis being increasingly utilised by approaches\nseeking"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "to\nimprove\nspeech\nemotion\nrecognition\n(SER)\nperformance"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "that work by identifying and analysing vocal bursts separately"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "from speech\nsignals\n[5],\n[6]. The\nrecent\nICML Expressive"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "Vocalisations Workshop & Competition\n2022\n(EXVO)\n[7]"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "and\nthe\nongoing ACII Affective Vocal Burst Workshop &"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "Challenge 2022 (A-VB)\n[8] present a new front\nfor\nfurther"
+        },
+        {
+          "Augsburg, Germany / London, UK": ""
+        },
+        {
+          "Augsburg, Germany / London, UK": "This research received funding from the BMW Group."
+        }
+      ],
+      "page": 1
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "emotional\ndimensions\nare\npredicted\non\na\ncontinuous\nscale;",
+          "a general\nrepresentation of affective state,\nthen continue with": "predicting speciﬁc\nemotions\nin A-VB-HIGH,\nand end with"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "A-VB-TWO, where\nthe\ntwo\naffect\ndimensions\nof\narousal",
+          "a general\nrepresentation of affective state,\nthen continue with": "culture speciﬁc A-VB-CULTURE."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "and valence are predicted; A-VB-CULTURE, where culture-",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "C. Branching Multi-Head Attention Model"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "speciﬁc\npredictions\nfor\nthe\nten\nhigh-level\ndimensions\nare",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "expected; and A-VB-TYPE, where seven types of bursts need",
+          "a general\nrepresentation of affective state,\nthen continue with": "For\nthis model,\nthe hidden activations of\nthe\ntransformer"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "to be classiﬁed. Our comprehensive evaluation over different",
+          "a general\nrepresentation of affective state,\nthen continue with": "block of WAV2VEC2.0 are used as inputs to the task networks."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "experimental\nconﬁgurations\nbetter\nelucidates\nthe\nstrengths",
+          "a general\nrepresentation of affective state,\nthen continue with": "This is based on the assumption that for each task, activations"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "and weaknesses\nof\nthe\nproposed methods\nfor\nthe\nanalysis",
+          "a general\nrepresentation of affective state,\nthen continue with": "at\ndifferent\nlayers may\ncontain\nuseful\ninformation, which"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "of\nemotional vocal bursts. We make our\ncode\navailable on",
+          "a general\nrepresentation of affective state,\nthen continue with": "was also used for\nthe CNN model\nin [15]. However,\ninstead"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "Github1.",
+          "a general\nrepresentation of affective state,\nthen continue with": "of\nseparate networks branching off\nindividual\nlayers\nin the"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "The rest of this paper is structured as follows: We describe",
+          "a general\nrepresentation of affective state,\nthen continue with": "backbone net, we use attention to combine the features from"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "the models\nand\nloss weighting\nstrategies\nin\nSec.\nII. Our",
+          "a general\nrepresentation of affective state,\nthen continue with": "multiple layers. A similar approach was proposed in [19] with"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "experimental settings and results are presented in Sec. III. The",
+          "a general\nrepresentation of affective state,\nthen continue with": "a multi-task attention network (MTAN). For\neach task, we"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "results are discussed in Sec.\nIV. Finally, Sec. V summarises",
+          "a general\nrepresentation of affective state,\nthen continue with": "construct\na\nnetwork\nof multi-head\nattention\n(MHA)\nlayers,"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "the paper.",
+          "a general\nrepresentation of affective state,\nthen continue with": "where the outputs of each MHA layer are used as key, and"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "value\npairs\nfor\nthe\nnext\nblock, while\nthe\nhidden\nstates\nof"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "II. METHODOLOGY",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "WAV2VEC2.0 form the queries."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "Our method is based on using large models pre-trained on",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "D. Losses and Metrics"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "speech with self-supervised learning (SSL). Speciﬁcally, we",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "make use of wav2vec2 [18], which processes\nraw audio and",
+          "a general\nrepresentation of affective state,\nthen continue with": "For A-VB-TYPE, categorical cross entropy is used as\nthe"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "combines a CNN with a stack of\ntransformer encoder\nlayers.",
+          "a general\nrepresentation of affective state,\nthen continue with": "loss function, and unweighted average recall (UAR) as metric."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "It\nis trained by masking the input sequence to the transformer",
+          "a general\nrepresentation of affective state,\nthen continue with": "The emotion regression tasks use the concordance correlation"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "and solving a contrastive learning task over quantised latent",
+          "a general\nrepresentation of affective state,\nthen continue with": "coefﬁcient\n(CCC)\n[20] and Pearson’s correlation coefﬁcient ρ"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "representations. There\nis\na wide\nselection of wav2vec2-like",
+          "a general\nrepresentation of affective state,\nthen continue with": "as metrics. They are deﬁned in eq. (1) and eq. (2), respectively."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "models\navailable, which\ndiffer\nin\nthe\narchitecture\nand\nthe",
+          "a general\nrepresentation of affective state,\nthen continue with": "We also use CCC as our objective function in the form 1 −"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "corpus used for ﬁne-tuning, e.g. Librispeech. For\nthis paper,",
+          "a general\nrepresentation of affective state,\nthen continue with": "CCC."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "we use\nthe wav2vec2-base\narchitecture2, without\nadditional",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "2 ∗ cov(x, y)"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "training on a speech corpus. This choice is motivated by the",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "competition dataset, as there is likely no signiﬁcant beneﬁt for",
+          "a general\nrepresentation of affective state,\nthen continue with": "CCC(x, y) =\nσ2\nx + σ2\ny + (µx − µy)2 ,"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "(1)"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "vocal bursts from ﬁne-tuning towards speech. Wav2vec2-base",
+          "a general\nrepresentation of affective state,\nthen continue with": "(cid:88)"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "where cov(x, y) =\n(x − µx) (y − µy) ."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "has 12 transformer\nlayers, which yield representations of size",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "768.\nIts CNN features have a size of 512. With wav2vec2-",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "cox(x, y)"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "(2)\nρ(x, y) =\n."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "base as backbone, we construct\nthree architectures, which are",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "σxσy"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "described in the following sections and illustrated in ﬁg. 1.",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "While multi-task learning can achieve\nsuperior\nresults by"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "A. Vanilla Model",
+          "a general\nrepresentation of affective state,\nthen continue with": "exploiting relationships between the labels, there is a challenge"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "For\nour\nbasic multitask model, we\nprocess\nthe\nfeatures",
+          "a general\nrepresentation of affective state,\nthen continue with": "in\nguiding\nthe\ntraining\nsuch\nthat\nall\ntasks\nachieve\ngood"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "in parallel networks\nto predict\nthe\ntasks. The networks\nare",
+          "a general\nrepresentation of affective state,\nthen continue with": "performance,\ninstead of\njust\nthe\neasier ones\n[19]. Thus,\nthe"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "shallow, with each having one hidden fully connected (FC)",
+          "a general\nrepresentation of affective state,\nthen continue with": "losses need to be balanced, but choosing weights for a large"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "layer and one output\nlayer.",
+          "a general\nrepresentation of affective state,\nthen continue with": "number of\ntasks\nrequires\nextensive\ntuning.\nInstead, we opt"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "for\nthree adaptive loss weighting strategies, with ﬁxed equal"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "B. Classiﬁer Chain Model",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "weights as comparison."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "This model uses a chain of classiﬁers, similar to the one pro-",
+          "a general\nrepresentation of affective state,\nthen continue with": "1) Dynamic Weight Averaging: Dynamic Weight Averaging"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "posed in [12]. We use the features returned by WAV2VEC2.0",
+          "a general\nrepresentation of affective state,\nthen continue with": "(DWA)\n[21] adapts\nthe task weights over\ntime based on the"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "as the starting point\nfor\nthe ﬁrst\ntask,\nthen concatenate them",
+          "a general\nrepresentation of affective state,\nthen continue with": "rate of\nchange of\nthe\nloss\nin previous\nsteps. The weight\nis"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "with the predictions\nfor\neach task as\ninput\nto the next\ntask",
+          "a general\nrepresentation of affective state,\nthen continue with": "deﬁned in eq.\n(3):"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "network. At\ntraining time, we use the ground truth as\ninput",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "(cid:17)\n(cid:16) Lk(t−1)"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "instead of\nthe predictions to avoid confusing the model with",
+          "a general\nrepresentation of affective state,\nthen continue with": "exp"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "Lk(t−2) /T"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "(3)\nλk(t) = K"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "inaccurate guesses\nat\nthe\nstart of\nthe\ntraining. The order of",
+          "a general\nrepresentation of affective state,\nthen continue with": "(cid:17) ,"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "(cid:16) Lk(t−1)\n(cid:80)"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "the\nfour\ntasks\nis\nchosen\nbased\non\nthe\nassumption\nthat\nthe",
+          "a general\nrepresentation of affective state,\nthen continue with": "K exp\nLk(t−2) /T"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "model will beneﬁt by learning from low to high complexity.",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "which is essentially a temperature softmax function, with"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "Thus, we begin with A-VB-TYPE, which should be easier than",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "increasing values of the temperature T smoothing the weights."
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "recognising emotional content, proceed with A-VB-TWO as",
+          "a general\nrepresentation of affective state,\nthen continue with": ""
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "",
+          "a general\nrepresentation of affective state,\nthen continue with": "The\nfactor K scales\nthe weights\nsuch that\nthey sum to the"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "1https://github.com/VincentKaras/a-vb-emotions",
+          "a general\nrepresentation of affective state,\nthen continue with": "number of\ntasks K. The total\nloss\nthen becomes a weighted"
+        },
+        {
+          "learning\non\nall\nfour A-VB tasks: A-VB-HIGH, where\nten": "2https://huggingface.co/facebook/wav2vec2-base",
+          "a general\nrepresentation of affective state,\nthen continue with": "sum as in eq.\n(4):"
+        }
+      ],
+      "page": 2
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "Ldwa =\nλk(t)Lk."
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(cid:88) K\n(4)"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "2) Restrained Revised Uncertainty\nLoss:\nThe\nrestrained"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "revised uncertainty loss\n(RRUW) was proposed by Song et"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "al. [15] as a modiﬁcation to [22]. It uses trainable parameters"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "α to scale the task weights, which are constrained to avoid"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "trivial solutions. The RRUW is deﬁned in eq.\n(5)"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "1 α\nL (w, α) =\nlog (cid:0)1 + log α2\n(cid:1) +\nLk(w) +"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(cid:88) K\n2k\n(cid:88) K\nk"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(5)"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(cid:88) K\n|ϕ −\n(| log αk|) |,"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "where αi are the trainable weights, and ϕ is a positive value"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "that\nthe sum of weights is driven towards."
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "3) Dynamic Restrained Uncertainty Weighting: Dynamic"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "Restrained Uncertainty Weighting (DRUW) combines the dy-"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "namic and uncertainty weights of DWA and RRUW. Thus,\nthe"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "ﬁnal\nloss becomes:"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(cid:19)"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(cid:18) 1"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": ""
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "(cid:88) K\nL (w, α) =\n+ λk(t)\nLk(w)+"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "α2"
+        },
+        {
+          "Fig. 1. Model architectures. a) basic mtl, b) classiﬁer chain, c) branching multi-head attention model.": "k"
+        }
+      ],
+      "page": 3
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": "A-VB-TWO"
+        },
+        {
+          "TABLE I": "ρ"
+        },
+        {
+          "TABLE I": "-"
+        },
+        {
+          "TABLE I": "Uniform Weighting"
+        },
+        {
+          "TABLE I": ".6992"
+        },
+        {
+          "TABLE I": ".6979"
+        },
+        {
+          "TABLE I": ".6981"
+        },
+        {
+          "TABLE I": "Dynamic Weight Average"
+        },
+        {
+          "TABLE I": ".7034"
+        },
+        {
+          "TABLE I": ".7074"
+        },
+        {
+          "TABLE I": ".7008"
+        },
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": ".7000"
+        },
+        {
+          "TABLE I": ".6989"
+        },
+        {
+          "TABLE I": ".6997"
+        },
+        {
+          "TABLE I": ""
+        },
+        {
+          "TABLE I": ".7002"
+        },
+        {
+          "TABLE I": ".7033"
+        },
+        {
+          "TABLE I": ".6998"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "CHAIN\n.5638\n.7019": "BRAN CH\n.5513\n.6951",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ".6998\n.7204\n.7270\n.5917\n.6010"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "TABLE II",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "of our models surpass the baseline by a wide margin, demon-"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "TEST SET RESULTS FOR EACH TASK AND BEST-PERFORMING MODEL PER",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "strating the efﬁcacy of our approach using WAV2VEC2.0 as"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "ARCHITECTURE, AS WELL AS BASELINE RESULTS WITH END2YOU.",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "shared network for multi-task learning. Comparing the results"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "shows\nthat\nthe\nsimple VANILLA architecture\nis\ncompetitive"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "Model\nA-VB-TYPE A-VB-TWO A-VB-HIGH A-VB-CULTURE",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "UAR\nCCC\nCCC\nCCC",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "or even superior\nto the others\nfor\nthe emotions\ntasks, while"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "being inferior\nfor A-VB-TYPE. We interpret\nthis as another"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "baseline\n.4172\n.5084\n.5686\n.4401",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "indicator\nfor\nthe power of\nthe WAV2VEC2.0 features. Using"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "V AN ILLA\n.5377\n.6938\n.7209\n.6020",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "classiﬁer chains led to the best overall results for all\ntasks, but"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "CHAIN\n.5618\n.6942\n.7261\n.6002",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "in some cases degraded performance in later parts of the chain,"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "BRAN CH\n.5418\n.6888\n.7148\n.5945",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "indicating\nissues with\nerror\naccumulation. Hyperparameter"
+        },
+        {
+          "CHAIN\n.5638\n.7019": ".7066\n.7363\n.6195\ncombined\n.5560",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "optimisation will\nlikely improve the more complex attention"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "architecture. For\nthe different\nloss weighting strategies,\nit can"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "for 5 epochs. All audio clips are clipped or zero-padded to",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "be\nseen\nthat\nuniform weighting\ngenerally\nperforms worst,"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "2.5 s\nlength. For\ndata\naugmentation, we\nuse SpecAugment",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "which is expected since it\nis\nthe least ﬂexible approach and"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "[25],\napplying\nit\nto\nthe\ninput\nof\nthe\ntransformer\npart\nof",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "the weights were not\ntuned. The uncertainty-based strategies"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "WAV2VEC2.0. Both time steps and features are masked with",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "yield\nan\nimprovement, with DRUW outperforming RRUW."
+        },
+        {
+          "CHAIN\n.5638\n.7019": "a probability of 0.05. We implement our models\nin PyTorch",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "Finally, DWA tends\nto\nperform best\nin\nthe\ngreat majority"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "3",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "and train them on Nvidia RTX3090 and A40 GPUs. Each",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "of\nevaluations, demonstrating its\nefﬁcacy. We note\nthat\nfor"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "model\nis run with multiple random initialisations.",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "DRUW,\nfurther balancing of\nthe\ncontributions of DWA and"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "RRUW may give even better\nresults."
+        },
+        {
+          "CHAIN\n.5638\n.7019": "C. Results",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "We\nreport\nthe performance\nin terms of UAR for A-VB-",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "V. CONCLUSION"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "TYPE and the mean CCC and ρ for each of A-VB-TWO, A-",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "VB-HIGH, A-VB-CULTURE on the validation set. Our model",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "This paper presented a multi-task approach for predicting"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "architectures are designated VANILLA, CHAIN, and BRANCH.",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "type and emotions of vocal bursts. Following previous work,"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "Results are summarised in Tab. I. We achieve a UAR of .5686",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "we constructed models based on a large self-supervised feature"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "for A-VB-TYPE\nand\na mean CCCs\nof\n.7068,\n.7276,\nand",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "extractor and investigated several architectures including clas-"
+        },
+        {
+          "CHAIN\n.5638\n.7019": ".6072 for A-VB-TWO, A-VB-HIGH and A-VB-CULTURE",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "siﬁer chains and task-speciﬁc multi-head attention networks."
+        },
+        {
+          "CHAIN\n.5638\n.7019": "respectively. We also present\nthe test\nset\nresults of our best",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "We\ncombined these with loss balancing strategies based on"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "models in Tab.\nII.",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "uncertainty. Extensive\nexperiments\nshowed that our method"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "far\nsurpassed the shallow end-2-end baseline, demonstrating"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "IV. DISCUSSION",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "the effectiveness of self-supervised features and adaptive loss"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "We base our discussion on the validation set\nresults, since",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "strategies for analysing vocal bursts. Future work could focus"
+        },
+        {
+          "CHAIN\n.5638\n.7019": "the test set is hidden and the number of evaluations limited. All",
+          ".6072\n.6188\n.7033\n.7291\n.7372": ""
+        },
+        {
+          "CHAIN\n.5638\n.7019": "",
+          ".6072\n.6188\n.7033\n.7291\n.7372": "on optimal ordering of\nthe classiﬁer chains and experimenta-"
+        }
+      ],
+      "page": 4
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "[9] A. Cowen, A. Baird, P. Tzirakis, M. Opara, L. Kim,\nJ. Brooks,\nand"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "J. Metrick, “The hume vocal burst competition dataset\n(H-VB) — raw"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "data [exvo: updated 02.28.22]\n[data set],” Zenodo, 2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "L. Pepino, P. Riera, and L. Ferrer, “Emotion Recognition from Speech"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "Using wav2vec 2.0 Embeddings,” Proc.\nInterspeech 2021, pp. 3400–"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "3404, 2021."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "J. Wagner, A. Triantafyllopoulos, H. Wierstorf, M. Schmitt, F. Eyben,"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "and B. W. Schuller, “Dawn of\nthe transformer era in speech emotion"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "recognition: closing the valence gap,” arXiv preprint arXiv:2203.07378,"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": ""
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "of self-supervised learning and classiﬁer chains in emotion recognition"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "of nonverbal vocalizations,” arXiv preprint arXiv:2206.10695, 2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": ""
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "“Redundancy reduction twins network: A training framework for multi-"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "output emotion regression,” arXiv preprint arXiv:2206.09142, 2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": ""
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "“Exploring speaker enrolment for few-shot personalisation in emotional"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "vocalisation prediction,” arXiv preprint arXiv:2206.06680, 2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": ""
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "Z. Zhang, Y. Yoshiharu,\nand B. W.\nSchuller,\n“Dynamic\nrestrained"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "uncertainty weighting loss\nfor multitask learning of vocal expression,”"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "arXiv preprint arXiv:2206.11049, 2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "et\nT. Atmaja, A.\nSasou\nal.,\n“Jointly\npredicting\nemotion,\nage,"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "arXiv\npreprint\nand\ncountry\nusing\npre-trained\nacoustic\nembedding,”"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "arXiv:2207.10333, 2022."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "J. Read, B. Pfahringer, G. Holmes, and E. Frank, “Classiﬁer chains for"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "multi-label classiﬁcation,” Machine learning, vol. 85, no. 3, pp. 333–"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "359, 2011."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "and M. Auli,\n“wav2vec 2.0: A"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "framework for\nself-supervised learning of\nspeech representations,”\nin"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "Advances\nin Neural\nInformation Processing Systems\n(NeurIPS), Van-"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "couver, BC, Canada, 2020, pp. 12 449–12 460."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "S. Liu, E. Johns, and A. J. Davison, “End-to-end multi-task learning with"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "the IEEE/CVF Conference on Computer\nattention,” in Proceedings of"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "Vision and Pattern Recognition (CVPR), June 2019."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "L.\nI.-K.\nLin,\n“A Concordance Correlation Coefﬁcient\nto\nEvaluate"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "Reproducibility,”\nBiometrics,\nvol.\n45,\nno.\n1,\npp.\n255–268,\n1989."
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "[Online]. Available: http://www.jstor.org/stable/2532051"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "L. Liu, Y. Li, Z. Kuang,\nJ. Xue, Y. Chen, W. Yang, Q. Liao,\nand"
+        },
+        {
+          "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,": "Interna-\nW. Zhang,\n“Towards\nimpartial multi-task learning,”\nin Proc."
+        }
+      ],
+      "page": 5
+    },
+    {
+      "caption": "Table: No caption found",
+      "data": [
+        {
+          "REFERENCES": "",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "preprint arXiv:1805.06334, 2018."
+        },
+        {
+          "REFERENCES": "S. T. Hawk, G. A. Van Kleef, A. H. Fischer, and J. Van Der Schalk,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "[23]\nJ. A. Russell, “A circumplex model of affect,” Journal of personality"
+        },
+        {
+          "REFERENCES": "““worth a thousand words”: absolute and relative decoding of nonlin-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "and social psychology, vol. 39, no. 6, p. 1161, 1980."
+        },
+        {
+          "REFERENCES": "guistic affect vocalizations.” Emotion, vol. 9, no. 3, p. 293, 2009.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "[24]\nI. Loshchilov and F. Hutter, “Decoupled weight decay regularization,”"
+        },
+        {
+          "REFERENCES": "and F. Happ´e,\n“Children’s\nrecognition of",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "2017.\n[Online]. Available: https://arxiv.org/abs/1711.05101"
+        },
+        {
+          "REFERENCES": "emotions from vocal cues,” British Journal of Developmental Psychol-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "[25] D. S. Park, W. Chan, Y. Zhang, C.-C. Chiu, B. Zoph, E. D. Cubuk, and"
+        },
+        {
+          "REFERENCES": "ogy, vol. 31, no. 1, pp. 97–113, 2013.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "Q. V. Le,\n“SpecAugment: A Simple Data Augmentation Method for"
+        },
+        {
+          "REFERENCES": "[3] D. T. Cordaro, D. Keltner, S. Tshering, D. Wangchuk, and L. M. Flynn,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "Automatic Speech Recognition,”\nin Proceedings of\nInterspeech 2019."
+        },
+        {
+          "REFERENCES": "“The voice conveys emotion in ten globalized cultures and one remote",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": "ISCA, Sep. 2019, pp. 2613–2617."
+        },
+        {
+          "REFERENCES": "village in bhutan,” Emotion, vol. 16, no. 1, p. 117, 2016.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "[4] A. S. Cowen, H. A. Elfenbein, P. Laukka, and D. Keltner, “Mapping 24",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "emotions conveyed by brief human vocalization,” American Psycholo-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "gist, vol. 74, no. 6, p. 698, 2019.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "[5] K.-Y. Huang, C.-H. Wu, Q.-B. Hong, M.-H. Su, and Y.-H. Chen, “Speech",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "emotion recognition using deep neural network considering verbal and",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "nonverbal\nspeech sounds,”\nin Proc.\nICASSP.\nBrighton, UK:\nIEEE,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "2019, pp. 5866–5870.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "J.-H. Hsu, M.-H. Su, C.-H. Wu, and Y.-H. Chen, “Speech emotion recog-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "nition\nconsidering\nnonverbal\nvocalization\nin\naffective\nconversations,”",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "IEEE/ACM Transactions on Audio, Speech, and Language Processing,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "vol. 29, pp. 1675–1686, 2021.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "[7] A. Baird, P. Tzirakis, G. Gidel, M. Jiralerspong, E. B. Muller, K. Math-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "ewson, B.\nSchuller, E. Cambria, D. Keltner,\nand A. Cowen,\n“The",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "ICML 2022 expressive vocalizations workshop and competition: Rec-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "arXiv\npreprint\nognizing,\ngenerating,\nand\npersonalizing\nvocal\nbursts,”",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "arXiv:2205.01780, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "P.\nTzirakis,\nJ. A. Brooks, C. B. Gregory, B.\nSchuller,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "A. Batliner, D. Keltner, and A. Cowen, “The acii 2022 affective vocal",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "bursts workshop & competition: Understanding a critically understudied",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "modality of\nemotional\nexpression,” arXiv preprint arXiv:2207.03572,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "[9] A. Cowen, A. Baird, P. Tzirakis, M. Opara, L. Kim,\nJ. Brooks,\nand",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "J. Metrick, “The hume vocal burst competition dataset\n(H-VB) — raw",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "data [exvo: updated 02.28.22]\n[data set],” Zenodo, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "L. Pepino, P. Riera, and L. Ferrer, “Emotion Recognition from Speech",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "Using wav2vec 2.0 Embeddings,” Proc.\nInterspeech 2021, pp. 3400–",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "3404, 2021.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "J. Wagner, A. Triantafyllopoulos, H. Wierstorf, M. Schmitt, F. Eyben,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "and B. W. Schuller, “Dawn of\nthe transformer era in speech emotion",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "recognition: closing the valence gap,” arXiv preprint arXiv:2203.07378,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "of self-supervised learning and classiﬁer chains in emotion recognition",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "of nonverbal vocalizations,” arXiv preprint arXiv:2206.10695, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "“Redundancy reduction twins network: A training framework for multi-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "output emotion regression,” arXiv preprint arXiv:2206.09142, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "“Exploring speaker enrolment for few-shot personalisation in emotional",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "vocalisation prediction,” arXiv preprint arXiv:2206.06680, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "Z. Zhang, Y. Yoshiharu,\nand B. W.\nSchuller,\n“Dynamic\nrestrained",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "uncertainty weighting loss\nfor multitask learning of vocal expression,”",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "arXiv preprint arXiv:2206.11049, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "et\nT. Atmaja, A.\nSasou\nal.,\n“Jointly\npredicting\nemotion,\nage,",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "arXiv\npreprint\nand\ncountry\nusing\npre-trained\nacoustic\nembedding,”",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "arXiv:2207.10333, 2022.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "J. Read, B. Pfahringer, G. Holmes, and E. Frank, “Classiﬁer chains for",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "multi-label classiﬁcation,” Machine learning, vol. 85, no. 3, pp. 333–",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "359, 2011.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "and M. Auli,\n“wav2vec 2.0: A",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "framework for\nself-supervised learning of\nspeech representations,”\nin",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "Advances\nin Neural\nInformation Processing Systems\n(NeurIPS), Van-",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "couver, BC, Canada, 2020, pp. 12 449–12 460.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "S. Liu, E. Johns, and A. J. Davison, “End-to-end multi-task learning with",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "the IEEE/CVF Conference on Computer\nattention,” in Proceedings of",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "Vision and Pattern Recognition (CVPR), June 2019.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "L.\nI.-K.\nLin,\n“A Concordance Correlation Coefﬁcient\nto\nEvaluate",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "Reproducibility,”\nBiometrics,\nvol.\n45,\nno.\n1,\npp.\n255–268,\n1989.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "[Online]. Available: http://www.jstor.org/stable/2532051",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "L. Liu, Y. Li, Z. Kuang,\nJ. Xue, Y. Chen, W. Yang, Q. Liao,\nand",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "Interna-\nW. Zhang,\n“Towards\nimpartial multi-task learning,”\nin Proc.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        },
+        {
+          "REFERENCES": "tional Conference on Learning Representations, Vienna, Austria, 2021.",
+          "[22]\nL. Liebel and M. K¨orner, “Auxiliary tasks in multi-task learning,” arXiv": ""
+        }
+      ],
+      "page": 5
+    }
+  ],
+  "citations": [
+    {
+      "citation_id": "1",
+      "title": "worth a thousand words\": absolute and relative decoding of nonlinguistic affect vocalizations",
+      "authors": [
+        "S Hawk",
+        "G Van Kleef",
+        "A Fischer",
+        "J Van Der",
+        "Schalk"
+      ],
+      "year": "2009",
+      "venue": "worth a thousand words\": absolute and relative decoding of nonlinguistic affect vocalizations"
+    },
+    {
+      "citation_id": "2",
+      "title": "Children's recognition of emotions from vocal cues",
+      "authors": [
+        "D Sauter",
+        "C Panattoni",
+        "F Happé"
+      ],
+      "year": "2013",
+      "venue": "British Journal of Developmental Psychology"
+    },
+    {
+      "citation_id": "3",
+      "title": "The voice conveys emotion in ten globalized cultures and one remote village in bhutan",
+      "authors": [
+        "D Cordaro",
+        "D Keltner",
+        "S Tshering",
+        "D Wangchuk",
+        "L Flynn"
+      ],
+      "year": "2016",
+      "venue": "Emotion"
+    },
+    {
+      "citation_id": "4",
+      "title": "Mapping 24 emotions conveyed by brief human vocalization",
+      "authors": [
+        "A Cowen",
+        "H Elfenbein",
+        "P Laukka",
+        "D Keltner"
+      ],
+      "year": "2019",
+      "venue": "American Psychologist"
+    },
+    {
+      "citation_id": "5",
+      "title": "Speech emotion recognition using deep neural network considering verbal and nonverbal speech sounds",
+      "authors": [
+        "K.-Y Huang",
+        "C.-H Wu",
+        "Q.-B Hong",
+        "M.-H Su",
+        "Y.-H Chen"
+      ],
+      "year": "2019",
+      "venue": "Proc. ICASSP"
+    },
+    {
+      "citation_id": "6",
+      "title": "Speech emotion recognition considering nonverbal vocalization in affective conversations",
+      "authors": [
+        "J.-H Hsu",
+        "M.-H Su",
+        "C.-H Wu",
+        "Y.-H Chen"
+      ],
+      "year": "2021",
+      "venue": "IEEE/ACM Transactions on Audio, Speech, and Language Processing"
+    },
+    {
+      "citation_id": "7",
+      "title": "The ICML 2022 expressive vocalizations workshop and competition: Recognizing, generating, and personalizing vocal bursts",
+      "authors": [
+        "A Baird",
+        "P Tzirakis",
+        "G Gidel",
+        "M Jiralerspong",
+        "E Muller",
+        "K Mathewson",
+        "B Schuller",
+        "E Cambria",
+        "D Keltner",
+        "A Cowen"
+      ],
+      "year": "2022",
+      "venue": "The ICML 2022 expressive vocalizations workshop and competition: Recognizing, generating, and personalizing vocal bursts",
+      "arxiv": "arXiv:2205.01780"
+    },
+    {
+      "citation_id": "8",
+      "title": "The acii 2022 affective vocal bursts workshop & competition: Understanding a critically understudied modality of emotional expression",
+      "authors": [
+        "A Baird",
+        "P Tzirakis",
+        "J Brooks",
+        "C Gregory",
+        "B Schuller",
+        "A Batliner",
+        "D Keltner",
+        "A Cowen"
+      ],
+      "year": "2022",
+      "venue": "The acii 2022 affective vocal bursts workshop & competition: Understanding a critically understudied modality of emotional expression",
+      "arxiv": "arXiv:2207.03572"
+    },
+    {
+      "citation_id": "9",
+      "title": "The hume vocal burst competition dataset (H-VB) -raw data",
+      "authors": [
+        "A Cowen",
+        "A Baird",
+        "P Tzirakis",
+        "M Opara",
+        "L Kim",
+        "J Brooks",
+        "J Metrick"
+      ],
+      "year": "2022",
+      "venue": "The hume vocal burst competition dataset (H-VB) -raw data"
+    },
+    {
+      "citation_id": "10",
+      "title": "Emotion Recognition from Speech Using wav2vec 2.0 Embeddings",
+      "authors": [
+        "L Pepino",
+        "P Riera",
+        "L Ferrer"
+      ],
+      "year": "2021",
+      "venue": "Proc. Interspeech 2021"
+    },
+    {
+      "citation_id": "11",
+      "title": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "authors": [
+        "J Wagner",
+        "A Triantafyllopoulos",
+        "H Wierstorf",
+        "M Schmitt",
+        "F Eyben",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Dawn of the transformer era in speech emotion recognition: closing the valence gap",
+      "arxiv": "arXiv:2203.07378"
+    },
+    {
+      "citation_id": "12",
+      "title": "Exploring the effectiveness of self-supervised learning and classifier chains in emotion recognition of nonverbal vocalizations",
+      "authors": [
+        "D Xin",
+        "S Takamichi",
+        "H Saruwatari"
+      ],
+      "year": "2022",
+      "venue": "Exploring the effectiveness of self-supervised learning and classifier chains in emotion recognition of nonverbal vocalizations",
+      "arxiv": "arXiv:2206.10695"
+    },
+    {
+      "citation_id": "13",
+      "title": "Redundancy reduction twins network: A training framework for multioutput emotion regression",
+      "authors": [
+        "X Jing",
+        "M Song",
+        "A Triantafyllopoulos",
+        "Z Yang",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Redundancy reduction twins network: A training framework for multioutput emotion regression",
+      "arxiv": "arXiv:2206.09142"
+    },
+    {
+      "citation_id": "14",
+      "title": "Exploring speaker enrolment for few-shot personalisation in emotional vocalisation prediction",
+      "authors": [
+        "A Triantafyllopoulos",
+        "M Song",
+        "Z Yang",
+        "X Jing",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Exploring speaker enrolment for few-shot personalisation in emotional vocalisation prediction",
+      "arxiv": "arXiv:2206.06680"
+    },
+    {
+      "citation_id": "15",
+      "title": "Dynamic restrained uncertainty weighting loss for multitask learning of vocal expression",
+      "authors": [
+        "M Song",
+        "Z Yang",
+        "A Triantafyllopoulos",
+        "X Jing",
+        "V Karas",
+        "X Jiangjian",
+        "Z Zhang",
+        "Y Yoshiharu",
+        "B Schuller"
+      ],
+      "year": "2022",
+      "venue": "Dynamic restrained uncertainty weighting loss for multitask learning of vocal expression",
+      "arxiv": "arXiv:2206.11049"
+    },
+    {
+      "citation_id": "16",
+      "title": "Jointly predicting emotion, age, and country using pre-trained acoustic embedding",
+      "authors": [
+        "B Atmaja",
+        "A Sasou"
+      ],
+      "year": "2022",
+      "venue": "Jointly predicting emotion, age, and country using pre-trained acoustic embedding",
+      "arxiv": "arXiv:2207.10333"
+    },
+    {
+      "citation_id": "17",
+      "title": "Classifier chains for multi-label classification",
+      "authors": [
+        "J Read",
+        "B Pfahringer",
+        "G Holmes",
+        "E Frank"
+      ],
+      "year": "2011",
+      "venue": "Machine learning"
+    },
+    {
+      "citation_id": "18",
+      "title": "wav2vec 2.0: A framework for self-supervised learning of speech representations",
+      "authors": [
+        "A Baevski",
+        "Y Zhou",
+        "A Mohamed",
+        "M Auli"
+      ],
+      "year": "2020",
+      "venue": "Advances in Neural Information Processing Systems (NeurIPS), Vancouver"
+    },
+    {
+      "citation_id": "19",
+      "title": "End-to-end multi-task learning with attention",
+      "authors": [
+        "S Liu",
+        "E Johns",
+        "A Davison"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    },
+    {
+      "citation_id": "20",
+      "title": "A Concordance Correlation Coefficient to Evaluate Reproducibility",
+      "authors": [
+        "-K Lin"
+      ],
+      "year": "1989",
+      "venue": "Biometrics"
+    },
+    {
+      "citation_id": "21",
+      "title": "Towards impartial multi-task learning",
+      "authors": [
+        "L Liu",
+        "Y Li",
+        "Z Kuang",
+        "J Xue",
+        "Y Chen",
+        "W Yang",
+        "Q Liao",
+        "W Zhang"
+      ],
+      "year": "2021",
+      "venue": "Proc. International Conference on Learning Representations"
+    },
+    {
+      "citation_id": "22",
+      "title": "Auxiliary tasks in multi-task learning",
+      "authors": [
+        "L Liebel",
+        "M Körner"
+      ],
+      "year": "2018",
+      "venue": "Auxiliary tasks in multi-task learning",
+      "arxiv": "arXiv:1805.06334"
+    },
+    {
+      "citation_id": "23",
+      "title": "A circumplex model of affect",
+      "authors": [
+        "J Russell"
+      ],
+      "year": "1980",
+      "venue": "Journal of personality and social psychology"
+    },
+    {
+      "citation_id": "24",
+      "title": "Decoupled weight decay regularization",
+      "authors": [
+        "I Loshchilov",
+        "F Hutter"
+      ],
+      "year": "2017",
+      "venue": "Decoupled weight decay regularization"
+    },
+    {
+      "citation_id": "25",
+      "title": "SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition",
+      "authors": [
+        "D Park",
+        "W Chan",
+        "Y Zhang",
+        "C.-C Chiu",
+        "B Zoph",
+        "E Cubuk",
+        "Q Le"
+      ],
+      "year": "2019",
+      "venue": "Proceedings of Interspeech 2019"
+    }
+  ]
+}
