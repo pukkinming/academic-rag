@@ -1,10 +1,12 @@
-"""FastAPI server for the Emotion Recognition RAG system."""
+"""FastAPI server for the academic RAG system."""
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 import uvicorn
+import os
 
 from config import settings
 from models import QuestionRequest, AnswerResponse, Source, RetrievedChunk
@@ -15,8 +17,8 @@ from llm_client import get_llm_client
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Emotion Recognition RAG API",
-    description="Retrieval-Augmented Generation system for affective computing literature",
+    title="Academic RAG API",
+    description="Retrieval-Augmented Generation system for academic literature",
     version="1.0.0"
 )
 
@@ -28,6 +30,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files directory
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Global instances (initialized on startup)
 retriever = None
@@ -71,12 +78,36 @@ async def startup_event():
 
 
 @app.get("/")
-async def root() -> Dict[str, Any]:
-    """Root endpoint with API information."""
+async def root():
+    """Serve the web UI or return API information."""
+    static_index = os.path.join(static_dir, "index.html")
+    if os.path.exists(static_index):
+        return FileResponse(static_index)
+    else:
+        # Fallback to JSON if static files don't exist
+        return {
+            "name": "Academic RAG API",
+            "version": "1.0.0",
+            "description": "Retrieval-Augmented Generation system for academic literature",
+            "endpoints": {
+                "POST /ask": "Ask a question with RAG",
+                "POST /retrieve": "Retrieve relevant chunks (no LLM)",
+                "GET /health": "Health check",
+                "GET /stats": "Collection statistics",
+                "GET /llm-info": "LLM configuration info"
+            },
+            "llm_provider": settings.llm_provider,
+            "llm_model": settings.llm_model
+        }
+
+
+@app.get("/api")
+async def api_info() -> Dict[str, Any]:
+    """API information endpoint."""
     return {
-        "name": "Emotion Recognition RAG API",
+        "name": "Academic RAG API",
         "version": "1.0.0",
-        "description": "Retrieval-Augmented Generation system for affective computing literature",
+        "description": "Retrieval-Augmented Generation system for academic literature",
         "endpoints": {
             "POST /ask": "Ask a question with RAG",
             "POST /retrieve": "Retrieve relevant chunks (no LLM)",

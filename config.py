@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Vector Database (Qdrant)
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
-    qdrant_collection_name: str = "emotion_recognition_papers"
+    qdrant_collection_name: str = "academic_papers"
     
     ###################
     # Embedding Model #

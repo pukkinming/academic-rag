@@ -44,6 +44,9 @@ COPY llm_client.py .
 COPY api.py .
 COPY ingest.py .
 
+# Copy static files (UI)
+COPY static/ ./static/
+
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app

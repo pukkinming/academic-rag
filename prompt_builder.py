@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 from models import RetrievedChunk
 
 
-SYSTEM_INSTRUCTION = """You are an expert in affective computing and emotion recognition research.
+SYSTEM_INSTRUCTION = """You are an expert in academic research and literature review.
 
 Your task is to answer questions based ONLY on the provided evidence from academic papers. Follow these strict rules:
 
@@ -22,7 +22,12 @@ Your task is to answer questions based ONLY on the provided evidence from academ
 
 7. SECTION CONTEXT: Pay attention to which section of a paper the evidence comes from (e.g., Introduction, Methods, Results). This provides context about the nature of the claim.
 
-8. NO HALLUCINATION: Never invent citations, paper details, or findings. If you're unsure, state that the evidence is unclear.
+8. NO HALLUCINATION: 
+   - Never invent citations, paper titles, paper details, journal names, or findings.
+   - Use ONLY the exact paper titles provided in the evidence headers.
+   - Do NOT create reference sections with full citations unless explicitly provided in the evidence.
+   - If you need to reference a paper, use only the citation format (Author et al., Year) provided in the evidence.
+   - If you're unsure, state that the evidence is unclear.
 """
 
 
@@ -46,7 +51,7 @@ def format_page_range(page_start: int = None, page_end: int = None) -> str:
 
 def format_evidence_chunk(chunk: RetrievedChunk, index: int) -> str:
     """
-    Format a single evidence chunk with citation and metadata.
+    Format a single evidence chunk with citation, title, and metadata.
     
     Args:
         chunk: The retrieved chunk to format
@@ -57,8 +62,10 @@ def format_evidence_chunk(chunk: RetrievedChunk, index: int) -> str:
     """
     page_info = format_page_range(chunk.page_start, chunk.page_end)
     
-    # Build the header with citation and metadata
+    # Build the header with citation, title, and metadata
     header_parts = [chunk.citation_pointer]
+    if chunk.title:
+        header_parts.append(f"Title: {chunk.title}")
     if chunk.section_name:
         header_parts.append(f"Section: {chunk.section_name}")
     if page_info:
@@ -96,6 +103,22 @@ def build_prompt(question: str, chunks: List[RetrievedChunk]) -> str:
             evidence = format_evidence_chunk(chunk, i)
             prompt_parts.append(evidence)
             prompt_parts.append("")  # Empty line between evidence chunks
+        
+        # Add a reference list at the end to prevent title hallucination
+        prompt_parts.append("="*80)
+        prompt_parts.append("REFERENCE LIST (Use these exact titles when referencing papers):")
+        prompt_parts.append("="*80)
+        seen_papers = {}
+        for chunk in chunks:
+            if chunk.paper_id not in seen_papers:
+                seen_papers[chunk.paper_id] = {
+                    "citation": chunk.citation_pointer,
+                    "title": chunk.title
+                }
+        
+        for paper_id, info in seen_papers.items():
+            prompt_parts.append(f"- {info['citation']}: {info['title']}")
+        prompt_parts.append("")
     else:
         prompt_parts.append("\n[No relevant evidence found in the literature.]")
     
@@ -108,7 +131,8 @@ def build_prompt(question: str, chunks: List[RetrievedChunk]) -> str:
     # Add instruction for answer
     prompt_parts.append("="*80)
     prompt_parts.append("YOUR ANSWER (with proper citations):")
-    prompt_parts.append("="*80 + "\n")
+    prompt_parts.append("="*80)
+    prompt_parts.append("\nIMPORTANT: Use only the citation format (Author et al., Year) in your answer. Do NOT create full reference sections with journal names, volumes, or other details unless they are explicitly provided in the evidence above.\n")
     
     return "\n".join(prompt_parts)
 
@@ -141,6 +165,22 @@ def build_messages(question: str, chunks: List[RetrievedChunk]) -> List[Dict[str
             evidence = format_evidence_chunk(chunk, i)
             evidence_parts.append(evidence)
             evidence_parts.append("")
+        
+        # Add a reference list at the end to prevent title hallucination
+        evidence_parts.append("="*80)
+        evidence_parts.append("REFERENCE LIST (Use these exact titles when referencing papers):")
+        evidence_parts.append("="*80)
+        seen_papers = {}
+        for chunk in chunks:
+            if chunk.paper_id not in seen_papers:
+                seen_papers[chunk.paper_id] = {
+                    "citation": chunk.citation_pointer,
+                    "title": chunk.title
+                }
+        
+        for paper_id, info in seen_papers.items():
+            evidence_parts.append(f"- {info['citation']}: {info['title']}")
+        evidence_parts.append("")
     else:
         evidence_parts.append("[No relevant evidence found in the literature.]\n")
     
@@ -151,6 +191,7 @@ def build_messages(question: str, chunks: List[RetrievedChunk]) -> List[Dict[str
     evidence_parts.append(f"\n{question}\n")
     
     evidence_parts.append("Please provide a comprehensive answer based on the evidence above, with proper citations.")
+    evidence_parts.append("IMPORTANT: Use only the citation format (Author et al., Year) in your answer. Do NOT create full reference sections with journal names, volumes, or other details unless they are explicitly provided in the evidence above.")
     
     messages.append({
         "role": "user",
