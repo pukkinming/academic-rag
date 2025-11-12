@@ -1,12 +1,17 @@
 """Retriever function for querying the vector database."""
 
 from typing import List, Optional, Dict, Any
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Range, SparseVector, NamedVector, NamedSparseVector
+import torch
+import logging
 
 from config import settings
 from models import RetrievedChunk
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 # Import fastembed for sparse vectors
 try:
@@ -21,10 +26,24 @@ class Retriever:
     
     def __init__(self):
         """Initialize the retriever with embedding model and Qdrant client."""
-        print(f"Loading embedding model: {settings.embedding_model}")
-        self.embedding_model = SentenceTransformer(settings.embedding_model)
+        # Detect GPU availability for all models
+        if settings.use_gpu and torch.cuda.is_available():
+            self.device = 'cuda'
+            gpu_name = torch.cuda.get_device_name(0)
+            logger.info(f"🎮 GPU detected: {gpu_name}")
+            logger.info(f"   CUDA version: {torch.version.cuda}")
+            logger.info(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        else:
+            self.device = 'cpu'
+            if not settings.use_gpu:
+                logger.info(f"💻 GPU disabled in config, using CPU")
+            else:
+                logger.info(f"💻 No GPU detected, using CPU")
+        
+        logger.info(f"Loading embedding model: {settings.embedding_model}")
+        self.embedding_model = SentenceTransformer(settings.embedding_model, device=self.device)
         self.embedding_dim = self.embedding_model.get_sentence_embedding_dimension()
-        print(f"✓ Embedding model loaded: {settings.embedding_model} ({self.embedding_dim} dimensions)")
+        logger.info(f"✓ Embedding model loaded: {settings.embedding_model} ({self.embedding_dim} dimensions) on {self.device.upper()}")
         
         self.client = QdrantClient(
             host=settings.qdrant_host,
@@ -52,11 +71,11 @@ class Retriever:
                         f"   1. Change embedding_model in config.py to match collection ({collection_dim} dims), OR\n"
                         f"   2. Delete collection and re-ingest with current model ({self.embedding_dim} dims)"
                     )
-                print(f"✓ Collection vector dimensions match: {collection_dim}")
+                logger.info(f"✓ Collection vector dimensions match: {collection_dim}")
         except Exception as e:
             if "Dimension mismatch" in str(e):
                 raise
-            print(f"⚠ Could not verify collection dimensions: {e}")
+            logger.warning(f"⚠ Could not verify collection dimensions: {e}")
         
         # Initialize sparse model for hybrid search
         self.sparse_model = None
@@ -64,13 +83,26 @@ class Retriever:
         if self.use_hybrid:
             try:
                 self.sparse_model = SparseTextEmbedding(model_name=settings.sparse_model)
-                print(f"✓ Retriever initialized with hybrid search (Dense + Sparse BM25)")
+                logger.info(f"✓ Retriever initialized with hybrid search (Dense + Sparse BM25)")
             except Exception as e:
-                print(f"⚠ Failed to load sparse model: {e}")
-                print("  Falling back to dense-only retrieval")
+                logger.warning(f"⚠ Failed to load sparse model: {e}")
+                logger.info("  Falling back to dense-only retrieval")
                 self.use_hybrid = False
         else:
-            print(f"✓ Retriever initialized with dense-only search")
+            logger.info(f"✓ Retriever initialized with dense-only search")
+        
+        # Initialize reranker model
+        self.reranker = None
+        self.use_reranking = settings.use_reranking
+        if self.use_reranking:
+            try:
+                logger.info(f"Loading reranker model: {settings.reranker_model}")
+                self.reranker = CrossEncoder(settings.reranker_model, device=self.device)
+                logger.info(f"✓ Reranker loaded: {settings.reranker_model} on {self.device.upper()}")
+            except Exception as e:
+                logger.warning(f"⚠ Failed to load reranker: {e}")
+                logger.info("  Falling back to retrieval without reranking")
+                self.use_reranking = False
     
     def retrieve(
         self,
@@ -179,7 +211,7 @@ class Retriever:
                 )
             except (TypeError, ValueError, AttributeError) as e:
                 # Fallback: If named vector format doesn't work, try without names
-                print(f"⚠ Warning: Named vector search failed ({e}), trying fallback...")
+                logger.warning(f"⚠ Warning: Named vector search failed ({e}), trying fallback...")
                 try:
                     dense_results = self.client.search(
                         collection_name=settings.qdrant_collection_name,
@@ -262,30 +294,60 @@ class Retriever:
         **filter_kwargs
     ) -> List[RetrievedChunk]:
         """
-        Retrieve chunks with optional reranking (placeholder for future enhancement).
+        Retrieve chunks with cross-encoder reranking for enhanced quality.
+        
+        This method performs a two-stage retrieval:
+        1. Initial retrieval: Fetch more candidates (initial_k) using vector similarity
+        2. Reranking: Use a cross-encoder to rerank the candidates based on semantic relevance
         
         Args:
             question: The question to search for
-            k: Final number of results to return
-            initial_k: Number of initial results before reranking
+            k: Final number of results to return (default: settings.rerank_top_k)
+            initial_k: Number of initial results before reranking (default: settings.rerank_initial_k)
             **filter_kwargs: Additional filter arguments for retrieve()
         
         Returns:
-            List of RetrievedChunk objects
+            List of RetrievedChunk objects, reranked by relevance
         """
-        # For now, just retrieve with a larger k if initial_k is specified
-        fetch_k = initial_k or k or settings.default_top_k
+        # Use configuration defaults if not provided
+        final_k = k or settings.rerank_top_k
+        fetch_k = initial_k or settings.rerank_initial_k
+        
+        # Ensure we fetch enough candidates
+        fetch_k = max(fetch_k, final_k)
+        
+        # Step 1: Initial retrieval with larger k
         chunks = self.retrieve(question=question, k=fetch_k, **filter_kwargs)
         
-        # Future: Add cross-encoder reranking here
-        # from sentence_transformers import CrossEncoder
-        # reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-        # pairs = [[question, chunk.text] for chunk in chunks]
-        # scores = reranker.predict(pairs)
-        # chunks = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
-        # chunks = [chunk for chunk, score in chunks[:k]]
+        if not chunks:
+            return []
         
-        return chunks[:k] if k else chunks
+        # If no reranker is available or not enough chunks, return as-is
+        if not self.use_reranking or not self.reranker or len(chunks) <= 1:
+            return chunks[:final_k]
+        
+        # Step 2: Rerank using cross-encoder
+        try:
+            # Prepare pairs of [question, chunk_text] for the cross-encoder
+            pairs = [[question, chunk.text] for chunk in chunks]
+            
+            # Get reranking scores from cross-encoder
+            rerank_scores = self.reranker.predict(pairs)
+            
+            # Update chunk scores with reranking scores and sort
+            for chunk, score in zip(chunks, rerank_scores):
+                chunk.score = float(score)  # Update with reranker score
+            
+            # Sort by reranker scores (higher is better)
+            chunks = sorted(chunks, key=lambda x: x.score, reverse=True)
+            
+            # Return top k after reranking
+            return chunks[:final_k]
+        
+        except Exception as e:
+            logger.warning(f"⚠ Reranking failed: {e}")
+            logger.info("  Returning original retrieval results")
+            return chunks[:final_k]
 
 
 def retrieve(
@@ -334,10 +396,10 @@ if __name__ == "__main__":
         k=5
     )
     
-    print(f"Found {len(results)} results:")
+    logger.info(f"Found {len(results)} results:")
     for i, chunk in enumerate(results, 1):
-        print(f"\n{i}. [{chunk.citation_pointer} | {chunk.section_name}]")
-        print(f"   Score: {chunk.score:.4f}")
-        print(f"   {chunk.text[:200]}...")
+        logger.info(f"\n{i}. [{chunk.citation_pointer} | {chunk.section_name}]")
+        logger.info(f"   Score: {chunk.score:.4f}")
+        logger.info(f"   {chunk.text[:200]}...")
 
 

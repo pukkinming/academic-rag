@@ -7,12 +7,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 import uvicorn
 import os
+import logging
+from datetime import datetime
 
 from config import settings
 from models import QuestionRequest, AnswerResponse, Source, RetrievedChunk
 from retriever import Retriever
 from prompt_builder import build_messages, extract_sources_from_chunks
 from llm_client import get_llm_client
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+        logging.FileHandler('api.log', mode='a')  # File output
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 # Initialize FastAPI app
@@ -46,35 +59,35 @@ async def startup_event():
     """Initialize components on server startup."""
     global retriever, llm_client
     
-    print("=" * 80)
-    print("🚀 Starting Emotion Recognition RAG API")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("🚀 Starting Emotion Recognition RAG API")
+    logger.info("=" * 80)
     
     # Initialize retriever
-    print("\n📚 Initializing retriever...")
+    logger.info("📚 Initializing retriever...")
     try:
         retriever = Retriever()
-        print(f"✓ Retriever initialized with model: {settings.embedding_model}")
+        logger.info(f"✓ Retriever initialized with model: {settings.embedding_model}")
     except Exception as e:
-        print(f"✗ Failed to initialize retriever: {e}")
+        logger.error(f"✗ Failed to initialize retriever: {e}", exc_info=True)
         raise
     
     # Initialize LLM client
-    print("\n🤖 Initializing LLM client...")
+    logger.info("🤖 Initializing LLM client...")
     try:
         llm_client = get_llm_client()
-        print(f"✓ LLM client initialized: {llm_client.get_info()}")
+        logger.info(f"✓ LLM client initialized: {llm_client.get_info()}")
     except Exception as e:
-        print(f"✗ Failed to initialize LLM client: {e}")
+        logger.error(f"✗ Failed to initialize LLM client: {e}", exc_info=True)
         raise
     
-    print("\n" + "=" * 80)
-    print("✓ Server ready!")
-    print(f"📍 Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
-    print(f"📍 Collection: {settings.qdrant_collection_name}")
-    print(f"🤖 LLM Provider: {settings.llm_provider}")
-    print(f"🤖 LLM Model: {settings.llm_model}")
-    print("=" * 80 + "\n")
+    logger.info("=" * 80)
+    logger.info("✓ Server ready!")
+    logger.info(f"📍 Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
+    logger.info(f"📍 Collection: {settings.qdrant_collection_name}")
+    logger.info(f"🤖 LLM Provider: {settings.llm_provider}")
+    logger.info(f"🤖 LLM Model: {settings.llm_model}")
+    logger.info("=" * 80)
 
 
 @app.get("/")
@@ -223,16 +236,39 @@ async def retrieve_chunks(request: QuestionRequest) -> Dict[str, Any]:
     - Debugging retrieval quality
     - Understanding which papers are being retrieved
     - Inspecting relevance scores
+    
+    Supports optional reranking for improved quality.
     """
+    logger.info(f"🔍 /retrieve request: {request.question[:100]}...")
+    
     try:
-        # Retrieve chunks
-        chunks = retriever.retrieve(
-            question=request.question,
-            k=request.top_k,
-            year_min=request.year_min,
-            year_max=request.year_max,
-            modality_tags=request.modality_tags
-        )
+        # Determine if reranking should be used
+        use_reranking = request.use_reranking if request.use_reranking is not None else settings.use_reranking
+        logger.info(f"🔄 Reranking: {'enabled' if use_reranking else 'disabled'}")
+        
+        # Retrieve chunks (with or without reranking)
+        if use_reranking and retriever.use_reranking:
+            logger.info(f"   Retrieving with reranking (initial_k={request.rerank_initial_k or settings.rerank_initial_k})")
+            chunks = retriever.retrieve_with_reranking(
+                question=request.question,
+                k=request.top_k,
+                initial_k=request.rerank_initial_k,
+                year_min=request.year_min,
+                year_max=request.year_max,
+                modality_tags=request.modality_tags
+            )
+        else:
+            logger.info(f"   Retrieving without reranking (top_k={request.top_k})")
+            chunks = retriever.retrieve(
+                question=request.question,
+                k=request.top_k,
+                year_min=request.year_min,
+                year_max=request.year_max,
+                modality_tags=request.modality_tags
+            )
+        
+        logger.info(f"✓ Retrieved {len(chunks)} chunks")
+        # logger.info(f"   Chunks: {chunks}")
         
         # Convert to dict format
         results = []
@@ -253,10 +289,12 @@ async def retrieve_chunks(request: QuestionRequest) -> Dict[str, Any]:
         return {
             "question": request.question,
             "retrieved_chunks": len(results),
-            "chunks": results
+            "chunks": results,
+            "reranking_used": use_reranking and retriever.use_reranking
         }
     
     except Exception as e:
+        logger.error(f"❌ Retrieval error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Retrieval error: {str(e)}")
 
 
@@ -266,24 +304,63 @@ async def ask_question(request: QuestionRequest) -> AnswerResponse:
     Ask a question and get an answer with citations.
     
     Flow:
-    1. Retrieve relevant chunks from vector database
+    1. Retrieve relevant chunks from vector database (with optional reranking)
     2. Build academic prompt with evidence
     3. Call LLM to generate answer
     4. Extract source citations
     5. Return structured response
+    
+    Supports optional reranking for improved retrieval quality.
     """
+    start_time = datetime.now()
+    logger.info("=" * 80)
+    logger.info(f"📝 New /ask request received")
+    logger.info(f"Question: {request.question}")
+    logger.info(f"Parameters: top_k={request.top_k}, year_min={request.year_min}, "
+                f"year_max={request.year_max}, modality_tags={request.modality_tags}")
+    
     try:
-        # Step 1: Retrieve relevant chunks
-        chunks = retriever.retrieve(
-            question=request.question,
-            k=request.top_k,
-            year_min=request.year_min,
-            year_max=request.year_max,
-            modality_tags=request.modality_tags
-        )
+        # Determine if reranking should be used
+        use_reranking = request.use_reranking if request.use_reranking is not None else settings.use_reranking
+        logger.info(f"🔄 Reranking: {'enabled' if use_reranking else 'disabled'}")
+        
+        # Step 1: Retrieve relevant chunks (with or without reranking)
+        logger.info("🔍 Step 1: Starting retrieval...")
+        retrieval_start = datetime.now()
+        
+        if use_reranking and retriever.use_reranking:
+            initial_k = request.rerank_initial_k or settings.rerank_initial_k
+            logger.info(f"   Using reranking: fetching {initial_k} candidates → reranking to top {request.top_k}")
+            chunks = retriever.retrieve_with_reranking(
+                question=request.question,
+                k=request.top_k,
+                initial_k=request.rerank_initial_k,
+                year_min=request.year_min,
+                year_max=request.year_max,
+                modality_tags=request.modality_tags
+            )
+        else:
+            logger.info(f"   Using standard retrieval: fetching top {request.top_k}")
+            chunks = retriever.retrieve(
+                question=request.question,
+                k=request.top_k,
+                year_min=request.year_min,
+                year_max=request.year_max,
+                modality_tags=request.modality_tags
+            )
+        
+        retrieval_time = (datetime.now() - retrieval_start).total_seconds()
+        logger.info(f"✓ Retrieved {len(chunks)} chunks in {retrieval_time:.2f}s")
+        logger.debug(f"   Chunks: {chunks}")
+        
+        if chunks:
+            logger.debug(f"   Top chunk scores: {[f'{c.score:.4f}' for c in chunks[:3]]}")
+            unique_papers = len(set(c.paper_id for c in chunks))
+            logger.info(f"   Chunks from {unique_papers} unique papers")
         
         if not chunks:
-            # No relevant literature found
+            logger.warning("⚠️  No relevant chunks found for query")
+            logger.info("=" * 80)
             return AnswerResponse(
                 answer="This topic is not adequately addressed in the provided literature. No relevant papers were found matching your query and filters.",
                 sources=[],
@@ -291,22 +368,41 @@ async def ask_question(request: QuestionRequest) -> AnswerResponse:
             )
         
         # Step 2: Build prompt with evidence
+        logger.info("📋 Step 2: Building prompt with evidence...")
         messages = build_messages(request.question, chunks)
+        prompt_tokens = sum(len(str(m)) for m in messages) // 4  # Rough estimate
+        logger.info(f"   Prompt size: ~{prompt_tokens} tokens")
+        logger.debug(f"   Messages: {messages}")
         
         # Step 3: Generate answer with LLM
+        logger.info("🤖 Step 3: Generating answer with LLM...")
+        llm_start = datetime.now()
         try:
             answer = llm_client.generate(messages)
+            llm_time = (datetime.now() - llm_start).total_seconds()
+            logger.info(f"✓ LLM generation completed in {llm_time:.2f}s")
+            logger.info(f"   Answer length: {len(answer)} characters")
+            logger.debug(f"   Answer: {answer}")
         except Exception as e:
+            logger.error(f"✗ LLM generation failed: {e}", exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"LLM generation failed: {str(e)}"
             )
         
         # Step 4: Extract sources
+        logger.info("📚 Step 4: Extracting source citations...")
         sources_data = extract_sources_from_chunks(chunks)
         sources = [Source(**src) for src in sources_data]
+        logger.info(f"✓ Extracted {len(sources)} unique sources")
+        logger.debug(f"   Sources: {sources}")
         
         # Step 5: Return response
+        total_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"✅ Request completed successfully in {total_time:.2f}s")
+        logger.info(f"   Breakdown: Retrieval={retrieval_time:.2f}s, LLM={llm_time:.2f}s")
+        logger.info("=" * 80)
+        
         return AnswerResponse(
             answer=answer,
             sources=sources,
@@ -316,6 +412,9 @@ async def ask_question(request: QuestionRequest) -> AnswerResponse:
     except HTTPException:
         raise
     except Exception as e:
+        total_time = (datetime.now() - start_time).total_seconds()
+        logger.error(f"❌ Request failed after {total_time:.2f}s: {e}", exc_info=True)
+        logger.info("=" * 80)
         raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")
 
 
@@ -325,16 +424,30 @@ async def ask_question_stream(request: QuestionRequest):
     Ask a question and get a streaming answer.
     
     Returns a streaming response with server-sent events (SSE).
+    Supports optional reranking for improved retrieval quality.
     """
     try:
-        # Step 1: Retrieve relevant chunks
-        chunks = retriever.retrieve(
-            question=request.question,
-            k=request.top_k,
-            year_min=request.year_min,
-            year_max=request.year_max,
-            modality_tags=request.modality_tags
-        )
+        # Determine if reranking should be used
+        use_reranking = request.use_reranking if request.use_reranking is not None else settings.use_reranking
+        
+        # Step 1: Retrieve relevant chunks (with or without reranking)
+        if use_reranking and retriever.use_reranking:
+            chunks = retriever.retrieve_with_reranking(
+                question=request.question,
+                k=request.top_k,
+                initial_k=request.rerank_initial_k,
+                year_min=request.year_min,
+                year_max=request.year_max,
+                modality_tags=request.modality_tags
+            )
+        else:
+            chunks = retriever.retrieve(
+                question=request.question,
+                k=request.top_k,
+                year_min=request.year_min,
+                year_max=request.year_max,
+                modality_tags=request.modality_tags
+            )
         
         if not chunks:
             # No relevant literature found

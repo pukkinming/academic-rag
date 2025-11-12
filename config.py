@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Embedding Processing Parameters
     embedding_batch_size: int = 4  # Batch size for encoding (reduce if GPU memory issues)
     
+    # Device Configuration
+    use_gpu: bool = True  # Use GPU if available (set to False to force CPU usage)
+    
     # LLM Configuration
     llm_provider: str = "vllm"  # Options: "openai", "vllm"
     # llm_model: str = "gpt-4-turbo-preview"
@@ -79,7 +82,27 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
     
     # Retrieval Parameters
-    default_top_k: int = 8
+    default_top_k: int = 8  # Default number of results; can be overridden per request (max: 100)
+    
+    #########################
+    # Reranking Configuration
+    #########################
+    use_reranking: bool = True  # Enable cross-encoder reranking for better quality
+    rerank_top_k: int = 8  # Final number of results after reranking
+    rerank_initial_k: int = 20  # Number of candidates to fetch before reranking (should be > rerank_top_k)
+    
+    # Reranker model options:
+    # Option A: Fast and good for general use (recommended)
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    
+    # # Option B: Better quality, slightly slower
+    # reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+    
+    # # Option C: Best quality, slowest
+    # reranker_model: str = "cross-encoder/ms-marco-TinyBERT-L-6"
+    
+    # # Option D: Multilingual support
+    # reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     
     # API Server
     api_host: str = "0.0.0.0"

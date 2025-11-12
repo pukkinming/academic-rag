@@ -118,10 +118,12 @@ class RetrievedChunk(BaseModel):
 class QuestionRequest(BaseModel):
     """Request model for asking questions."""
     question: str
-    top_k: int = Field(default=8, ge=1, le=50)
+    top_k: int = Field(default=8, ge=1, le=100)  # Increased max from 50 to 100 for comprehensive queries
     year_min: Optional[int] = None
     year_max: Optional[int] = None
     modality_tags: Optional[List[str]] = None
+    use_reranking: Optional[bool] = None  # If None, use settings default
+    rerank_initial_k: Optional[int] = Field(default=None, ge=1, le=200)  # Number of candidates before reranking
 
 
 class Source(BaseModel):
