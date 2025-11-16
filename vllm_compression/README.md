@@ -4,7 +4,7 @@ This guide explains how to use the `vllm_compress.py` script to compress LLMs fo
 
 ## Installation
 
-First, install the required dependencies:
+First, install the following required dependencies or via `requirements.txt`:
 
 ```bash
 pip install llmcompressor vllm transformers torch
