@@ -189,37 +189,40 @@ class Retriever:
                     name="dense",
                     vector=dense_embedding.tolist()
                 )
-                dense_results = self.client.search(
+                dense_results = self.client.query_points(
                     collection_name=settings.qdrant_collection_name,
-                    query_vector=dense_query_vector,
+                    query=dense_embedding.tolist(),
+                    using="dense",
                     query_filter=query_filter,
                     limit=k * 2,
                     with_payload=True
-                )
+                ).points
                 
                 # Search sparse vectors using NamedSparseVector
                 sparse_query_vector = NamedSparseVector(
                     name="sparse",
                     vector=sparse_vector
                 )
-                sparse_results = self.client.search(
+                sparse_results = self.client.query_points(
                     collection_name=settings.qdrant_collection_name,
-                    query_vector=sparse_query_vector,
+                    query=sparse_vector,
+                    using="sparse",
                     query_filter=query_filter,
                     limit=k * 2,
                     with_payload=True
-                )
+                ).points
             except (TypeError, ValueError, AttributeError) as e:
                 # Fallback: If named vector format doesn't work, try without names
                 logger.warning(f"⚠ Warning: Named vector search failed ({e}), trying fallback...")
                 try:
-                    dense_results = self.client.search(
+                    dense_results = self.client.query_points(
                         collection_name=settings.qdrant_collection_name,
-                        query_vector=dense_embedding.tolist(),
+                        query=dense_embedding.tolist(),
+                        using="dense",
                         query_filter=query_filter,
                         limit=k * 2,
                         with_payload=True
-                    )
+                    ).points
                 except Exception:
                     # If even fallback fails, raise the original error
                     raise ValueError(
@@ -258,13 +261,13 @@ class Retriever:
             # Dense-only search (backward compatible)
             question_embedding = self.embedding_model.encode(question)
             
-            search_results = self.client.search(
+            search_results = self.client.query_points(
                 collection_name=settings.qdrant_collection_name,
-                query_vector=question_embedding.tolist(),
+                query=question_embedding.tolist(),
                 query_filter=query_filter,
                 limit=k,
                 with_payload=True
-            )
+            ).points
         
         # Convert to RetrievedChunk objects
         retrieved_chunks = []
