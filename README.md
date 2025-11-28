@@ -1,6 +1,6 @@
 # Academic RAG System
 
-![UI appearence](./static/ui.png)
+![UI appearence](./static/ui_demo.gif)
 
 A minimal, controlled RAG (Retrieval-Augmented Generation) system for academic literature review. Built with explicit control over every component: chunking, retrieval, prompt construction, and citation formatting.
 
