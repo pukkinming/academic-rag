@@ -111,8 +111,11 @@ class RetrievedChunk(BaseModel):
     page_end: Optional[int] = None
     paper_id: str
     year: int
-    score: float
+    score: float  # Final score (rerank_score if reranking was used, otherwise initial_score)
+    initial_score: Optional[float] = None  # Score from initial retrieval (step 1)
+    rerank_score: Optional[float] = None  # Score from reranking (step 2), if reranking was used
     modality_tags: Optional[List[str]] = None
+    authors: Optional[List[str]] = None  # List of authors
 
 
 class QuestionRequest(BaseModel):
@@ -124,6 +127,7 @@ class QuestionRequest(BaseModel):
     modality_tags: Optional[List[str]] = None
     use_reranking: Optional[bool] = None  # If None, use settings default
     rerank_initial_k: Optional[int] = Field(default=None, ge=1, le=200)  # Number of candidates before reranking
+    include_chunks: Optional[bool] = Field(default=False)  # Whether to include chunk details in response
 
 
 class Source(BaseModel):
@@ -140,5 +144,6 @@ class AnswerResponse(BaseModel):
     answer: str
     sources: List[Source]
     question: str
+    chunks: Optional[List[Dict[str, Any]]] = None  # Optional: Include chunk details with reranking info
 
 

@@ -3,7 +3,7 @@
 from typing import List, Optional, Dict, Any
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue, Range, SparseVector, NamedVector, NamedSparseVector
+from qdrant_client.models import Filter, FieldCondition, MatchValue, Range, SparseVector
 import torch
 import logging
 
@@ -83,7 +83,14 @@ class Retriever:
         if self.use_hybrid:
             try:
                 self.sparse_model = SparseTextEmbedding(model_name=settings.sparse_model)
-                logger.info(f"✓ Retriever initialized with hybrid search (Dense + Sparse BM25)")
+                fusion_method = settings.hybrid_search_fusion_method
+                if fusion_method == "weighted":
+                    alpha = settings.hybrid_search_alpha
+                    logger.info(f"✓ Retriever initialized with hybrid search (Dense + Sparse BM25)")
+                    logger.info(f"  Fusion method: Weighted (α={alpha:.2f}·dense + {1-alpha:.2f}·sparse)")
+                else:
+                    logger.info(f"✓ Retriever initialized with hybrid search (Dense + Sparse BM25)")
+                    logger.info(f"  Fusion method: RRF (Reciprocal Rank Fusion)")
             except Exception as e:
                 logger.warning(f"⚠ Failed to load sparse model: {e}")
                 logger.info("  Falling back to dense-only retrieval")
@@ -181,14 +188,9 @@ class Retriever:
                 values=sparse_emb.values.tolist()
             )
             
-            # Perform separate searches for dense and sparse vectors
-            # For named vectors, use NamedVector and NamedSparseVector objects
+            # Perform separate searches for dense and sparse vectors using the 'using' parameter
             try:
-                # Search dense vectors using NamedVector
-                dense_query_vector = NamedVector(
-                    name="dense",
-                    vector=dense_embedding.tolist()
-                )
+                # Search dense vectors
                 dense_results = self.client.query_points(
                     collection_name=settings.qdrant_collection_name,
                     query=dense_embedding.tolist(),
@@ -198,11 +200,7 @@ class Retriever:
                     with_payload=True
                 ).points
                 
-                # Search sparse vectors using NamedSparseVector
-                sparse_query_vector = NamedSparseVector(
-                    name="sparse",
-                    vector=sparse_vector
-                )
+                # Search sparse vectors
                 sparse_results = self.client.query_points(
                     collection_name=settings.qdrant_collection_name,
                     query=sparse_vector,
@@ -232,31 +230,78 @@ class Retriever:
                 # For sparse, we can't use regular search, so just use dense
                 sparse_results = []
             
-            # Manual RRF (Reciprocal Rank Fusion)
+            # Fusion method: RRF or weighted score fusion
             from collections import defaultdict
-            rrf_scores = defaultdict(float)
             all_results = {}
             
-            # Calculate RRF scores from dense results
-            for rank, result in enumerate(dense_results, 1):
-                rrf_scores[result.id] += 1.0 / (60 + rank)
+            # Store results by ID with their scores
+            dense_scores = {}
+            sparse_scores = {}
+            
+            for result in dense_results:
+                dense_scores[result.id] = result.score
                 all_results[result.id] = result
             
-            # Calculate RRF scores from sparse results
-            for rank, result in enumerate(sparse_results, 1):
-                rrf_scores[result.id] += 1.0 / (60 + rank)
-                all_results[result.id] = result
+            for result in sparse_results:
+                sparse_scores[result.id] = result.score
+                if result.id not in all_results:
+                    all_results[result.id] = result
             
-            # Sort by RRF score and take top k
-            sorted_by_rrf = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-            top_k_ids = [result_id for result_id, _ in sorted_by_rrf[:k]]
-            
-            # Get results in RRF order
-            search_results = [all_results[result_id] for result_id in top_k_ids if result_id in all_results]
-            
-            # Update scores to RRF scores
-            for result in search_results:
-                result.score = rrf_scores.get(result.id, 0.0)
+            if settings.hybrid_search_fusion_method == "weighted":
+                # Weighted score fusion: α·dense + (1-α)·sparse
+                alpha = settings.hybrid_search_alpha
+                fused_scores = {}
+                
+                # Normalize scores to [0, 1] range for fair combination
+                # Get max scores for normalization
+                dense_max = max(dense_scores.values()) if dense_scores else 1.0
+                sparse_max = max(sparse_scores.values()) if sparse_scores else 1.0
+                
+                # Normalize and combine scores
+                all_ids = set(dense_scores.keys()) | set(sparse_scores.keys())
+                for result_id in all_ids:
+                    dense_score = dense_scores.get(result_id, 0.0)
+                    sparse_score = sparse_scores.get(result_id, 0.0)
+                    
+                    # Normalize to [0, 1]
+                    norm_dense = dense_score / dense_max if dense_max > 0 else 0.0
+                    norm_sparse = sparse_score / sparse_max if sparse_max > 0 else 0.0
+                    
+                    # Weighted fusion: α·dense + (1-α)·sparse
+                    fused_scores[result_id] = alpha * norm_dense + (1 - alpha) * norm_sparse
+                
+                # Sort by fused score and take top k
+                sorted_by_fused = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+                top_k_ids = [result_id for result_id, _ in sorted_by_fused[:k]]
+                
+                # Get results in fused score order
+                search_results = [all_results[result_id] for result_id in top_k_ids if result_id in all_results]
+                
+                # Update scores to fused scores
+                for result in search_results:
+                    result.score = fused_scores.get(result.id, 0.0)
+            else:
+                # RRF (Reciprocal Rank Fusion) - original method
+                rrf_scores = defaultdict(float)
+                
+                # Calculate RRF scores from dense results
+                for rank, result in enumerate(dense_results, 1):
+                    rrf_scores[result.id] += 1.0 / (60 + rank)
+                
+                # Calculate RRF scores from sparse results
+                for rank, result in enumerate(sparse_results, 1):
+                    rrf_scores[result.id] += 1.0 / (60 + rank)
+                
+                # Sort by RRF score and take top k
+                sorted_by_rrf = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+                top_k_ids = [result_id for result_id, _ in sorted_by_rrf[:k]]
+                
+                # Get results in RRF order
+                search_results = [all_results[result_id] for result_id in top_k_ids if result_id in all_results]
+                
+                # Update scores to RRF scores
+                for result in search_results:
+                    result.score = rrf_scores.get(result.id, 0.0)
         else:
             # Dense-only search (backward compatible)
             question_embedding = self.embedding_model.encode(question)
@@ -283,7 +328,10 @@ class Retriever:
                 paper_id=payload["paper_id"],
                 year=payload["year"],
                 score=result.score,
-                modality_tags=payload.get("modality_tags", [])
+                initial_score=result.score,  # For non-reranked results, initial_score = score
+                rerank_score=None,  # No reranking in this method
+                modality_tags=payload.get("modality_tags", []),
+                authors=payload.get("authors") if payload.get("authors") else []  # Authors if available in payload
             )
             retrieved_chunks.append(chunk)
         
@@ -325,6 +373,10 @@ class Retriever:
         if not chunks:
             return []
         
+        # Store initial scores before reranking
+        for chunk in chunks:
+            chunk.initial_score = chunk.score
+        
         # If no reranker is available or not enough chunks, return as-is
         if not self.use_reranking or not self.reranker or len(chunks) <= 1:
             return chunks[:final_k]
@@ -337,9 +389,10 @@ class Retriever:
             # Get reranking scores from cross-encoder
             rerank_scores = self.reranker.predict(pairs)
             
-            # Update chunk scores with reranking scores and sort
-            for chunk, score in zip(chunks, rerank_scores):
-                chunk.score = float(score)  # Update with reranker score
+            # Update chunk scores with reranking scores and store both
+            for chunk, rerank_score in zip(chunks, rerank_scores):
+                chunk.rerank_score = float(rerank_score)
+                chunk.score = float(rerank_score)  # Final score is rerank score
             
             # Sort by reranker scores (higher is better)
             chunks = sorted(chunks, key=lambda x: x.score, reverse=True)

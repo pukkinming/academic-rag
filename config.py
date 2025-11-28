@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     # # Option D: learned sparse (best for scientific papers)
     # sparse_model: str = "naver/splade-cocondenser-ensembledistil"
     
+    # Hybrid search fusion method: "rrf" (Reciprocal Rank Fusion) or "weighted" (α·dense + (1-α)·sparse)
+    hybrid_search_fusion_method: str = "weighted"  # Options: "rrf", "weighted"
+    
+    # Alpha parameter for weighted fusion: α·dense_score + (1-α)·sparse_score
+    # Range: 0.0 to 1.0
+    # - 0.0 = pure sparse (BM25 only)
+    # - 0.5 = equal weighting (default)
+    # - 1.0 = pure dense (semantic only)
+    hybrid_search_alpha: float = 0.5
+    
     # Embedding Processing Parameters
     embedding_batch_size: int = 4  # Batch size for encoding (reduce if GPU memory issues)
     
@@ -63,6 +73,9 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None  # For Azure or custom OpenAI endpoints
+    
+    # Hugging Face Configuration
+    hf_token: Optional[str] = None  # Hugging Face token for accessing gated models
     
     @field_validator('openai_base_url', mode='before')
     @classmethod

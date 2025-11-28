@@ -273,7 +273,7 @@ async def retrieve_chunks(request: QuestionRequest) -> Dict[str, Any]:
         # Convert to dict format
         results = []
         for chunk in chunks:
-            results.append({
+            result = {
                 "text": chunk.text,
                 "title": chunk.title,
                 "citation_pointer": chunk.citation_pointer,
@@ -283,8 +283,16 @@ async def retrieve_chunks(request: QuestionRequest) -> Dict[str, Any]:
                 "paper_id": chunk.paper_id,
                 "year": chunk.year,
                 "score": chunk.score,
-                "modality_tags": chunk.modality_tags
-            })
+                "modality_tags": chunk.modality_tags,
+                "authors": chunk.authors
+            }
+            # Add reranking information if available
+            if chunk.initial_score is not None:
+                result["initial_score"] = chunk.initial_score
+            if chunk.rerank_score is not None:
+                result["rerank_score"] = chunk.rerank_score
+            
+            results.append(result)
         
         return {
             "question": request.question,
@@ -397,7 +405,33 @@ async def ask_question(request: QuestionRequest) -> AnswerResponse:
         logger.info(f"✓ Extracted {len(sources)} unique sources")
         logger.debug(f"   Sources: {sources}")
         
-        # Step 5: Return response
+        # Step 5: Prepare chunk details with reranking information (only if requested)
+        chunk_details = None
+        if request.include_chunks:
+            chunk_details = []
+            for chunk in chunks:
+                chunk_dict = {
+                    "text": chunk.text,
+                    "title": chunk.title,
+                    "citation_pointer": chunk.citation_pointer,
+                    "section_name": chunk.section_name,
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
+                    "paper_id": chunk.paper_id,
+                    "year": chunk.year,
+                    "score": chunk.score,
+                    "modality_tags": chunk.modality_tags or [],
+                    "authors": chunk.authors if chunk.authors else []
+                }
+                # Add reranking information if available
+                if chunk.initial_score is not None:
+                    chunk_dict["initial_score"] = chunk.initial_score
+                if chunk.rerank_score is not None:
+                    chunk_dict["rerank_score"] = chunk.rerank_score
+                
+                chunk_details.append(chunk_dict)
+        
+        # Step 6: Return response
         total_time = (datetime.now() - start_time).total_seconds()
         logger.info(f"✅ Request completed successfully in {total_time:.2f}s")
         logger.info(f"   Breakdown: Retrieval={retrieval_time:.2f}s, LLM={llm_time:.2f}s")
@@ -406,7 +440,8 @@ async def ask_question(request: QuestionRequest) -> AnswerResponse:
         return AnswerResponse(
             answer=answer,
             sources=sources,
-            question=request.question
+            question=request.question,
+            chunks=chunk_details
         )
     
     except HTTPException:

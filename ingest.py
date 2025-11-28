@@ -304,6 +304,9 @@ class PaperIngestor:
         print(f"  Preparing points for upsert...")
         points = []
         for i, chunk in enumerate(all_chunks):
+            # Get authors from paper - ensure it's a list
+            authors_list = paper.authors if (hasattr(paper, 'authors') and paper.authors) else []
+            
             payload = {
                 "text": chunk.text,
                 "paper_id": chunk.paper_id,
@@ -314,7 +317,8 @@ class PaperIngestor:
                 "page_end": chunk.page_end,
                 "year": chunk.year,
                 "modality_tags": chunk.modality_tags or [],
-                "chunk_index": chunk.chunk_index
+                "chunk_index": chunk.chunk_index,
+                "authors": authors_list
             }
             
             point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk.chunk_id))
@@ -439,6 +443,9 @@ class PaperIngestor:
                         
                         try:
                             paper = Paper(**paper_data)
+                            # Debug: Print authors info for first paper
+                            if papers_ingested == 0:
+                                print(f"  Paper authors: {paper.authors} (type: {type(paper.authors)}, length: {len(paper.authors) if paper.authors else 0})")
                             chunks_created = self.ingest_paper(paper)
                             total_chunks += chunks_created
                             papers_ingested += 1

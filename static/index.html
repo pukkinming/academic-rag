@@ -44,15 +44,9 @@
         }
 
         .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
+            display: flex;
+            flex-direction: column;
             gap: 20px;
-        }
-
-        @media (max-width: 968px) {
-            .main-content {
-                grid-template-columns: 1fr;
-            }
         }
 
         .card {
@@ -332,6 +326,115 @@
         .json-content pre .json-null {
             color: #569cd6;
         }
+
+        .chunk-item {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .chunk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .chunk-title {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 1.1em;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .chunk-scores {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .score-badge {
+            background: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            border: 1px solid #e0e0e0;
+        }
+
+        .score-badge .score-label {
+            color: #666;
+            font-size: 0.85em;
+            margin-right: 5px;
+        }
+
+        .score-badge .score-value {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .score-badge.initial-score {
+            border-color: #ffc107;
+        }
+
+        .score-badge.initial-score .score-value {
+            color: #ff9800;
+        }
+
+        .score-badge.rerank-score {
+            border-color: #28a745;
+        }
+
+        .score-badge.rerank-score .score-value {
+            color: #28a745;
+        }
+
+        .chunk-text {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .chunk-meta {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 10px;
+        }
+
+        .chunk-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .chunk-meta-item strong {
+            color: #667eea;
+        }
+
+        .chunk-toggle {
+            cursor: pointer;
+            color: #667eea;
+            font-size: 0.9em;
+            margin-top: 8px;
+            display: inline-block;
+        }
+
+        .chunk-toggle:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -426,6 +529,13 @@
                         </div>
                     </div>
 
+                    <div class="form-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="include_chunks" name="include_chunks" checked>
+                            <label for="include_chunks">Include chunk details in response</label>
+                        </div>
+                    </div>
+
                     <button type="submit" id="submitBtn">Ask Question</button>
                 </form>
 
@@ -454,6 +564,11 @@
                 <div id="sourcesSection" style="display: none;">
                     <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea;">Sources</h3>
                     <ul class="sources-list" id="sourcesList"></ul>
+                </div>
+
+                <div id="chunksSection" style="display: none;">
+                    <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea;">Retrieved Chunks</h3>
+                    <div id="chunksList"></div>
                 </div>
 
                 <div class="json-section" id="jsonSection" style="display: none;">
@@ -511,6 +626,7 @@
             const top_k = parseInt(formData.get('top_k')) || 8;
             const year_min = formData.get('year_min') ? parseInt(formData.get('year_min')) : null;
             const year_max = formData.get('year_max') ? parseInt(formData.get('year_max')) : null;
+            const includeChunks = formData.get('include_chunks') === 'on';
             
             // Get selected modality tags
             const modalityTags = Array.from(formData.getAll('modality_tags'));
@@ -518,7 +634,8 @@
             // Build request payload
             const payload = {
                 question: question,
-                top_k: top_k
+                top_k: top_k,
+                include_chunks: includeChunks
             };
 
             if (year_min) payload.year_min = year_min;
@@ -530,6 +647,7 @@
             const submitBtn = document.getElementById('submitBtn');
             const answerSection = document.getElementById('answerSection');
             const sourcesSection = document.getElementById('sourcesSection');
+            const chunksSection = document.getElementById('chunksSection');
             const answerStats = document.getElementById('answerStats');
             const responseTimeEl = document.getElementById('responseTime');
 
@@ -537,6 +655,7 @@
             submitBtn.disabled = true;
             answerSection.innerHTML = '';
             sourcesSection.style.display = 'none';
+            chunksSection.style.display = 'none';
             document.getElementById('jsonSection').style.display = 'none';
             answerStats.style.display = 'none';
 
@@ -597,6 +716,14 @@
                         `;
                     }).join('');
                     sourcesSection.style.display = 'block';
+                }
+
+                // Display chunks if available and requested
+                if (includeChunks && data.chunks && data.chunks.length > 0) {
+                    displayChunks(data.chunks);
+                    chunksSection.style.display = 'block';
+                } else {
+                    chunksSection.style.display = 'none';
                 }
 
             } catch (error) {
@@ -665,6 +792,114 @@
             
             jsonContent.classList.toggle('expanded');
             jsonToggleIcon.classList.toggle('expanded');
+        }
+
+        // Display chunks with reranking information
+        function displayChunks(chunks) {
+            const chunksList = document.getElementById('chunksList');
+            
+            chunksList.innerHTML = chunks.map((chunk, index) => {
+                const hasReranking = chunk.rerank_score !== null && chunk.rerank_score !== undefined;
+                const initialScore = chunk.initial_score !== null && chunk.initial_score !== undefined 
+                    ? chunk.initial_score.toFixed(4) 
+                    : chunk.score.toFixed(4);
+                const rerankScore = chunk.rerank_score !== null && chunk.rerank_score !== undefined 
+                    ? chunk.rerank_score.toFixed(4) 
+                    : null;
+                const finalScore = chunk.score.toFixed(4);
+                
+                const pages = chunk.page_start && chunk.page_end 
+                    ? (chunk.page_start === chunk.page_end 
+                        ? `p${chunk.page_start}` 
+                        : `p${chunk.page_start}-${chunk.page_end}`)
+                    : '';
+                
+                const chunkId = `chunk-${index}`;
+                const textId = `chunk-text-${index}`;
+                
+                return `
+                    <div class="chunk-item">
+                        <div class="chunk-header">
+                            <div class="chunk-title">
+                                ${index + 1}. ${escapeHtml(chunk.title || 'Untitled')}
+                            </div>
+                            <div class="chunk-scores">
+                                ${hasReranking ? `
+                                    <div class="score-badge initial-score">
+                                        <span class="score-label">Initial:</span>
+                                        <span class="score-value">${initialScore}</span>
+                                    </div>
+                                    <div class="score-badge rerank-score">
+                                        <span class="score-label">Rerank:</span>
+                                        <span class="score-value">${rerankScore}</span>
+                                    </div>
+                                ` : `
+                                    <div class="score-badge">
+                                        <span class="score-label">Score:</span>
+                                        <span class="score-value">${finalScore}</span>
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+                        <div class="chunk-text" id="${textId}">
+                            ${escapeHtml(chunk.text.substring(0, 300))}${chunk.text.length > 300 ? '...' : ''}
+                        </div>
+                        ${chunk.text.length > 300 ? `
+                            <span class="chunk-toggle" onclick="toggleChunkText('${textId}', '${chunkId}')" id="${chunkId}-toggle">
+                                Show full text
+                            </span>
+                            <div id="${textId}-full" style="display: none;">${escapeHtml(chunk.text)}</div>
+                        ` : ''}
+                        <div class="chunk-meta">
+                            ${chunk.authors && Array.isArray(chunk.authors) && chunk.authors.length > 0 ? `
+                                <div class="chunk-meta-item">
+                                    <strong>Authors:</strong> ${chunk.authors.map(author => escapeHtml(String(author))).join(', ')}
+                                </div>
+                            ` : chunk.citation_pointer ? `
+                                <div class="chunk-meta-item">
+                                    <strong>Citation:</strong> ${escapeHtml(chunk.citation_pointer)}
+                                </div>
+                            ` : ''}
+                            <div class="chunk-meta-item">
+                                <strong>Paper ID:</strong> ${escapeHtml(chunk.paper_id)}
+                            </div>
+                            <div class="chunk-meta-item">
+                                <strong>Section:</strong> ${escapeHtml(chunk.section_name)}
+                            </div>
+                            ${pages ? `
+                                <div class="chunk-meta-item">
+                                    <strong>Pages:</strong> ${pages}
+                                </div>
+                            ` : ''}
+                            <div class="chunk-meta-item">
+                                <strong>Year:</strong> ${chunk.year || 'N/A'}
+                            </div>
+                            ${chunk.modality_tags && chunk.modality_tags.length > 0 ? `
+                                <div class="chunk-meta-item">
+                                    <strong>Tags:</strong> ${chunk.modality_tags.map(tag => escapeHtml(tag)).join(', ')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Toggle chunk text expansion
+        function toggleChunkText(textId, chunkId) {
+            const shortText = document.getElementById(textId);
+            const fullText = document.getElementById(`${textId}-full`);
+            const toggle = document.getElementById(`${chunkId}-toggle`);
+            
+            if (fullText.style.display === 'none') {
+                shortText.style.display = 'none';
+                fullText.style.display = 'block';
+                toggle.textContent = 'Show less';
+            } else {
+                shortText.style.display = 'block';
+                fullText.style.display = 'none';
+                toggle.textContent = 'Show full text';
+            }
         }
 
         // Load stats when page loads
