@@ -98,6 +98,17 @@ class Settings(BaseSettings):
     default_top_k: int = 8  # Default number of results; can be overridden per request (max: 100)
     
     #########################
+    # MMR (Maximal Marginal Relevance) Configuration
+    #########################
+    use_mmr: bool = True  # Enable MMR to avoid near-duplicate chunks and ensure diversity
+    mmr_lambda: float = 0.5  # MMR lambda parameter: balance between relevance (λ) and diversity (1-λ)
+    # Range: 0.0 to 1.0
+    # - 0.0 = pure diversity (ignore relevance, maximize diversity)
+    # - 0.5 = balanced (default, equal weight to relevance and diversity)
+    # - 1.0 = pure relevance (no diversity, equivalent to standard retrieval)
+    max_chunks_per_paper: int = 3  # Maximum number of chunks to retrieve from a single paper (2-3 recommended)
+    
+    #########################
     # Reranking Configuration
     #########################
     use_reranking: bool = True  # Enable cross-encoder reranking for better quality

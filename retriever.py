@@ -5,6 +5,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Range, SparseVector
 import torch
+import torch.nn.functional as F
 import logging
 
 from config import settings
@@ -110,6 +111,189 @@ class Retriever:
                 logger.warning(f"⚠ Failed to load reranker: {e}")
                 logger.info("  Falling back to retrieval without reranking")
                 self.use_reranking = False
+        
+        # Log MMR configuration
+        if settings.use_mmr:
+            logger.info(f"✓ MMR enabled: λ={settings.mmr_lambda:.2f} (relevance vs diversity)")
+            logger.info(f"  Max chunks per paper: {settings.max_chunks_per_paper}")
+        elif settings.max_chunks_per_paper < 1000:
+            logger.info(f"✓ Per-paper capping enabled: max {settings.max_chunks_per_paper} chunks per paper")
+    
+    def _apply_mmr_and_capping(
+        self,
+        chunks: List[RetrievedChunk],
+        question: str,
+        k: int,
+        lambda_param: float = None,
+        max_per_paper: int = None
+    ) -> List[RetrievedChunk]:
+        """
+        Apply Maximal Marginal Relevance (MMR) and per-paper chunk capping.
+        
+        MMR balances relevance to the query with diversity among selected chunks.
+        Per-paper capping ensures we don't get too many chunks from the same paper.
+        
+        Args:
+            chunks: List of retrieved chunks (should be sorted by relevance score)
+            question: The query question (for computing relevance)
+            k: Number of chunks to return
+            lambda_param: MMR lambda parameter (0.0 = pure diversity, 1.0 = pure relevance)
+            max_per_paper: Maximum chunks per paper (None = no limit)
+        
+        Returns:
+            List of chunks selected using MMR with per-paper capping
+        """
+        if not chunks:
+            return []
+        
+        # Use settings defaults if not provided
+        lambda_param = lambda_param if lambda_param is not None else settings.mmr_lambda
+        max_per_paper = max_per_paper if max_per_paper is not None else settings.max_chunks_per_paper
+        
+        # If MMR is disabled, just apply per-paper capping
+        if not settings.use_mmr:
+            return self._apply_per_paper_capping(chunks, k, max_per_paper)
+        
+        # Encode all chunk texts for diversity computation (similarity between chunks)
+        chunk_texts = [chunk.text for chunk in chunks]
+        chunk_embeddings = self.embedding_model.encode(
+            chunk_texts,
+            convert_to_tensor=True,
+            batch_size=settings.embedding_batch_size
+        )
+        
+        # Normalize embeddings for cosine similarity
+        chunk_embeddings = F.normalize(chunk_embeddings, p=2, dim=1)
+        
+        # Use existing scores (rerank_score or score) as relevance if available
+        # Otherwise compute from embeddings
+        use_existing_scores = any(chunk.rerank_score is not None for chunk in chunks) or \
+                             any(chunk.score is not None for chunk in chunks)
+        
+        if use_existing_scores:
+            # Use existing scores (rerank_score preferred, fallback to score)
+            relevance_scores = [
+                chunk.rerank_score if chunk.rerank_score is not None else chunk.score
+                for chunk in chunks
+            ]
+            # Normalize relevance scores to [0, 1] for fair comparison
+            max_relevance = max(relevance_scores) if relevance_scores else 1.0
+            min_relevance = min(relevance_scores) if relevance_scores else 0.0
+            if max_relevance > min_relevance:
+                relevance_scores = [
+                    (score - min_relevance) / (max_relevance - min_relevance)
+                    for score in relevance_scores
+                ]
+        else:
+            # Compute relevance from embeddings
+            question_embedding = self.embedding_model.encode(question, convert_to_tensor=True)
+            question_embedding = F.normalize(question_embedding, p=2, dim=1)
+            relevance_scores = torch.mm(question_embedding, chunk_embeddings.t()).squeeze(0)
+            relevance_scores = [float(score) for score in relevance_scores]
+        
+        # Track selected chunks and per-paper counts
+        selected = []
+        selected_indices = set()
+        paper_counts = {}  # paper_id -> count
+        
+        # Start with the highest relevance chunk
+        if chunks:
+            # Find the chunk with highest relevance score
+            first_idx = 0
+            max_relevance = relevance_scores[0] if isinstance(relevance_scores, list) else float(relevance_scores[0])
+            for idx in range(1, len(chunks)):
+                relevance = relevance_scores[idx] if isinstance(relevance_scores, list) else float(relevance_scores[idx])
+                if relevance > max_relevance:
+                    max_relevance = relevance
+                    first_idx = idx
+            
+            first_chunk = chunks[first_idx]
+            selected.append(first_chunk)
+            selected_indices.add(first_idx)
+            paper_counts[first_chunk.paper_id] = paper_counts.get(first_chunk.paper_id, 0) + 1
+        
+        # Select remaining chunks using MMR
+        while len(selected) < k and len(selected) < len(chunks):
+            best_mmr_score = float('-inf')
+            best_idx = None
+            
+            for idx, chunk in enumerate(chunks):
+                # Skip if already selected
+                if idx in selected_indices:
+                    continue
+                
+                # Skip if paper limit reached
+                paper_count = paper_counts.get(chunk.paper_id, 0)
+                if paper_count >= max_per_paper:
+                    continue
+                
+                # Compute relevance component
+                relevance = relevance_scores[idx] if isinstance(relevance_scores, list) else float(relevance_scores[idx])
+                
+                # Compute diversity component (max similarity to already selected chunks)
+                max_similarity = 0.0
+                if selected:
+                    # Compute similarity to all selected chunks
+                    selected_embeddings = chunk_embeddings[[i for i in selected_indices]]
+                    current_embedding = chunk_embeddings[idx:idx+1]
+                    similarities = torch.mm(current_embedding, selected_embeddings.t()).squeeze(0)
+                    max_similarity = float(torch.max(similarities))
+                
+                # MMR score: λ * relevance - (1-λ) * max_similarity
+                mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
+                
+                if mmr_score > best_mmr_score:
+                    best_mmr_score = mmr_score
+                    best_idx = idx
+            
+            # If no valid chunk found (all papers at limit), break
+            if best_idx is None:
+                break
+            
+            # Add the best chunk
+            best_chunk = chunks[best_idx]
+            selected.append(best_chunk)
+            selected_indices.add(best_idx)
+            paper_counts[best_chunk.paper_id] = paper_counts.get(best_chunk.paper_id, 0) + 1
+        
+        logger.info(f"✓ MMR applied: selected {len(selected)} chunks from {len(paper_counts)} unique papers")
+        logger.debug(f"   Per-paper distribution: {dict(sorted(paper_counts.items(), key=lambda x: x[1], reverse=True))}")
+        
+        return selected
+    
+    def _apply_per_paper_capping(
+        self,
+        chunks: List[RetrievedChunk],
+        k: int,
+        max_per_paper: int
+    ) -> List[RetrievedChunk]:
+        """
+        Apply per-paper chunk capping without MMR.
+        
+        Args:
+            chunks: List of retrieved chunks (should be sorted by relevance score)
+            k: Number of chunks to return
+            max_per_paper: Maximum chunks per paper
+        
+        Returns:
+            List of chunks with per-paper capping applied
+        """
+        selected = []
+        paper_counts = {}  # paper_id -> count
+        
+        for chunk in chunks:
+            if len(selected) >= k:
+                break
+            
+            paper_count = paper_counts.get(chunk.paper_id, 0)
+            if paper_count < max_per_paper:
+                selected.append(chunk)
+                paper_counts[chunk.paper_id] = paper_count + 1
+        
+        logger.info(f"✓ Per-paper capping applied: selected {len(selected)} chunks from {len(paper_counts)} unique papers")
+        logger.debug(f"   Per-paper distribution: {dict(sorted(paper_counts.items(), key=lambda x: x[1], reverse=True))}")
+        
+        return selected
     
     def retrieve(
         self,
@@ -135,6 +319,13 @@ class Retriever:
             List of RetrievedChunk objects with relevance scores
         """
         k = k or settings.default_top_k
+        
+        # For MMR, we need more candidates to select from
+        # Fetch more candidates if MMR is enabled or per-paper capping is used
+        fetch_k = k
+        if settings.use_mmr or settings.max_chunks_per_paper < 1000:  # 1000 is effectively no limit
+            # Fetch 2-3x more candidates to have enough diversity for MMR selection
+            fetch_k = max(k * 3, k + 10)
         
         # Build filters
         filter_conditions = []
@@ -196,7 +387,7 @@ class Retriever:
                     query=dense_embedding.tolist(),
                     using="dense",
                     query_filter=query_filter,
-                    limit=k * 2,
+                    limit=fetch_k,
                     with_payload=True
                 ).points
                 
@@ -206,7 +397,7 @@ class Retriever:
                     query=sparse_vector,
                     using="sparse",
                     query_filter=query_filter,
-                    limit=k * 2,
+                    limit=fetch_k,
                     with_payload=True
                 ).points
             except (TypeError, ValueError, AttributeError) as e:
@@ -270,9 +461,9 @@ class Retriever:
                     # Weighted fusion: α·dense + (1-α)·sparse
                     fused_scores[result_id] = alpha * norm_dense + (1 - alpha) * norm_sparse
                 
-                # Sort by fused score and take top k
+                # Sort by fused score and take top fetch_k
                 sorted_by_fused = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-                top_k_ids = [result_id for result_id, _ in sorted_by_fused[:k]]
+                top_k_ids = [result_id for result_id, _ in sorted_by_fused[:fetch_k]]
                 
                 # Get results in fused score order
                 search_results = [all_results[result_id] for result_id in top_k_ids if result_id in all_results]
@@ -292,9 +483,9 @@ class Retriever:
                 for rank, result in enumerate(sparse_results, 1):
                     rrf_scores[result.id] += 1.0 / (60 + rank)
                 
-                # Sort by RRF score and take top k
+                # Sort by RRF score and take top fetch_k
                 sorted_by_rrf = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-                top_k_ids = [result_id for result_id, _ in sorted_by_rrf[:k]]
+                top_k_ids = [result_id for result_id, _ in sorted_by_rrf[:fetch_k]]
                 
                 # Get results in RRF order
                 search_results = [all_results[result_id] for result_id in top_k_ids if result_id in all_results]
@@ -310,7 +501,7 @@ class Retriever:
                 collection_name=settings.qdrant_collection_name,
                 query=question_embedding.tolist(),
                 query_filter=query_filter,
-                limit=k,
+                limit=fetch_k,
                 with_payload=True
             ).points
         
@@ -334,6 +525,16 @@ class Retriever:
                 authors=payload.get("authors") if payload.get("authors") else []  # Authors if available in payload
             )
             retrieved_chunks.append(chunk)
+        
+        # Apply MMR and per-paper capping
+        if settings.use_mmr or settings.max_chunks_per_paper < 1000:
+            retrieved_chunks = self._apply_mmr_and_capping(
+                chunks=retrieved_chunks,
+                question=question,
+                k=k,
+                lambda_param=settings.mmr_lambda,
+                max_per_paper=settings.max_chunks_per_paper
+            )
         
         return retrieved_chunks
     
@@ -397,13 +598,37 @@ class Retriever:
             # Sort by reranker scores (higher is better)
             chunks = sorted(chunks, key=lambda x: x.score, reverse=True)
             
-            # Return top k after reranking
-            return chunks[:final_k]
+            # Apply MMR and per-paper capping after reranking
+            # Use rerank scores as relevance scores for MMR
+            if settings.use_mmr or settings.max_chunks_per_paper < 1000:
+                chunks = self._apply_mmr_and_capping(
+                    chunks=chunks,
+                    question=question,
+                    k=final_k,
+                    lambda_param=settings.mmr_lambda,
+                    max_per_paper=settings.max_chunks_per_paper
+                )
+            else:
+                # Just apply per-paper capping if MMR is disabled
+                chunks = chunks[:final_k]
+            
+            return chunks
         
         except Exception as e:
             logger.warning(f"⚠ Reranking failed: {e}")
             logger.info("  Returning original retrieval results")
-            return chunks[:final_k]
+            # Apply MMR and per-paper capping even if reranking failed
+            if settings.use_mmr or settings.max_chunks_per_paper < 1000:
+                chunks = self._apply_mmr_and_capping(
+                    chunks=chunks,
+                    question=question,
+                    k=final_k,
+                    lambda_param=settings.mmr_lambda,
+                    max_per_paper=settings.max_chunks_per_paper
+                )
+            else:
+                chunks = chunks[:final_k]
+            return chunks
 
 
 def retrieve(
