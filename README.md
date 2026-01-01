@@ -313,6 +313,23 @@ curl -X POST "http://localhost:8000/ask" \
   }'
 ```
 
+**API with Quality Evaluation:**
+```bash
+curl -X POST "http://localhost:8000/ask-with-evaluation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "How does emotion affect gait patterns?",
+    "top_k": 8
+  }' | jq .
+```
+
+This endpoint returns the same answer and sources as `/ask`, plus comprehensive quality metrics:
+- **Faithfulness (0-1)**: Are all claims supported by retrieved evidence?
+- **Coverage (0-2)**: Did it cover key papers? (only when ground truth provided)
+- **Utility (0-2)**: Is it publication-ready?
+- **Citation diversity ratio**: Ratio of cited papers to available papers (informational)
+- **Validation results**: Citation verification, hallucination detection, confidence scores
+
 **Python:**
 ```python
 import requests
@@ -327,13 +344,14 @@ print(response.json()["answer"])
 ## API Endpoints
 
 - `POST /ask` - Ask questions about the literature
+- `POST /ask-with-evaluation` - Ask questions with quality metrics and validation
 - `POST /retrieve` - Retrieve chunks without generating answer
 - `GET /health` - Health check
 - `GET /stats` - Collection statistics
 - `GET /` - Web UI
 - `GET /api` - API documentation
 
-**Request body for `/ask`:**
+**Request body for `/ask` and `/ask-with-evaluation`:**
 ```json
 {
   "question": "string (required)",
@@ -343,6 +361,31 @@ print(response.json()["answer"])
   "modality_tags": ["gait"],
   "use_reranking": true,
   "rerank_initial_k": 20
+}
+```
+
+**Response from `/ask-with-evaluation` includes:**
+```json
+{
+  "answer": "...",
+  "sources": [...],
+  "question": "...",
+  "quality_metrics": {
+    "faithfulness": 0.85,
+    "coverage": null,
+    "utility": 1.8,
+    "citation_diversity_ratio": 0.5,
+    "papers_cited_count": 4,
+    "papers_available_count": 8,
+    "hallucination_count": 0,
+    "unsupported_claims_count": 1
+  },
+  "validation": {
+    "is_valid": true,
+    "confidence": 0.92,
+    "citations_total": 5,
+    "citations_verified": 5
+  }
 }
 ```
 

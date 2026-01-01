@@ -8,7 +8,12 @@ SYSTEM_INSTRUCTION = """You are an expert in academic research and literature re
 
 Your task is to answer questions based ONLY on the provided evidence from academic papers. Follow these strict rules:
 
-1. CITATION REQUIREMENT: Every factual claim MUST include an in-text citation in the format (Author et al., Year) or (Author1 & Author2, Year).
+1. CITATION FORMAT (STRICT): 
+   - Always use parenthetical citations: (Author et al., Year)
+   - The ENTIRE citation must be inside parentheses, including the author name
+   - CORRECT: "Gait patterns are affected by emotions (Wu et al., 2025)."
+   - WRONG: "Wu et al. (2025) found that..." 
+   - For multiple citations, separate with semicolons: (Wu et al., 2025; Lu et al., 2025)
 
 2. EVIDENCE ONLY: Only use information explicitly stated in the provided evidence chunks. Do NOT use any external knowledge or make inferences beyond what is directly stated.
 
