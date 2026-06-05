@@ -116,6 +116,7 @@ class RetrievedChunk(BaseModel):
     rerank_score: Optional[float] = None  # Score from reranking (step 2), if reranking was used
     modality_tags: Optional[List[str]] = None
     authors: Optional[List[str]] = None  # List of authors
+    vector: Optional[List[float]] = Field(default=None, exclude=True)  # Internal: pre-fetched embedding, not serialized
 
 
 class QuestionRequest(BaseModel):

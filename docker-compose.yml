@@ -29,29 +29,29 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_COLLECTION_NAME=academic_papers
-      
+
       # Embedding model
       # - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-      
+
       # LLM configuration (override in .env file)
       # - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       # - LLM_MODEL=${LLM_MODEL:-gpt-4-turbo-preview}
       # - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.1}
       # - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-2000}
-      
+
       # OpenAI configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
-      
+
       # vLLM configuration
       # - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
       - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
       - VLLM_API_KEY=${VLLM_API_KEY:-EMPTY}
-      
+
       # Chunking parameters
       # - CHUNK_SIZE=${CHUNK_SIZE:-1000}
       # - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
-      
+
       # Retrieval parameters
       # - DEFAULT_TOP_K=${DEFAULT_TOP_K:-8}
     volumes:
@@ -70,27 +70,32 @@ services:
       - academic_rag_network
 
   # Optional: vLLM for local LLM (uncomment to use)
-  # Requires NVIDIA GPU and nvidia-docker
+  # Requires NVIDIA GPU and nvidia-container-toolkit
   vllm:
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:v0.8.5
     container_name: academic_rag_vllm
     runtime: nvidia
+    privileged: true
     ports:
       - "8001:8000"  # Using 8001 on host to avoid conflict with API
     volumes:
       - vllm_cache:/root/.cache/huggingface
+      - /dev:/dev
+      - ./vllm_compression/mistral-7b-w4a16-gptq:/model:ro
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    ipc: host
+    shm_size: 16gb
     command: >
-      --model mistralai/Mistral-7B-Instruct-v0.2
+      --model /model
       --gpu-memory-utilization 0.9
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      --max-model-len 8192
+      --tensor-parallel-size 1
+      --disable-custom-all-reduce
+      --enforce-eager
+      --disable-frontend-multiprocessing
+      --enable-prefix-caching
     restart: unless-stopped
     networks:
       - academic_rag_network
@@ -104,5 +109,3 @@ volumes:
 networks:
   academic_rag_network:
     driver: bridge
-
-

@@ -8,6 +8,7 @@ from typing import Dict, Any
 import uvicorn
 import os
 import logging
+import json
 from datetime import datetime
 
 from config import settings
@@ -712,16 +713,17 @@ async def ask_question_with_evaluation(request: QuestionRequest) -> Dict[str, An
 @app.post("/ask-stream")
 async def ask_question_stream(request: QuestionRequest):
     """
-    Ask a question and get a streaming answer.
-    
-    Returns a streaming response with server-sent events (SSE).
-    Supports optional reranking for improved retrieval quality.
+    Ask a question and get a streaming answer with sources.
+
+    Returns server-sent events (SSE):
+    - Text tokens: `data: <text>\\n\\n`
+    - Metadata (sources + chunks): `data: [META]<json>\\n\\n`
+    - Done signal: `data: [DONE]\\n\\n`
+    - Error: `data: [ERROR] <message>\\n\\n`
     """
     try:
-        # Determine if reranking should be used
         use_reranking = request.use_reranking if request.use_reranking is not None else settings.use_reranking
-        
-        # Step 1: Retrieve relevant chunks (with or without reranking)
+
         if use_reranking and retriever.use_reranking:
             chunks = retriever.retrieve_with_reranking(
                 question=request.question,
@@ -739,34 +741,54 @@ async def ask_question_stream(request: QuestionRequest):
                 year_max=request.year_max,
                 modality_tags=request.modality_tags
             )
-        
+
         if not chunks:
-            # No relevant literature found
             async def no_results_generator():
                 yield "data: This topic is not adequately addressed in the provided literature.\n\n"
-            
-            return StreamingResponse(
-                no_results_generator(),
-                media_type="text/event-stream"
-            )
-        
-        # Step 2: Build prompt with evidence
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(no_results_generator(), media_type="text/event-stream")
+
         messages = build_messages(request.question, chunks)
-        
-        # Step 3: Stream answer
+
+        # Pre-build metadata to send after the text stream
+        sources_data = extract_sources_from_chunks(chunks)
+        meta: Dict[str, Any] = {"sources": sources_data}
+        if request.include_chunks:
+            chunk_details = []
+            for chunk in chunks:
+                chunk_dict = {
+                    "text": chunk.text,
+                    "title": chunk.title,
+                    "citation_pointer": chunk.citation_pointer,
+                    "section_name": chunk.section_name,
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
+                    "paper_id": chunk.paper_id,
+                    "year": chunk.year,
+                    "score": chunk.score,
+                    "modality_tags": chunk.modality_tags or [],
+                    "authors": chunk.authors if chunk.authors else []
+                }
+                if chunk.initial_score is not None:
+                    chunk_dict["initial_score"] = chunk.initial_score
+                if chunk.rerank_score is not None:
+                    chunk_dict["rerank_score"] = chunk.rerank_score
+                chunk_details.append(chunk_dict)
+            meta["chunks"] = chunk_details
+
+        meta_event = f"data: [META]{json.dumps(meta)}\n\n"
+
         def stream_generator():
             try:
                 for chunk_text in llm_client.generate_streaming(messages):
                     yield f"data: {chunk_text}\n\n"
+                yield meta_event
                 yield "data: [DONE]\n\n"
             except Exception as e:
                 yield f"data: [ERROR] {str(e)}\n\n"
-        
-        return StreamingResponse(
-            stream_generator(),
-            media_type="text/event-stream"
-        )
-    
+
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")
 

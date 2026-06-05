@@ -65,10 +65,14 @@ class Settings(BaseSettings):
     
     # LLM Configuration
     llm_provider: str = "vllm"  # Options: "openai", "vllm"
+    # llm_model: str = "mistralai/Mistral-7B-Instruct-v0.2"
+    llm_model: str = "/model"
+
+    # llm_provider: str = "openai"  # Options: "openai", "vllm"
     # llm_model: str = "gpt-4-turbo-preview"
-    llm_model: str = "mistralai/Mistral-7B-Instruct-v0.2"
+    # llm_model: str = "gpt-4.1"
     llm_temperature: float = 0.1
-    llm_max_tokens: int = 2000
+    llm_max_tokens: int = 400
     
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
@@ -86,8 +90,9 @@ class Settings(BaseSettings):
         return v
     
     # vLLM Configuration
-    # vllm_base_url: str = "http://localhost:8000/v1"  # vLLM OpenAI-compatible endpoint
-    vllm_base_url: str = "http://vllm:8000/v1"  # vLLM OpenAI-compatible endpoint
+    # Default: localhost:8001 (when running API locally, vLLM is exposed on port 8001 from Docker)
+    # For Docker: set VLLM_BASE_URL=http://vllm:8000/v1 in docker-compose.yml
+    vllm_base_url: str = "http://localhost:8001/v1"  # vLLM OpenAI-compatible endpoint
     vllm_api_key: Optional[str] = "EMPTY"  # vLLM typically doesn't require a key
     
     # Chunking Parameters
@@ -95,7 +100,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
     
     # Retrieval Parameters
-    default_top_k: int = 8  # Default number of results; can be overridden per request (max: 100)
+    default_top_k: int = 5  # Default number of results; can be overridden per request (max: 100)
     
     #########################
     # MMR (Maximal Marginal Relevance) Configuration
@@ -112,8 +117,8 @@ class Settings(BaseSettings):
     # Reranking Configuration
     #########################
     use_reranking: bool = True  # Enable cross-encoder reranking for better quality
-    rerank_top_k: int = 8  # Final number of results after reranking
-    rerank_initial_k: int = 20  # Number of candidates to fetch before reranking (should be > rerank_top_k)
+    rerank_top_k: int = 5  # Final number of results after reranking
+    rerank_initial_k: int = 12  # Number of candidates to fetch before reranking (should be > rerank_top_k)
     
     # Reranker model options:
     # Option A: Fast and good for general use (recommended)

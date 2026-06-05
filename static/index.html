@@ -206,6 +206,17 @@
             100% { transform: rotate(360deg); }
         }
 
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        #streamCursor {
+            animation: blink 0.7s step-end infinite;
+            font-weight: 100;
+            color: #667eea;
+        }
+
         .error {
             background: #fee;
             color: #c33;
@@ -475,8 +486,8 @@
                             type="number" 
                             id="top_k" 
                             name="top_k" 
-                            value="8" 
-                            min="1" 
+                            value="5"
+                            min="1"
                             max="50"
                         >
                     </div>
@@ -627,22 +638,13 @@
             const year_min = formData.get('year_min') ? parseInt(formData.get('year_min')) : null;
             const year_max = formData.get('year_max') ? parseInt(formData.get('year_max')) : null;
             const includeChunks = formData.get('include_chunks') === 'on';
-            
-            // Get selected modality tags
             const modalityTags = Array.from(formData.getAll('modality_tags'));
 
-            // Build request payload
-            const payload = {
-                question: question,
-                top_k: top_k,
-                include_chunks: includeChunks
-            };
-
+            const payload = { question, top_k, include_chunks: includeChunks };
             if (year_min) payload.year_min = year_min;
             if (year_max) payload.year_max = year_max;
             if (modalityTags.length > 0) payload.modality_tags = modalityTags;
 
-            // Show loading state
             const loadingEl = document.getElementById('loading');
             const submitBtn = document.getElementById('submitBtn');
             const answerSection = document.getElementById('answerSection');
@@ -659,15 +661,16 @@
             document.getElementById('jsonSection').style.display = 'none';
             answerStats.style.display = 'none';
 
-            // Record start time
             const startTime = performance.now();
+            let firstTokenTime = null;
+            let answerText = '';
+            let textNode = null;
+            let cursorEl = null;
 
             try {
-                const response = await fetch(`${API_BASE}/ask`, {
+                const response = await fetch(`${API_BASE}/ask-stream`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
@@ -676,72 +679,95 @@
                     throw new Error(error.detail || 'Failed to get answer');
                 }
 
-                const data = await response.json();
-                
-                // Calculate elapsed time
-                const endTime = performance.now();
-                const elapsedTime = (endTime - startTime) / 1000; // Convert to seconds
-                const formattedTime = elapsedTime < 1 
-                    ? `${(elapsedTime * 1000).toFixed(0)}ms` 
-                    : `${elapsedTime.toFixed(2)}s`;
-                
-                // Display response time
-                responseTimeEl.textContent = formattedTime;
-                answerStats.style.display = 'block';
-                
-                // Display raw JSON response
-                displayJsonResponse(data);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let sseBuffer = '';
 
-                // Display answer
-                answerSection.innerHTML = `
-                    <div class="answer-content">${escapeHtml(data.answer)}</div>
-                `;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
 
-                // Display sources
-                if (data.sources && data.sources.length > 0) {
-                    const sourcesList = document.getElementById('sourcesList');
-                    sourcesList.innerHTML = data.sources.map(source => {
-                        const pages = source.pages && source.pages.length > 0 
-                            ? (source.pages.length === 1 
-                                ? `p${source.pages[0]}` 
-                                : `p${source.pages[0]}-${source.pages[source.pages.length - 1]}`)
-                            : '';
-                        return `
-                            <li class="source-item">
-                                <strong>${escapeHtml(source.citation || source.title || 'Unknown')}</strong>
-                                <div class="source-meta">
-                                    Section: ${escapeHtml(source.section)} ${pages ? '| ' + pages : ''}
-                                </div>
-                            </li>
-                        `;
-                    }).join('');
-                    sourcesSection.style.display = 'block';
-                }
+                    sseBuffer += decoder.decode(value, { stream: true });
 
-                // Display chunks if available and requested
-                if (includeChunks && data.chunks && data.chunks.length > 0) {
-                    displayChunks(data.chunks);
-                    chunksSection.style.display = 'block';
-                } else {
-                    chunksSection.style.display = 'none';
+                    // Split on double-newline to get complete SSE events
+                    const events = sseBuffer.split('\n\n');
+                    sseBuffer = events.pop(); // keep incomplete trailing event
+
+                    for (const event of events) {
+                        for (const line of event.split('\n')) {
+                            if (!line.startsWith('data: ')) continue;
+                            const data = line.slice(6);
+
+                            if (data === '[DONE]') {
+                                if (cursorEl) cursorEl.remove();
+                                const totalSec = ((performance.now() - startTime) / 1000).toFixed(2);
+                                const firstTok = firstTokenTime ? firstTokenTime.toFixed(2) : '?';
+                                responseTimeEl.textContent = `First token: ${firstTok}s | Total: ${totalSec}s`;
+                                answerStats.style.display = 'block';
+
+                            } else if (data.startsWith('[META]')) {
+                                const meta = JSON.parse(data.slice(6));
+
+                                if (meta.sources && meta.sources.length > 0) {
+                                    const sourcesList = document.getElementById('sourcesList');
+                                    sourcesList.innerHTML = meta.sources.map(source => {
+                                        const pages = source.pages && source.pages.length > 0
+                                            ? (source.pages.length === 1
+                                                ? `p${source.pages[0]}`
+                                                : `p${source.pages[0]}-${source.pages[source.pages.length - 1]}`)
+                                            : '';
+                                        return `
+                                            <li class="source-item">
+                                                <strong>${escapeHtml(source.citation || source.title || 'Unknown')}</strong>
+                                                <div class="source-meta">
+                                                    Section: ${escapeHtml(source.section)} ${pages ? '| ' + pages : ''}
+                                                </div>
+                                            </li>
+                                        `;
+                                    }).join('');
+                                    sourcesSection.style.display = 'block';
+                                }
+
+                                if (includeChunks && meta.chunks && meta.chunks.length > 0) {
+                                    displayChunks(meta.chunks);
+                                    chunksSection.style.display = 'block';
+                                }
+
+                                displayJsonResponse({ answer: answerText, question, sources: meta.sources, chunks: meta.chunks });
+
+                            } else if (data.startsWith('[ERROR]')) {
+                                if (cursorEl) cursorEl.remove();
+                                answerSection.innerHTML = `<div class="error"><strong>Error:</strong> ${escapeHtml(data.slice(8))}</div>`;
+
+                            } else {
+                                // Text token — create display on first token
+                                if (firstTokenTime === null) {
+                                    firstTokenTime = (performance.now() - startTime) / 1000;
+                                    loadingEl.classList.remove('active');
+
+                                    const answerContentEl = document.createElement('div');
+                                    answerContentEl.className = 'answer-content';
+                                    textNode = document.createTextNode('');
+                                    cursorEl = document.createElement('span');
+                                    cursorEl.id = 'streamCursor';
+                                    cursorEl.textContent = '|';
+                                    answerContentEl.appendChild(textNode);
+                                    answerContentEl.appendChild(cursorEl);
+                                    answerSection.appendChild(answerContentEl);
+                                }
+                                answerText += data;
+                                textNode.textContent = answerText;
+                            }
+                        }
+                    }
                 }
 
             } catch (error) {
-                // Calculate elapsed time even on error
-                const endTime = performance.now();
-                const elapsedTime = (endTime - startTime) / 1000;
-                const formattedTime = elapsedTime < 1 
-                    ? `${(elapsedTime * 1000).toFixed(0)}ms` 
-                    : `${elapsedTime.toFixed(2)}s`;
-                
-                responseTimeEl.textContent = formattedTime;
+                if (cursorEl) cursorEl.remove();
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+                responseTimeEl.textContent = `${elapsed}s`;
                 answerStats.style.display = 'block';
-                
-                answerSection.innerHTML = `
-                    <div class="error">
-                        <strong>Error:</strong> ${escapeHtml(error.message)}
-                    </div>
-                `;
+                answerSection.innerHTML = `<div class="error"><strong>Error:</strong> ${escapeHtml(error.message)}</div>`;
             } finally {
                 loadingEl.classList.remove('active');
                 submitBtn.disabled = false;

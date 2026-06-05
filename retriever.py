@@ -154,13 +154,18 @@ class Retriever:
         if not settings.use_mmr:
             return self._apply_per_paper_capping(chunks, k, max_per_paper)
         
-        # Encode all chunk texts for diversity computation (similarity between chunks)
-        chunk_texts = [chunk.text for chunk in chunks]
-        chunk_embeddings = self.embedding_model.encode(
-            chunk_texts,
-            convert_to_tensor=True,
-            batch_size=settings.embedding_batch_size
-        )
+        # Use pre-fetched vectors if available, otherwise encode
+        if all(chunk.vector is not None for chunk in chunks):
+            chunk_embeddings = torch.tensor(
+                [chunk.vector for chunk in chunks], dtype=torch.float32
+            ).to(self.device)
+        else:
+            chunk_texts = [chunk.text for chunk in chunks]
+            chunk_embeddings = self.embedding_model.encode(
+                chunk_texts,
+                convert_to_tensor=True,
+                batch_size=settings.embedding_batch_size
+            )
         
         # Normalize embeddings for cosine similarity
         chunk_embeddings = F.normalize(chunk_embeddings, p=2, dim=1)
@@ -381,17 +386,18 @@ class Retriever:
             
             # Perform separate searches for dense and sparse vectors using the 'using' parameter
             try:
-                # Search dense vectors
+                # Search dense vectors (fetch vectors for MMR reuse)
                 dense_results = self.client.query_points(
                     collection_name=settings.qdrant_collection_name,
                     query=dense_embedding.tolist(),
                     using="dense",
                     query_filter=query_filter,
                     limit=fetch_k,
-                    with_payload=True
+                    with_payload=True,
+                    with_vectors=["dense"]
                 ).points
-                
-                # Search sparse vectors
+
+                # Search sparse vectors (no vectors needed, only scores)
                 sparse_results = self.client.query_points(
                     collection_name=settings.qdrant_collection_name,
                     query=sparse_vector,
@@ -410,7 +416,8 @@ class Retriever:
                         using="dense",
                         query_filter=query_filter,
                         limit=k * 2,
-                        with_payload=True
+                        with_payload=True,
+                        with_vectors=["dense"]
                     ).points
                 except Exception:
                     # If even fallback fails, raise the original error
@@ -494,21 +501,29 @@ class Retriever:
                 for result in search_results:
                     result.score = rrf_scores.get(result.id, 0.0)
         else:
-            # Dense-only search (backward compatible)
+            # Dense-only search (fetch vectors for MMR reuse)
             question_embedding = self.embedding_model.encode(question)
-            
+
             search_results = self.client.query_points(
                 collection_name=settings.qdrant_collection_name,
                 query=question_embedding.tolist(),
                 query_filter=query_filter,
                 limit=fetch_k,
-                with_payload=True
+                with_payload=True,
+                with_vectors=True
             ).points
         
         # Convert to RetrievedChunk objects
         retrieved_chunks = []
         for result in search_results:
             payload = result.payload
+
+            # Extract dense vector to avoid re-encoding during MMR
+            vec = None
+            if result.vector is not None:
+                v = result.vector
+                vec = v.get("dense") if isinstance(v, dict) else v
+
             chunk = RetrievedChunk(
                 text=payload["text"],
                 title=payload["title"],
@@ -519,10 +534,11 @@ class Retriever:
                 paper_id=payload["paper_id"],
                 year=payload["year"],
                 score=result.score,
-                initial_score=result.score,  # For non-reranked results, initial_score = score
-                rerank_score=None,  # No reranking in this method
+                initial_score=result.score,
+                rerank_score=None,
                 modality_tags=payload.get("modality_tags", []),
-                authors=payload.get("authors") if payload.get("authors") else []  # Authors if available in payload
+                authors=payload.get("authors") if payload.get("authors") else [],
+                vector=vec
             )
             retrieved_chunks.append(chunk)
         
