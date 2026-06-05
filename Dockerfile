@@ -44,6 +44,9 @@ COPY llm_client.py .
 COPY api.py .
 COPY ingest.py .
 
+# Copy evaluation package
+COPY evaluation/ ./evaluation/
+
 # Copy static files (UI)
 COPY static/ ./static/
 
